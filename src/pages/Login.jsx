@@ -6,6 +6,7 @@ export default function Login({ onLogin }) {
     const [password, setPassword] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
+    const [resetSent, setResetSent] = useState(false)
 
     const handleLogin = async (e) => {
         e.preventDefault()
@@ -46,6 +47,27 @@ export default function Login({ onLogin }) {
         }
     }
 
+    const handleForgotPassword = async () => {
+        if (!email) {
+            setError('Please enter your email first, then click "Forgot password?"')
+            return
+        }
+        setLoading(true)
+        setError(null)
+
+        try {
+            const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: window.location.origin,
+            })
+            if (resetError) throw resetError
+            setResetSent(true)
+        } catch (err) {
+            setError(err.message || 'Failed to send reset email.')
+        } finally {
+            setLoading(false)
+        }
+    }
+
     return (
         <div className="login-page">
             <div className="login-card">
@@ -54,6 +76,11 @@ export default function Login({ onLogin }) {
                 <p className="subtitle">Food composition data labeling workspace</p>
 
                 {error && <div className="error-msg">{error}</div>}
+                {resetSent && (
+                    <div className="error-msg" style={{ background: 'rgba(34,197,94,0.1)', borderColor: 'rgba(34,197,94,0.3)', color: '#86efac' }}>
+                        Password reset email sent! Check your inbox.
+                    </div>
+                )}
 
                 <button
                     type="button"
@@ -103,7 +130,12 @@ export default function Login({ onLogin }) {
                         {loading ? 'Signing In...' : 'Sign In'}
                     </button>
                 </form>
+
+                <div className="forgot-password">
+                    <a onClick={handleForgotPassword}>Forgot password?</a>
+                </div>
             </div>
         </div>
     )
 }
+

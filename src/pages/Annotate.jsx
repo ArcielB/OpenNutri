@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
+import SuggestionModal from '../components/SuggestionModal'
+import { useTheme } from '../hooks/useTheme'
 
 const R2_BASE_URL = import.meta.env.VITE_R2_PUBLIC_URL || ''
 
@@ -26,6 +28,8 @@ export default function Annotate({ user, onLogout }) {
     const [saving, setSaving] = useState(false)
     const [toast, setToast] = useState(null)
     const [showPaperList, setShowPaperList] = useState(false)
+    const [showSuggestion, setShowSuggestion] = useState(false)
+    const { theme, toggleTheme } = useTheme()
 
     // Load papers list
     useEffect(() => {
@@ -288,6 +292,12 @@ export default function Annotate({ user, onLogout }) {
                             />
                         </div>
                     </div>
+                    <button className="suggestion-btn" onClick={() => setShowSuggestion(true)} title="Send a suggestion">
+                        💡
+                    </button>
+                    <button className="theme-toggle" onClick={toggleTheme} title="Toggle light/dark mode">
+                        {theme === 'dark' ? '☀️' : '🌙'}
+                    </button>
                     <span className="user-name">{user.email}</span>
                     <button className="btn btn-outline" onClick={onLogout}>
                         Logout
@@ -357,6 +367,11 @@ export default function Annotate({ user, onLogout }) {
             {/* Toast Notification */}
             {toast && (
                 <div className={`toast toast-${toast.type}`}>{toast.message}</div>
+            )}
+
+            {/* Suggestion Modal */}
+            {showSuggestion && (
+                <SuggestionModal user={user} onClose={() => setShowSuggestion(false)} />
             )}
         </div>
     )
