@@ -739,6 +739,343 @@ body {
   }
 }
 
+/* ===== FOOD AUTOCOMPLETE ===== */
+.food-autocomplete {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.food-autocomplete .food-name-input {
+  margin-bottom: 0;
+  padding-right: 80px;
+}
+
+.food-match-badge,
+.food-custom-badge {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.food-match-badge {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.food-custom-badge {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+/* ===== AUTOCOMPLETE DROPDOWN ===== */
+.autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 200;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.autocomplete-dropdown::-webkit-scrollbar {
+  width: 5px;
+}
+
+.autocomplete-dropdown::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.1s;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.selected {
+  background: var(--accent-light);
+}
+
+.autocomplete-item.loading,
+.autocomplete-item.empty {
+  color: var(--text-muted);
+  cursor: default;
+  font-style: italic;
+}
+
+.autocomplete-item.loading:hover,
+.autocomplete-item.empty:hover {
+  background: transparent;
+}
+
+.autocomplete-name {
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.autocomplete-category {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+
+.autocomplete-unit {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+
+/* ===== NUTRIENT AUTOCOMPLETE ===== */
+.nutrient-autocomplete {
+  position: relative;
+  margin-top: 12px;
+}
+
+.nutrient-search-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.nutrient-search-input:focus {
+  border-color: var(--border-focus);
+  border-style: solid;
+}
+
+.nutrient-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ===== DYNAMIC NUTRIENT ROWS ===== */
+.nutrient-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.nutrient-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.15s;
+}
+
+.nutrient-row:hover {
+  border-color: var(--accent);
+}
+
+.nutrient-row-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 120px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nutrient-row-value {
+  flex: 1;
+  min-width: 70px;
+  max-width: 100px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.nutrient-row-value:focus {
+  border-color: var(--border-focus);
+}
+
+.nutrient-row-unit {
+  width: 90px;
+  padding: 6px 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font);
+  outline: none;
+}
+
+.nutrient-row-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.nutrient-row-remove:hover {
+  color: var(--danger);
+}
+
+/* ===== PDF NUTRIENT HIGHLIGHTS ===== */
+.nutrient-highlight {
+  background: rgba(91, 107, 240, 0.25);
+  color: inherit;
+  border-radius: 3px;
+  padding: 1px 2px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 2px solid var(--accent);
+}
+
+.nutrient-highlight:hover {
+  background: rgba(91, 107, 240, 0.45);
+}
+
+/* ===== NUTRIENT POPOVER ===== */
+.nutrient-popover {
+  position: fixed;
+  z-index: 500;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 14px;
+  min-width: 240px;
+  animation: popoverIn 0.15s ease;
+}
+
+@keyframes popoverIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.popover-nutrient-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.popover-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px;
+  transition: color 0.15s;
+}
+
+.popover-close:hover {
+  color: var(--danger);
+}
+
+.popover-body {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.popover-value-input {
+  flex: 1;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+}
+
+.popover-value-input:focus {
+  border-color: var(--border-focus);
+}
+
+.popover-unit-select {
+  width: 90px;
+  padding: 8px 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font);
+  outline: none;
+}
+
+.popover-add-btn {
+  width: 100%;
+  padding: 8px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.popover-add-btn:hover {
+  background: var(--accent-hover);
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1024px) {
   .workspace {

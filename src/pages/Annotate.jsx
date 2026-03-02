@@ -10,13 +10,9 @@ const R2_BASE_URL = import.meta.env.VITE_R2_PUBLIC_URL || ''
 function createEmptyFoodItem() {
     return {
         food_name: '',
-        moisture: null, moisture_unit: 'g/100g',
-        protein: null, protein_unit: 'g/100g',
-        fat: null, fat_unit: 'g/100g',
-        carbohydrate: null, carbohydrate_unit: 'g/100g',
-        ash: null, ash_unit: 'g/100g',
-        energy: null, energy_unit: 'kcal/100g',
-        fiber: null, fiber_unit: 'g/100g',
+        food_fdc_id: null,
+        is_custom_food: false,
+        nutrients: [],
     }
 }
 
@@ -29,7 +25,25 @@ export default function Annotate({ user, onLogout }) {
     const [toast, setToast] = useState(null)
     const [showPaperList, setShowPaperList] = useState(false)
     const [showSuggestion, setShowSuggestion] = useState(false)
+    const [allNutrients, setAllNutrients] = useState([])
     const { theme, toggleTheme } = useTheme()
+
+    // Load nutrients master list once
+    useEffect(() => {
+        async function fetchNutrients() {
+            const { data, error } = await supabase
+                .from('nutrients')
+                .select('id, name, unit_name, rank')
+                .order('rank', { ascending: true })
+
+            if (error) {
+                console.error('Error fetching nutrients:', error)
+                return
+            }
+            setAllNutrients(data || [])
+        }
+        fetchNutrients()
+    }, [])
 
     // Load papers list
     useEffect(() => {
@@ -85,6 +99,7 @@ export default function Annotate({ user, onLogout }) {
                 .single()
 
             if (annotation && annotation.has_data) {
+                // Load food items
                 const { data: items } = await supabase
                     .from('food_items')
                     .select('*')
@@ -92,7 +107,29 @@ export default function Annotate({ user, onLogout }) {
                     .order('id', { ascending: true })
 
                 if (items && items.length > 0) {
-                    setFoodItems(items)
+                    // For each food item, load its nutrient values
+                    const foodItemsWithNutrients = await Promise.all(
+                        items.map(async (item) => {
+                            const { data: nutrientValues } = await supabase
+                                .from('annotation_nutrient_values')
+                                .select('*')
+                                .eq('food_item_id', item.id)
+                                .order('id', { ascending: true })
+
+                            return {
+                                food_name: item.food_name,
+                                food_fdc_id: item.food_fdc_id,
+                                is_custom_food: item.is_custom_food,
+                                nutrients: (nutrientValues || []).map((nv) => ({
+                                    nutrient_id: nv.nutrient_id,
+                                    nutrient_name: nv.nutrient_name,
+                                    value: nv.value,
+                                    unit: nv.unit,
+                                })),
+                            }
+                        })
+                    )
+                    setFoodItems(foodItemsWithNutrients)
                 } else {
                     setFoodItems([createEmptyFoodItem()])
                 }
@@ -142,7 +179,7 @@ export default function Annotate({ user, onLogout }) {
 
             if (annError) throw annError
 
-            // Delete old food items
+            // Delete old food items (cascade deletes nutrient values too)
             await supabase
                 .from('food_items')
                 .delete()
@@ -150,30 +187,38 @@ export default function Annotate({ user, onLogout }) {
 
             // Insert new food items if has_data
             if (hasData && foodItems.length > 0) {
-                const itemsToInsert = foodItems.map((item) => ({
-                    annotation_id: ann.id,
-                    food_name: item.food_name,
-                    moisture: item.moisture,
-                    moisture_unit: item.moisture_unit,
-                    protein: item.protein,
-                    protein_unit: item.protein_unit,
-                    fat: item.fat,
-                    fat_unit: item.fat_unit,
-                    carbohydrate: item.carbohydrate,
-                    carbohydrate_unit: item.carbohydrate_unit,
-                    ash: item.ash,
-                    ash_unit: item.ash_unit,
-                    energy: item.energy,
-                    energy_unit: item.energy_unit,
-                    fiber: item.fiber,
-                    fiber_unit: item.fiber_unit,
-                }))
+                for (const item of foodItems) {
+                    // Insert the food item
+                    const { data: insertedItem, error: itemError } = await supabase
+                        .from('food_items')
+                        .insert({
+                            annotation_id: ann.id,
+                            food_name: item.food_name,
+                            food_fdc_id: item.food_fdc_id,
+                            is_custom_food: item.is_custom_food || false,
+                        })
+                        .select()
+                        .single()
 
-                const { error: itemsError } = await supabase
-                    .from('food_items')
-                    .insert(itemsToInsert)
+                    if (itemError) throw itemError
 
-                if (itemsError) throw itemsError
+                    // Insert nutrient values for this food item
+                    if (item.nutrients && item.nutrients.length > 0) {
+                        const nutrientRows = item.nutrients.map((n) => ({
+                            food_item_id: insertedItem.id,
+                            nutrient_id: n.nutrient_id,
+                            nutrient_name: n.nutrient_name,
+                            value: n.value,
+                            unit: n.unit,
+                        }))
+
+                        const { error: nvError } = await supabase
+                            .from('annotation_nutrient_values')
+                            .insert(nutrientRows)
+
+                        if (nvError) throw nvError
+                    }
+                }
             }
 
             // Update local status
@@ -213,6 +258,27 @@ export default function Annotate({ user, onLogout }) {
 
     const addFoodItem = () => {
         setFoodItems((items) => [...items, createEmptyFoodItem()])
+    }
+
+    // Handle nutrient added from PDF popover
+    const handlePdfNutrientAdd = (nutrientEntry) => {
+        // Add to the first food item (or last one if multiple)
+        setFoodItems((items) => {
+            if (items.length === 0) return [{ ...createEmptyFoodItem(), nutrients: [nutrientEntry] }]
+            const targetIdx = items.length - 1
+            const target = items[targetIdx]
+
+            // Prevent duplicates
+            if (nutrientEntry.nutrient_id && target.nutrients.some((n) => n.nutrient_id === nutrientEntry.nutrient_id)) {
+                return items
+            }
+
+            return items.map((item, i) =>
+                i === targetIdx
+                    ? { ...item, nutrients: [...item.nutrients, nutrientEntry] }
+                    : item
+            )
+        })
     }
 
     const goToPaper = (idx) => {
@@ -307,7 +373,11 @@ export default function Annotate({ user, onLogout }) {
 
             {/* Workspace */}
             <div className="workspace">
-                <PdfViewer pdfUrl={pdfUrl} />
+                <PdfViewer
+                    pdfUrl={pdfUrl}
+                    allNutrients={allNutrients}
+                    onAddNutrient={handlePdfNutrientAdd}
+                />
 
                 <div className="annotation-panel">
                     <div className="annotation-scroll">
@@ -327,6 +397,7 @@ export default function Annotate({ user, onLogout }) {
                                 data={item}
                                 onChange={(updated) => updateFoodItem(idx, updated)}
                                 onDelete={() => removeFoodItem(idx)}
+                                allNutrients={allNutrients}
                             />
                         ))}
 

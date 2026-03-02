@@ -1,28 +1,41 @@
-const NUTRIENTS = [
-    { key: 'moisture', label: 'Moisture', defaultUnit: 'g/100g' },
-    { key: 'protein', label: 'Protein', defaultUnit: 'g/100g' },
-    { key: 'fat', label: 'Fat', defaultUnit: 'g/100g' },
-    { key: 'carbohydrate', label: 'Carbohydrate', defaultUnit: 'g/100g' },
-    { key: 'ash', label: 'Ash', defaultUnit: 'g/100g' },
-    { key: 'energy', label: 'Energy', defaultUnit: 'kcal/100g' },
-    { key: 'fiber', label: 'Fiber', defaultUnit: 'g/100g' },
-]
+import FoodAutocomplete from './FoodAutocomplete'
+import NutrientAutocomplete from './NutrientAutocomplete'
 
-const UNIT_OPTIONS = ['g/100g', 'mg/100g', 'μg/100g', 'kcal/100g', '%']
+const UNIT_OPTIONS = ['g/100g', 'mg/100g', 'μg/100g', 'kcal/100g', 'kJ/100g', 'IU/100g', '%']
 
-export default function FoodItemForm({ index, data, onChange, onDelete }) {
-    const handleNameChange = (e) => {
-        onChange({ ...data, food_name: e.target.value })
+export default function FoodItemForm({ index, data, onChange, onDelete, allNutrients }) {
+    const nutrients = data.nutrients || []
+    const addedNutrientIds = new Set(nutrients.map((n) => n.nutrient_id).filter(Boolean))
+
+    const handleFoodChange = ({ food_name, food_fdc_id, is_custom_food }) => {
+        onChange({ ...data, food_name, food_fdc_id, is_custom_food })
     }
 
-    const handleNutrientChange = (key, field, value) => {
-        const updated = { ...data }
-        if (field === 'value') {
-            updated[key] = value === '' ? null : parseFloat(value)
-        } else {
-            updated[`${key}_unit`] = value
-        }
-        onChange(updated)
+    const handleAddNutrient = (nutrientEntry) => {
+        // Prevent duplicates
+        if (nutrientEntry.nutrient_id && addedNutrientIds.has(nutrientEntry.nutrient_id)) return
+        onChange({
+            ...data,
+            nutrients: [...nutrients, nutrientEntry],
+        })
+    }
+
+    const handleNutrientValueChange = (idx, field, value) => {
+        const updated = nutrients.map((n, i) => {
+            if (i !== idx) return n
+            if (field === 'value') {
+                return { ...n, value: value === '' ? null : parseFloat(value) }
+            }
+            return { ...n, [field]: value }
+        })
+        onChange({ ...data, nutrients: updated })
+    }
+
+    const handleRemoveNutrient = (idx) => {
+        onChange({
+            ...data,
+            nutrients: nutrients.filter((_, i) => i !== idx),
+        })
     }
 
     return (
@@ -34,44 +47,57 @@ export default function FoodItemForm({ index, data, onChange, onDelete }) {
                 </button>
             </div>
 
-            <input
-                className="food-name-input"
-                type="text"
-                placeholder="Food name (e.g., Trabzon ekmeği)"
-                value={data.food_name || ''}
-                onChange={handleNameChange}
+            <FoodAutocomplete
+                value={data.food_name}
+                foodFdcId={data.food_fdc_id}
+                onChange={handleFoodChange}
             />
 
-            <div className="nutrient-grid">
-                {NUTRIENTS.map((nutrient) => (
-                    <div className="nutrient-field" key={nutrient.key}>
-                        <label>{nutrient.label}</label>
-                        <div className="input-group">
+            {/* Dynamic nutrient rows */}
+            {nutrients.length > 0 && (
+                <div className="nutrient-list">
+                    {nutrients.map((n, idx) => (
+                        <div className="nutrient-row" key={`${n.nutrient_id || n.nutrient_name}-${idx}`}>
+                            <span className="nutrient-row-name">{n.nutrient_name}</span>
                             <input
                                 type="number"
                                 step="any"
-                                placeholder="—"
-                                value={data[nutrient.key] ?? ''}
+                                placeholder="Value"
+                                value={n.value ?? ''}
                                 onChange={(e) =>
-                                    handleNutrientChange(nutrient.key, 'value', e.target.value)
+                                    handleNutrientValueChange(idx, 'value', e.target.value)
                                 }
+                                className="nutrient-row-value"
                             />
                             <select
-                                value={data[`${nutrient.key}_unit`] || nutrient.defaultUnit}
+                                value={n.unit}
                                 onChange={(e) =>
-                                    handleNutrientChange(nutrient.key, 'unit', e.target.value)
+                                    handleNutrientValueChange(idx, 'unit', e.target.value)
                                 }
+                                className="nutrient-row-unit"
                             >
                                 {UNIT_OPTIONS.map((u) => (
-                                    <option key={u} value={u}>
-                                        {u}
-                                    </option>
+                                    <option key={u} value={u}>{u}</option>
                                 ))}
                             </select>
+                            <button
+                                className="nutrient-row-remove"
+                                onClick={() => handleRemoveNutrient(idx)}
+                                title="Remove nutrient"
+                            >
+                                ✕
+                            </button>
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Nutrient autocomplete */}
+            <NutrientAutocomplete
+                allNutrients={allNutrients || []}
+                addedNutrientIds={addedNutrientIds}
+                onAdd={handleAddNutrient}
+            />
         </div>
     )
 }
