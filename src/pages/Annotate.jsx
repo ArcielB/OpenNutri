@@ -142,7 +142,7 @@ export default function Annotate({ user, onLogout }) {
 
     const currentPaper = papers[currentIndex] || null
     const pdfUrl = currentPaper
-        ? `${R2_BASE_URL}/${currentPaper.filename}`
+        ? supabase.storage.from('papers').getPublicUrl(currentPaper.filename).data.publicUrl
         : null
 
     const doneCount = Object.values(annotationStatus).filter(
