@@ -1,0 +1,19 @@
+============================================================
+OpenNutri ETL via REST API (Port 443)
+============================================================
+
+[1/4] Reading CSV files...
+  Reading food_nutrient.csv...
+
+[2/4] Transforming data...
+  Entities: 365
+  Nutrients: 226
+  Claims: 15551
+
+[3/4] Uploading via REST API (HTTPS)...
+    Inserted 1/1 into sources
+    Inserted 365/365 into entities
+    Inserted 226/226 into master_nutrients
+    Inserted 500/15551 into claims    Inserted 1000/15551 into claims    Inserted 1500/15551 into claims    Inserted 2000/15551 into claims    Inserted 2500/15551 into claims    Inserted 3000/15551 into claims    Inserted 3500/15551 into claims    Inserted 4000/15551 into claims    Inserted 4500/15551 into claims    Inserted 5000/15551 into claims    Inserted 5500/15551 into claims    Inserted 6000/15551 into claims    Inserted 6500/15551 into claims    Inserted 7000/15551 into claims    Inserted 7500/15551 into claims    Inserted 8000/15551 into claims    Inserted 8500/15551 into claims    Inserted 9000/15551 into claims    Inserted 9500/15551 into claims    Inserted 10000/15551 into claims    Inserted 10500/15551 into claims    Inserted 11000/15551 into claims    Inserted 11500/15551 into claims    Inserted 12000/15551 into claims    Inserted 12500/15551 into claims    Inserted 13000/15551 into claims    Inserted 13500/15551 into claims    Inserted 14000/15551 into claims    Inserted 14500/15551 into claims    Inserted 15000/15551 into claims    Inserted 15500/15551 into claims    Inserted 15551/15551 into claims
+
+[4/4] Done!
