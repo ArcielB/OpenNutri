@@ -1,16 +1,70 @@
-# React + Vite
+# OpenNutri Expert Annotator
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This app is the manual review interface for OpenNutri paper annotation.
 
-Currently, two official plugins are available:
+Annotators use it to:
+- open a paper PDF
+- highlight nutrient mentions
+- add food items and nutrient values
+- save usable or unusable paper outcomes
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Stack
 
-## React Compiler
+- React
+- Vite
+- `react-pdf`
+- Supabase
+- Vercel
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Local Development
 
-## Expanding the ESLint configuration
+```bash
+npm install
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Production Build
+
+```bash
+npm run build
+```
+
+## Key Source Files
+
+- `src/pages/Annotate.jsx`
+  - main annotation workflow
+- `src/components/PdfViewer.jsx`
+  - PDF rendering and text-layer integration
+- `src/utils/PdfTextScanner.js`
+  - nutrient matching and highlight rendering
+- `src/components/FoodAutocomplete.jsx`
+  - food lookup and matching
+- `src/components/NutrientAutocomplete.jsx`
+  - nutrient lookup and matching
+- `src/hooks/useTheme.js`
+  - theme initialization and persistence
+
+## Known Tricky Area
+
+PDF text highlighting is not normal DOM text rendering.
+
+`react-pdf` / PDF.js may:
+- split a visible word into multiple spans
+- create unexpected text boundaries
+- make click handling harder than normal HTML text
+
+If you change highlighting behavior:
+- test simple words
+- test comma-separated nutrient lists
+- test words near punctuation
+- test across several PDFs, not only one
+
+## Deployment
+
+This app is linked to a Vercel project through `.vercel/project.json`.
+
+Typical production deploy:
+
+```bash
+npx vercel deploy --prod
+```

@@ -3,7 +3,6 @@
  * and adds highlight styling + click handlers.
  */
 
-// Category headers and meta-entries to skip
 const SKIP_NAMES = new Set([
     'proximates',
     'minerals',
@@ -12,58 +11,28 @@ const SKIP_NAMES = new Set([
     'other',
 ])
 
-// Short/ambiguous nutrient names that need word-boundary matching
-const SHORT_AMBIGUOUS = new Set([
-    'water', 'ash', 'solids', 'energy', 'nitrogen', 'starch',
-])
-
-/**
- * Build a lookup structure from the nutrients list for efficient matching.
- * @param {Array} nutrients — array of { id, name, unit_name, rank }
- * @returns {Object} { patterns: [{nutrient, regex}], nameMap: Map<lowerName, nutrient> }
- */
 export function buildNutrientMatcher(nutrients) {
-    const nameMap = new Map()
     const patterns = []
 
-    for (const n of nutrients) {
-        const lower = n.name.toLowerCase()
+    for (const nutrient of nutrients) {
+        const lowerName = nutrient.name.toLowerCase()
+        if (SKIP_NAMES.has(lowerName)) continue
+        if (lowerName.includes('do not use')) continue
 
-        // Skip category headers
-        if (SKIP_NAMES.has(lower)) continue
-        // Skip "DO NOT USE" entries
-        if (lower.includes('do not use')) continue
-
-        nameMap.set(lower, n)
-
-        // Escape special regex chars in nutrient name
-        const escaped = n.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-        // For short/ambiguous names, require word boundaries
-        // For longer/specific names, also use word boundaries but they're less likely to false-positive
-        const regex = new RegExp(`\\b${escaped}\\b`, 'gi')
-
-        patterns.push({ nutrient: n, regex })
+        patterns.push({
+            nutrient,
+            regex: buildBoundaryRegex(nutrient.name),
+        })
     }
 
-    // Sort by name length descending so longer names match first
-    // (e.g., "Vitamin C, total ascorbic acid" before "Vitamin C")
-    patterns.sort((a, b) => b.nutrient.name.length - a.nutrient.name.length)
-
-    return { patterns, nameMap }
+    patterns.sort((left, right) => right.nutrient.name.length - left.nutrient.name.length)
+    return { patterns }
 }
 
-/**
- * Scan a text string for nutrient name matches.
- * @param {string} text — the text content to scan
- * @param {Object} matcher — from buildNutrientMatcher
- * @returns {Set<number>} — set of matched nutrient IDs
- */
 export function scanTextForNutrients(text, matcher) {
     const matchedIds = new Set()
 
     for (const { nutrient, regex } of matcher.patterns) {
-        // Reset regex state
         regex.lastIndex = 0
         if (regex.test(text)) {
             matchedIds.add(nutrient.id)
@@ -73,71 +42,67 @@ export function scanTextForNutrients(text, matcher) {
     return matchedIds
 }
 
-/**
- * Highlight nutrient names in the PDF text layer DOM.
- * Wraps matched text in <mark> elements with click handlers.
- *
- * @param {HTMLElement} textLayerEl — the .textLayer element from react-pdf
- * @param {Object} matcher — from buildNutrientMatcher
- * @param {Function} onNutrientClick — callback(nutrient, rect) when a highlight is clicked
- * @returns {Function} cleanup — call to remove highlights
- */
 export function highlightNutrientsInTextLayer(textLayerEl, matcher, onNutrientClick) {
     if (!textLayerEl) return () => { }
 
-    // Get all text spans in the text layer
     const spans = textLayerEl.querySelectorAll('span[role="presentation"], span')
 
     for (const span of spans) {
-        // Skip if already processed
         if (span.dataset.nutrientScanned) continue
         span.dataset.nutrientScanned = 'true'
 
-        const originalText = span.textContent
-        if (!originalText || originalText.trim().length < 2) continue
+        const originalText = span.textContent || ''
+        if (originalText.trim().length < 2) continue
 
-        let html = originalText
-        let hasMatch = false
+        const matches = collectMatches(originalText, matcher)
+        if (matches.length === 0) continue
 
-        for (const { nutrient, regex } of matcher.patterns) {
-            regex.lastIndex = 0
-            if (regex.test(originalText)) {
-                regex.lastIndex = 0
-                html = html.replace(regex, (match) => {
-                    hasMatch = true
-                    return `<mark class="nutrient-highlight" data-nutrient-id="${nutrient.id}" data-nutrient-name="${nutrient.name}" data-nutrient-unit="${nutrient.unit_name || 'G'}">${match}</mark>`
-                })
+        const fragment = document.createDocumentFragment()
+        let cursor = 0
+
+        for (const match of matches) {
+            if (match.start > cursor) {
+                fragment.appendChild(document.createTextNode(originalText.slice(cursor, match.start)))
             }
+
+            const mark = document.createElement('mark')
+            mark.className = 'nutrient-highlight'
+            mark.dataset.nutrientId = String(match.nutrient.id)
+            mark.dataset.nutrientName = match.nutrient.name
+            mark.dataset.nutrientUnit = match.nutrient.unit_name || 'G'
+            mark.textContent = originalText.slice(match.start, match.end)
+            fragment.appendChild(mark)
+
+            cursor = match.end
         }
 
-        if (hasMatch) {
-            // Replace span content with highlighted version
-            span.innerHTML = html
+        if (cursor < originalText.length) {
+            fragment.appendChild(document.createTextNode(originalText.slice(cursor)))
         }
+
+        span.replaceChildren(fragment)
     }
 
-    const resolveMarkFromEvent = (e) => {
-        const directTarget = e.target?.closest?.('mark.nutrient-highlight')
+    const resolveMarkFromEvent = (event) => {
+        const directTarget = event.target?.closest?.('mark.nutrient-highlight')
         if (directTarget && textLayerEl.contains(directTarget)) {
             return directTarget
         }
 
-        const pointTargets = document.elementsFromPoint?.(e.clientX, e.clientY) || []
-        for (const el of pointTargets) {
-            const mark = el?.closest?.('mark.nutrient-highlight')
+        const pointTargets = document.elementsFromPoint?.(event.clientX, event.clientY) || []
+        for (const element of pointTargets) {
+            const mark = element?.closest?.('mark.nutrient-highlight')
             if (mark && textLayerEl.contains(mark)) {
                 return mark
             }
         }
 
         const caretNode =
-            document.caretPositionFromPoint?.(e.clientX, e.clientY)?.offsetNode ||
-            document.caretRangeFromPoint?.(e.clientX, e.clientY)?.startContainer ||
+            document.caretPositionFromPoint?.(event.clientX, event.clientY)?.offsetNode ||
+            document.caretRangeFromPoint?.(event.clientX, event.clientY)?.startContainer ||
             null
 
-        const caretParent =
-            caretNode?.nodeType === Node.TEXT_NODE ? caretNode.parentElement : caretNode
-
+        const caretParent = caretNode?.nodeType === Node.TEXT_NODE ? caretNode.parentElement : caretNode
         const caretMark = caretParent?.closest?.('mark.nutrient-highlight')
         if (caretMark && textLayerEl.contains(caretMark)) {
             return caretMark
@@ -146,29 +111,79 @@ export function highlightNutrientsInTextLayer(textLayerEl, matcher, onNutrientCl
         return null
     }
 
-    const openPopoverForEvent = (e) => {
-        const mark = resolveMarkFromEvent(e)
+    const openPopoverForEvent = (event) => {
+        const mark = resolveMarkFromEvent(event)
         if (!mark) return
 
-        e.preventDefault()
-        e.stopPropagation()
+        event.preventDefault()
+        event.stopPropagation()
 
-        const rect = mark.getBoundingClientRect()
-        const nutrient = {
-            id: mark.dataset.nutrientId,
-            name: mark.dataset.nutrientName,
-            unit_name: mark.dataset.nutrientUnit,
-        }
-
-        onNutrientClick(nutrient, rect)
+        onNutrientClick(
+            {
+                id: mark.dataset.nutrientId,
+                name: mark.dataset.nutrientName,
+                unit_name: mark.dataset.nutrientUnit,
+            },
+            mark.getBoundingClientRect()
+        )
     }
 
     textLayerEl.addEventListener('pointerup', openPopoverForEvent, true)
     textLayerEl.addEventListener('click', openPopoverForEvent, true)
 
-    // Return cleanup function
     return () => {
         textLayerEl.removeEventListener('pointerup', openPopoverForEvent, true)
         textLayerEl.removeEventListener('click', openPopoverForEvent, true)
     }
+}
+
+function buildBoundaryRegex(name) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`(^|[^A-Za-z0-9])(${escaped})(?=[^A-Za-z0-9]|$)`, 'gi')
+}
+
+function collectMatches(text, matcher) {
+    const matches = []
+
+    for (const { nutrient, regex } of matcher.patterns) {
+        regex.lastIndex = 0
+
+        for (const result of text.matchAll(regex)) {
+            const fullMatch = result[0]
+            const matchedText = result[2]
+            const fullIndex = result.index ?? -1
+
+            if (fullIndex < 0) continue
+
+            const leadingOffset = fullMatch.indexOf(matchedText)
+            const start = fullIndex + leadingOffset
+            const end = start + matchedText.length
+
+            if (start < 0 || end <= start) continue
+
+            matches.push({ nutrient, start, end })
+        }
+    }
+
+    if (matches.length === 0) {
+        return matches
+    }
+
+    matches.sort((left, right) => {
+        if (left.start !== right.start) return left.start - right.start
+        const leftLength = left.end - left.start
+        const rightLength = right.end - right.start
+        return rightLength - leftLength
+    })
+
+    const resolved = []
+    let lastEnd = -1
+
+    for (const match of matches) {
+        if (match.start < lastEnd) continue
+        resolved.push(match)
+        lastEnd = match.end
+    }
+
+    return resolved
 }
