@@ -1,3 +1,4 @@
+import re
 import xmltodict
 from typing import List, Dict, Any, Tuple
 
@@ -8,14 +9,25 @@ class TableValidator:
     
     # Keywords that suggest a column describes nutrients/composition
     COMPOSITION_KEYWORDS = {
-        'protein', 'fat', 'lipid', 'carbohydrate', 'moisture', 'ash', 'fiber', 'fibre',
-        'vitamin', 'mineral', 'acid', 'mg/100', 'g/100', 'kcal', 'energy', 'proximate'
+        'protein', 'fat', 'lipid', 'carbohydrate', 'moisture', 'ash',
+        'fiber', 'fibre', 'vitamin', 'mineral', 'amino acid', 'fatty acid',
+        'kcal', 'energy', 'proximate', 'nutrient', 'composition'
     }
     
     # Keywords that suggest a column describes the food item
     FOOD_KEYWORDS = {
-        'food', 'sample', 'item', 'product', 'cultivar', 'species', 'plant', 'mushroom'
+        'food', 'sample', 'item', 'product', 'cultivar', 'species', 'plant',
+        'mushroom', 'fruit', 'vegetable', 'meat', 'fish', 'grain', 'legume'
     }
+
+    # Units commonly seen in composition tables
+    UNIT_PATTERNS = [
+        r'\b\d+(?:\.\d+)?\s*(?:mg|g|ug|mcg)\s*/\s*100\s*g\b',
+        r'\b\d+(?:\.\d+)?\s*(?:mg|g|ug|mcg)\s*/\s*100\s*ml\b',
+        r'\b\d+(?:\.\d+)?\s*(?:mg|g|ug|mcg)\b',
+        r'\b\d+(?:\.\d+)?\s*(?:kcal|kj)\b',
+        r'\b\d+(?:\.\d+)?\s*%\s*(?:w/w|dw|fw)?\b',
+    ]
 
     @staticmethod
     def validate_paper(xml_content: str) -> Tuple[bool, List[Dict]]:
@@ -78,9 +90,10 @@ class TableValidator:
             
             has_nutrient = any(k in table_str for k in TableValidator.COMPOSITION_KEYWORDS)
             has_food_marker = any(k in table_str for k in TableValidator.FOOD_KEYWORDS)
-            
-            # If it mentions composition/values AND food items -> Good candidate
-            return has_nutrient # and has_food_marker (relaxed constraint for now)
+            has_units = any(re.search(p, table_str) for p in TableValidator.UNIT_PATTERNS)
+
+            # Require nutrient context plus either food marker or units for precision
+            return has_nutrient and (has_food_marker or has_units)
             
         except Exception:
             return False
