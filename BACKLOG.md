@@ -145,6 +145,9 @@ Build a crawler that:
 ### Known blocker
 - live paper retrieval has been unreliable in the current environment
 
+### Status
+- Arciel is currently working on the crawler.
+
 ### Done when
 - the crawler keeps papers that clearly contain food composition data
 - obvious junk classes are rejected consistently
