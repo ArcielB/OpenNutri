@@ -182,7 +182,37 @@ Add a clear test mode where users can exercise the app without updating producti
 - production records are untouched during test-mode actions
 - test-mode behavior is easy to turn on and off deliberately
 
-## 6. Fix theme behavior
+## 6. Implement both AI systems in a measurable test setup
+
+### Problem
+The project intends to use two AI systems, but there is not yet a repeatable setup to compare them.
+
+### Goal
+Create a test harness where both systems can be run and compared on:
+- performance
+- extraction quality
+- effect on user experience
+
+### Minimum outputs
+- clear definition of both systems
+- repeatable test setup
+- per-run metrics
+- summary comparison
+
+### Suggested metrics
+- latency
+- success rate
+- extraction precision and recall
+- user time saved
+- correction rate by annotators
+
+### Done when
+- both systems can be run through the same test path
+- outputs can be compared side by side
+- metrics are stored in a repeatable format
+- contributors can rerun the comparison without manual spreadsheet work
+
+## 7. Fix theme behavior
 
 ### Problems
 - the app does not reliably follow system light or dark preference on login
@@ -211,7 +241,7 @@ Theme behavior should be consistent across:
 - saved override is respected after refresh and login
 - app chrome and PDF area stay visually consistent
 
-## 7. Fix reset password flow
+## 8. Fix reset password flow
 
 ### Problem
 The reset password email arrives, but the link opens the app and logs the user in instead of taking them to a dedicated password reset screen.
@@ -234,7 +264,7 @@ Make password reset behave like a standard recovery flow:
 - the user can set a new password without manual workaround
 - the app shows a clear success or failure message
 
-## 8. (Arciel working on step 1) L1 discovery crawler with higher precision (paper extractor part 1)
+## 9. (Arciel working on step 1) L1 discovery crawler with higher precision (paper extractor part 1)
 
 ### Problem
 The current Europe PMC crawler finds useful food composition papers but still pulls too many related, non-usable papers.
@@ -267,7 +297,7 @@ Build a simple-but-smart discovery crawler that raises precision without killing
 - every run records per-query stats and acceptance rate
 - the query budget is controlled and reproducible
 
-## 9. L2 lightweight classifier for paper relevance (paper extractor part 2)
+## 10. (Depends on 9) L2 lightweight classifier for paper relevance (paper extractor part 2)
 
 ### Problem
 Relevance scoring is currently heuristic and static, so it cannot improve from labeling feedback.
@@ -291,7 +321,7 @@ Train a fast, cheap classifier that predicts whether a paper has composition dat
 - crawler uses it before downloading PDFs
 - per-run metrics include classifier precision/recall
 
-## 10. (Depends on 9) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
+## 11. (Depends on 10) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
 
 ### Problem
 Annotator decisions are not feeding back into the crawler or the classifier.
@@ -316,7 +346,7 @@ Create a feedback pipeline that:
 - classifier retrain is repeatable
 - crawler term weights update from the label stats
 
-## 11. (Depends on 10) Add a global “definitely no data” red button (immediate skip + training)
+## 12. (Depends on 11) Add a global “definitely no data” red button (immediate skip + training)
 
 ### Problem
 The current “No Usable Data” button is per-user, so obvious junk still shows up for others and does not become an immediate global negative label.
