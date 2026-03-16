@@ -1,0 +1,62 @@
+OpenNutri — Feature Explanations (Short / Medium / Long)
+
+SHORT (High-Level)
+1) PDF handling + storage
+   PDFs are stored in Supabase Storage and rendered in the app using React PDF (PDF.js).
+2) Nutrient highlighting in PDFs
+   The app scans the PDF text layer, finds nutrient names, and highlights them directly in the rendered text.
+3) Fuzzy nutrient matching
+   Nutrient search tolerates variations (singular/plural, prefixes, aliases) so users can find the right nutrient with imperfect input.
+4) Nutrient popover quick-add
+   Clicking a highlighted nutrient opens a popover to enter value/unit and add it to the current food item.
+
+MEDIUM (Teacher-Level)
+1) PDF handling + storage
+   The papers table stores PDF filenames. The UI builds a public URL from Supabase Storage (papers bucket) and passes it to PdfViewer for rendering.
+   The PDF is rendered using react-pdf (PDF.js). Wiring is in apps/expert-annotator/src/pages/Annotate.jsx and apps/expert-annotator/src/components/PdfViewer.jsx.
+
+2) Nutrient highlighting
+   When a PDF page renders, the app inspects PDF.js text layer spans and runs a nutrient matcher.
+   Matched substrings are wrapped with <mark> elements and dataset attributes for nutrient metadata.
+   The logic is in apps/expert-annotator/src/utils/PdfTextScanner.js with boundary-safe regex matching to avoid partial-word errors.
+
+3) Fuzzy nutrient matching
+   Nutrient search normalizes tokens (case, punctuation, singular/plural), checks aliases in parentheses, and scores exact/prefix/derived matches.
+   This ranks close matches higher and keeps results useful for partial or inflected queries.
+   The logic is in apps/expert-annotator/src/components/NutrientAutocomplete.jsx.
+
+4) Nutrient popover quick-add
+   Clicking a highlighted nutrient opens a popover positioned near the clicked text. The user enters value and unit, then adds it to the current food item.
+   UI logic is in apps/expert-annotator/src/components/NutrientPopover.jsx, with state updates wired in apps/expert-annotator/src/pages/Annotate.jsx.
+
+LONG (Full Explanation)
+1) PDF handling + storage
+   PDFs are stored in Supabase Storage (bucket: papers) and referenced in the papers table by filename.
+   In apps/expert-annotator/src/pages/Annotate.jsx, the current paper’s filename is turned into a public URL with
+   supabase.storage.from('papers').getPublicUrl(...), then passed into apps/expert-annotator/src/components/PdfViewer.jsx.
+   The PDF is rendered using react-pdf (PDF.js), which exposes a text layer so the app can inspect text spans for matching.
+
+2) Nutrient highlighting (PDF text layer scan)
+   The core logic is in apps/expert-annotator/src/utils/PdfTextScanner.js.
+   - buildNutrientMatcher builds regex patterns per nutrient name, skipping generic groups (e.g., proximates, minerals).
+   - buildBoundaryRegex enforces word boundaries so partial words are not highlighted.
+   - highlightNutrientsInTextLayer scans each text span (span[role="presentation"]), collects matches, and replaces the span
+     content with a document fragment where matched ranges are wrapped in <mark> elements.
+   - collectMatches resolves overlaps so longer matches win over shorter ones at the same start index.
+   - Click handling uses pointerup/click and fallbacks (elementsFromPoint / caret APIs) so the correct highlight is resolved reliably.
+
+3) Fuzzy nutrient matching (autocomplete)
+   The ranking logic is in apps/expert-annotator/src/components/NutrientAutocomplete.jsx.
+   - normalizeText / tokenize standardize case, punctuation, and whitespace.
+   - normalizeToken handles singular/plural and irregular forms (e.g., mice -> mouse).
+   - Aliases in parentheses are extracted and scored alongside the main name.
+   - scoreNutrientMatch assigns weights for exact, alias, prefix, and derived token matches, with penalties for missing tokens.
+   This produces robust, tolerant matching without external libraries or heavy ML.
+
+4) Nutrient popover quick-add
+   The popover UI is in apps/expert-annotator/src/components/NutrientPopover.jsx.
+   - It positions itself near the clicked highlight using getBoundingClientRect().
+   - It focuses the input on open and closes on outside click or Escape.
+   - When the user confirms, it returns a nutrient entry {id, name, value, unit}.
+   In apps/expert-annotator/src/pages/Annotate.jsx, handlePdfNutrientAdd inserts that nutrient into the current food item,
+   with a de-dup check to avoid repeated additions.
