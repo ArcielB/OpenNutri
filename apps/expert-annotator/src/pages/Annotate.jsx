@@ -3,7 +3,6 @@ import { supabase } from '../supabaseClient'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
 import SuggestionModal from '../components/SuggestionModal'
-import { useTheme } from '../hooks/useTheme'
 
 const R2_BASE_URL = import.meta.env.VITE_R2_PUBLIC_URL || ''
 
@@ -23,7 +22,7 @@ function createEmptyFoodItem() {
     }
 }
 
-export default function Annotate({ user, onLogout }) {
+export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     const [papers, setPapers] = useState([])
     const [currentIndex, setCurrentIndex] = useState(0)
     const [foodItems, setFoodItems] = useState([createEmptyFoodItem()])
@@ -35,7 +34,6 @@ export default function Annotate({ user, onLogout }) {
     const [allNutrients, setAllNutrients] = useState([])
     const [allFoods, setAllFoods] = useState([])
     const [foodsLoaded, setFoodsLoaded] = useState(false)
-    const { theme, toggleTheme } = useTheme()
 
     // Load nutrients master list once
     useEffect(() => {
@@ -445,6 +443,7 @@ export default function Annotate({ user, onLogout }) {
                     pdfUrl={pdfUrl}
                     allNutrients={allNutrients}
                     onAddNutrient={handlePdfNutrientAdd}
+                    theme={theme}
                 />
 
                 <div className="annotation-panel">
