@@ -37,7 +37,7 @@ Store each suggestion as a backlog review item that supports:
 - the record is marked as a suggestion to review, not a confirmed task
 - reviewers can change status later without losing the original suggestion text
 
-## 2. Add image attachments to the suggestion flow
+## 2. (Depends on 1) Add image attachments to the suggestion flow
 
 ### Problem
 Users can submit text suggestions, but they cannot attach screenshots. That makes bug reports slower to understand and reproduce.
@@ -182,37 +182,7 @@ Add a clear test mode where users can exercise the app without updating producti
 - production records are untouched during test-mode actions
 - test-mode behavior is easy to turn on and off deliberately
 
-## 6. Implement both AI systems in a measurable test setup
-
-### Problem
-The project intends to use two AI systems, but there is not yet a repeatable setup to compare them.
-
-### Goal
-Create a test harness where both systems can be run and compared on:
-- performance
-- extraction quality
-- effect on user experience
-
-### Minimum outputs
-- clear definition of both systems
-- repeatable test setup
-- per-run metrics
-- summary comparison
-
-### Suggested metrics
-- latency
-- success rate
-- extraction precision and recall
-- user time saved
-- correction rate by annotators
-
-### Done when
-- both systems can be run through the same test path
-- outputs can be compared side by side
-- metrics are stored in a repeatable format
-- contributors can rerun the comparison without manual spreadsheet work
-
-## 7. Fix theme behavior
+## 6. Fix theme behavior
 
 ### Problems
 - the app does not reliably follow system light or dark preference on login
@@ -241,7 +211,7 @@ Theme behavior should be consistent across:
 - saved override is respected after refresh and login
 - app chrome and PDF area stay visually consistent
 
-## 8. Fix reset password flow
+## 7. Fix reset password flow
 
 ### Problem
 The reset password email arrives, but the link opens the app and logs the user in instead of taking them to a dedicated password reset screen.
@@ -263,3 +233,108 @@ Make password reset behave like a standard recovery flow:
 - the recovery link lands on the reset-password flow
 - the user can set a new password without manual workaround
 - the app shows a clear success or failure message
+
+## 8. (Arciel working on step 1) L1 discovery crawler with higher precision (paper extractor part 1)
+
+### Problem
+The current Europe PMC crawler finds useful food composition papers but still pulls too many related, non-usable papers.
+
+### Goal
+Build a simple-but-smart discovery crawler that raises precision without killing recall:
+- tighten query templates and keep them few
+- add journal/field filters where useful
+- dedupe candidates and score consistently
+- log per-query yield (results, accepted, rejected)
+- prepare for multi-source inputs without exploding complexity
+
+### Likely technical area
+- `services/data-pipeline/food_paper_crawler/crawler_v2.py`
+- `services/data-pipeline/food_paper_crawler/ranking.py`
+- `services/data-pipeline/harvester/query_builder.py`
+- `services/data-pipeline/harvester/relevance_filter.py`
+- `services/data-pipeline/processing/validator.py`
+
+### Sources to check when needed
+- Europe PMC REST API: https://dev.europepmc.org/RestfulWebService
+- OpenAlex API + data snapshots: https://docs.openalex.org/
+- Semantic Scholar API + datasets: https://www.semanticscholar.org/product/api
+- GROBID (structured PDF parsing): https://github.com/kermitt2/grobid
+- pdfplumber (PDF text/tables): https://github.com/jsvine/pdfplumber
+- Apache Tika (text/metadata extraction): https://tika.apache.org/
+
+### Done when
+- candidate pool precision improves vs the current baseline
+- every run records per-query stats and acceptance rate
+- the query budget is controlled and reproducible
+
+## 9. (Depends on 8) L2 lightweight classifier for paper relevance (paper extractor part 2)
+
+### Problem
+Relevance scoring is currently heuristic and static, so it cannot improve from labeling feedback.
+
+### Goal
+Train a fast, cheap classifier that predicts whether a paper has composition data using title/abstract/journal signals:
+- probability output with a configurable threshold
+- feature logging for quick debugging
+- model artifact can be versioned and reloaded
+
+### Likely technical area
+- `services/data-pipeline/food_paper_crawler/`
+- `services/data-pipeline/food_paper_crawler/ranking.py`
+
+### Sources to check when needed
+- scikit-learn text classification pipeline: https://scikit-learn.org/1.3/tutorial/text_analytics/working_with_text_data.html
+- fastText supervised classification: https://fasttext.cc/docs/en/supervised-tutorial.html
+
+### Done when
+- a classifier can be trained from label data
+- crawler uses it before downloading PDFs
+- per-run metrics include classifier precision/recall
+
+## 10. (Depends on 9) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
+
+### Problem
+Annotator decisions are not feeding back into the crawler or the classifier.
+
+### Goal
+Create a feedback pipeline that:
+- stores global paper labels with provenance
+- exports labeled data for model training
+- updates query term weights from good/bad examples
+
+### Likely technical area
+- `apps/expert-annotator/src/pages/Annotate.jsx`
+- `apps/expert-annotator/migration.sql`
+- `services/data-pipeline/food_paper_crawler/`
+- `services/data-pipeline/core/knowledge.py`
+
+### Sources to check when needed
+- Snorkel weak supervision (optional): https://docs.snorkel.ai/docs/25.2/user-guide/intro/what-is-snorkel-flow
+
+### Done when
+- labels flow from UI to a training dataset
+- classifier retrain is repeatable
+- crawler term weights update from the label stats
+
+## 11. (Depends on 10) Add a global “definitely no data” red button (immediate skip + training)
+
+### Problem
+The current “No Usable Data” button is per-user, so obvious junk still shows up for others and does not become an immediate global negative label.
+
+### Goal
+Add a red button that marks a paper as definitely no-data for everyone and sends it directly to training data.
+
+### Requirements
+- explicit confirmation to avoid accidental global skips
+- global label stored with user, timestamp, and reason
+- paper removed from every annotator queue
+- label appears immediately in training export
+
+### Likely technical area
+- `apps/expert-annotator/src/pages/Annotate.jsx`
+- `apps/expert-annotator/migration.sql`
+- `apps/expert-annotator/src/index.css`
+
+### Done when
+- the global no-data label hides the paper for all users
+- the label is immediately used by the training pipeline
