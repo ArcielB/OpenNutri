@@ -37,7 +37,7 @@ Store each suggestion as a backlog review item that supports:
 - the record is marked as a suggestion to review, not a confirmed task
 - reviewers can change status later without losing the original suggestion text
 
-## 2. Add image attachments to the suggestion flow
+## 2. (Depends on 1) Add image attachments to the suggestion flow
 
 ### Problem
 Users can submit text suggestions, but they cannot attach screenshots. That makes bug reports slower to understand and reproduce.
@@ -211,7 +211,7 @@ Theme behavior should be consistent across:
 - saved override is respected after refresh and login
 - app chrome and PDF area stay visually consistent
 
-## 8. Fix reset password flow
+## 7. Fix reset password flow
 
 ### Problem
 The reset password email arrives, but the link opens the app and logs the user in instead of taking them to a dedicated password reset screen.
@@ -234,7 +234,7 @@ Make password reset behave like a standard recovery flow:
 - the user can set a new password without manual workaround
 - the app shows a clear success or failure message
 
-## 9. L1 discovery crawler with higher precision (paper extractor part 1)
+## 8. (Arciel working on step 1) L1 discovery crawler with higher precision (paper extractor part 1)
 
 ### Problem
 The current Europe PMC crawler finds useful food composition papers but still pulls too many related, non-usable papers.
@@ -254,12 +254,20 @@ Build a simple-but-smart discovery crawler that raises precision without killing
 - `services/data-pipeline/harvester/relevance_filter.py`
 - `services/data-pipeline/processing/validator.py`
 
+### Sources to check when needed
+- Europe PMC REST API: https://dev.europepmc.org/RestfulWebService
+- OpenAlex API + data snapshots: https://docs.openalex.org/
+- Semantic Scholar API + datasets: https://www.semanticscholar.org/product/api
+- GROBID (structured PDF parsing): https://github.com/kermitt2/grobid
+- pdfplumber (PDF text/tables): https://github.com/jsvine/pdfplumber
+- Apache Tika (text/metadata extraction): https://tika.apache.org/
+
 ### Done when
 - candidate pool precision improves vs the current baseline
 - every run records per-query stats and acceptance rate
 - the query budget is controlled and reproducible
 
-## 10. L2 lightweight classifier for paper relevance (paper extractor part 2)
+## 9. L2 lightweight classifier for paper relevance (paper extractor part 2)
 
 ### Problem
 Relevance scoring is currently heuristic and static, so it cannot improve from labeling feedback.
@@ -274,12 +282,16 @@ Train a fast, cheap classifier that predicts whether a paper has composition dat
 - `services/data-pipeline/food_paper_crawler/`
 - `services/data-pipeline/food_paper_crawler/ranking.py`
 
+### Sources to check when needed
+- scikit-learn text classification pipeline: https://scikit-learn.org/1.3/tutorial/text_analytics/working_with_text_data.html
+- fastText supervised classification: https://fasttext.cc/docs/en/supervised-tutorial.html
+
 ### Done when
 - a classifier can be trained from label data
 - crawler uses it before downloading PDFs
 - per-run metrics include classifier precision/recall
 
-## 11. L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
+## 10. (Depends on 9) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
 
 ### Problem
 Annotator decisions are not feeding back into the crawler or the classifier.
@@ -296,12 +308,15 @@ Create a feedback pipeline that:
 - `services/data-pipeline/food_paper_crawler/`
 - `services/data-pipeline/core/knowledge.py`
 
+### Sources to check when needed
+- Snorkel weak supervision (optional): https://docs.snorkel.ai/docs/25.2/user-guide/intro/what-is-snorkel-flow
+
 ### Done when
 - labels flow from UI to a training dataset
 - classifier retrain is repeatable
 - crawler term weights update from the label stats
 
-## 12. Add a global “definitely no data” red button (immediate skip + training)
+## 11. (Depends on 10) Add a global “definitely no data” red button (immediate skip + training)
 
 ### Problem
 The current “No Usable Data” button is per-user, so obvious junk still shows up for others and does not become an immediate global negative label.
