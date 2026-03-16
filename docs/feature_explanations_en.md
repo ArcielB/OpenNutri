@@ -33,7 +33,7 @@ Logic is in `apps/expert-annotator/src/utils/PdfTextScanner.js` with boundary-sa
 
 3. Fuzzy nutrient matching
 What it is: A tolerant search that finds nutrients even with small variations.
-How it works: The search normalizes case/punctuation, handles singular/plural forms, checks aliases in parentheses, and scores exact/prefix/derived matches.
+How it works: The search normalizes case/punctuation, handles singular/plural forms, checks aliases in parentheses, and scores exact/prefix/derived matches. This scoring controls the order of suggestions shown in the dropdown.
 The logic is in `apps/expert-annotator/src/components/NutrientAutocomplete.jsx`.
 
 4. Nutrient popover quick-add
@@ -67,7 +67,7 @@ How it works: The ranking logic is in `apps/expert-annotator/src/components/Nutr
 `normalizeToken` handles pluralization and irregular forms (for example, mice → mouse).
 Aliases in parentheses are extracted and scored in addition to the main name.
 `scoreNutrientMatch` assigns weights for exact, alias, prefix, and derived token matches and penalizes missing tokens.
-This yields robust matching without external libraries or ML models.
+This yields robust matching without external libraries or ML models and determines the ordering of suggestion options shown to the user.
 
 4. Nutrient popover quick-add
 What it is: A lightweight data-entry panel tied to highlighted text.

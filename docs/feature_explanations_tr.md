@@ -33,7 +33,7 @@ Mantık `apps/expert-annotator/src/utils/PdfTextScanner.js` dosyasındadır; kı
 
 3. Bulanık besin öğesi eşleştirme
 Nedir: Arama, yazım ve çekim varyasyonlarına rağmen doğru besin öğesini bulur.
-Nasıl çalışır: Metin normalizasyonu yapılır, tekil/çoğul dönüşümleri uygulanır, parantez içi takma adlar kontrol edilir ve exact/prefix/derived eşleşmeler puanlanır.
+Nasıl çalışır: Metin normalizasyonu yapılır, tekil/çoğul dönüşümleri uygulanır, parantez içi takma adlar kontrol edilir ve exact/prefix/derived eşleşmeler puanlanır. Bu puanlama, öneri listesindeki seçeneklerin sıralamasını belirler.
 Mantık `apps/expert-annotator/src/components/NutrientAutocomplete.jsx` dosyasındadır.
 
 4. Besin öğesi hızlı ekleme açılır penceresi
@@ -67,7 +67,7 @@ Nasıl çalışır: Puanlama mantığı `apps/expert-annotator/src/components/Nu
 `normalizeToken` tekil/çoğul ve düzensiz formları ele alır (örneğin mice → mouse).
 Parantez içi takma adlar çıkarılır ve ayrıca puanlanır.
 `scoreNutrientMatch` exact, alias, prefix ve derived token eşleşmelerine ağırlık verir, eksik tokenları cezalandırır.
-Bu sayede harici ML olmadan toleranslı ve güvenilir eşleştirme sağlanır.
+Bu sayede harici ML olmadan toleranslı ve güvenilir eşleştirme sağlanır ve öneri seçeneklerinin sıralaması belirlenir.
 
 4. Besin öğesi hızlı ekleme açılır penceresi
 Nedir: Vurgulu terimden besin öğesi eklemek için hızlı giriş paneli.
