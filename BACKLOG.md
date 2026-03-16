@@ -98,7 +98,7 @@ Make nutrient highlighting reliable in PDF text layers, even when PDF.js splits 
 - no highlight is created inside injected markup
 - popover interaction still works
 
-## 4. Improve the crawler so it collects the right papers
+## 4. Improve the crawler so it collects the right papers (Arciel working)
 
 ### Problem
 The crawler should collect food composition papers, but it currently pulls many irrelevant papers or fails during live retrieval.
