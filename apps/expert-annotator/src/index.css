@@ -403,6 +403,11 @@ body {
   border-radius: 4px;
 }
 
+.pdf-panel-dark .react-pdf__Page canvas,
+.pdf-panel-dark .react-pdf__Page .textLayer {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 .pdf-loading {
   display: flex;
   align-items: center;

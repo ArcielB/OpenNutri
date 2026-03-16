@@ -8,7 +8,7 @@ import { buildNutrientMatcher, highlightNutrientsInTextLayer } from '../utils/Pd
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
-export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient }) {
+export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }) {
     const [numPages, setNumPages] = useState(null)
     const [pageNumber, setPageNumber] = useState(1)
     const [scale, setScale] = useState(1.2)
@@ -69,16 +69,18 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient }) {
         setPopover(null)
     }
 
+    const panelClassName = `pdf-panel ${theme === 'dark' ? 'pdf-panel-dark' : 'pdf-panel-light'}`
+
     if (!pdfUrl) {
         return (
-            <div className="pdf-panel">
+            <div className={panelClassName}>
                 <div className="pdf-loading">No paper selected</div>
             </div>
         )
     }
 
     return (
-        <div className="pdf-panel" ref={containerRef}>
+        <div className={panelClassName} ref={containerRef}>
             <div className="pdf-toolbar">
                 <button onClick={() => setScale((s) => Math.max(0.5, s - 0.2))}>−</button>
                 <button onClick={() => setScale((s) => Math.min(3, s + 0.2))}>+</button>
