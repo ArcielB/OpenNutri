@@ -21,6 +21,9 @@ class CandidatePaper:
     score: float = 0.0
     accepted: bool = False
     reasons: List[str] = field(default_factory=list)
+    reason_details: List[Dict[str, str]] = field(default_factory=list)
+    source_term: Optional[str] = None
+    template_id: Optional[str] = None
 
     @property
     def canonical_id(self) -> str:
@@ -47,6 +50,9 @@ class CandidatePaper:
             "score": round(self.score, 2),
             "accepted": self.accepted,
             "reasons": self.reasons,
+            "reason_details": self.reason_details,
+            "source_term": self.source_term,
+            "template_id": self.template_id,
         }
 
 
@@ -66,6 +72,9 @@ class DownloadRecord:
     size_kb: Optional[int] = None
     pdf_url: Optional[str] = None
     error: Optional[str] = None
+    reason_details: List[Dict[str, str]] = field(default_factory=list)
+    source_term: Optional[str] = None
+    template_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         payload = {
@@ -75,6 +84,7 @@ class DownloadRecord:
             "source": self.source,
             "query": self.query,
             "reasons": self.reasons,
+            "reason_details": self.reason_details,
             "file": self.file,
             "pmcid": self.pmcid,
             "doi": self.doi,
@@ -82,8 +92,9 @@ class DownloadRecord:
             "year": self.year,
             "size_kb": self.size_kb,
             "pdf_url": self.pdf_url,
+            "source_term": self.source_term,
+            "template_id": self.template_id,
         }
         if self.error:
             payload["error"] = self.error
         return payload
-
