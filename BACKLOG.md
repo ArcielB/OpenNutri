@@ -196,6 +196,9 @@ Theme behavior should be consistent across:
 - manual theme toggle
 - PDF viewer
 
+### Status
+- Done (2026-03-17): system preference respected when no override exists, overrides persist, PDF viewer stays in sync.
+
 ### Acceptance criteria
 - default theme follows system preference when no saved override exists
 - saved theme override is respected
@@ -338,3 +341,85 @@ Add a red button that marks a paper as definitely no-data for everyone and sends
 ### Done when
 - the global no-data label hides the paper for all users
 - the label is immediately used by the training pipeline
+
+## 12. Improve fuzzy matching logic
+
+### Problem
+Fuzzy matching can be too loose or too strict, which affects the quality of nutrient suggestions and matching confidence.
+
+### Goal
+Improve fuzzy scoring and normalization so suggestions are ranked more accurately and consistently.
+
+### Likely technical area
+- `apps/expert-annotator/src/utils/fuzzyMatch.js`
+- `apps/expert-annotator/src/components/NutrientAutocomplete.jsx`
+
+### Done when
+- top suggestions match expected nutrients for common user inputs
+- typo tolerance improves without causing irrelevant matches
+- scoring/ranking is stable across similar inputs
+
+## 13. (Depends on 12) Use improved fuzzy matching in PDF highlighting
+
+### Problem
+PDF highlighting uses term matching that does not benefit from improved fuzzy logic, which can miss or mis-rank matches.
+
+### Goal
+Apply the improved fuzzy logic from item 12 to highlight matching in the PDF text layer.
+
+### Likely technical area
+- `apps/expert-annotator/src/components/PdfViewer.jsx`
+- `apps/expert-annotator/src/utils/PdfTextScanner.js`
+- `apps/expert-annotator/src/utils/fuzzyMatch.js`
+
+### Done when
+- PDF highlights align with improved fuzzy match ranking
+- existing exact matches continue to work
+
+## 14. Add limitless scrolling for papers list (no page clicks)
+
+### Problem
+The papers list requires clicking across pages, which slows navigation and interrupts flow.
+
+### Goal
+Replace paginated navigation with infinite/limitless scrolling.
+
+### Likely technical area
+- `apps/expert-annotator/src/pages/Annotate.jsx`
+- `apps/expert-annotator/src/components/PaperList.jsx` (if present)
+
+### Done when
+- new papers load seamlessly as the user scrolls
+- the current selection state remains stable while loading
+- pagination controls are no longer required
+
+## 15. Hide papers list popover when clicking outside
+
+### Problem
+The papers list dropdown/popup remains open when clicking elsewhere on the page.
+
+### Goal
+Dismiss the papers list popover on outside click.
+
+### Likely technical area
+- `apps/expert-annotator/src/pages/Annotate.jsx`
+- `apps/expert-annotator/src/components/Dropdown.jsx` (if present)
+
+### Done when
+- popover closes on any click outside the popover
+- clicking inside the popover does not close it
+
+## 16. Remove the “Trabzon Ekmeği” example text
+
+### Problem
+An example like “Trabzon Ekmeği” is shown, but no example is needed in that spot.
+
+### Goal
+Remove the example text so the UI is cleaner.
+
+### Likely technical area
+- `apps/expert-annotator/src/components/FoodAutocomplete.jsx`
+- `apps/expert-annotator/src/pages/Annotate.jsx`
+
+### Done when
+- the example text is no longer displayed
