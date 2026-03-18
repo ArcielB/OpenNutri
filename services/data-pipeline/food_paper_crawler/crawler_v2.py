@@ -5,6 +5,9 @@ import re
 import shutil
 import hashlib
 import subprocess
+import tarfile
+import tempfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,6 +69,9 @@ STRONG_POSITIVE_PHRASES = [
 
 UNIT_PATTERN = re.compile(r"\b(?:mg|g|µg|ug)\s*/?\s*100\s*g\b", re.IGNORECASE)
 
+PMC_OA_API = "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi"
+AUDIT_EVERY_N = 100
+
 
 @dataclass(frozen=True)
 class QuerySpec:
@@ -102,6 +108,7 @@ class FoodCompositionCrawlerV2:
         self.state = self._load_state()
 
     def run(self, replace_existing: bool = False) -> Dict[str, object]:
+        self.audit_reject_counter = int(self.state.get("audit_reject_counter", 0))
         if replace_existing and self.raw_pdf_dir.exists():
             shutil.rmtree(self.raw_pdf_dir)
         if replace_existing:
@@ -165,7 +172,20 @@ class FoodCompositionCrawlerV2:
                 candidate.score = 0.0
 
                 if not accepted:
-                    rejected_records.append(self._skip_record(candidate, "Rejected by metadata rules"))
+                    if candidate.pdf_url or candidate.pmcid:
+                        audit_flag = self._next_audit_flag()
+                        if audit_flag:
+                            record = self._download_candidate(
+                                candidate,
+                                force_audit=True,
+                                skip_validation=True,
+                                rejection_error="Rejected by metadata rules",
+                            )
+                            rejected_records.append(record)
+                        else:
+                            rejected_records.append(self._skip_record(candidate, "Rejected by metadata rules"))
+                    else:
+                        rejected_records.append(self._skip_record(candidate, "Rejected by metadata rules"))
                     stats["rejected"] += 1
                     query_stats[spec.query]["rejected"] += 1
                     continue
@@ -180,8 +200,11 @@ class FoodCompositionCrawlerV2:
                     stats["rejected"] += 1
                     query_stats[spec.query]["rejected"] += 1
 
+        harvested_at = datetime.now(timezone.utc).isoformat()
+        audit_count = sum(1 for record in rejected_records if record.audit)
+
         manifest = {
-            "harvested_at": datetime.now(timezone.utc).isoformat(),
+            "harvested_at": harvested_at,
             "query_count": len(queries),
             "rule_version": "l1-balanced-v1",
             "target_pdfs": self.target_pdfs,
@@ -191,12 +214,21 @@ class FoodCompositionCrawlerV2:
             "nutrient_term_sample": self.nutrient_terms[:20],
             "query_stats": query_stats,
             "query_log": query_log,
+            "audit": {
+                "every": AUDIT_EVERY_N,
+                "sample_count": audit_count,
+            },
             "results": [record.to_dict() for record in accepted_records + rejected_records],
         }
         self._write_json(self.manifest_path, manifest)
         self.state["seen_ids"] = sorted(seen_ids)
+        self.state["audit_reject_counter"] = self.audit_reject_counter
         self._save_state()
         return manifest
+
+    def _next_audit_flag(self) -> bool:
+        self.audit_reject_counter += 1
+        return self.audit_reject_counter % AUDIT_EVERY_N == 0
 
     def _build_queries(self) -> List[QuerySpec]:
         base_queries = [
@@ -328,18 +360,46 @@ class FoodCompositionCrawlerV2:
                 return normalized_term
         return None
 
-    def _download_candidate(self, candidate: CandidatePaper) -> DownloadRecord:
-        if not candidate.pdf_url:
-            return self._failed_record(candidate, "No PDF URL available")
+    def _download_candidate(
+        self,
+        candidate: CandidatePaper,
+        force_audit: bool = False,
+        skip_validation: bool = False,
+        rejection_error: Optional[str] = None,
+    ) -> DownloadRecord:
+        if not candidate.pdf_url and not candidate.pmcid:
+            return self._failed_record(candidate, "No PDF URL available", audit=force_audit)
 
         try:
-            content = self._fetch_pdf(candidate.pdf_url)
+            content, source_url = self._fetch_pdf_with_oa(candidate)
+            candidate.pdf_url = source_url
         except Exception as exc:
-            return self._failed_record(candidate, str(exc))
+            return self._failed_record(candidate, str(exc), audit=force_audit)
 
         file_name = self._build_filename(candidate)
         destination = self.raw_pdf_dir / file_name
         destination.write_bytes(content)
+        if skip_validation:
+            return DownloadRecord(
+                status="skipped",
+                title=candidate.title,
+                score=candidate.score,
+                source=candidate.source,
+                query=candidate.query,
+                reasons=candidate.reasons,
+                reason_details=candidate.reason_details,
+                audit=force_audit,
+                file=str(destination.relative_to(self.data_dir.parent)),
+                pmcid=candidate.pmcid,
+                doi=candidate.doi,
+                journal=candidate.journal,
+                year=candidate.year,
+                size_kb=max(1, round(len(content) / 1024)),
+                pdf_url=candidate.pdf_url,
+                error=rejection_error,
+                source_term=candidate.source_term,
+                template_id=candidate.template_id,
+            )
         _, accepted, pdf_reasons = self._validate_downloaded_pdf(destination, candidate)
         pdf_reason_details = [
             {"code": "pdf_validation", "text": reason} for reason in pdf_reasons
@@ -347,11 +407,33 @@ class FoodCompositionCrawlerV2:
         combined_reason_details = candidate.reason_details + pdf_reason_details
         combined_reasons = [reason["text"] for reason in combined_reason_details]
         if not accepted:
-            destination.unlink(missing_ok=True)
             candidate.reason_details = combined_reason_details
             candidate.reasons = combined_reasons
             candidate.score = 0.0
-            return self._failed_record(candidate, "Rejected by PDF validation")
+            audit_flag = force_audit or self._next_audit_flag()
+            if not audit_flag:
+                destination.unlink(missing_ok=True)
+                return self._failed_record(candidate, "Rejected by PDF validation")
+            return DownloadRecord(
+                status="failed",
+                title=candidate.title,
+                score=candidate.score,
+                source=candidate.source,
+                query=candidate.query,
+                reasons=combined_reasons,
+                reason_details=combined_reason_details,
+                audit=True,
+                file=str(destination.relative_to(self.data_dir.parent)),
+                pmcid=candidate.pmcid,
+                doi=candidate.doi,
+                journal=candidate.journal,
+                year=candidate.year,
+                size_kb=max(1, round(len(content) / 1024)),
+                pdf_url=candidate.pdf_url,
+                error="Rejected by PDF validation",
+                source_term=candidate.source_term,
+                template_id=candidate.template_id,
+            )
 
         candidate.reason_details = combined_reason_details
         candidate.reasons = combined_reasons
@@ -364,6 +446,7 @@ class FoodCompositionCrawlerV2:
             query=candidate.query,
             reasons=combined_reasons,
             reason_details=combined_reason_details,
+            audit=False,
             file=str(destination.relative_to(self.data_dir.parent)),
             pmcid=candidate.pmcid,
             doi=candidate.doi,
@@ -374,6 +457,84 @@ class FoodCompositionCrawlerV2:
             source_term=candidate.source_term,
             template_id=candidate.template_id,
         )
+
+    def _fetch_pdf_with_oa(self, candidate: CandidatePaper) -> Tuple[bytes, str]:
+        if candidate.pmcid:
+            oa_payload = self._fetch_pdf_from_oa_package(candidate.pmcid)
+            if oa_payload:
+                return oa_payload, f"{PMC_OA_API}?id={candidate.pmcid}"
+        return self._fetch_pdf(candidate.pdf_url), candidate.pdf_url
+
+    def _fetch_pdf_from_oa_package(self, pmcid: str) -> Optional[bytes]:
+        pmc_id = pmcid if pmcid.startswith("PMC") else f"PMC{pmcid}"
+        oa_url = f"{PMC_OA_API}?id={pmc_id}"
+        try:
+            with urlopen(oa_url, timeout=12) as response:
+                xml_payload = response.read().decode("utf-8", errors="ignore")
+        except (HTTPError, URLError, TimeoutError):
+            return None
+
+        try:
+            root = ET.fromstring(xml_payload)
+        except ET.ParseError:
+            return None
+
+        pdf_links: List[str] = []
+        tgz_links: List[str] = []
+        for link in root.findall(".//link"):
+            href = link.attrib.get("href") or ""
+            if not href:
+                continue
+            fmt = (link.attrib.get("format") or "").lower()
+            if fmt == "pdf" or href.lower().endswith(".pdf"):
+                pdf_links.append(href)
+            elif fmt == "tgz" or href.lower().endswith(".tar.gz"):
+                tgz_links.append(href)
+
+        for pdf_url in pdf_links:
+            pdf_url = self._normalize_oa_url(pdf_url)
+            try:
+                payload = self._fetch_pdf(pdf_url)
+            except Exception:
+                continue
+            if payload.startswith(b"%PDF"):
+                return payload
+
+        for tgz_url in tgz_links:
+            tgz_url = self._normalize_oa_url(tgz_url)
+            payload = self._download_tgz_pdf(tgz_url)
+            if payload:
+                return payload
+        return None
+
+    def _normalize_oa_url(self, url: str) -> str:
+        if url.startswith("ftp://ftp.ncbi.nlm.nih.gov"):
+            return url.replace("ftp://ftp.ncbi.nlm.nih.gov", "https://ftp.ncbi.nlm.nih.gov", 1)
+        return url
+
+    def _download_tgz_pdf(self, url: str) -> Optional[bytes]:
+        try:
+            request = Request(url, headers={"User-Agent": "OpenNutriCompositionCrawler/2.0"})
+            with urlopen(request, timeout=40) as response:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".tar.gz") as tmp:
+                    shutil.copyfileobj(response, tmp)
+                    tmp_path = Path(tmp.name)
+        except (HTTPError, URLError, TimeoutError, OSError):
+            return None
+
+        try:
+            with tarfile.open(tmp_path, "r:gz") as tar:
+                pdf_members = [m for m in tar.getmembers() if m.name.lower().endswith(".pdf")]
+                if not pdf_members:
+                    return None
+                pdf_members.sort(key=lambda m: m.size or 0, reverse=True)
+                member = pdf_members[0]
+                extracted = tar.extractfile(member)
+                if not extracted:
+                    return None
+                return extracted.read()
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def _fetch_pdf(self, url: str) -> bytes:
         request = Request(url, headers={"User-Agent": "OpenNutriCompositionCrawler/2.0"})
@@ -495,7 +656,7 @@ class FoodCompositionCrawlerV2:
         stem = stem[:80] or "paper"
         return f"{stem}.pdf"
 
-    def _skip_record(self, candidate: CandidatePaper, error: str) -> DownloadRecord:
+    def _skip_record(self, candidate: CandidatePaper, error: str, audit: bool = False) -> DownloadRecord:
         return DownloadRecord(
             status="skipped",
             title=candidate.title,
@@ -504,6 +665,7 @@ class FoodCompositionCrawlerV2:
             query=candidate.query,
             reasons=candidate.reasons,
             reason_details=candidate.reason_details,
+            audit=audit,
             pmcid=candidate.pmcid,
             doi=candidate.doi,
             journal=candidate.journal,
@@ -514,7 +676,7 @@ class FoodCompositionCrawlerV2:
             template_id=candidate.template_id,
         )
 
-    def _failed_record(self, candidate: CandidatePaper, error: str) -> DownloadRecord:
+    def _failed_record(self, candidate: CandidatePaper, error: str, audit: bool = False) -> DownloadRecord:
         return DownloadRecord(
             status="failed",
             title=candidate.title,
@@ -523,6 +685,7 @@ class FoodCompositionCrawlerV2:
             query=candidate.query,
             reasons=candidate.reasons,
             reason_details=candidate.reason_details,
+            audit=audit,
             pmcid=candidate.pmcid,
             doi=candidate.doi,
             journal=candidate.journal,

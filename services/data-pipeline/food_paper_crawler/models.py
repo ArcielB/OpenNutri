@@ -64,6 +64,7 @@ class DownloadRecord:
     source: str
     query: str
     reasons: List[str]
+    audit: bool = False
     file: Optional[str] = None
     pmcid: Optional[str] = None
     doi: Optional[str] = None
@@ -85,6 +86,7 @@ class DownloadRecord:
             "query": self.query,
             "reasons": self.reasons,
             "reason_details": self.reason_details,
+            "audit": self.audit,
             "file": self.file,
             "pmcid": self.pmcid,
             "doi": self.doi,

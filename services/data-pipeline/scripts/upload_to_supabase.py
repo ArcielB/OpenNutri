@@ -40,8 +40,20 @@ async def upload_papers():
         
     results = harvest_data.get("results", [])
     successful_downloads = [r for r in results if r.get("status") == "success"]
+    audit_rejects = [r for r in results if r.get("audit") is True and r.get("status") != "success"]
+
+    seen_files = set()
+    upload_candidates = []
+    for paper in successful_downloads + audit_rejects:
+        file_path = paper.get("file")
+        if not file_path or file_path in seen_files:
+            continue
+        seen_files.add(file_path)
+        upload_candidates.append(paper)
     
     print(f"📦 Found {len(successful_downloads)} successful downloads in metadata.")
+    if audit_rejects:
+        print(f"🧪 Including {len(audit_rejects)} audit rejects for review.")
     
     # Ensure the "papers" bucket exists
     try:
@@ -54,11 +66,14 @@ async def upload_papers():
     # 2. Upload each PDF and insert DB record
     uploaded_count = 0
     
-    for paper in successful_downloads:
-        pmc_id = paper.get("pmc_id")
-        title = paper.get("title", f"PMC{pmc_id}")
+    for paper in upload_candidates:
+        pmc_id = paper.get("pmc_id") or paper.get("pmcid")
+        title = paper.get("title", f"PMC{pmc_id or ''}")
         file_path = Path(paper.get("file"))
         filename = file_path.name
+        ingest_status = "accepted" if paper.get("status") == "success" else "rejected"
+        audit_flag = bool(paper.get("audit"))
+        rejection_reasons = paper.get("reasons", []) if ingest_status != "accepted" else []
         
         if not file_path.exists():
             print(f"⚠️ Warning: File {file_path} not found on disk. Skipping.")
@@ -83,7 +98,10 @@ async def upload_papers():
                 db_res = supabase.table("papers").insert({
                     "title": title,
                     "doi": paper.get("doi", f"pmc:{pmc_id}"),
-                    "filename": filename
+                    "filename": filename,
+                    "ingest_status": ingest_status,
+                    "audit_flag": audit_flag,
+                    "rejection_reasons": rejection_reasons,
                 }).execute()
                 print(f"   ✓ Inserted into Database.")
             else:

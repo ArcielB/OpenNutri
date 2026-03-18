@@ -79,8 +79,16 @@ CREATE TABLE IF NOT EXISTS papers (
     title TEXT,
     doi TEXT,
     filename TEXT NOT NULL,
+    ingest_status TEXT NOT NULL DEFAULT 'accepted',
+    audit_flag BOOLEAN NOT NULL DEFAULT FALSE,
+    rejection_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE papers
+    ADD COLUMN IF NOT EXISTS ingest_status TEXT NOT NULL DEFAULT 'accepted',
+    ADD COLUMN IF NOT EXISTS audit_flag BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS rejection_reasons JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS annotations (
     id SERIAL PRIMARY KEY,

@@ -9,6 +9,9 @@ CREATE TABLE papers (
     title TEXT,
     doi TEXT,
     filename TEXT NOT NULL,
+    ingest_status TEXT NOT NULL DEFAULT 'accepted',
+    audit_flag BOOLEAN NOT NULL DEFAULT FALSE,
+    rejection_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
