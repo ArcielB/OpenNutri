@@ -35,6 +35,7 @@ Build an embedding + classifier relevance filter (multilingual) using title/abst
 - crawler uses it before downloading PDFs
 - per-run metrics include classifier precision/recall
 
+
 ## 2. Improve the crawler so it collects the right papers (Arciel working)
 
 ### Problem
@@ -92,6 +93,7 @@ Build a crawler that:
 - saved papers are manually inspectable and defensible
 - the crawler records why each kept or rejected paper was classified that way
 
+
 ## 3. (Depends on 1) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
 
 ### Problem
@@ -117,6 +119,7 @@ Create a feedback pipeline that:
 - classifier retrain is repeatable
 - crawler term weights update from the label stats
 
+
 ## 4. (Depends on 3) Add a global “definitely no data” red button (immediate skip + training)
 
 ### Problem
@@ -140,6 +143,7 @@ Add a red button that marks a paper as definitely no-data for everyone and sends
 - the global no-data label hides the paper for all users
 - the label is immediately used by the training pipeline
 
+
 ## 5. (Later, depends on 1 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
 
 
@@ -161,33 +165,8 @@ Fine-tune a multilingual transformer (XLM-R) for relevance classification and co
 - XLM-R beats the embedding baseline on the holdout set
 - the model can be swapped in via config
 
-## 6. Fix reset password flow
 
-### Status
-- Deployed, but not verified on live site due to rate limit exceeded.
-
-### Problem
-The reset password email arrives, but the link opens the app and logs the user in instead of taking them to a dedicated password reset screen.
-
-### Goal
-Make password reset behave like a standard recovery flow:
-- user clicks email link
-- app recognizes recovery state
-- user lands on reset-password screen
-- user sets a new password
-
-### Acceptance criteria
-- recovery links open the correct route
-- password update UI appears automatically
-- session handling does not skip the reset step
-- user sees a clear success or failure state
-
-### Done when
-- the recovery link lands on the reset-password flow
-- the user can set a new password without manual workaround
-- the app shows a clear success or failure message
-
-## 7. Add a safe test mode that does not write to production data
+## 6. Add a safe test mode that does not write to production data
 
 ### Problem
 People need to test flows and extraction behavior, but test actions can currently look too similar to real actions and may write into the main database.
@@ -215,7 +194,8 @@ Add a clear test mode where users can exercise the app without updating producti
 - production records are untouched during test-mode actions
 - test-mode behavior is easy to turn on and off deliberately
 
-## 8. Route user suggestions into the backlog review queue
+
+## 7. Route user suggestions into the backlog review queue
 
 ### Problem
 The UI has a suggestion button, but suggestions are not flowing into an internal review workflow that is easy to track, triage, or follow up on.
@@ -244,7 +224,8 @@ Store each suggestion as a backlog review item that supports:
 - the record is marked as a suggestion to review, not a confirmed task
 - reviewers can change status later without losing the original suggestion text
 
-## 9. (Depends on 8) Add image attachments to the suggestion flow
+
+## 8. (Depends on 8) Add image attachments to the suggestion flow
 
 ### Problem
 Users can submit text suggestions, but they cannot attach screenshots. That makes bug reports slower to understand and reproduce.
@@ -267,7 +248,8 @@ Allow one or more image attachments in the suggestion modal.
 - uploaded images remain linked to the suggestion record
 - failure states are visible to the user
 
-## 10. Fix PDF nutrient highlighting errors
+
+## 9. Fix PDF nutrient highlighting errors
 
 ### Problem
 The nutrient highlighting feature works for many terms but fails for some words or phrases. In some PDFs it highlights partial words, the wrong word, or a broken segment inside a word.
@@ -305,7 +287,8 @@ Make nutrient highlighting reliable in PDF text layers, even when PDF.js splits 
 - no highlight is created inside injected markup
 - popover interaction still works
 
-## 11. Improve fuzzy matching logic
+
+## 10. Improve fuzzy matching logic
 
 ### Problem
 Fuzzy matching can be too loose or too strict, which affects the quality of nutrient suggestions and matching confidence.
@@ -322,7 +305,8 @@ Improve fuzzy scoring and normalization so suggestions are ranked more accuratel
 - typo tolerance improves without causing irrelevant matches
 - scoring/ranking is stable across similar inputs
 
-## 12. (Depends on 11) Use improved fuzzy matching in PDF highlighting
+
+## 11. (Depends on 11) Use improved fuzzy matching in PDF highlighting
 
 ### Problem
 PDF highlighting uses term matching that does not benefit from improved fuzzy logic, which can miss or mis-rank matches.
@@ -339,7 +323,8 @@ Apply the improved fuzzy logic from item 11 to highlight matching in the PDF tex
 - PDF highlights align with improved fuzzy match ranking
 - existing exact matches continue to work
 
-## 13. Add limitless scrolling for papers list (no page clicks)
+
+## 12. Add limitless scrolling for papers list (no page clicks)
 
 ### Problem
 The papers list requires clicking across pages, which slows navigation and interrupts flow.
@@ -356,7 +341,8 @@ Replace paginated navigation with infinite/limitless scrolling.
 - the current selection state remains stable while loading
 - pagination controls are no longer required
 
-## 14. Hide papers list popover when clicking outside
+
+## 13. Hide papers list popover when clicking outside
 
 ### Problem
 The papers list dropdown/popup remains open when clicking elsewhere on the page.
@@ -372,7 +358,8 @@ Dismiss the papers list popover on outside click.
 - popover closes on any click outside the popover
 - clicking inside the popover does not close it
 
-## 15. Remove the “Trabzon Ekmeği” example text
+
+## 14. Remove the “Trabzon Ekmeği” example text
 
 ### Problem
 An example like “Trabzon Ekmeği” is shown, but no example is needed in that spot.
@@ -386,3 +373,4 @@ Remove the example text so the UI is cleaner.
 
 ### Done when
 - the example text is no longer displayed
+
