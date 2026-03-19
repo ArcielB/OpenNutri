@@ -185,6 +185,9 @@ Add a clear test mode where users can exercise the app without updating producti
 
 ## 6. Fix reset password flow
 
+### Status
+- Deployed, but not verified on live site due to rate limit exceeded.
+
 ### Problem
 The reset password email arrives, but the link opens the app and logs the user in instead of taking them to a dedicated password reset screen.
 
