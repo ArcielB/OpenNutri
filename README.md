@@ -46,6 +46,8 @@ Supabase schema and migrations:
 - `apps/expert-annotator/create_bucket.js`: Creates the `papers` storage bucket and policies.
 - `apps/expert-annotator/auth_allowlist.sql`: Allowlist + auth hook for restricted signup.
 - `apps/expert-annotator/add_user.js`: Scripted Supabase sign-up for a test user.
+Notes:
+- `papers` includes `ingest_status`, `audit_flag`, `rejection_reasons` for audit sampling.
 
 Frontend config and templates:
 - `apps/expert-annotator/index.html`: Vite HTML entry point.
@@ -80,7 +82,7 @@ Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/ingestor_pdf.py`: PDF downloader with a focused composition query.
 - `services/data-pipeline/scripts/ingestor_structured.py`: XML table extraction into `data/structured_lake`.
 - `services/data-pipeline/scripts/config_targets.py`: Shared query configuration for script-based harvesters.
-- `services/data-pipeline/scripts/upload_to_supabase.py`: Upload PDFs to Supabase Storage and insert `papers`.
+- `services/data-pipeline/scripts/upload_to_supabase.py`: Upload PDFs to Supabase Storage and insert `papers` (including audit-flagged rejects).
 - `services/data-pipeline/scripts/check_db.py`, `check_db.js`, `test_frontend_fetch.js`: DB and frontend connectivity checks.
 - `services/data-pipeline/scripts/check_rls.py`: Placeholder for RLS checks.
 

@@ -137,6 +137,7 @@ Build a crawler that:
   - materials / packaging / environmental chemistry
 - Accept papers only when they contain meaningful nutrient data that could plausibly map into the OpenNutri schema.
 - Record acceptance and rejection reasons so future feedback learning can be added on top of a stable baseline.
+- Pass through a small, deterministic slice of rejects (every 100th) for audit/recall checks.
 
 ### Current technical area
 - `services/data-pipeline/main.py`
@@ -182,39 +183,7 @@ Add a clear test mode where users can exercise the app without updating producti
 - production records are untouched during test-mode actions
 - test-mode behavior is easy to turn on and off deliberately
 
-## 6. Fix theme behavior
-
-### Problems
-- the app does not reliably follow system light or dark preference on login
-- paper view can remain light while the rest of the app is dark
-
-### Goal
-Theme behavior should be consistent across:
-- first load
-- login
-- refresh
-- manual theme toggle
-- PDF viewer
-
-### Status
-- Done (2026-03-17): system preference respected when no override exists, overrides persist, PDF viewer stays in sync.
-
-### Acceptance criteria
-- default theme follows system preference when no saved override exists
-- saved theme override is respected
-- PDF area and app chrome stay visually in sync
-
-### Likely technical area
-- `apps/expert-annotator/src/hooks/useTheme.js`
-- `apps/expert-annotator/src/index.css`
-- PDF viewer styling
-
-### Done when
-- system preference is respected when no override exists
-- saved override is respected after refresh and login
-- app chrome and PDF area stay visually consistent
-
-## 7. Fix reset password flow
+## 6. Fix reset password flow
 
 ### Problem
 The reset password email arrives, but the link opens the app and logs the user in instead of taking them to a dedicated password reset screen.
@@ -237,40 +206,7 @@ Make password reset behave like a standard recovery flow:
 - the user can set a new password without manual workaround
 - the app shows a clear success or failure message
 
-## 8. (Arciel working on step 1) L1 discovery crawler with higher precision (paper extractor part 1)
-
-### Problem
-The current Europe PMC crawler finds useful food composition papers but still pulls too many related, non-usable papers.
-
-### Goal
-Build a simple-but-smart discovery crawler that raises precision without killing recall:
-- tighten query templates and keep them few
-- add journal/field filters where useful
-- dedupe candidates and score consistently
-- log per-query yield (results, accepted, rejected)
-- prepare for multi-source inputs without exploding complexity
-
-### Likely technical area
-- `services/data-pipeline/food_paper_crawler/crawler_v2.py`
-- `services/data-pipeline/food_paper_crawler/ranking.py`
-- `services/data-pipeline/harvester/query_builder.py`
-- `services/data-pipeline/harvester/relevance_filter.py`
-- `services/data-pipeline/processing/validator.py`
-
-### Sources to check when needed
-- Europe PMC REST API: https://dev.europepmc.org/RestfulWebService
-- OpenAlex API + data snapshots: https://docs.openalex.org/
-- Semantic Scholar API + datasets: https://www.semanticscholar.org/product/api
-- GROBID (structured PDF parsing): https://github.com/kermitt2/grobid
-- pdfplumber (PDF text/tables): https://github.com/jsvine/pdfplumber
-- Apache Tika (text/metadata extraction): https://tika.apache.org/
-
-### Done when
-- candidate pool precision improves vs the current baseline
-- every run records per-query stats and acceptance rate
-- the query budget is controlled and reproducible
-
-## 9. (Depends on 8) L2 lightweight classifier for paper relevance (paper extractor part 2)
+## 8. (Arciel working) L2 lightweight classifier for paper relevance (paper extractor part 2)
 
 ### Problem
 Relevance scoring is currently heuristic and static, so it cannot improve from labeling feedback.
@@ -294,7 +230,7 @@ Train a fast, cheap classifier that predicts whether a paper has composition dat
 - crawler uses it before downloading PDFs
 - per-run metrics include classifier precision/recall
 
-## 10. (Depends on 9) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
+## 9. (Depends on 8) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
 
 ### Problem
 Annotator decisions are not feeding back into the crawler or the classifier.
@@ -319,7 +255,7 @@ Create a feedback pipeline that:
 - classifier retrain is repeatable
 - crawler term weights update from the label stats
 
-## 11. (Depends on 10) Add a global “definitely no data” red button (immediate skip + training)
+## 10. (Depends on 9) Add a global “definitely no data” red button (immediate skip + training)
 
 ### Problem
 The current “No Usable Data” button is per-user, so obvious junk still shows up for others and does not become an immediate global negative label.
