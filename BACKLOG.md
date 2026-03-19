@@ -8,40 +8,15 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
-## 1. Fix reset password flow
-
-### Status
-- Deployed, but not verified on live site due to rate limit exceeded.
-
-### Problem
-The reset password email arrives, but the link opens the app and logs the user in instead of taking them to a dedicated password reset screen.
-
-### Goal
-Make password reset behave like a standard recovery flow:
-- user clicks email link
-- app recognizes recovery state
-- user lands on reset-password screen
-- user sets a new password
-
-### Acceptance criteria
-- recovery links open the correct route
-- password update UI appears automatically
-- session handling does not skip the reset step
-- user sees a clear success or failure state
-
-### Done when
-- the recovery link lands on the reset-password flow
-- the user can set a new password without manual workaround
-- the app shows a clear success or failure message
-
-## 2. (Arciel working) L2 embedding + classifier relevance filter (paper extractor part 2)
+## 1. (Arciel working) L2 embedding + classifier relevance filter (paper extractor part 2)
 
 ### Problem
 There is no trainable L2 relevance model yet, so filtering cannot improve from labeling feedback.
 
 ### Goal
 Build an embedding + classifier relevance filter (multilingual) using title/abstract/journal signals:
-- sentence embeddings + linear classifier (logistic regression)
+- multilingual sentence embeddings + linear classifier (logistic regression)
+- example model: paraphrase-multilingual-MiniLM-L12-v2 or LaBSE
 - probability output with a configurable threshold
 - feature logging for quick debugging
 - model artifact can be versioned and reloaded
@@ -60,7 +35,7 @@ Build an embedding + classifier relevance filter (multilingual) using title/abst
 - crawler uses it before downloading PDFs
 - per-run metrics include classifier precision/recall
 
-## 3. Improve the crawler so it collects the right papers (Arciel working)
+## 2. Improve the crawler so it collects the right papers (Arciel working)
 
 ### Problem
 The crawler should collect food composition papers, but it currently pulls many irrelevant papers or fails during live retrieval.
@@ -117,27 +92,7 @@ Build a crawler that:
 - saved papers are manually inspectable and defensible
 - the crawler records why each kept or rejected paper was classified that way
 
-## 4. (Depends on 2 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
-
-
-### Problem
-The embedding + classifier baseline may miss nuanced language cues or underperform on multilingual edge cases once more labels accumulate.
-
-### Goal
-Fine-tune a multilingual transformer (XLM-R) for relevance classification and compare it against the embedding baseline:
-- trained on the growing labeled set
-- evaluated on a fixed holdout split
-- only adopted if it improves precision/recall meaningfully
-
-### Likely technical area
-- `services/data-pipeline/food_paper_crawler/`
-- new `services/data-pipeline/food_paper_crawler/training/` scripts
-
-### Done when
-- XLM-R beats the embedding baseline on the holdout set
-- the model can be swapped in via config
-
-## 5. (Depends on 2) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
+## 3. (Depends on 1) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
 
 ### Problem
 Annotator decisions are not feeding back into the crawler or the classifier.
@@ -162,7 +117,7 @@ Create a feedback pipeline that:
 - classifier retrain is repeatable
 - crawler term weights update from the label stats
 
-## 6. (Depends on 5) Add a global “definitely no data” red button (immediate skip + training)
+## 4. (Depends on 3) Add a global “definitely no data” red button (immediate skip + training)
 
 ### Problem
 The current “No Usable Data” button is per-user, so obvious junk still shows up for others and does not become an immediate global negative label.
@@ -184,6 +139,53 @@ Add a red button that marks a paper as definitely no-data for everyone and sends
 ### Done when
 - the global no-data label hides the paper for all users
 - the label is immediately used by the training pipeline
+
+## 5. (Later, depends on 1 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
+
+
+### Problem
+The embedding + classifier baseline may miss nuanced language cues or underperform on multilingual edge cases once more labels accumulate.
+
+### Goal
+- optional upgrade for higher ceiling; not required for multilingual coverage
+Fine-tune a multilingual transformer (XLM-R) for relevance classification and compare it against the embedding baseline:
+- trained on the growing labeled set
+- evaluated on a fixed holdout split
+- only adopted if it improves precision/recall meaningfully
+
+### Likely technical area
+- `services/data-pipeline/food_paper_crawler/`
+- new `services/data-pipeline/food_paper_crawler/training/` scripts
+
+### Done when
+- XLM-R beats the embedding baseline on the holdout set
+- the model can be swapped in via config
+
+## 6. Fix reset password flow
+
+### Status
+- Deployed, but not verified on live site due to rate limit exceeded.
+
+### Problem
+The reset password email arrives, but the link opens the app and logs the user in instead of taking them to a dedicated password reset screen.
+
+### Goal
+Make password reset behave like a standard recovery flow:
+- user clicks email link
+- app recognizes recovery state
+- user lands on reset-password screen
+- user sets a new password
+
+### Acceptance criteria
+- recovery links open the correct route
+- password update UI appears automatically
+- session handling does not skip the reset step
+- user sees a clear success or failure state
+
+### Done when
+- the recovery link lands on the reset-password flow
+- the user can set a new password without manual workaround
+- the app shows a clear success or failure message
 
 ## 7. Add a safe test mode that does not write to production data
 
