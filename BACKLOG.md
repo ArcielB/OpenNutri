@@ -34,34 +34,9 @@ Build a multilingual embedding baseline using title/abstract/journal signals:
 - anchors and thresholds are configurable without code changes
 
 
-## 2. (Arciel working) Crawler query bank + retrieval reliability
-
-### Problem
-The crawler's query and retrieval layer is too broad and brittle, which leads to low-precision results and unreliable fetches.
-
-### Goal
-Build a deterministic, high-precision query bank and reliable retrieval layer:
-- versioned query templates that combine foods + nutrients + composition terms
-- negative terms and doc-type filters to avoid common junk
-- per-query stats (hits, kept, rejected, failures)
-- robust retries/backoff for search and PDF fetch
-- keep retrieval cleanly separated from L2 relevance scoring
-
-### Likely technical area
-- `services/data-pipeline/food_paper_crawler/`
-- `services/data-pipeline/main.py`
-
-### Known blocker
-- live paper retrieval has been unreliable in the current environment
-
-### Done when
-- query bank is versioned and used in runs
-- per-query stats are logged
-- retrieval failures are retried and recorded
-- L2 filtering is separated from retrieval
 
 
-## 3. (Depends on 1) L3 feedback loop from UI labels to crawler/L2 baseline (paper extractor part 3)
+## 2. (Depends on 1) L3 feedback loop from UI labels to crawler/L2 baseline (paper extractor part 3)
 
 ### Problem
 Annotator decisions are not feeding back into the crawler or the L2 baseline.
@@ -89,7 +64,9 @@ Create a feedback pipeline that:
 
 
 
-## 4. (Depends on 3) Add a global “definitely no data” red button (immediate skip + training)
+
+
+## 3. (Depends on 2) Add a global “definitely no data” red button (immediate skip + training)
 
 ### Problem
 The current “No Usable Data” button is per-user, so obvious junk still shows up for others and does not become an immediate global negative label.
@@ -115,7 +92,9 @@ Add a red button that marks a paper as definitely no-data for everyone and sends
 
 
 
-## 5. (Depends on 3 + label volume) Train and integrate the L2 classifier
+
+
+## 4. (Depends on 2 + label volume) Train and integrate the L2 classifier
 
 ### Problem
 Once labels exist, we need a trainable classifier so L2 can learn from feedback instead of only rules.
@@ -141,7 +120,9 @@ Train a lightweight classifier on embeddings and integrate it into the pipeline:
 - per-run metrics include classifier precision/recall
 
 
-## 6. (Later, depends on 5 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
+
+
+## 5. (Later, depends on 4 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
 
 
 ### Problem
@@ -165,7 +146,9 @@ Fine-tune a multilingual transformer (XLM-R) for relevance classification and co
 
 
 
-## 7. Add a safe test mode that does not write to production data
+
+
+## 6. Add a safe test mode that does not write to production data
 
 ### Problem
 People need to test flows and extraction behavior, but test actions can currently look too similar to real actions and may write into the main database.
@@ -196,7 +179,9 @@ Add a clear test mode where users can exercise the app without updating producti
 
 
 
-## 8. Route user suggestions into the backlog review queue
+
+
+## 7. Route user suggestions into the backlog review queue
 
 ### Problem
 The UI has a suggestion button, but suggestions are not flowing into an internal review workflow that is easy to track, triage, or follow up on.
@@ -228,7 +213,9 @@ Store each suggestion as a backlog review item that supports:
 
 
 
-## 9. (Depends on 8) Add image attachments to the suggestion flow
+
+
+## 8. (Depends on 7) Add image attachments to the suggestion flow
 
 ### Problem
 Users can submit text suggestions, but they cannot attach screenshots. That makes bug reports slower to understand and reproduce.
@@ -254,7 +241,9 @@ Allow one or more image attachments in the suggestion modal.
 
 
 
-## 10. Fix PDF nutrient highlighting errors
+
+
+## 9. Fix PDF nutrient highlighting errors
 
 ### Problem
 The nutrient highlighting feature works for many terms but fails for some words or phrases. In some PDFs it highlights partial words, the wrong word, or a broken segment inside a word.
@@ -295,7 +284,9 @@ Make nutrient highlighting reliable in PDF text layers, even when PDF.js splits 
 
 
 
-## 11. Improve fuzzy matching logic
+
+
+## 10. Improve fuzzy matching logic
 
 ### Problem
 Fuzzy matching can be too loose or too strict, which affects the quality of nutrient suggestions and matching confidence.
@@ -315,13 +306,15 @@ Improve fuzzy scoring and normalization so suggestions are ranked more accuratel
 
 
 
-## 12. (Depends on 11) Use improved fuzzy matching in PDF highlighting
+
+
+## 11. (Depends on 10) Use improved fuzzy matching in PDF highlighting
 
 ### Problem
 PDF highlighting uses term matching that does not benefit from improved fuzzy logic, which can miss or mis-rank matches.
 
 ### Goal
-Apply the improved fuzzy logic from item 11 to highlight matching in the PDF text layer.
+Apply the improved fuzzy logic from item 10 to highlight matching in the PDF text layer.
 
 ### Likely technical area
 - `apps/expert-annotator/src/components/PdfViewer.jsx`
@@ -335,7 +328,9 @@ Apply the improved fuzzy logic from item 11 to highlight matching in the PDF tex
 
 
 
-## 13. Add limitless scrolling for papers list (no page clicks)
+
+
+## 12. Add limitless scrolling for papers list (no page clicks)
 
 ### Problem
 The papers list requires clicking across pages, which slows navigation and interrupts flow.
@@ -355,7 +350,9 @@ Replace paginated navigation with infinite/limitless scrolling.
 
 
 
-## 14. Hide papers list popover when clicking outside
+
+
+## 13. Hide papers list popover when clicking outside
 
 ### Problem
 The papers list dropdown/popup remains open when clicking elsewhere on the page.
@@ -374,7 +371,9 @@ Dismiss the papers list popover on outside click.
 
 
 
-## 15. Remove the “Trabzon Ekmeği” example text
+
+
+## 14. Remove the “Trabzon Ekmeği” example text
 
 ### Problem
 An example like “Trabzon Ekmeği” is shown, but no example is needed in that spot.
