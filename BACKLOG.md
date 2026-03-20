@@ -36,6 +36,8 @@ Build a multilingual embedding baseline using title/abstract/journal signals:
 
 
 
+
+
 ## 2. (Depends on 1) L3 feedback loop from UI labels to crawler/L2 baseline (paper extractor part 3)
 
 ### Problem
@@ -66,7 +68,44 @@ Create a feedback pipeline that:
 
 
 
-## 3. (Depends on 2) Add a global “definitely no data” red button (immediate skip + training)
+
+
+## 3. Add a safe test mode that does not write to production data
+
+### Problem
+People need to test flows and extraction behavior, but test actions can currently look too similar to real actions and may write into the main database.
+
+### Goal
+Add a clear test mode where users can exercise the app without updating production records.
+
+### Requirements
+- visible indication that test mode is active
+- annotation saves and similar actions do not write to the real DB
+- test-mode output should go to either:
+  - no persistence
+  - a separate test table / namespace
+  - a clearly isolated local artifact
+- switching between normal mode and test mode must be deliberate
+
+### Good use cases
+- checking whether a feature works
+- validating annotation UX
+- reproducing bugs
+- trying extraction changes without polluting real data
+
+### Done when
+- a tester can clearly tell they are in test mode
+- production records are untouched during test-mode actions
+- test-mode behavior is easy to turn on and off deliberately
+
+
+
+
+
+
+
+
+## 4. (Depends on 2) Add a global “definitely no data” red button (immediate skip + training)
 
 ### Problem
 The current “No Usable Data” button is per-user, so obvious junk still shows up for others and does not become an immediate global negative label.
@@ -94,7 +133,9 @@ Add a red button that marks a paper as definitely no-data for everyone and sends
 
 
 
-## 4. (Depends on 2 + label volume) Train and integrate the L2 classifier
+
+
+## 5. (Depends on 2 + label volume) Train and integrate the L2 classifier
 
 ### Problem
 Once labels exist, we need a trainable classifier so L2 can learn from feedback instead of only rules.
@@ -122,7 +163,9 @@ Train a lightweight classifier on embeddings and integrate it into the pipeline:
 
 
 
-## 5. (Later, depends on 4 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
+
+
+## 6. (Later, depends on 5 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
 
 
 ### Problem
@@ -144,37 +187,6 @@ Fine-tune a multilingual transformer (XLM-R) for relevance classification and co
 - the model can be swapped in via config
 
 
-
-
-
-
-## 6. Add a safe test mode that does not write to production data
-
-### Problem
-People need to test flows and extraction behavior, but test actions can currently look too similar to real actions and may write into the main database.
-
-### Goal
-Add a clear test mode where users can exercise the app without updating production records.
-
-### Requirements
-- visible indication that test mode is active
-- annotation saves and similar actions do not write to the real DB
-- test-mode output should go to either:
-  - no persistence
-  - a separate test table / namespace
-  - a clearly isolated local artifact
-- switching between normal mode and test mode must be deliberate
-
-### Good use cases
-- checking whether a feature works
-- validating annotation UX
-- reproducing bugs
-- trying extraction changes without polluting real data
-
-### Done when
-- a tester can clearly tell they are in test mode
-- production records are untouched during test-mode actions
-- test-mode behavior is easy to turn on and off deliberately
 
 
 
@@ -215,6 +227,8 @@ Store each suggestion as a backlog review item that supports:
 
 
 
+
+
 ## 8. (Depends on 7) Add image attachments to the suggestion flow
 
 ### Problem
@@ -237,6 +251,8 @@ Allow one or more image attachments in the suggestion modal.
 - invalid files are rejected clearly
 - uploaded images remain linked to the suggestion record
 - failure states are visible to the user
+
+
 
 
 
@@ -286,6 +302,8 @@ Make nutrient highlighting reliable in PDF text layers, even when PDF.js splits 
 
 
 
+
+
 ## 10. Improve fuzzy matching logic
 
 ### Problem
@@ -302,6 +320,8 @@ Improve fuzzy scoring and normalization so suggestions are ranked more accuratel
 - top suggestions match expected nutrients for common user inputs
 - typo tolerance improves without causing irrelevant matches
 - scoring/ranking is stable across similar inputs
+
+
 
 
 
@@ -330,6 +350,8 @@ Apply the improved fuzzy logic from item 10 to highlight matching in the PDF tex
 
 
 
+
+
 ## 12. Add limitless scrolling for papers list (no page clicks)
 
 ### Problem
@@ -352,6 +374,8 @@ Replace paginated navigation with infinite/limitless scrolling.
 
 
 
+
+
 ## 13. Hide papers list popover when clicking outside
 
 ### Problem
@@ -367,6 +391,8 @@ Dismiss the papers list popover on outside click.
 ### Done when
 - popover closes on any click outside the popover
 - clicking inside the popover does not close it
+
+
 
 
 
