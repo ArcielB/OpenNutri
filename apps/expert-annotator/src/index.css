@@ -238,6 +238,21 @@ body {
   color: var(--text-primary);
 }
 
+.btn-global-skip {
+  background: var(--danger);
+  color: white;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+.btn-global-skip:hover:not(:disabled) {
+  background: var(--danger-hover);
+}
+
+.btn-global-skip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .btn-success {
   background: var(--success);
   color: white;
@@ -278,6 +293,17 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.test-mode-pill {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
 
 .top-bar-left .app-name {
@@ -1230,6 +1256,48 @@ body {
 .suggestion-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.test-mode-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.test-mode-toggle:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.test-mode-toggle.active {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.test-mode-banner {
+  margin: 16px 20px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  font-size: 12px;
+}
+
+.test-mode-note {
+  margin: 10px 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  font-size: 12px;
 }
 
 @keyframes fadeIn {

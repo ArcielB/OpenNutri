@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
 import SuggestionModal from '../components/SuggestionModal'
+import { appendTestEvent, isTestModeEnabled, setTestModeEnabled } from '../utils/testMode'
 
 const R2_BASE_URL = import.meta.env.VITE_R2_PUBLIC_URL || ''
 
@@ -34,6 +35,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     const [allNutrients, setAllNutrients] = useState([])
     const [allFoods, setAllFoods] = useState([])
     const [foodsLoaded, setFoodsLoaded] = useState(false)
+    const [testMode, setTestMode] = useState(() => isTestModeEnabled())
+    const [globalNoDataIds, setGlobalNoDataIds] = useState([])
 
     // Load nutrients master list once
     useEffect(() => {
@@ -111,19 +114,33 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         }
     }, [])
 
-    // Load papers list
+    // Load papers list (excluding globally skipped items)
     useEffect(() => {
         async function fetchPapers() {
-            const { data, error } = await supabase
-                .from('papers')
-                .select('*')
-                .order('id', { ascending: true })
+            const [{ data: labelRows, error: labelError }, { data: paperRows, error: paperError }] =
+                await Promise.all([
+                    supabase
+                        .from('paper_global_labels')
+                        .select('paper_id, label')
+                        .eq('label', 'definitely_no_data'),
+                    supabase
+                        .from('papers')
+                        .select('*')
+                        .order('id', { ascending: true }),
+                ])
 
-            if (error) {
-                console.error('Error fetching papers:', error)
+            if (labelError) {
+                console.error('Error fetching global labels:', labelError)
+            }
+            const globalIds = new Set((labelRows || []).map((row) => row.paper_id))
+            setGlobalNoDataIds([...globalIds])
+
+            if (paperError) {
+                console.error('Error fetching papers:', paperError)
                 return
             }
-            setPapers(data || [])
+            const filtered = (paperRows || []).filter((paper) => !globalIds.has(paper.id))
+            setPapers(filtered)
         }
         fetchPapers()
     }, [])
@@ -206,14 +223,22 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         loadAnnotation()
     }, [currentIndex, papers, user.id])
 
+    useEffect(() => {
+        if (papers.length && currentIndex >= papers.length) {
+            setCurrentIndex(papers.length - 1)
+        }
+    }, [currentIndex, papers.length])
+
     const currentPaper = papers[currentIndex] || null
     const pdfUrl = currentPaper
         ? supabase.storage.from('papers').getPublicUrl(currentPaper.filename).data.publicUrl
         : null
+    const isGlobalSkipped = currentPaper ? globalNoDataIds.includes(currentPaper.id) : false
 
-    const doneCount = Object.values(annotationStatus).filter(
-        (s) => s === 'done' || s === 'skipped'
-    ).length
+    const doneCount = papers.reduce((count, paper) => {
+        const status = annotationStatus[paper.id]
+        return status === 'done' || status === 'skipped' ? count + 1 : count
+    }, 0)
 
     // Show toast
     const showToast = useCallback((message, type = 'success') => {
@@ -221,12 +246,54 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         setTimeout(() => setToast(null), 3000)
     }, [])
 
+    const handleToggleTestMode = useCallback(() => {
+        const next = !testMode
+        const message = next
+            ? 'Enable test mode? This will disable all database writes and store actions locally.'
+            : 'Disable test mode? Database writes will resume.'
+        if (typeof window !== 'undefined' && !window.confirm(message)) return
+        setTestMode(next)
+        setTestModeEnabled(next)
+        showToast(next ? 'Test mode enabled — no DB writes.' : 'Test mode disabled.')
+    }, [showToast, testMode])
+
     // Save annotation
     const saveAnnotation = async (hasData, status) => {
         if (!currentPaper) return
         setSaving(true)
 
         try {
+            if (testMode) {
+                const foodItemCount = hasData
+                    ? foodItems.filter((item) => (item.food_name || '').trim() || item.food_fdc_id).length
+                    : 0
+                const nutrientValueCount = hasData
+                    ? foodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0)
+                    : 0
+
+                appendTestEvent({
+                    type: 'annotation_save',
+                    paper_id: currentPaper.id,
+                    user_id: user.id,
+                    has_data: hasData,
+                    status,
+                    food_item_count: foodItemCount,
+                    nutrient_value_count: nutrientValueCount,
+                })
+
+                setAnnotationStatus((prev) => ({
+                    ...prev,
+                    [currentPaper.id]: status,
+                }))
+
+                const label = status === 'skipped' ? 'Skipped' : status === 'draft' ? 'Draft saved' : 'Saved'
+                showToast(`${label} (test mode) — Paper ${currentIndex + 1}`)
+
+                if ((status === 'done' || status === 'skipped') && currentIndex < papers.length - 1) {
+                    setCurrentIndex((i) => i + 1)
+                }
+                return
+            }
             // Upsert annotation
             const { data: ann, error: annError } = await supabase
                 .from('annotations')
@@ -330,6 +397,75 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         }
     }
 
+    const handleGlobalNoData = async () => {
+        if (!currentPaper || isGlobalSkipped) return
+        const confirm = typeof window !== 'undefined'
+            ? window.confirm(
+                'Mark this paper as definitely no data for everyone? This removes it from all queues.'
+            )
+            : false
+        if (!confirm) return
+        const reason = typeof window !== 'undefined'
+            ? window.prompt('Reason for global skip (required):', '')
+            : ''
+        if (!reason || !reason.trim()) {
+            showToast('Global skip cancelled: reason required.', 'error')
+            return
+        }
+
+        setSaving(true)
+        try {
+            if (testMode) {
+                appendTestEvent({
+                    type: 'global_no_data',
+                    paper_id: currentPaper.id,
+                    user_id: user.id,
+                    reason: reason.trim(),
+                })
+            } else {
+                const { error: globalError } = await supabase
+                    .from('paper_global_labels')
+                    .insert({
+                        paper_id: currentPaper.id,
+                        user_id: user.id,
+                        label: 'definitely_no_data',
+                        reason: reason.trim(),
+                    })
+                if (globalError) throw globalError
+
+                const { error: labelError } = await supabase
+                    .from('paper_label_events')
+                    .insert({
+                        paper_id: currentPaper.id,
+                        annotation_id: null,
+                        user_id: user.id,
+                        has_data: false,
+                        status: 'skipped',
+                        food_item_count: 0,
+                        nutrient_value_count: 0,
+                        source: 'global_no_data',
+                    })
+                if (labelError) throw labelError
+            }
+
+            const remaining = papers.filter((paper) => paper.id !== currentPaper.id)
+            setPapers(remaining)
+            setGlobalNoDataIds((prev) => [...new Set([...prev, currentPaper.id])])
+            setAnnotationStatus((prev) => {
+                const next = { ...prev }
+                delete next[currentPaper.id]
+                return next
+            })
+            setCurrentIndex((idx) => Math.min(idx, Math.max(remaining.length - 1, 0)))
+            showToast(testMode ? 'Global skip recorded locally (test mode).' : 'Marked as global no data.')
+        } catch (err) {
+            console.error('Global skip error:', err)
+            showToast('Failed to mark global skip: ' + err.message, 'error')
+        } finally {
+            setSaving(false)
+        }
+    }
+
     // Food items handlers
     const updateFoodItem = (idx, updatedItem) => {
         setFoodItems((items) =>
@@ -380,6 +516,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
             <div className="top-bar">
                 <div className="top-bar-left">
                     <span className="app-name">🔬 OpenNutri</span>
+                    {testMode && <span className="test-mode-pill">TEST MODE</span>}
                     <div className="paper-list-toggle">
                         <button
                             className="nav-btn"
@@ -449,6 +586,13 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                     <button className="suggestion-btn" onClick={() => setShowSuggestion(true)} title="Send a suggestion">
                         💡
                     </button>
+                    <button
+                        className={`test-mode-toggle ${testMode ? 'active' : ''}`}
+                        onClick={handleToggleTestMode}
+                        title="Toggle test mode"
+                    >
+                        Test Mode
+                    </button>
                     <button className="theme-toggle" onClick={toggleTheme} title="Toggle light/dark mode">
                         {theme === 'dark' ? '☀️' : '🌙'}
                     </button>
@@ -469,6 +613,11 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                 />
 
                 <div className="annotation-panel">
+                    {testMode && (
+                        <div className="test-mode-banner">
+                            Test mode is active. No database writes will occur.
+                        </div>
+                    )}
                     <div className="annotation-scroll">
                         {currentPaper && (
                             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
@@ -501,11 +650,20 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                     <div className="annotation-actions">
                         <div className="action-row">
                             <button
+                                className="btn btn-danger btn-global-skip"
+                                onClick={handleGlobalNoData}
+                                disabled={saving || isGlobalSkipped}
+                            >
+                                🛑 Definitely No Data (Global)
+                            </button>
+                        </div>
+                        <div className="action-row">
+                            <button
                                 className="btn btn-skip"
                                 onClick={() => saveAnnotation(false, 'skipped')}
                                 disabled={saving}
                             >
-                                ⊘ No Usable Data
+                                ⊘ No Usable Data (Personal)
                             </button>
                             <button
                                 className="btn btn-outline"
@@ -534,7 +692,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
             {/* Suggestion Modal */}
             {showSuggestion && (
-                <SuggestionModal user={user} onClose={() => setShowSuggestion(false)} />
+                <SuggestionModal user={user} onClose={() => setShowSuggestion(false)} testMode={testMode} />
             )}
         </div>
     )

@@ -115,6 +115,16 @@ CREATE TABLE IF NOT EXISTS paper_label_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS paper_global_labels (
+    id SERIAL PRIMARY KEY,
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    label TEXT NOT NULL CHECK (label IN ('definitely_no_data')),
+    reason TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (paper_id, label)
+);
+
 
 CREATE TABLE IF NOT EXISTS food_items (
     id SERIAL PRIMARY KEY,
@@ -205,6 +215,8 @@ ALTER TABLE food_items DROP COLUMN IF EXISTS fiber_unit;
 -- =============================================
 CREATE INDEX IF NOT EXISTS idx_paper_label_events_paper ON paper_label_events(paper_id);
 CREATE INDEX IF NOT EXISTS idx_paper_label_events_user ON paper_label_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_paper_global_labels_paper ON paper_global_labels(paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_global_labels_label ON paper_global_labels(label);
 
 CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(canonical_name);
 CREATE INDEX IF NOT EXISTS idx_entities_source_record_id ON entities(source_record_id);
@@ -230,6 +242,7 @@ ALTER TABLE master_nutrients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE claims ENABLE ROW LEVEL SECURITY;
 ALTER TABLE papers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_global_labels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE annotations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE annotation_nutrient_values ENABLE ROW LEVEL SECURITY;
@@ -289,6 +302,25 @@ BEGIN
     ) THEN
         CREATE POLICY "Authenticated users can read papers"
             ON papers FOR SELECT TO authenticated USING (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'paper_global_labels'
+          AND policyname = 'Authenticated users can read global labels'
+    ) THEN
+        CREATE POLICY "Authenticated users can read global labels"
+            ON paper_global_labels FOR SELECT TO authenticated USING (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'paper_global_labels'
+          AND policyname = 'Users can insert global labels'
+    ) THEN
+        CREATE POLICY "Users can insert global labels"
+            ON paper_global_labels FOR INSERT TO authenticated
+            WITH CHECK (user_id = auth.uid());
     END IF;
 
     IF NOT EXISTS (
@@ -517,5 +549,14 @@ BEGIN
     ) THEN
         CREATE POLICY "Service role full access claims"
             ON claims FOR ALL TO service_role USING (true) WITH CHECK (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'paper_global_labels'
+          AND policyname = 'Service role full access global labels'
+    ) THEN
+        CREATE POLICY "Service role full access global labels"
+            ON paper_global_labels FOR ALL TO service_role USING (true) WITH CHECK (true);
     END IF;
 END $$;

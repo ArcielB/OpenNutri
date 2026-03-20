@@ -24,6 +24,8 @@ Features:
 - PDF viewer with nutrient-name highlighting and click-to-add popover.
 - Food and nutrient autocomplete with ranking and search logging.
 - Save draft, mark done, or skip papers.
+- Test mode toggle to disable DB writes and store actions locally.
+- Global “definitely no data” button to remove a paper for all annotators.
 - Suggestions modal stored in Supabase.
 
 Run locally:
@@ -58,6 +60,7 @@ Frontend config and templates:
 Supabase tables used by the UI:
 - `papers`, `annotations`, `food_items`, `annotation_nutrient_values`
 - `entities`, `master_nutrients`, `search_sessions`, `suggestions`
+- `paper_label_events`, `paper_global_labels`
 
 **Data Pipeline**
 Location: `services/data-pipeline/`

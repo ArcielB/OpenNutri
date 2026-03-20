@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient'
+import { appendTestEvent, isTestModeEnabled } from './testMode'
 
 export const SEARCH_LOG_DEBOUNCE_MS = 250
 let loggingDisabled = false
@@ -65,6 +66,22 @@ export async function persistSearchSession(sessionRef, {
     sessionRef.current = null
 
     if (!session || !userId || !session.steps.length || loggingDisabled) return
+    if (isTestModeEnabled()) {
+        appendTestEvent({
+            type: 'search_session',
+            user_id: userId,
+            status,
+            search_type: session.searchType,
+            input_source: session.inputSource,
+            selected_option_id: selectedOption?.id ? String(selectedOption.id) : null,
+            selected_option_label: selectedOption?.label || null,
+            selected_option_type: selectedOption?.type || null,
+            query_steps: session.steps,
+            started_at: session.startedAt,
+            ended_at: new Date().toISOString(),
+        })
+        return
+    }
 
     const payload = {
         user_id: userId,

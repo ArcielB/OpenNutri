@@ -74,6 +74,8 @@ Create a feedback pipeline that:
 
 ## 3. Add a safe test mode that does not write to production data
 
+Status: implemented in UI; test mode toggle disables DB writes and stores events locally.
+
 ### Problem
 People need to test flows and extraction behavior, but test actions can currently look too similar to real actions and may write into the main database.
 
@@ -108,6 +110,8 @@ Add a clear test mode where users can exercise the app without updating producti
 
 
 ## 4. (Depends on 2) Add a global “definitely no data” red button (immediate skip + training)
+
+Status: implemented with a global label table and a red UI button that confirms, stores a reason, and hides papers for all users.
 
 ### Problem
 The current “No Usable Data” button is per-user, so obvious junk still shows up for others and does not become an immediate global negative label.

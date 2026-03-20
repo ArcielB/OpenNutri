@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { appendTestEvent, isTestModeEnabled } from '../utils/testMode'
 
-export default function SuggestionModal({ user, onClose }) {
+export default function SuggestionModal({ user, onClose, testMode = false }) {
     const [message, setMessage] = useState('')
     const [sending, setSending] = useState(false)
     const [sent, setSent] = useState(false)
@@ -11,6 +12,17 @@ export default function SuggestionModal({ user, onClose }) {
         setSending(true)
 
         try {
+            if (testMode || isTestModeEnabled()) {
+                appendTestEvent({
+                    type: 'suggestion',
+                    user_id: user?.id,
+                    user_email: user?.email,
+                    message: message.trim(),
+                })
+                setSent(true)
+                setTimeout(() => onClose(), 1500)
+                return
+            }
             const { error } = await supabase.from('suggestions').insert({
                 user_id: user?.id,
                 user_email: user?.email,
@@ -41,6 +53,11 @@ export default function SuggestionModal({ user, onClose }) {
                         <p>
                             What would you like to see changed or added? Your feedback helps us improve the tool.
                         </p>
+                        {testMode && (
+                            <div className="test-mode-note">
+                                Test mode is active. Suggestions are stored locally and not sent to Supabase.
+                            </div>
+                        )}
                         <textarea
                             placeholder="e.g. It would be nice if I could zoom into the PDF by scrolling..."
                             value={message}
