@@ -72,76 +72,7 @@ Create a feedback pipeline that:
 
 
 
-## 3. Add a safe test mode that does not write to production data
-
-Status: implemented in UI; test mode toggle disables DB writes and stores events locally.
-
-### Problem
-People need to test flows and extraction behavior, but test actions can currently look too similar to real actions and may write into the main database.
-
-### Goal
-Add a clear test mode where users can exercise the app without updating production records.
-
-### Requirements
-- visible indication that test mode is active
-- annotation saves and similar actions do not write to the real DB
-- test-mode output should go to either:
-  - no persistence
-  - a separate test table / namespace
-  - a clearly isolated local artifact
-- switching between normal mode and test mode must be deliberate
-
-### Good use cases
-- checking whether a feature works
-- validating annotation UX
-- reproducing bugs
-- trying extraction changes without polluting real data
-
-### Done when
-- a tester can clearly tell they are in test mode
-- production records are untouched during test-mode actions
-- test-mode behavior is easy to turn on and off deliberately
-
-
-
-
-
-
-
-
-## 4. (Depends on 2) Add a global “definitely no data” red button (immediate skip + training)
-
-Status: implemented with a global label table and a red UI button that confirms, stores a reason, and hides papers for all users.
-
-### Problem
-The current “No Usable Data” button is per-user, so obvious junk still shows up for others and does not become an immediate global negative label.
-
-### Goal
-Add a red button that marks a paper as definitely no-data for everyone and sends it directly to training data.
-
-### Requirements
-- explicit confirmation to avoid accidental global skips
-- global label stored with user, timestamp, and reason
-- paper removed from every annotator queue
-- label appears immediately in training export
-
-### Likely technical area
-- `apps/expert-annotator/src/pages/Annotate.jsx`
-- `apps/expert-annotator/migration.sql`
-- `apps/expert-annotator/src/index.css`
-
-### Done when
-- the global no-data label hides the paper for all users
-- the label is immediately used by the training pipeline
-
-
-
-
-
-
-
-
-## 5. (Depends on 2 + label volume) Train and integrate the L2 classifier
+## 3. (Depends on 2 + label volume) Train and integrate the L2 classifier
 
 ### Problem
 Once labels exist, we need a trainable classifier so L2 can learn from feedback instead of only rules.
@@ -171,7 +102,7 @@ Train a lightweight classifier on embeddings and integrate it into the pipeline:
 
 
 
-## 6. (Later, depends on 5 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
+## 4. (Later, depends on 3 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
 
 
 ### Problem
@@ -199,7 +130,7 @@ Fine-tune a multilingual transformer (XLM-R) for relevance classification and co
 
 
 
-## 7. Route user suggestions into the backlog review queue
+## 5. Route user suggestions into the backlog review queue
 
 ### Problem
 The UI has a suggestion button, but suggestions are not flowing into an internal review workflow that is easy to track, triage, or follow up on.
@@ -235,7 +166,7 @@ Store each suggestion as a backlog review item that supports:
 
 
 
-## 8. (Depends on 7) Add image attachments to the suggestion flow
+## 6. (Depends on 5) Add image attachments to the suggestion flow
 
 ### Problem
 Users can submit text suggestions, but they cannot attach screenshots. That makes bug reports slower to understand and reproduce.
@@ -250,7 +181,7 @@ Allow one or more image attachments in the suggestion modal.
 - suggestion record linked to uploaded files
 
 ### Dependency
-- This may change the best implementation choice for item 8.
+- This may change the best implementation choice for item 6.
 
 ### Done when
 - a user can attach at least one image
@@ -265,7 +196,7 @@ Allow one or more image attachments in the suggestion modal.
 
 
 
-## 9. Fix PDF nutrient highlighting errors
+## 7. Fix PDF nutrient highlighting errors
 
 ### Problem
 The nutrient highlighting feature works for many terms but fails for some words or phrases. In some PDFs it highlights partial words, the wrong word, or a broken segment inside a word.
@@ -310,7 +241,7 @@ Make nutrient highlighting reliable in PDF text layers, even when PDF.js splits 
 
 
 
-## 10. Improve fuzzy matching logic
+## 8. Improve fuzzy matching logic
 
 ### Problem
 Fuzzy matching can be too loose or too strict, which affects the quality of nutrient suggestions and matching confidence.
@@ -334,13 +265,13 @@ Improve fuzzy scoring and normalization so suggestions are ranked more accuratel
 
 
 
-## 11. (Depends on 10) Use improved fuzzy matching in PDF highlighting
+## 9. (Depends on 8) Use improved fuzzy matching in PDF highlighting
 
 ### Problem
 PDF highlighting uses term matching that does not benefit from improved fuzzy logic, which can miss or mis-rank matches.
 
 ### Goal
-Apply the improved fuzzy logic from item 10 to highlight matching in the PDF text layer.
+Apply the improved fuzzy logic from item 8 to highlight matching in the PDF text layer.
 
 ### Likely technical area
 - `apps/expert-annotator/src/components/PdfViewer.jsx`
@@ -358,7 +289,7 @@ Apply the improved fuzzy logic from item 10 to highlight matching in the PDF tex
 
 
 
-## 12. Add limitless scrolling for papers list (no page clicks)
+## 10. Add limitless scrolling for papers list (no page clicks)
 
 ### Problem
 The papers list requires clicking across pages, which slows navigation and interrupts flow.
@@ -382,7 +313,7 @@ Replace paginated navigation with infinite/limitless scrolling.
 
 
 
-## 13. Hide papers list popover when clicking outside
+## 11. Hide papers list popover when clicking outside
 
 ### Problem
 The papers list dropdown/popup remains open when clicking elsewhere on the page.
@@ -405,7 +336,7 @@ Dismiss the papers list popover on outside click.
 
 
 
-## 14. Remove the “Trabzon Ekmeği” example text
+## 12. Remove the “Trabzon Ekmeği” example text
 
 ### Problem
 An example like “Trabzon Ekmeği” is shown, but no example is needed in that spot.
