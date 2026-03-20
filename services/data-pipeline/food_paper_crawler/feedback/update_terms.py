@@ -16,8 +16,20 @@ from urllib.request import Request, urlopen
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from feedback_seed_terms import (
+        SEED_EN_ANCHOR_PHRASES,
+        SEED_GOOD_TERMS,
+        SEED_MULTI_ANCHOR_PHRASES,
+        SEED_QUERY_PHRASES,
+    )
     from feedback_terms import extract_terms
 else:
+    from ..feedback_seed_terms import (
+        SEED_EN_ANCHOR_PHRASES,
+        SEED_GOOD_TERMS,
+        SEED_MULTI_ANCHOR_PHRASES,
+        SEED_QUERY_PHRASES,
+    )
     from ..feedback_terms import extract_terms
 
 
@@ -25,72 +37,28 @@ else:
 class TermScore:
     term: str
     ngram: int
-    good_count: int
-    bad_count: int
-    score: float
+    title_good_df: int
+    title_bad_df: int
+    title_background_df: int
+    ta_good_df: int
+    ta_bad_df: int
+    ta_background_df: int
+    seed_good_prior: float
+    seed_bad_prior: float
+    title_good_score: float
+    title_bad_score: float
+    title_net: float
+    ta_good_score: float
+    ta_bad_score: float
+    ta_net: float
 
 
-def count_terms(texts: Iterable[str], max_ngram: int, min_token_len: int, max_phrase_len: int) -> Counter:
-    counts: Counter = Counter()
-    for text in texts:
-        terms = set(extract_terms(text, max_ngram, min_token_len, max_phrase_len))
-        for term in terms:
-            counts[term] += 1
-    return counts
-
-
-def log_odds(left: int, right: int, left_total: int, right_total: int, alpha: float) -> float:
-    return math.log((left + alpha) / (left_total - left + alpha)) - math.log((right + alpha) / (right_total - right + alpha))
-
-
-def score_term_counts(
-    left_counts: Counter,
-    right_counts: Counter,
-    *,
-    left_total: int,
-    right_total: int,
-    alpha: float,
-    min_total: int,
-) -> List[TermScore]:
-    all_terms = set(left_counts) | set(right_counts)
-    scored: List[TermScore] = []
-    for term in all_terms:
-        left = int(left_counts.get(term, 0))
-        right = int(right_counts.get(term, 0))
-        if left + right < min_total:
-            continue
-        score = log_odds(left, right, left_total, right_total, alpha)
-        scored.append(
-            TermScore(
-                term=term,
-                ngram=term.count(" ") + 1,
-                good_count=left,
-                bad_count=right,
-                score=score,
-            )
-        )
-    scored.sort(key=lambda item: (abs(item.score), item.good_count + item.bad_count, item.good_count), reverse=True)
-    return scored
-
-
-def select_terms(
-    items: List[TermScore],
-    *,
-    max_count: int,
-    min_ngram: int = 1,
-    descending: bool = True,
-) -> List[str]:
-    ordered = sorted(items, key=lambda item: (item.score, item.good_count), reverse=descending)
-    selected: List[str] = []
-    for item in ordered:
-        if item.ngram < min_ngram:
-            continue
-        if item.term in selected:
-            continue
-        selected.append(item.term)
-        if len(selected) >= max_count:
-            break
-    return selected
+@dataclass(frozen=True)
+class BucketCounts:
+    title_counts: Counter
+    ta_counts: Counter
+    title_total: int
+    ta_total: int
 
 
 def fetch_rows(
@@ -214,116 +182,322 @@ def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[s
     return good_ids, bad_ids, conflict_ids
 
 
-def build_text_buckets(
+def _extract_doc_terms(
+    text: str,
+    *,
+    max_ngram: int,
+    min_token_len: int,
+    max_phrase_len: int,
+) -> set[str]:
+    if not text:
+        return set()
+    return set(extract_terms(text, max_ngram, min_token_len, max_phrase_len))
+
+
+def count_bucket_terms(
+    papers_by_id: Dict[int, dict],
+    paper_ids: Iterable[int],
+    *,
+    max_ngram: int,
+    min_token_len: int,
+    max_phrase_len: int,
+) -> BucketCounts:
+    title_counts: Counter = Counter()
+    ta_counts: Counter = Counter()
+    title_total = 0
+    ta_total = 0
+
+    for paper_id in paper_ids:
+        row = papers_by_id.get(paper_id) or {}
+        title = str(row.get("title") or "").strip()
+        abstract = str(row.get("abstract") or "").strip()
+        title_terms = _extract_doc_terms(
+            title,
+            max_ngram=max_ngram,
+            min_token_len=min_token_len,
+            max_phrase_len=max_phrase_len,
+        )
+        if title_terms:
+            title_total += 1
+            title_counts.update(title_terms)
+
+        ta_text = " ".join(part for part in (title, abstract) if part).strip()
+        ta_terms = _extract_doc_terms(
+            ta_text,
+            max_ngram=max_ngram,
+            min_token_len=min_token_len,
+            max_phrase_len=max_phrase_len,
+        )
+        if ta_terms:
+            ta_total += 1
+            ta_counts.update(ta_terms)
+
+    return BucketCounts(
+        title_counts=title_counts,
+        ta_counts=ta_counts,
+        title_total=title_total,
+        ta_total=ta_total,
+    )
+
+
+def log_odds(left: float, right: float, left_total: float, right_total: float, alpha: float) -> float:
+    left_total = max(left_total, left)
+    right_total = max(right_total, right)
+    left_missing = max(0.0, left_total - left)
+    right_missing = max(0.0, right_total - right)
+    return math.log((left + alpha) / (left_missing + alpha)) - math.log((right + alpha) / (right_missing + alpha))
+
+
+def build_scored_terms(
     papers: List[dict],
     good_ids: set[int],
     bad_ids: set[int],
     conflict_ids: set[int],
-) -> Tuple[List[str], List[str], List[str]]:
-    by_id = {row.get("id"): row for row in papers if row.get("id") is not None}
-
-    def paper_text(pid: int) -> str:
-        row = by_id.get(pid) or {}
-        title = row.get("title") or ""
-        abstract = row.get("abstract") or ""
-        return f"{title} {abstract}".strip()
-
-    good_texts: List[str] = []
-    bad_texts: List[str] = []
-    other_texts: List[str] = []
-
-    for pid, row in by_id.items():
-        if pid in conflict_ids:
-            continue
-        text = paper_text(pid)
-        if not text:
-            continue
-        if pid in good_ids:
-            good_texts.append(text)
-        elif pid in bad_ids:
-            bad_texts.append(text)
-        else:
-            other_texts.append(text)
-
-    return good_texts, bad_texts, other_texts
-
-
-def build_scored_terms(
-    good_texts: List[str],
-    bad_texts: List[str],
-    other_texts: List[str],
     *,
     max_ngram: int,
     min_token_len: int,
     max_phrase_len: int,
     min_total: int,
     alpha: float,
-) -> Tuple[str, List[TermScore]]:
-    if good_texts and bad_texts:
-        mode = "good_vs_bad"
-        left_texts = good_texts
-        right_texts = bad_texts
-        invert = False
-    elif good_texts and other_texts:
-        mode = "good_vs_other"
-        left_texts = good_texts
-        right_texts = other_texts
-        invert = False
-    elif bad_texts and other_texts:
-        mode = "bad_vs_other"
-        left_texts = bad_texts
-        right_texts = other_texts
-        invert = True
-    else:
-        raise SystemExit("Not enough contrasting papers to compute cumulative feedback weights.")
+    seed_good_prior: float,
+    seed_bad_prior: float,
+) -> Tuple[List[TermScore], Dict[str, int]]:
+    if not good_ids and not bad_ids:
+        raise SystemExit("Not enough labeled papers to compute feedback terms.")
 
-    left_counts = count_terms(left_texts, max_ngram, min_token_len, max_phrase_len)
-    right_counts = count_terms(right_texts, max_ngram, min_token_len, max_phrase_len)
-    scored = score_term_counts(
-        left_counts,
-        right_counts,
-        left_total=len(left_texts),
-        right_total=len(right_texts),
-        alpha=alpha,
-        min_total=min_total,
+    papers_by_id = {row.get("id"): row for row in papers if row.get("id") is not None}
+    background_ids = [
+        paper_id
+        for paper_id in papers_by_id
+        if paper_id not in good_ids and paper_id not in bad_ids and paper_id not in conflict_ids
+    ]
+
+    good_bucket = count_bucket_terms(
+        papers_by_id,
+        good_ids,
+        max_ngram=max_ngram,
+        min_token_len=min_token_len,
+        max_phrase_len=max_phrase_len,
+    )
+    bad_bucket = count_bucket_terms(
+        papers_by_id,
+        bad_ids,
+        max_ngram=max_ngram,
+        min_token_len=min_token_len,
+        max_phrase_len=max_phrase_len,
+    )
+    background_bucket = count_bucket_terms(
+        papers_by_id,
+        background_ids,
+        max_ngram=max_ngram,
+        min_token_len=min_token_len,
+        max_phrase_len=max_phrase_len,
     )
 
-    if invert:
-        scored = [
-            TermScore(
-                term=item.term,
-                ngram=item.ngram,
-                good_count=item.bad_count,
-                bad_count=item.good_count,
-                score=-item.score,
-            )
-            for item in scored
-        ]
-        scored.sort(key=lambda item: (abs(item.score), item.good_count + item.bad_count, item.good_count), reverse=True)
+    all_terms = (
+        set(good_bucket.title_counts)
+        | set(good_bucket.ta_counts)
+        | set(bad_bucket.title_counts)
+        | set(bad_bucket.ta_counts)
+        | set(background_bucket.title_counts)
+        | set(background_bucket.ta_counts)
+        | set(SEED_GOOD_TERMS)
+    )
+    if not all_terms:
+        raise SystemExit("No extractable n-grams were found in the labeled/background papers.")
 
-    return mode, scored
+    scored: List[TermScore] = []
+    for term in all_terms:
+        title_good_df = int(good_bucket.title_counts.get(term, 0))
+        title_bad_df = int(bad_bucket.title_counts.get(term, 0))
+        title_background_df = int(background_bucket.title_counts.get(term, 0))
+        ta_good_df = int(good_bucket.ta_counts.get(term, 0))
+        ta_bad_df = int(bad_bucket.ta_counts.get(term, 0))
+        ta_background_df = int(background_bucket.ta_counts.get(term, 0))
+
+        seed_good = float(seed_good_prior if term in SEED_GOOD_TERMS else 0.0)
+        seed_bad = float(seed_bad_prior)
+        support_total = (
+            title_good_df
+            + title_bad_df
+            + title_background_df
+            + ta_good_df
+            + ta_bad_df
+            + ta_background_df
+            + seed_good
+            + seed_bad
+        )
+        if support_total < min_total:
+            continue
+
+        title_good_score = log_odds(
+            title_good_df + seed_good,
+            title_background_df,
+            good_bucket.title_total + seed_good,
+            background_bucket.title_total,
+            alpha,
+        )
+        title_bad_score = log_odds(
+            title_bad_df + seed_bad,
+            title_background_df,
+            bad_bucket.title_total + seed_bad,
+            background_bucket.title_total,
+            alpha,
+        )
+        ta_good_score = log_odds(
+            ta_good_df + seed_good,
+            ta_background_df,
+            good_bucket.ta_total + seed_good,
+            background_bucket.ta_total,
+            alpha,
+        )
+        ta_bad_score = log_odds(
+            ta_bad_df + seed_bad,
+            ta_background_df,
+            bad_bucket.ta_total + seed_bad,
+            background_bucket.ta_total,
+            alpha,
+        )
+
+        scored.append(
+            TermScore(
+                term=term,
+                ngram=term.count(" ") + 1,
+                title_good_df=title_good_df,
+                title_bad_df=title_bad_df,
+                title_background_df=title_background_df,
+                ta_good_df=ta_good_df,
+                ta_bad_df=ta_bad_df,
+                ta_background_df=ta_background_df,
+                seed_good_prior=seed_good,
+                seed_bad_prior=seed_bad,
+                title_good_score=title_good_score,
+                title_bad_score=title_bad_score,
+                title_net=title_good_score - title_bad_score,
+                ta_good_score=ta_good_score,
+                ta_bad_score=ta_bad_score,
+                ta_net=ta_good_score - ta_bad_score,
+            )
+        )
+
+    scored.sort(
+        key=lambda item: (
+            abs(1.5 * item.title_net + item.ta_net),
+            item.title_good_df + item.ta_good_df + item.seed_good_prior,
+            item.ngram,
+            item.term,
+        ),
+        reverse=True,
+    )
+
+    counts = {
+        "good_count": len(good_ids),
+        "bad_count": len(bad_ids),
+        "background_count": len(background_ids),
+        "conflict_count": len(conflict_ids),
+        "title_good_docs": good_bucket.title_total,
+        "title_bad_docs": bad_bucket.title_total,
+        "title_background_docs": background_bucket.title_total,
+        "ta_good_docs": good_bucket.ta_total,
+        "ta_bad_docs": bad_bucket.ta_total,
+        "ta_background_docs": background_bucket.ta_total,
+    }
+    return scored, counts
+
+
+def _query_rank(item: TermScore) -> Tuple[float, float, float, float]:
+    support = item.title_good_df + item.seed_good_prior
+    score = (
+        1.75 * item.title_good_score
+        + 0.75 * item.title_net
+        + 0.35 * item.ta_net
+        - max(0.0, item.title_bad_score)
+    )
+    return (score, support, item.ta_good_df - item.ta_bad_df, item.ngram)
+
+
+def _anchor_rank(item: TermScore) -> Tuple[float, float, float, float]:
+    support = item.title_good_df + item.ta_good_df + item.seed_good_prior
+    score = (
+        1.25 * item.title_good_score
+        + 1.0 * item.ta_good_score
+        + 0.5 * item.title_net
+        + 0.25 * item.ta_net
+        - max(0.0, item.title_bad_score)
+    )
+    return (score, support, item.title_good_df, item.ngram)
+
+
+def select_query_phrases(items: List[TermScore], *, max_count: int) -> List[str]:
+    candidates = []
+    for item in items:
+        if item.ngram < 2:
+            continue
+        if item.title_good_score <= 0 or item.title_net <= 0:
+            continue
+        if item.title_bad_score >= item.title_good_score:
+            continue
+        if (item.title_good_df + item.seed_good_prior) <= 0:
+            continue
+        candidates.append(item)
+
+    ordered = sorted(candidates, key=_query_rank, reverse=True)
+    selected: List[str] = []
+    seen = set()
+    for item in ordered:
+        if item.term in seen:
+            continue
+        seen.add(item.term)
+        selected.append(item.term)
+        if len(selected) >= max_count:
+            break
+    return selected
+
+
+def select_anchor_phrases(items: List[TermScore], *, max_count: int) -> List[str]:
+    candidates = []
+    for item in items:
+        if item.ngram < 2:
+            continue
+        if item.ta_good_score <= 0 and item.title_good_score <= 0:
+            continue
+        if item.title_bad_score >= max(item.title_good_score, 0.01) and item.ta_bad_score >= max(item.ta_good_score, 0.01):
+            continue
+        candidates.append(item)
+
+    ordered = sorted(candidates, key=_anchor_rank, reverse=True)
+    selected: List[str] = []
+    seen = set()
+    for item in ordered:
+        if item.term in seen:
+            continue
+        seen.add(item.term)
+        selected.append(item.term)
+        if len(selected) >= max_count:
+            break
+    return selected
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate cumulative soft-feedback n-gram weights from labeled papers.")
+    parser = argparse.ArgumentParser(description="Generate cumulative field-aware soft-feedback n-gram weights from labeled papers.")
     parser.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL"))
     parser.add_argument("--supabase-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY"))
     parser.add_argument("--output-dir", default=str(Path(__file__).resolve().parent))
-    parser.add_argument("--max-positive", type=int, default=12)
-    parser.add_argument("--max-negative", type=int, default=10)
-    parser.add_argument("--max-anchors", type=int, default=12)
-    parser.add_argument("--max-query-terms", type=int, default=10)
+    parser.add_argument("--max-query-phrases", "--max-query-terms", dest="max_query_phrases", type=int, default=64)
+    parser.add_argument("--max-anchor-phrases", "--max-anchors", dest="max_anchor_phrases", type=int, default=16)
     parser.add_argument("--max-ngram", type=int, default=3)
     parser.add_argument("--min-token-len", type=int, default=3)
     parser.add_argument("--max-phrase-len", type=int, default=40)
     parser.add_argument("--min-total", type=int, default=1)
     parser.add_argument("--alpha", type=float, default=1.0)
+    parser.add_argument("--seed-good-prior", type=float, default=1.0)
+    parser.add_argument("--seed-bad-prior", type=float, default=0.0)
     args = parser.parse_args()
 
     if not args.supabase_url or not args.supabase_key:
         raise SystemExit("Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY for feedback export.")
 
-    _, papers = resolve_paper_select(args.supabase_url, args.supabase_key)
+    paper_select, papers = resolve_paper_select(args.supabase_url, args.supabase_key)
     label_events = fetch_rows(
         args.supabase_url,
         args.supabase_key,
@@ -341,87 +515,73 @@ def main() -> None:
     )
 
     good_ids, bad_ids, conflict_ids = build_labels(label_events, global_labels)
-    good_texts, bad_texts, other_texts = build_text_buckets(papers, good_ids, bad_ids, conflict_ids)
-    mode, scored = build_scored_terms(
-        good_texts,
-        bad_texts,
-        other_texts,
+    scored, counts = build_scored_terms(
+        papers,
+        good_ids,
+        bad_ids,
+        conflict_ids,
         max_ngram=args.max_ngram,
         min_token_len=args.min_token_len,
         max_phrase_len=args.max_phrase_len,
         min_total=args.min_total,
         alpha=args.alpha,
+        seed_good_prior=args.seed_good_prior,
+        seed_bad_prior=args.seed_bad_prior,
     )
 
-    positive_candidates = [item for item in scored if item.score > 0]
-    negative_candidates = [item for item in scored if item.score < 0]
-    positive_terms = select_terms(
-        positive_candidates,
-        max_count=args.max_positive,
-        min_ngram=2,
-        descending=True,
-    )
-    negative_terms = select_terms(
-        negative_candidates,
-        max_count=args.max_negative,
-        min_ngram=1,
-        descending=False,
-    )
-    anchor_terms = select_terms(
-        positive_candidates,
-        max_count=args.max_anchors,
-        min_ngram=2,
-        descending=True,
-    )
-    query_terms = select_terms(
-        positive_candidates,
-        max_count=args.max_query_terms,
-        min_ngram=2,
-        descending=True,
-    )
+    query_phrases = select_query_phrases(scored, max_count=args.max_query_phrases)
+    anchor_phrases = select_anchor_phrases(scored, max_count=args.max_anchor_phrases)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now(timezone.utc).isoformat()
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
-    scores_path = output_dir / f"term_scores_{timestamp}.json"
-    scores_payload = {
-        "generated_at": generated_at,
-        "mode": mode,
-        "good_count": len(good_texts),
-        "bad_count": len(bad_texts),
-        "other_count": len(other_texts),
-        "conflict_count": len(conflict_ids),
-        "rules": {
-            "max_ngram": args.max_ngram,
-            "min_token_len": args.min_token_len,
-            "max_phrase_len": args.max_phrase_len,
-            "min_total": args.min_total,
-            "alpha": args.alpha,
-        },
-        "scores": [asdict(item) for item in scored],
+    rules = {
+        "paper_select": paper_select,
+        "max_ngram": args.max_ngram,
+        "min_token_len": args.min_token_len,
+        "max_phrase_len": args.max_phrase_len,
+        "min_total": args.min_total,
+        "alpha": args.alpha,
+        "seed_good_prior": args.seed_good_prior,
+        "seed_bad_prior": args.seed_bad_prior,
+        "filter_title_weight": 1.5,
+        "filter_ta_weight": 1.0,
     }
-    scores_path.write_text(json.dumps(scores_payload, indent=2, sort_keys=True), encoding="utf-8")
+    priors = {
+        "seed_good_terms": SEED_GOOD_TERMS,
+        "seed_query_phrases": SEED_QUERY_PHRASES,
+        "seed_anchor_phrases": SEED_EN_ANCHOR_PHRASES,
+        "seed_anchor_phrases_multi": SEED_MULTI_ANCHOR_PHRASES,
+    }
+
+    scores_path = output_dir / f"term_scores_{timestamp}.json"
+    payload = {
+        "generated_at": generated_at,
+        "counts": counts,
+        "rules": rules,
+        "priors": priors,
+        "query_phrases": query_phrases,
+        "anchor_phrases": anchor_phrases,
+        "anchor_phrases_multi": anchor_phrases,
+        "weighted_terms": [asdict(item) for item in scored],
+    }
+    scores_path.write_text(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
 
     latest_path = output_dir / "latest.json"
     latest_payload = {
         "generated_at": generated_at,
         "config_path": str(latest_path),
-        "mode": mode,
-        "good_count": len(good_texts),
-        "bad_count": len(bad_texts),
-        "other_count": len(other_texts),
-        "conflict_count": len(conflict_ids),
-        "rules": scores_payload["rules"],
-        "positive_phrases": positive_terms,
-        "negative_terms": negative_terms,
-        "anchor_phrases": anchor_terms,
-        "anchor_phrases_multi": anchor_terms,
-        "query_terms": query_terms,
+        "counts": counts,
+        "rules": rules,
+        "priors": priors,
+        "query_phrases": query_phrases,
+        "anchor_phrases": anchor_phrases,
+        "anchor_phrases_multi": anchor_phrases,
         "weighted_terms": [asdict(item) for item in scored],
     }
-    latest_path.write_text(json.dumps(latest_payload, indent=2, sort_keys=True), encoding="utf-8")
+    latest_path.write_text(json.dumps(latest_payload, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
 
     print(f"Wrote {scores_path}")
     print(f"Wrote {latest_path}")

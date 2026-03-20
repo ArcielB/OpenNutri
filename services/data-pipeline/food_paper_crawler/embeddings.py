@@ -4,39 +4,14 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from .feedback_seed_terms import SEED_EN_ANCHOR_PHRASES, SEED_MULTI_ANCHOR_PHRASES
+
 _sentence_transformers_import_error = None
 try:
     from sentence_transformers import SentenceTransformer
 except Exception as exc:  # pragma: no cover - optional dependency
     SentenceTransformer = None
     _sentence_transformers_import_error = exc
-
-
-EN_ANCHOR_PHRASES = [
-    "food composition",
-    "food composition table",
-    "composition table",
-    "nutrient composition",
-    "nutritional composition",
-    "chemical composition",
-    "proximate composition",
-    "proximate analysis",
-    "nutrient content",
-    "nutrient profile",
-    "mineral content",
-    "vitamin content",
-    "fatty acid composition",
-    "amino acid composition",
-    "nutrient data",
-    "composition data",
-]
-
-MULTI_ANCHOR_PHRASES = EN_ANCHOR_PHRASES + [
-    "gida bilesimi",
-    "besin bilesimi",
-    "gida kompozisyonu",
-    "besin kompozisyonu",
-]
 
 
 @dataclass
@@ -69,13 +44,13 @@ class DualEmbeddingScorer:
         self.error: Optional[str] = None
         self._en_model = None
         self._multi_model = None
-        from .feedback_config import extract_terms, load_feedback_config, merge_terms
+        from .feedback_config import extract_terms, load_feedback_config
 
         feedback_config = load_feedback_config()
         feedback_anchors = extract_terms(feedback_config, "anchor_phrases")
-        feedback_multi = extract_terms(feedback_config, "anchor_phrases_multi") or feedback_anchors
-        self._en_anchors = merge_terms(EN_ANCHOR_PHRASES, feedback_anchors)
-        self._multi_anchors = merge_terms(MULTI_ANCHOR_PHRASES, feedback_multi)
+        feedback_multi = extract_terms(feedback_config, "anchor_phrases_multi")
+        self._en_anchors = feedback_anchors or list(SEED_EN_ANCHOR_PHRASES)
+        self._multi_anchors = feedback_multi or feedback_anchors or list(SEED_MULTI_ANCHOR_PHRASES)
         self._en_anchor_emb = None
         self._multi_anchor_emb = None
         try:

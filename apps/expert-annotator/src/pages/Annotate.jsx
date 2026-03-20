@@ -23,6 +23,17 @@ function createEmptyFoodItem() {
     }
 }
 
+function isValidFoodItem(item) {
+    return Boolean((item?.food_name || '').trim() || item?.food_fdc_id)
+}
+
+function normalizeFoodItem(item) {
+    return {
+        ...item,
+        food_name: (item?.food_name || '').trim(),
+    }
+}
+
 const GLOBAL_SKIP_REASON = 'quick_skip'
 const GLOBAL_SKIP_UNDO_MS = 10000
 
@@ -280,17 +291,21 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     // Save annotation
     const saveAnnotation = async (hasData, status) => {
         if (!currentPaper) return
+        const validFoodItems = hasData
+            ? foodItems.filter(isValidFoodItem).map(normalizeFoodItem)
+            : []
+        const foodItemCount = validFoodItems.length
+        const nutrientValueCount = validFoodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0)
+
+        if (hasData && foodItemCount === 0) {
+            showToast('Add at least one valid food item before saving.', 'error')
+            return
+        }
+
         setSaving(true)
 
         try {
             if (testMode) {
-                const foodItemCount = hasData
-                    ? foodItems.filter((item) => (item.food_name || '').trim() || item.food_fdc_id).length
-                    : 0
-                const nutrientValueCount = hasData
-                    ? foodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0)
-                    : 0
-
                 appendTestEvent({
                     type: 'annotation_save',
                     paper_id: currentPaper.id,
@@ -339,8 +354,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                 .eq('annotation_id', ann.id)
 
             // Insert new food items if has_data
-            if (hasData && foodItems.length > 0) {
-                for (const item of foodItems) {
+            if (hasData && validFoodItems.length > 0) {
+                for (const item of validFoodItems) {
                     // Insert the food item
                     const { data: insertedItem, error: itemError } = await supabase
                         .from('food_items')
@@ -373,13 +388,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                     }
                 }
             }
-
-            const foodItemCount = hasData
-                ? foodItems.filter((item) => (item.food_name || '').trim() || item.food_fdc_id).length
-                : 0
-            const nutrientValueCount = hasData
-                ? foodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0)
-                : 0
 
             const { error: labelError } = await supabase
                 .from('paper_label_events')

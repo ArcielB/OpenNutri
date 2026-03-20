@@ -18,8 +18,9 @@ from urllib.request import Request, urlopen
 
 from .embeddings import DualEmbeddingScorer
 from .europe_pmc import EuropePMCClient
-from .feedback_config import extract_terms, load_feedback_config, merge_terms
-from .feedback_terms import extract_terms as extract_feedback_terms, extract_weighted_terms
+from .feedback_config import extract_terms, load_feedback_config
+from .feedback_seed_terms import SEED_QUERY_PHRASES
+from .feedback_terms import extract_scored_terms, extract_terms as extract_feedback_terms
 from .models import CandidatePaper, DownloadRecord
 from .ranking import validate_pdf_text
 from .supabase_terms import fetch_food_terms, fetch_nutrient_terms
@@ -54,29 +55,22 @@ HEALTH_OUTCOME_TERMS = [
     "insulin",
 ]
 
-STRONG_POSITIVE_PHRASES = [
-    "food composition",
-    "composition table",
-    "food composition table",
-    "nutrient composition",
-    "nutritional composition",
-    "chemical composition",
-    "proximate composition",
-    "proximate analysis",
-    "mineral content",
-    "vitamin content",
-    "fatty acid composition",
-    "amino acid composition",
-    "nutrient content",
-]
-
 UNIT_PATTERN = re.compile(r"\b(?:mg|g|µg|ug)\s*/?\s*100\s*g\b", re.IGNORECASE)
 
 PMC_OA_API = "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi"
 AUDIT_EVERY_N = 100
-METADATA_ACCEPT_THRESHOLD = 2.0
-MAX_FEEDBACK_SCORE_ABS = 4.0
+METADATA_ACCEPT_THRESHOLD = 1.75
+MAX_FEEDBACK_TERM_ABS = 2.5
+MAX_FEEDBACK_SCORE_ABS = 6.0
 MAX_HEALTH_PENALTY = 2.0
+FILTER_TITLE_WEIGHT = 1.5
+FILTER_TA_WEIGHT = 1.0
+QUERY_BASE_FLOOR = 2
+QUERY_PHRASE_EXPLORATION_RATE = 0.02
+COMPOSITION_FRAME = (
+    '("food composition" OR "nutrient composition" OR "chemical composition" OR '
+    '"proximate analysis" OR "nutrient content")'
+)
 
 
 @dataclass(frozen=True)
@@ -111,14 +105,15 @@ class FoodCompositionCrawlerV2:
         self.food_terms = fetch_food_terms(supabase_url, supabase_key, limit=food_limit)
         self.nutrient_terms = fetch_nutrient_terms(supabase_url, supabase_key, limit=nutrient_limit)
         self.feedback_config = load_feedback_config()
-        self.feedback_positive_phrases = extract_terms(self.feedback_config, "positive_phrases")
-        self.feedback_query_terms = extract_terms(self.feedback_config, "query_terms")
-        self.feedback_weighted_terms = extract_weighted_terms(self.feedback_config)
-        self.positive_phrases = merge_terms(STRONG_POSITIVE_PHRASES, self.feedback_positive_phrases)
+        self.query_phrases = extract_terms(self.feedback_config, "query_phrases") or list(SEED_QUERY_PHRASES)
+        self.anchor_phrases = extract_terms(self.feedback_config, "anchor_phrases") or list(self.query_phrases)
+        self.feedback_weighted_terms = extract_scored_terms(self.feedback_config)
         self.feedback_rules = self.feedback_config.get("rules", {}) if isinstance(self.feedback_config.get("rules"), dict) else {}
         self.feedback_max_ngram = max(1, int(self.feedback_rules.get("max_ngram", 3) or 3))
         self.feedback_min_token_len = max(1, int(self.feedback_rules.get("min_token_len", 3) or 3))
         self.feedback_max_phrase_len = max(1, int(self.feedback_rules.get("max_phrase_len", 40) or 40))
+        self.filter_title_weight = float(self.feedback_rules.get("filter_title_weight", FILTER_TITLE_WEIGHT) or FILTER_TITLE_WEIGHT)
+        self.filter_ta_weight = float(self.feedback_rules.get("filter_ta_weight", FILTER_TA_WEIGHT) or FILTER_TA_WEIGHT)
         self.embedding_scorer = DualEmbeddingScorer()
         self.max_queries = max_queries
         self.state = self._load_state()
@@ -128,7 +123,7 @@ class FoodCompositionCrawlerV2:
         if replace_existing and self.raw_pdf_dir.exists():
             shutil.rmtree(self.raw_pdf_dir)
         if replace_existing:
-            self.state = {"seen_ids": [], "term_cursor": 0}
+            self.state = self._default_state()
         self.raw_pdf_dir.mkdir(parents=True, exist_ok=True)
 
         accepted_records: List[DownloadRecord] = []
@@ -222,14 +217,14 @@ class FoodCompositionCrawlerV2:
         manifest = {
             "harvested_at": harvested_at,
             "query_count": len(queries),
-            "rule_version": "l1-balanced-v1",
+            "rule_version": "field-aware-soft-v2",
             "embedding": self.embedding_scorer.info(),
             "feedback": {
                 "config_path": str(self.feedback_config.get("config_path", "")),
-                "positive_phrases": self.feedback_positive_phrases[:20],
-                "query_terms": self.feedback_query_terms[:20],
+                "query_phrases": self.query_phrases[:20],
+                "anchor_phrases": self.anchor_phrases[:20],
                 "weighted_terms_count": len(self.feedback_weighted_terms),
-                "mode": self.feedback_config.get("mode"),
+                "counts": self.feedback_config.get("counts"),
             },
             "target_pdfs": self.target_pdfs,
             "accepted_count": len(accepted_records),
@@ -257,40 +252,81 @@ class FoodCompositionCrawlerV2:
     def _build_queries(self) -> List[QuerySpec]:
         base_queries = [
             QuerySpec(
-                query='("food composition" OR "nutrient composition" OR "proximate analysis" OR '
-                '"chemical composition" OR "food composition table") AND IN_PMC:y',
+                query=f'({COMPOSITION_FRAME} AND ("table" OR "content" OR "analysis")) AND IN_PMC:y',
                 template_id="base_core_composition",
                 source_term=None,
                 term_type="base",
             ),
             QuerySpec(
-                query='("nutrient content" OR "mineral content" OR "vitamin content" OR '
-                '"fatty acid composition" OR "amino acid composition") AND IN_PMC:y',
+                query='(("mineral content" OR "vitamin content" OR "fatty acid composition" OR '
+                f'"amino acid composition") AND {COMPOSITION_FRAME}) AND IN_PMC:y',
                 template_id="base_nutrient_content",
                 source_term=None,
                 term_type="base",
             ),
         ]
 
-        term_pool = self._build_term_pool()
-        if not term_pool:
+        concept_pool = self._build_concept_pool()
+        phrase_pool = self.query_phrases or list(SEED_QUERY_PHRASES)
+        if not concept_pool:
             return self._dedupe_queries(base_queries)[: max(1, self.max_queries)]
 
-        queries: List[QuerySpec] = list(base_queries)
+        queries: List[QuerySpec] = list(base_queries[:QUERY_BASE_FLOOR])
         remaining = max(0, self.max_queries - len(queries))
-        cursor = int(self.state.get("term_cursor", 0)) % len(term_pool)
-        for offset in range(remaining):
-            term_type, term = term_pool[(cursor + offset) % len(term_pool)]
-            queries.append(self._build_term_query(term_type, term))
+        if remaining <= 0:
+            return self._dedupe_queries(queries)[: self.max_queries]
 
-        self.state["term_cursor"] = (cursor + remaining) % len(term_pool)
+        concept_cursor = int(self.state.get("concept_cursor", self.state.get("term_cursor", 0))) % len(concept_pool)
+        phrase_cursor = int(self.state.get("phrase_cursor", 0))
+        phrase_explore_cursor = int(self.state.get("phrase_explore_cursor", 0))
+
+        exploration_pool_size = min(
+            max(0, len(phrase_pool) - 1),
+            max(1, round(len(phrase_pool) * QUERY_PHRASE_EXPLORATION_RATE)),
+        ) if len(phrase_pool) > 1 else 0
+        core_count = max(1, len(phrase_pool) - exploration_pool_size)
+        core_phrases = phrase_pool[:core_count]
+        exploration_phrases = phrase_pool[len(core_phrases):]
+        exploration_slots = 0
+        exploration_step = None
+        if exploration_phrases:
+            exploration_slots = min(
+                len(exploration_phrases),
+                max(1, round(remaining * QUERY_PHRASE_EXPLORATION_RATE)),
+            )
+            exploration_step = max(1, remaining // exploration_slots)
+
+        primary_used = 0
+        explore_used = 0
+        for offset in range(remaining):
+            concept_type, concept_term = concept_pool[(concept_cursor + offset) % len(concept_pool)]
+            use_explore = (
+                exploration_phrases
+                and exploration_slots > 0
+                and exploration_step is not None
+                and (offset + 1) % exploration_step == 0
+                and explore_used < exploration_slots
+            )
+            if use_explore:
+                phrase = exploration_phrases[(phrase_explore_cursor + explore_used) % len(exploration_phrases)]
+                explore_used += 1
+                template_id = f"{concept_type}_phrase_explore"
+            else:
+                phrase = core_phrases[(phrase_cursor + primary_used) % len(core_phrases)]
+                primary_used += 1
+                template_id = f"{concept_type}_phrase_core"
+
+            queries.append(self._build_learned_query(concept_type, concept_term, phrase, template_id))
+
+        self.state["concept_cursor"] = (concept_cursor + remaining) % len(concept_pool)
+        self.state["term_cursor"] = self.state["concept_cursor"]
+        self.state["phrase_cursor"] = (phrase_cursor + primary_used) % max(1, len(core_phrases))
+        if exploration_phrases:
+            self.state["phrase_explore_cursor"] = (phrase_explore_cursor + explore_used) % len(exploration_phrases)
         return self._dedupe_queries(queries)[: self.max_queries]
 
-    def _build_term_pool(self) -> List[Tuple[str, str]]:
+    def _build_concept_pool(self) -> List[Tuple[str, str]]:
         pool: List[Tuple[str, str]] = []
-        for term in self.feedback_query_terms:
-            if term:
-                pool.append(("feedback", term))
         max_len = max(len(self.food_terms), len(self.nutrient_terms))
         for idx in range(max_len):
             if idx < len(self.food_terms):
@@ -299,36 +335,20 @@ class FoodCompositionCrawlerV2:
                 pool.append(("nutrient", self.nutrient_terms[idx]))
         return pool
 
-    def _build_term_query(self, term_type: str, term: str) -> QuerySpec:
-        safe_term = term.replace('"', "").strip()
-        if term_type == "feedback":
-            return QuerySpec(
-                query=(
-                    f'("{safe_term}" AND ("food composition" OR "nutrient composition" OR '
-                    '"nutrient content" OR "proximate analysis" OR "chemical composition")) AND IN_PMC:y'
-                ),
-                template_id="feedback_phrase",
-                source_term=term,
-                term_type="feedback",
-            )
-        if term_type == "nutrient":
-            return QuerySpec(
-                query=(
-                    f'("{safe_term}" AND ("food composition" OR "nutrient composition" OR '
-                    '"nutrient content" OR "mg/100g" OR "g/100g")) AND IN_PMC:y'
-                ),
-                template_id="nutrient_composition",
-                source_term=term,
-                term_type="nutrient",
+    def _build_learned_query(self, concept_type: str, concept_term: str, phrase: str, template_id: str) -> QuerySpec:
+        safe_concept = concept_term.replace('"', "").strip()
+        safe_phrase = phrase.replace('"', "").strip()
+        query = f'("{safe_concept}" AND "{safe_phrase}" AND {COMPOSITION_FRAME}) AND IN_PMC:y'
+        if concept_type == "nutrient":
+            query = (
+                f'("{safe_concept}" AND "{safe_phrase}" AND '
+                f'({COMPOSITION_FRAME} OR "mg/100g" OR "g/100g")) AND IN_PMC:y'
             )
         return QuerySpec(
-            query=(
-                f'("{safe_term}" AND ("food composition" OR "nutrient composition" OR '
-                '"nutrient content" OR "proximate analysis" OR "chemical composition")) AND IN_PMC:y'
-            ),
-            template_id="food_composition",
-            source_term=term,
-            term_type="food",
+            query=query,
+            template_id=template_id,
+            source_term=concept_term,
+            term_type=concept_type,
         )
 
     def _dedupe_queries(self, queries: List[QuerySpec]) -> List[QuerySpec]:
@@ -344,14 +364,16 @@ class FoodCompositionCrawlerV2:
 
     def _metadata_decision(self, candidate: CandidatePaper) -> Tuple[bool, float, List[Dict[str, str]]]:
         details: List[Dict[str, str]] = []
-        raw_text = f"{candidate.title} {candidate.abstract}".strip().lower()
-        normalized = self._normalize_for_match(raw_text)
+        title_text = " ".join((candidate.title or "").split())
+        abstract_text = " ".join((candidate.abstract or "").split())
+        raw_text = " ".join(part for part in (title_text, abstract_text) if part).strip()
+        normalized = self._normalize_for_match(raw_text.lower())
         score = 0.0
 
-        composition_hit = self._first_term_hit(normalized, self.positive_phrases)
+        composition_hit = self._first_term_hit(normalized, self.anchor_phrases)
         if composition_hit:
             self._append_reason(details, "composition_phrase", f"Positive: composition phrase '{composition_hit}'")
-            score += 2.0
+            score += 1.35
 
         unit_hit = bool(UNIT_PATTERN.search(raw_text))
         if unit_hit:
@@ -421,7 +443,7 @@ class FoodCompositionCrawlerV2:
             score += 0.75
             self._append_reason(details, "embedding_positive", "Positive: embedding similarity above threshold")
 
-        score += self._feedback_score(raw_text, details)
+        score += self._feedback_score(title_text, abstract_text, details)
 
         accepted = score >= METADATA_ACCEPT_THRESHOLD
         if accepted:
@@ -466,29 +488,53 @@ class FoodCompositionCrawlerV2:
                 hits.append(normalized_term)
         return hits
 
-    def _feedback_score(self, raw_text: str, details: List[Dict[str, str]]) -> float:
+    def _feedback_score(self, title_text: str, abstract_text: str, details: List[Dict[str, str]]) -> float:
         if not self.feedback_weighted_terms:
             return 0.0
 
+        title_terms = set(
+            extract_feedback_terms(
+                title_text,
+                max_ngram=self.feedback_max_ngram,
+                min_token_len=self.feedback_min_token_len,
+                max_phrase_len=self.feedback_max_phrase_len,
+            )
+        )
+        ta_terms = set(
+            extract_feedback_terms(
+                " ".join(part for part in (title_text, abstract_text) if part),
+                max_ngram=self.feedback_max_ngram,
+                min_token_len=self.feedback_min_token_len,
+                max_phrase_len=self.feedback_max_phrase_len,
+            )
+        )
+
         matched_terms = []
-        for term in extract_feedback_terms(
-            raw_text,
-            max_ngram=self.feedback_max_ngram,
-            min_token_len=self.feedback_min_token_len,
-            max_phrase_len=self.feedback_max_phrase_len,
-        ):
-            weight = self.feedback_weighted_terms.get(term)
-            if weight is None:
+        for term in sorted(title_terms | ta_terms):
+            weights = self.feedback_weighted_terms.get(term)
+            if not weights:
                 continue
-            matched_terms.append((term, weight))
+            title_contrib = 0.0
+            ta_contrib = 0.0
+            if term in title_terms:
+                title_contrib = self.filter_title_weight * float(weights.get("title_net", 0.0))
+            if term in ta_terms:
+                ta_contrib = self.filter_ta_weight * float(weights.get("ta_net", 0.0))
+            contribution = max(-MAX_FEEDBACK_TERM_ABS, min(MAX_FEEDBACK_TERM_ABS, title_contrib + ta_contrib))
+            if contribution == 0.0:
+                continue
+            matched_terms.append((term, contribution, title_contrib, ta_contrib))
 
         if not matched_terms:
             return 0.0
 
-        raw_score = sum(weight for _, weight in matched_terms)
+        raw_score = sum(contribution for _, contribution, _, _ in matched_terms)
         clamped_score = max(-MAX_FEEDBACK_SCORE_ABS, min(MAX_FEEDBACK_SCORE_ABS, raw_score))
         strongest = sorted(matched_terms, key=lambda item: abs(item[1]), reverse=True)[:6]
-        summary = ", ".join(f"{term} ({weight:+.2f})" for term, weight in strongest)
+        summary = ", ".join(
+            f"{term} ({contribution:+.2f}; title {title_part:+.2f}, ta {ta_part:+.2f})"
+            for term, contribution, title_part, ta_part in strongest
+        )
         self._append_reason(
             details,
             "feedback_score",
@@ -830,13 +876,28 @@ class FoodCompositionCrawlerV2:
             template_id=candidate.template_id,
         )
 
+    def _default_state(self) -> Dict[str, object]:
+        return {
+            "seen_ids": [],
+            "term_cursor": 0,
+            "concept_cursor": 0,
+            "phrase_cursor": 0,
+            "phrase_explore_cursor": 0,
+            "audit_reject_counter": 0,
+        }
+
     def _load_state(self) -> Dict[str, object]:
         if not self.state_path.exists():
-            return {"seen_ids": []}
+            return self._default_state()
         try:
-            return json.loads(self.state_path.read_text(encoding="utf-8"))
+            payload = json.loads(self.state_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            return {"seen_ids": []}
+            return self._default_state()
+        if not isinstance(payload, dict):
+            return self._default_state()
+        state = self._default_state()
+        state.update(payload)
+        return state
 
     def _save_state(self) -> None:
         self._write_json(self.state_path, self.state)

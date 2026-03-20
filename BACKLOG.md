@@ -8,26 +8,6 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
-## 1. Fix label event counts and prevent empty food items
-
-### Problem
-Label events store `food_item_count` and `nutrient_value_count` based on non-empty food items, but the UI can save a “done” annotation with an empty food item (no name/FDC id). That causes count mismatches vs. the actual stored rows.
-
-### Goal
-Ensure counts match the stored data or block “done/draft” when no valid food item exists.
-
-### Likely technical area
-- `apps/expert-annotator/src/pages/Annotate.jsx`
-- `apps/expert-annotator/src/components/FoodItemForm.jsx`
-- `apps/expert-annotator/migration.sql` (if constraints are needed)
-
-### Done when
-- saved label event counts match the actual DB rows
-- “done/draft” can’t be submitted with empty food items
-
-
-
-
 ## 2. Conflict resolution workflow for labels
 
 ### Problem

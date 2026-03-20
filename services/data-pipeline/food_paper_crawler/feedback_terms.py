@@ -74,21 +74,41 @@ def extract_terms(text: str, max_ngram: int, min_token_len: int, max_phrase_len:
     return list(dict.fromkeys(terms))
 
 
-def extract_weighted_terms(config: Dict[str, object], key: str = "weighted_terms") -> Dict[str, float]:
+TERM_NUMERIC_FIELDS = {
+    "title_good_df",
+    "title_bad_df",
+    "title_background_df",
+    "ta_good_df",
+    "ta_bad_df",
+    "ta_background_df",
+    "seed_good_prior",
+    "seed_bad_prior",
+    "title_good_score",
+    "title_bad_score",
+    "title_net",
+    "ta_good_score",
+    "ta_bad_score",
+    "ta_net",
+}
+
+
+def extract_scored_terms(config: Dict[str, object], key: str = "weighted_terms") -> Dict[str, Dict[str, float]]:
     raw = config.get(key)
     if not isinstance(raw, list):
         return {}
 
-    weighted: Dict[str, float] = {}
+    weighted: Dict[str, Dict[str, float]] = {}
     for item in raw:
         if not isinstance(item, dict):
             continue
         term = str(item.get("term") or "").strip()
-        score = item.get("score")
         if not term:
             continue
-        try:
-            weighted[term] = float(score)
-        except (TypeError, ValueError):
-            continue
+        payload: Dict[str, float] = {"ngram": float(int(item.get("ngram") or (term.count(" ") + 1)))}
+        for field in TERM_NUMERIC_FIELDS:
+            try:
+                payload[field] = float(item.get(field) or 0.0)
+            except (TypeError, ValueError):
+                payload[field] = 0.0
+        weighted[term] = payload
     return weighted
