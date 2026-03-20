@@ -260,9 +260,9 @@ def latest_events_by_user(label_events: List[dict]) -> List[dict]:
     return [event for _, event in latest.values()]
 
 
-def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[set[int], set[int]]:
-    good_ids: set[int] = set()
-    skip_counts: Dict[int, set] = defaultdict(set)
+def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[set[int], set[int], set[int]]:
+    positive_users: Dict[int, set] = defaultdict(set)
+    negative_users: Dict[int, set] = defaultdict(set)
     for event in latest_events_by_user(label_events):
         paper_id = event.get("paper_id")
         if not paper_id:
@@ -270,19 +270,29 @@ def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[s
         status = (event.get("status") or "").lower()
         has_data = bool(event.get("has_data"))
         user_id = event.get("user_id")
-        if status in {"done", "draft"} and has_data:
-            good_ids.add(paper_id)
+        if status in {"done", "draft"} and has_data and user_id:
+            positive_users[paper_id].add(user_id)
         if status == "skipped" and not has_data and user_id:
-            skip_counts[paper_id].add(user_id)
+            negative_users[paper_id].add(user_id)
 
-    bad_ids = {pid for pid, users in skip_counts.items() if len(users) >= 2}
-
+    global_bad: set[int] = set()
     for label in global_labels:
         if label.get("label") == "definitely_no_data" and label.get("paper_id"):
-            bad_ids.add(label["paper_id"])
+            global_bad.add(label["paper_id"])
 
-    good_ids.difference_update(bad_ids)
-    return good_ids, bad_ids
+    conflict_ids: set[int] = set()
+    all_ids = set(positive_users) | set(negative_users) | global_bad
+    for paper_id in all_ids:
+        has_positive = paper_id in positive_users
+        has_negative = paper_id in negative_users or paper_id in global_bad
+        if has_positive and has_negative:
+            conflict_ids.add(paper_id)
+
+    good_ids = {pid for pid in positive_users if pid not in conflict_ids}
+    bad_ids = {pid for pid, users in negative_users.items() if len(users) >= 2}
+    bad_ids |= global_bad
+    bad_ids.difference_update(conflict_ids)
+    return good_ids, bad_ids, conflict_ids
 
 
 def build_texts(papers: List[dict], good_ids: set[int], bad_ids: set[int]) -> Tuple[List[str], List[str]]:
@@ -344,7 +354,7 @@ def main() -> None:
         batch_size=1000,
     )
 
-    good_ids, bad_ids = build_labels(label_events, global_labels)
+    good_ids, bad_ids, conflict_ids = build_labels(label_events, global_labels)
     good_texts, bad_texts = build_texts(papers, good_ids, bad_ids)
 
     if not good_texts or not bad_texts:
@@ -402,6 +412,7 @@ def main() -> None:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "good_count": len(good_texts),
         "bad_count": len(bad_texts),
+        "conflict_count": len(conflict_ids),
         "rules": {
             "max_ngram": args.max_ngram,
             "min_token_len": args.min_token_len,
@@ -421,6 +432,7 @@ def main() -> None:
         "config_path": str(latest_path),
         "good_count": len(good_texts),
         "bad_count": len(bad_texts),
+        "conflict_count": len(conflict_ids),
         "rules": scores_payload["rules"],
         "positive_phrases": positive_terms,
         "negative_terms": negative_terms,
