@@ -12,6 +12,7 @@ Entry points: `apps/expert-annotator/src/main.jsx`, `apps/expert-annotator/src/A
 - `docs/`: Proposal drafts and documentation.
 - `legacy/`: Archived or unused components.
 - `BACKLOG.md`: Task list.
+- `AGENTS.md`: Concise repo-specific guidance for coding agents; read this before broad codebase exploration.
 - `UNIFIED_ARCHIVE_MERGE.md`: Archive merge notes.
 - `home/arciel/`: Empty placeholder directory tree.
 
