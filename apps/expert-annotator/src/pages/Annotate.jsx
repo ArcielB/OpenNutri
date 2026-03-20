@@ -287,6 +287,28 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                 }
             }
 
+            const foodItemCount = hasData
+                ? foodItems.filter((item) => (item.food_name || '').trim() || item.food_fdc_id).length
+                : 0
+            const nutrientValueCount = hasData
+                ? foodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0)
+                : 0
+
+            const { error: labelError } = await supabase
+                .from('paper_label_events')
+                .insert({
+                    paper_id: currentPaper.id,
+                    annotation_id: ann.id,
+                    user_id: user.id,
+                    has_data: hasData,
+                    status,
+                    food_item_count: foodItemCount,
+                    nutrient_value_count: nutrientValueCount,
+                    source: 'ui',
+                })
+
+            if (labelError) throw labelError
+
             // Update local status
             setAnnotationStatus((prev) => ({
                 ...prev,

@@ -102,6 +102,20 @@ CREATE TABLE IF NOT EXISTS annotations (
     UNIQUE (paper_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS paper_label_events (
+    id SERIAL PRIMARY KEY,
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    annotation_id INTEGER REFERENCES annotations(id) ON DELETE SET NULL,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    has_data BOOLEAN NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('draft', 'done', 'skipped')),
+    food_item_count INTEGER NOT NULL DEFAULT 0,
+    nutrient_value_count INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'ui',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
 CREATE TABLE IF NOT EXISTS food_items (
     id SERIAL PRIMARY KEY,
     annotation_id INTEGER NOT NULL REFERENCES annotations(id) ON DELETE CASCADE,
@@ -189,6 +203,8 @@ ALTER TABLE food_items DROP COLUMN IF EXISTS fiber_unit;
 -- =============================================
 -- Indexes
 -- =============================================
+CREATE INDEX IF NOT EXISTS idx_paper_label_events_paper ON paper_label_events(paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_label_events_user ON paper_label_events(user_id);
 
 CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(canonical_name);
 CREATE INDEX IF NOT EXISTS idx_entities_source_record_id ON entities(source_record_id);
