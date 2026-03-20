@@ -8,6 +8,16 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
+Execution order for the relevance pipeline (do these steps in order):
+1. Multilingual embeddings in the crawler pipeline.
+2. Anchor-phrase similarity scoring with thresholds (usable before labels).
+3. Data recording for every decision (text, scores, reasons, outcome).
+4. UI feedback loop for human labels.
+5. Use feedback to update scraper query terms and anchor list/thresholds.
+6. Train the lightweight classifier on embeddings once labels exist.
+7. Integrate the classifier and keep learning from feedback.
+8. Later: XLM-R fine-tune for a higher ceiling.
+
 ## 1. (Arciel working) L2 embedding + classifier relevance filter (paper extractor part 2)
 
 ### Problem
@@ -16,6 +26,7 @@ There is no trainable L2 relevance model yet, so filtering cannot improve from l
 ### Goal
 Build an embedding + classifier relevance filter (multilingual) using title/abstract/journal signals:
 - multilingual sentence embeddings + linear classifier (logistic regression)
+- anchor-phrase similarity scoring baseline for pre-label filtering
 - example model: paraphrase-multilingual-MiniLM-L12-v2 or LaBSE
 - probability output with a configurable threshold
 - feature logging for quick debugging
