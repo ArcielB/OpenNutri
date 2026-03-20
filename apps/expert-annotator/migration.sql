@@ -325,6 +325,16 @@ BEGIN
 
     IF NOT EXISTS (
         SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'paper_global_labels'
+          AND policyname = 'Users can delete their own global labels'
+    ) THEN
+        CREATE POLICY "Users can delete their own global labels"
+            ON paper_global_labels FOR DELETE TO authenticated
+            USING (user_id = auth.uid());
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
         WHERE schemaname = 'public' AND tablename = 'annotations'
           AND policyname = 'Users can view their own annotations'
     ) THEN

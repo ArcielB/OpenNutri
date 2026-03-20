@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
@@ -23,16 +23,8 @@ function createEmptyFoodItem() {
     }
 }
 
-const GLOBAL_SKIP_REASONS = [
-    'No usable data',
-    'Wrong paper / off topic',
-    'No composition table',
-    'Only clinical outcomes',
-    'Duplicate / already labeled',
-    'Other',
-]
-
-const GLOBAL_SKIP_REASON_KEY = 'opennutri_global_skip_reason'
+const GLOBAL_SKIP_REASON = 'quick_skip'
+const GLOBAL_SKIP_UNDO_MS = 10000
 
 export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     const [papers, setPapers] = useState([])
@@ -48,12 +40,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     const [foodsLoaded, setFoodsLoaded] = useState(false)
     const [testMode, setTestMode] = useState(() => isTestModeEnabled())
     const [globalNoDataIds, setGlobalNoDataIds] = useState([])
-    const [showGlobalSkip, setShowGlobalSkip] = useState(false)
-    const [globalSkipReason, setGlobalSkipReason] = useState(() => {
-        if (typeof window === 'undefined') return GLOBAL_SKIP_REASONS[0]
-        return window.localStorage.getItem(GLOBAL_SKIP_REASON_KEY) || GLOBAL_SKIP_REASONS[0]
-    })
-    const [globalSkipCustom, setGlobalSkipCustom] = useState('')
+    const [undoGlobalSkip, setUndoGlobalSkip] = useState(null)
+    const undoTimerRef = useRef(null)
 
     // Load nutrients master list once
     useEffect(() => {
@@ -247,15 +235,19 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     }, [currentIndex, papers.length])
 
     useEffect(() => {
-        if (!showGlobalSkip) return
-        if (typeof window !== 'undefined') {
-            const saved = window.localStorage.getItem(GLOBAL_SKIP_REASON_KEY)
-            setGlobalSkipReason(saved || GLOBAL_SKIP_REASONS[0])
-        } else {
-            setGlobalSkipReason(GLOBAL_SKIP_REASONS[0])
+        if (!undoGlobalSkip) return undefined
+        if (undoTimerRef.current) {
+            clearTimeout(undoTimerRef.current)
         }
-        setGlobalSkipCustom('')
-    }, [showGlobalSkip])
+        undoTimerRef.current = setTimeout(() => {
+            setUndoGlobalSkip(null)
+        }, GLOBAL_SKIP_UNDO_MS)
+        return () => {
+            if (undoTimerRef.current) {
+                clearTimeout(undoTimerRef.current)
+            }
+        }
+    }, [undoGlobalSkip])
 
     const currentPaper = papers[currentIndex] || null
     const pdfUrl = currentPaper
@@ -425,12 +417,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         }
     }
 
-    const handleGlobalNoData = async (reason) => {
+    const handleGlobalNoData = async () => {
         if (!currentPaper || isGlobalSkipped) return
-        if (!reason || !reason.trim()) {
-            showToast('Global skip cancelled: reason required.', 'error')
-            return
-        }
+        const reason = GLOBAL_SKIP_REASON
 
         setSaving(true)
         try {
@@ -439,7 +428,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                     type: 'global_no_data',
                     paper_id: currentPaper.id,
                     user_id: user.id,
-                    reason: reason.trim(),
+                    reason,
                 })
             } else {
                 const { error: globalError } = await supabase
@@ -448,7 +437,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                         paper_id: currentPaper.id,
                         user_id: user.id,
                         label: 'definitely_no_data',
-                        reason: reason.trim(),
+                        reason,
                     })
                 if (globalError) throw globalError
 
@@ -467,6 +456,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                 if (labelError) throw labelError
             }
 
+            const removedPaper = currentPaper
+            const removedIndex = currentIndex
             const remaining = papers.filter((paper) => paper.id !== currentPaper.id)
             setPapers(remaining)
             setGlobalNoDataIds((prev) => [...new Set([...prev, currentPaper.id])])
@@ -476,6 +467,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                 return next
             })
             setCurrentIndex((idx) => Math.min(idx, Math.max(remaining.length - 1, 0)))
+            setUndoGlobalSkip({ paper: removedPaper, index: removedIndex })
             showToast(testMode ? 'Global skip recorded locally (test mode).' : 'Marked as global no data.')
         } catch (err) {
             console.error('Global skip error:', err)
@@ -485,22 +477,50 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         }
     }
 
-    const openGlobalSkipModal = () => {
-        if (!currentPaper || isGlobalSkipped) return
-        setShowGlobalSkip(true)
-    }
+    const handleUndoGlobalSkip = async () => {
+        if (!undoGlobalSkip) return
+        setSaving(true)
+        try {
+            if (!testMode) {
+                const { error: globalDeleteError } = await supabase
+                    .from('paper_global_labels')
+                    .delete()
+                    .eq('paper_id', undoGlobalSkip.paper.id)
+                    .eq('label', 'definitely_no_data')
+                    .eq('user_id', user.id)
+                if (globalDeleteError) throw globalDeleteError
 
-    const confirmGlobalSkip = async () => {
-        const finalReason = globalSkipReason === 'Other' ? globalSkipCustom.trim() : globalSkipReason
-        if (!finalReason) {
-            showToast('Please provide a reason for the global skip.', 'error')
-            return
+                await supabase
+                    .from('paper_label_events')
+                    .delete()
+                    .eq('paper_id', undoGlobalSkip.paper.id)
+                    .eq('user_id', user.id)
+                    .eq('source', 'global_no_data')
+            } else {
+                appendTestEvent({
+                    type: 'undo_global_no_data',
+                    paper_id: undoGlobalSkip.paper.id,
+                    user_id: user.id,
+                })
+            }
+
+            setGlobalNoDataIds((prev) => prev.filter((id) => id !== undoGlobalSkip.paper.id))
+            setPapers((prev) => {
+                if (prev.some((paper) => paper.id === undoGlobalSkip.paper.id)) return prev
+                const next = [...prev]
+                const insertAt = Math.min(Math.max(undoGlobalSkip.index, 0), next.length)
+                next.splice(insertAt, 0, undoGlobalSkip.paper)
+                return next
+            })
+            setCurrentIndex((idx) => (idx >= undoGlobalSkip.index ? idx + 1 : idx))
+            setUndoGlobalSkip(null)
+            showToast('Global skip undone.')
+        } catch (err) {
+            console.error('Undo global skip error:', err)
+            showToast('Failed to undo global skip: ' + err.message, 'error')
+        } finally {
+            setSaving(false)
         }
-        if (typeof window !== 'undefined') {
-            window.localStorage.setItem(GLOBAL_SKIP_REASON_KEY, globalSkipReason === 'Other' ? finalReason : globalSkipReason)
-        }
-        setShowGlobalSkip(false)
-        await handleGlobalNoData(finalReason)
     }
 
     // Food items handlers
@@ -688,12 +708,25 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                         <div className="action-row">
                             <button
                                 className="btn btn-danger btn-global-skip"
-                                onClick={openGlobalSkipModal}
+                                onClick={handleGlobalNoData}
                                 disabled={saving || isGlobalSkipped}
                             >
                                 🛑 Definitely No Data (Global)
                             </button>
                         </div>
+                        {undoGlobalSkip && (
+                            <div className="undo-banner">
+                                <span>Global skip applied.</span>
+                                <button
+                                    className="btn btn-outline"
+                                    onClick={handleUndoGlobalSkip}
+                                    disabled={saving}
+                                    type="button"
+                                >
+                                    Undo
+                                </button>
+                            </div>
+                        )}
                         <div className="action-row">
                             <button
                                 className="btn btn-skip"
@@ -730,49 +763,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
             {/* Suggestion Modal */}
             {showSuggestion && (
                 <SuggestionModal user={user} onClose={() => setShowSuggestion(false)} testMode={testMode} />
-            )}
-
-            {showGlobalSkip && (
-                <div className="modal-overlay" onClick={() => setShowGlobalSkip(false)}>
-                    <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-                        <h2>Global Skip</h2>
-                        <p>This marks the paper as definitely no data for everyone and removes it from all queues.</p>
-                        <div className="reason-chips">
-                            {GLOBAL_SKIP_REASONS.map((reason) => (
-                                <button
-                                    key={reason}
-                                    className={`reason-chip ${globalSkipReason === reason ? 'active' : ''}`}
-                                    onClick={() => setGlobalSkipReason(reason)}
-                                    type="button"
-                                >
-                                    {reason}
-                                </button>
-                            ))}
-                        </div>
-                        {globalSkipReason === 'Other' && (
-                            <input
-                                className="modal-input"
-                                placeholder="Enter reason..."
-                                value={globalSkipCustom}
-                                onChange={(e) => setGlobalSkipCustom(e.target.value)}
-                                autoFocus
-                            />
-                        )}
-                        <div className="modal-actions">
-                            <button className="btn btn-outline" onClick={() => setShowGlobalSkip(false)}>
-                                Cancel
-                            </button>
-                            <button
-                                className="btn btn-danger"
-                                onClick={confirmGlobalSkip}
-                                disabled={saving || (globalSkipReason === 'Other' && !globalSkipCustom.trim())}
-                                style={{ width: 'auto' }}
-                            >
-                                Confirm Global Skip
-                            </button>
-                        </div>
-                    </div>
-                </div>
             )}
         </div>
     )
