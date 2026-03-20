@@ -62,6 +62,8 @@ Supabase tables used by the UI:
 **Data Pipeline**
 Location: `services/data-pipeline/`
 
+Language scope (current relevance filtering): English + Turkish only.
+
 Main entry points:
 - `services/data-pipeline/main.py`: Europe PMC crawler v2 (PDF download + validation).
 - `services/data-pipeline/food_paper_crawler/`: Europe PMC crawler v1/v2 + ranking logic.

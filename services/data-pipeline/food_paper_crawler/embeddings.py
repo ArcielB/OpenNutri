@@ -34,11 +34,6 @@ MULTI_ANCHOR_PHRASES = EN_ANCHOR_PHRASES + [
     "besin bilesimi",
     "gida kompozisyonu",
     "besin kompozisyonu",
-    "composicion de alimentos",
-    "composicion nutricional",
-    "composicao de alimentos",
-    "composicao nutricional",
-    "composition des aliments",
 ]
 
 
