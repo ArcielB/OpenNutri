@@ -4,7 +4,7 @@ import argparse
 import json
 import math
 import os
-import re
+import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -14,35 +14,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-STOPWORDS_EN = {
-    "a", "about", "after", "again", "against", "all", "also", "an", "and", "any", "are", "as",
-    "at", "be", "because", "been", "before", "being", "between", "both", "but", "by", "can",
-    "could", "did", "do", "does", "doing", "down", "during", "each", "few", "for", "from",
-    "further", "had", "has", "have", "having", "he", "her", "here", "hers", "herself", "him",
-    "himself", "his", "how", "i", "if", "in", "into", "is", "it", "its", "itself", "just",
-    "more", "most", "my", "myself", "no", "nor", "not", "of", "off", "on", "once", "only",
-    "or", "other", "our", "ours", "ourselves", "out", "over", "own", "same", "she", "should",
-    "so", "some", "such", "than", "that", "the", "their", "theirs", "them", "themselves", "then",
-    "there", "these", "they", "this", "those", "through", "to", "too", "under", "until", "up",
-    "very", "was", "we", "were", "what", "when", "where", "which", "while", "who", "whom",
-    "why", "with", "within", "without", "you", "your", "yours", "yourself", "yourselves",
-}
-
-STOPWORDS_TR = {
-    "acaba", "ama", "ancak", "artık", "aslında", "az", "bana", "bazı", "belki", "ben", "benden",
-    "beni", "benim", "beri", "bir", "biraz", "biri", "birkaç", "birşey", "biz", "bizden", "bize",
-    "bizi", "bizim", "bu", "buna", "bunda", "bundan", "bunlar", "bunları", "bunların", "bunu",
-    "bunun", "burada", "çünkü", "da", "daha", "de", "değil", "diğer", "diye", "dolayı", "eğer",
-    "en", "gibi", "hem", "hep", "hepsi", "her", "herkes", "herşey", "hiç", "için", "ile",
-    "ise", "işte", "kadar", "karşı", "ki", "kim", "kime", "kimi", "kimin", "mı", "mu", "mü",
-    "nasıl", "ne", "neden", "nerede", "nereye", "niçin", "o", "olan", "olarak", "oldu", "olduğu",
-    "olmak", "olması", "olmaz", "on", "ona", "ondan", "onlar", "onların", "onu", "onun", "orada",
-    "öyle", "şey", "sen", "senden", "seni", "senin", "siz", "sizden", "size", "sizi", "sizin",
-    "sonra", "şu", "şunu", "tarafından", "tüm", "ve", "veya", "ya", "yani", "yerine", "yine",
-    "yok", "zaten",
-}
-
-STOPWORDS = STOPWORDS_EN | STOPWORDS_TR
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from feedback_terms import extract_terms
+else:
+    from ..feedback_terms import extract_terms
 
 
 @dataclass
@@ -54,46 +30,6 @@ class TermScore:
     score: float
 
 
-def normalize_text(text: str) -> str:
-    if not text:
-        return ""
-    cleaned = (
-        text.lower()
-        .replace("µg", "ug")
-        .replace("μg", "ug")
-    )
-    cleaned = re.sub(r"[^\w/%]+", " ", cleaned, flags=re.UNICODE)
-    cleaned = cleaned.replace("_", " ")
-    return " ".join(cleaned.split())
-
-
-def tokenize(text: str, min_token_len: int) -> List[str]:
-    tokens: List[str] = []
-    for token in normalize_text(text).split():
-        if len(token) < min_token_len:
-            continue
-        if token.isdigit():
-            continue
-        if token in STOPWORDS:
-            continue
-        tokens.append(token)
-    return tokens
-
-
-def extract_terms(text: str, max_ngram: int, min_token_len: int, max_phrase_len: int) -> List[str]:
-    tokens = tokenize(text, min_token_len)
-    if not tokens:
-        return []
-    terms: List[str] = []
-    for n in range(1, max_ngram + 1):
-        for i in range(len(tokens) - n + 1):
-            phrase = " ".join(tokens[i:i + n])
-            if len(phrase) > max_phrase_len:
-                continue
-            terms.append(phrase)
-    return list(dict.fromkeys(terms))
-
-
 def count_terms(texts: Iterable[str], max_ngram: int, min_token_len: int, max_phrase_len: int) -> Counter:
     counts: Counter = Counter()
     for text in texts:
@@ -103,46 +39,37 @@ def count_terms(texts: Iterable[str], max_ngram: int, min_token_len: int, max_ph
     return counts
 
 
-def log_odds(good: int, bad: int, good_total: int, bad_total: int, alpha: float) -> float:
-    return math.log((good + alpha) / (good_total - good + alpha)) - math.log((bad + alpha) / (bad_total - bad + alpha))
+def log_odds(left: int, right: int, left_total: int, right_total: int, alpha: float) -> float:
+    return math.log((left + alpha) / (left_total - left + alpha)) - math.log((right + alpha) / (right_total - right + alpha))
 
 
-def score_terms(
-    good_texts: List[str],
-    bad_texts: List[str],
+def score_term_counts(
+    left_counts: Counter,
+    right_counts: Counter,
     *,
-    max_ngram: int,
-    min_token_len: int,
-    max_phrase_len: int,
-    min_total: int,
-    min_good: int,
-    min_bad: int,
+    left_total: int,
+    right_total: int,
     alpha: float,
+    min_total: int,
 ) -> List[TermScore]:
-    good_total = len(good_texts)
-    bad_total = len(bad_texts)
-    good_counts = count_terms(good_texts, max_ngram, min_token_len, max_phrase_len)
-    bad_counts = count_terms(bad_texts, max_ngram, min_token_len, max_phrase_len)
-    all_terms = set(good_counts) | set(bad_counts)
+    all_terms = set(left_counts) | set(right_counts)
     scored: List[TermScore] = []
     for term in all_terms:
-        good_count = int(good_counts.get(term, 0))
-        bad_count = int(bad_counts.get(term, 0))
-        if good_count + bad_count < min_total:
+        left = int(left_counts.get(term, 0))
+        right = int(right_counts.get(term, 0))
+        if left + right < min_total:
             continue
-        if good_count < min_good and bad_count < min_bad:
-            continue
-        score = log_odds(good_count, bad_count, good_total, bad_total, alpha)
+        score = log_odds(left, right, left_total, right_total, alpha)
         scored.append(
             TermScore(
                 term=term,
                 ngram=term.count(" ") + 1,
-                good_count=good_count,
-                bad_count=bad_count,
+                good_count=left,
+                bad_count=right,
                 score=score,
             )
         )
-    scored.sort(key=lambda item: (item.score, item.good_count), reverse=True)
+    scored.sort(key=lambda item: (abs(item.score), item.good_count + item.bad_count, item.good_count), reverse=True)
     return scored
 
 
@@ -151,7 +78,6 @@ def select_terms(
     *,
     max_count: int,
     min_ngram: int = 1,
-    allow_unigrams: bool = True,
     descending: bool = True,
 ) -> List[str]:
     ordered = sorted(items, key=lambda item: (item.score, item.good_count), reverse=descending)
@@ -163,14 +89,7 @@ def select_terms(
             continue
         selected.append(item.term)
         if len(selected) >= max_count:
-            return selected
-    if allow_unigrams and min_ngram > 1:
-        for item in ordered:
-            if item.term in selected:
-                continue
-            selected.append(item.term)
-            if len(selected) >= max_count:
-                break
+            break
     return selected
 
 
@@ -295,8 +214,14 @@ def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[s
     return good_ids, bad_ids, conflict_ids
 
 
-def build_texts(papers: List[dict], good_ids: set[int], bad_ids: set[int]) -> Tuple[List[str], List[str]]:
+def build_text_buckets(
+    papers: List[dict],
+    good_ids: set[int],
+    bad_ids: set[int],
+    conflict_ids: set[int],
+) -> Tuple[List[str], List[str], List[str]]:
     by_id = {row.get("id"): row for row in papers if row.get("id") is not None}
+
     def paper_text(pid: int) -> str:
         row = by_id.get(pid) or {}
         title = row.get("title") or ""
@@ -305,19 +230,82 @@ def build_texts(papers: List[dict], good_ids: set[int], bad_ids: set[int]) -> Tu
 
     good_texts: List[str] = []
     bad_texts: List[str] = []
-    for pid in good_ids:
+    other_texts: List[str] = []
+
+    for pid, row in by_id.items():
+        if pid in conflict_ids:
+            continue
         text = paper_text(pid)
-        if text:
+        if not text:
+            continue
+        if pid in good_ids:
             good_texts.append(text)
-    for pid in bad_ids:
-        text = paper_text(pid)
-        if text:
+        elif pid in bad_ids:
             bad_texts.append(text)
-    return good_texts, bad_texts
+        else:
+            other_texts.append(text)
+
+    return good_texts, bad_texts, other_texts
+
+
+def build_scored_terms(
+    good_texts: List[str],
+    bad_texts: List[str],
+    other_texts: List[str],
+    *,
+    max_ngram: int,
+    min_token_len: int,
+    max_phrase_len: int,
+    min_total: int,
+    alpha: float,
+) -> Tuple[str, List[TermScore]]:
+    if good_texts and bad_texts:
+        mode = "good_vs_bad"
+        left_texts = good_texts
+        right_texts = bad_texts
+        invert = False
+    elif good_texts and other_texts:
+        mode = "good_vs_other"
+        left_texts = good_texts
+        right_texts = other_texts
+        invert = False
+    elif bad_texts and other_texts:
+        mode = "bad_vs_other"
+        left_texts = bad_texts
+        right_texts = other_texts
+        invert = True
+    else:
+        raise SystemExit("Not enough contrasting papers to compute cumulative feedback weights.")
+
+    left_counts = count_terms(left_texts, max_ngram, min_token_len, max_phrase_len)
+    right_counts = count_terms(right_texts, max_ngram, min_token_len, max_phrase_len)
+    scored = score_term_counts(
+        left_counts,
+        right_counts,
+        left_total=len(left_texts),
+        right_total=len(right_texts),
+        alpha=alpha,
+        min_total=min_total,
+    )
+
+    if invert:
+        scored = [
+            TermScore(
+                term=item.term,
+                ngram=item.ngram,
+                good_count=item.bad_count,
+                bad_count=item.good_count,
+                score=-item.score,
+            )
+            for item in scored
+        ]
+        scored.sort(key=lambda item: (abs(item.score), item.good_count + item.bad_count, item.good_count), reverse=True)
+
+    return mode, scored
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate feedback terms from labeled papers.")
+    parser = argparse.ArgumentParser(description="Generate cumulative soft-feedback n-gram weights from labeled papers.")
     parser.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL"))
     parser.add_argument("--supabase-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY"))
     parser.add_argument("--output-dir", default=str(Path(__file__).resolve().parent))
@@ -328,9 +316,7 @@ def main() -> None:
     parser.add_argument("--max-ngram", type=int, default=3)
     parser.add_argument("--min-token-len", type=int, default=3)
     parser.add_argument("--max-phrase-len", type=int, default=40)
-    parser.add_argument("--min-total", type=int, default=3)
-    parser.add_argument("--min-good", type=int, default=2)
-    parser.add_argument("--min-bad", type=int, default=2)
+    parser.add_argument("--min-total", type=int, default=1)
     parser.add_argument("--alpha", type=float, default=1.0)
     args = parser.parse_args()
 
@@ -355,20 +341,15 @@ def main() -> None:
     )
 
     good_ids, bad_ids, conflict_ids = build_labels(label_events, global_labels)
-    good_texts, bad_texts = build_texts(papers, good_ids, bad_ids)
-
-    if not good_texts or not bad_texts:
-        raise SystemExit("Not enough labeled papers to compute feedback terms.")
-
-    scored = score_terms(
+    good_texts, bad_texts, other_texts = build_text_buckets(papers, good_ids, bad_ids, conflict_ids)
+    mode, scored = build_scored_terms(
         good_texts,
         bad_texts,
+        other_texts,
         max_ngram=args.max_ngram,
         min_token_len=args.min_token_len,
         max_phrase_len=args.max_phrase_len,
         min_total=args.min_total,
-        min_good=args.min_good,
-        min_bad=args.min_bad,
         alpha=args.alpha,
     )
 
@@ -378,48 +359,45 @@ def main() -> None:
         positive_candidates,
         max_count=args.max_positive,
         min_ngram=2,
-        allow_unigrams=True,
         descending=True,
     )
     negative_terms = select_terms(
         negative_candidates,
         max_count=args.max_negative,
         min_ngram=1,
-        allow_unigrams=True,
         descending=False,
     )
     anchor_terms = select_terms(
         positive_candidates,
         max_count=args.max_anchors,
         min_ngram=2,
-        allow_unigrams=True,
         descending=True,
     )
     query_terms = select_terms(
         positive_candidates,
         max_count=args.max_query_terms,
         min_ngram=2,
-        allow_unigrams=True,
         descending=True,
     )
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    generated_at = datetime.now(timezone.utc).isoformat()
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     scores_path = output_dir / f"term_scores_{timestamp}.json"
     scores_payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at,
+        "mode": mode,
         "good_count": len(good_texts),
         "bad_count": len(bad_texts),
+        "other_count": len(other_texts),
         "conflict_count": len(conflict_ids),
         "rules": {
             "max_ngram": args.max_ngram,
             "min_token_len": args.min_token_len,
             "max_phrase_len": args.max_phrase_len,
             "min_total": args.min_total,
-            "min_good": args.min_good,
-            "min_bad": args.min_bad,
             "alpha": args.alpha,
         },
         "scores": [asdict(item) for item in scored],
@@ -428,10 +406,12 @@ def main() -> None:
 
     latest_path = output_dir / "latest.json"
     latest_payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at,
         "config_path": str(latest_path),
+        "mode": mode,
         "good_count": len(good_texts),
         "bad_count": len(bad_texts),
+        "other_count": len(other_texts),
         "conflict_count": len(conflict_ids),
         "rules": scores_payload["rules"],
         "positive_phrases": positive_terms,
@@ -439,6 +419,7 @@ def main() -> None:
         "anchor_phrases": anchor_terms,
         "anchor_phrases_multi": anchor_terms,
         "query_terms": query_terms,
+        "weighted_terms": [asdict(item) for item in scored],
     }
     latest_path.write_text(json.dumps(latest_payload, indent=2, sort_keys=True), encoding="utf-8")
 

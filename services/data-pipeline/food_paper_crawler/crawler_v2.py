@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 from .embeddings import DualEmbeddingScorer
 from .europe_pmc import EuropePMCClient
 from .feedback_config import extract_terms, load_feedback_config, merge_terms
+from .feedback_terms import extract_terms as extract_feedback_terms, extract_weighted_terms
 from .models import CandidatePaper, DownloadRecord
 from .ranking import validate_pdf_text
 from .supabase_terms import fetch_food_terms, fetch_nutrient_terms
@@ -73,6 +74,9 @@ UNIT_PATTERN = re.compile(r"\b(?:mg|g|µg|ug)\s*/?\s*100\s*g\b", re.IGNORECASE)
 
 PMC_OA_API = "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi"
 AUDIT_EVERY_N = 100
+METADATA_ACCEPT_THRESHOLD = 2.0
+MAX_FEEDBACK_SCORE_ABS = 4.0
+MAX_HEALTH_PENALTY = 2.0
 
 
 @dataclass(frozen=True)
@@ -108,10 +112,13 @@ class FoodCompositionCrawlerV2:
         self.nutrient_terms = fetch_nutrient_terms(supabase_url, supabase_key, limit=nutrient_limit)
         self.feedback_config = load_feedback_config()
         self.feedback_positive_phrases = extract_terms(self.feedback_config, "positive_phrases")
-        self.feedback_negative_terms = extract_terms(self.feedback_config, "negative_terms")
         self.feedback_query_terms = extract_terms(self.feedback_config, "query_terms")
+        self.feedback_weighted_terms = extract_weighted_terms(self.feedback_config)
         self.positive_phrases = merge_terms(STRONG_POSITIVE_PHRASES, self.feedback_positive_phrases)
-        self.hard_negative_terms = merge_terms(HEALTH_OUTCOME_TERMS, self.feedback_negative_terms)
+        self.feedback_rules = self.feedback_config.get("rules", {}) if isinstance(self.feedback_config.get("rules"), dict) else {}
+        self.feedback_max_ngram = max(1, int(self.feedback_rules.get("max_ngram", 3) or 3))
+        self.feedback_min_token_len = max(1, int(self.feedback_rules.get("min_token_len", 3) or 3))
+        self.feedback_max_phrase_len = max(1, int(self.feedback_rules.get("max_phrase_len", 40) or 40))
         self.embedding_scorer = DualEmbeddingScorer()
         self.max_queries = max_queries
         self.state = self._load_state()
@@ -170,7 +177,7 @@ class FoodCompositionCrawlerV2:
                 candidate.source_term = spec.source_term
                 candidate.template_id = spec.template_id
 
-                accepted, reason_details = self._metadata_decision(candidate)
+                accepted, score, reason_details = self._metadata_decision(candidate)
                 if not candidate.pdf_url:
                     self._append_reason(reason_details, "no_pdf_url", "Rejected: no PDF URL available")
                     accepted = False
@@ -178,7 +185,7 @@ class FoodCompositionCrawlerV2:
                 candidate.accepted = accepted
                 candidate.reason_details = reason_details
                 candidate.reasons = [reason["text"] for reason in reason_details]
-                candidate.score = 0.0
+                candidate.score = score
 
                 if not accepted:
                     if candidate.pdf_url or candidate.pmcid:
@@ -220,8 +227,9 @@ class FoodCompositionCrawlerV2:
             "feedback": {
                 "config_path": str(self.feedback_config.get("config_path", "")),
                 "positive_phrases": self.feedback_positive_phrases[:20],
-                "negative_terms": self.feedback_negative_terms[:20],
                 "query_terms": self.feedback_query_terms[:20],
+                "weighted_terms_count": len(self.feedback_weighted_terms),
+                "mode": self.feedback_config.get("mode"),
             },
             "target_pdfs": self.target_pdfs,
             "accepted_count": len(accepted_records),
@@ -334,31 +342,45 @@ class FoodCompositionCrawlerV2:
             ordered.append(spec)
         return ordered
 
-    def _metadata_decision(self, candidate: CandidatePaper) -> Tuple[bool, List[Dict[str, str]]]:
+    def _metadata_decision(self, candidate: CandidatePaper) -> Tuple[bool, float, List[Dict[str, str]]]:
         details: List[Dict[str, str]] = []
         raw_text = f"{candidate.title} {candidate.abstract}".strip().lower()
         normalized = self._normalize_for_match(raw_text)
-
-        hard_negative = self._first_term_hit(normalized, self.hard_negative_terms)
-        if hard_negative:
-            self._append_reason(details, "hard_negative", f"Rejected: hard negative term '{hard_negative}'")
-            return False, details
+        score = 0.0
 
         composition_hit = self._first_term_hit(normalized, self.positive_phrases)
         if composition_hit:
             self._append_reason(details, "composition_phrase", f"Positive: composition phrase '{composition_hit}'")
+            score += 2.0
 
         unit_hit = bool(UNIT_PATTERN.search(raw_text))
         if unit_hit:
             self._append_reason(details, "unit_signal", "Positive: nutrient unit pattern (mg/100g or g/100g)")
+            score += 1.25
 
         food_hit = self._first_term_hit(normalized, self.food_terms)
         if food_hit:
             self._append_reason(details, "food_term_hit", f"Positive: food term '{food_hit}'")
+            score += 0.65
 
         nutrient_hit = self._first_term_hit(normalized, self.nutrient_terms)
         if nutrient_hit:
             self._append_reason(details, "nutrient_term_hit", f"Positive: nutrient term '{nutrient_hit}'")
+            score += 0.65
+
+        if food_hit and nutrient_hit:
+            score += 0.75
+            self._append_reason(details, "food_nutrient_combo", "Positive: matched both food and nutrient terms")
+
+        health_hits = self._collect_term_hits(normalized, HEALTH_OUTCOME_TERMS)
+        if health_hits:
+            penalty = min(MAX_HEALTH_PENALTY, 0.55 * len(health_hits))
+            score -= penalty
+            self._append_reason(
+                details,
+                "health_penalty",
+                f"Penalty {penalty:.2f}: health-outcome terms {', '.join(health_hits[:4])}",
+            )
 
         embedding_accept = False
         try:
@@ -381,6 +403,7 @@ class FoodCompositionCrawlerV2:
             )
             if en_result["max_similarity"] >= en_result["threshold"]:
                 embedding_accept = True
+                score += 1.45
         if multi_result:
             self._append_reason(
                 details,
@@ -393,16 +416,20 @@ class FoodCompositionCrawlerV2:
             )
             if multi_result["max_similarity"] >= multi_result["threshold"]:
                 embedding_accept = True
+                score += 1.45
         if embedding_accept:
+            score += 0.75
             self._append_reason(details, "embedding_positive", "Positive: embedding similarity above threshold")
 
-        accepted = bool(composition_hit or unit_hit or (food_hit and nutrient_hit) or embedding_accept)
-        if accepted:
-            self._append_reason(details, "accepted_metadata", "Accepted by metadata rules")
-        else:
-            self._append_reason(details, "rejected_no_positive", "Rejected: no strong positive signals")
+        score += self._feedback_score(raw_text, details)
 
-        return accepted, details
+        accepted = score >= METADATA_ACCEPT_THRESHOLD
+        if accepted:
+            self._append_reason(details, "accepted_metadata", f"Accepted by metadata score {score:.2f}")
+        else:
+            self._append_reason(details, "rejected_metadata", f"Rejected by metadata score {score:.2f}")
+
+        return accepted, score, details
 
     def _append_reason(self, details: List[Dict[str, str]], code: str, text: str) -> None:
         details.append({"code": code, "text": text})
@@ -424,6 +451,50 @@ class FoodCompositionCrawlerV2:
             if needle in padded:
                 return normalized_term
         return None
+
+    def _collect_term_hits(self, text: str, terms: List[str]) -> List[str]:
+        if not text:
+            return []
+        padded = f" {text} "
+        hits: List[str] = []
+        for term in terms:
+            normalized_term = re.sub(r"[^a-z0-9]+", " ", (term or "").lower()).strip()
+            if not normalized_term:
+                continue
+            needle = f" {normalized_term} "
+            if needle in padded and normalized_term not in hits:
+                hits.append(normalized_term)
+        return hits
+
+    def _feedback_score(self, raw_text: str, details: List[Dict[str, str]]) -> float:
+        if not self.feedback_weighted_terms:
+            return 0.0
+
+        matched_terms = []
+        for term in extract_feedback_terms(
+            raw_text,
+            max_ngram=self.feedback_max_ngram,
+            min_token_len=self.feedback_min_token_len,
+            max_phrase_len=self.feedback_max_phrase_len,
+        ):
+            weight = self.feedback_weighted_terms.get(term)
+            if weight is None:
+                continue
+            matched_terms.append((term, weight))
+
+        if not matched_terms:
+            return 0.0
+
+        raw_score = sum(weight for _, weight in matched_terms)
+        clamped_score = max(-MAX_FEEDBACK_SCORE_ABS, min(MAX_FEEDBACK_SCORE_ABS, raw_score))
+        strongest = sorted(matched_terms, key=lambda item: abs(item[1]), reverse=True)[:6]
+        summary = ", ".join(f"{term} ({weight:+.2f})" for term, weight in strongest)
+        self._append_reason(
+            details,
+            "feedback_score",
+            f"Soft feedback score {clamped_score:.2f} from {len(matched_terms)} matched n-grams: {summary}",
+        )
+        return clamped_score
 
     def _download_candidate(
         self,
@@ -474,7 +545,6 @@ class FoodCompositionCrawlerV2:
         if not accepted:
             candidate.reason_details = combined_reason_details
             candidate.reasons = combined_reasons
-            candidate.score = 0.0
             audit_flag = force_audit or self._next_audit_flag()
             if not audit_flag:
                 destination.unlink(missing_ok=True)
@@ -502,7 +572,6 @@ class FoodCompositionCrawlerV2:
 
         candidate.reason_details = combined_reason_details
         candidate.reasons = combined_reasons
-        candidate.score = 0.0
         return DownloadRecord(
             status="success",
             title=candidate.title,

@@ -83,11 +83,12 @@ Key modules:
 - `core/`: Knowledge base (dedup + term scoring), orchestrator, Supabase data source.
 
 **Label Feedback Loop (L2)**
-- Generates positive/negative phrases from labeled papers to update crawler search/filter terms and embedding anchors.
+- Generates cumulative n-gram weights from labeled papers to update crawler search terms and soft metadata scoring.
 - Uses the latest label per user; any `has_data=true` draft or done counts as positive, and papers turn negative on global skip or 2+ unique skips. Mixed signals across labelers are treated as conflicts and excluded from both sides.
 - Script: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
   - Requires `SUPABASE_URL` (or `VITE_SUPABASE_URL`) and `SUPABASE_SERVICE_ROLE_KEY`.
 - Output: `services/data-pipeline/food_paper_crawler/feedback/latest.json` (loaded automatically by the crawler).
+- The crawler uses the stored `weighted_terms` as soft scores only; feedback does not hard-reject papers.
 
 Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/ingestor.py`: Entrez harvester into `data/raw_lake`.
