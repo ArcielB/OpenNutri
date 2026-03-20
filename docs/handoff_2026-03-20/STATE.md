@@ -1,117 +1,78 @@
 # OpenNutri Handoff — 2026-03-20 (Europe/Istanbul)
 
-This is a snapshot of the current state, decisions, changes, and next steps so work can continue elsewhere without loss of context.
+This is a snapshot of the current state so work can continue elsewhere without losing context.
 
 **Project Direction (Current)**
-OpenNutri is building a paper-to-food-composition pipeline with a human labeling UI. The plan is:
-1. Scrape and store candidate papers.
-2. Apply L2 relevance filtering (now with dual embeddings + anchors).
+OpenNutri is building a paper-to-food-composition pipeline with a human labeling UI. The loop is:
+1. Scrape + store candidate papers.
+2. Apply L2 relevance filtering (rules + dual embeddings + anchors).
 3. Collect human labels in the UI.
-4. Feed labels back to improve query terms, anchors, and eventually train a classifier.
+4. Feed labels back into query terms, filters, and embeddings. (Classifier training later.)
 
-**Key Decisions**
-- Repo should remain private for now.
-- L2 should use dual embeddings: English + multilingual (but only English + Turkish anchors).
-- Use anchor-phrase similarity as an early filter before classifier training exists.
-- Label events must be recorded on every UI save (draft, done, skipped).
+**Key Decisions / Policies**
+- Repo stays private.
+- L2 uses dual embeddings: English + multilingual; anchors are EN+TR only.
+- Label events are recorded on every UI save (draft/done/skipped).
+- Positive labels are optimistic: `has_data=true` draft or done counts as good immediately.
+- Negatives require global skip or >=2 unique skips; conflicts are excluded from both sides.
+- Global “definitely no data” is instant with a short undo window.
+- Test mode disables all DB writes (local-only events).
 
 **Recent Code Changes (High Signal)**
-1. Dual embedding baseline for L2 metadata scoring.
-2. Label event logging from the UI into a new table.
-3. README updated to state language scope: English + Turkish only.
+- UI test mode (no DB writes) with banner + toast.
+- Global skip is instant (no prompt) + undo banner (10s window); reason stored as `quick_skip`.
+- `paper_label_events` logging on every save (status, has_data, counts, source).
+- New feedback term system (`feedback/update_terms.py`) that:
+  - uses latest label per user,
+  - treats draft/done as positive,
+  - treats global skip or 2+ unique skips as negative,
+  - excludes conflicts from training,
+  - writes `feedback/latest.json`.
+- Crawler consumes feedback terms to adjust queries/filters and embedding anchors.
+- Auto-crawl script: `services/data-pipeline/scripts/ensure_paper_stock.py` (threshold-based).
 
-**Files Changed (Latest)**
-- `services/data-pipeline/food_paper_crawler/embeddings.py`
-  - New dual embedding scorer (English + multilingual), anchor phrases, thresholds.
-  - Environment variables:
-    - `L2_EMBED_EN_MODEL` default `all-MiniLM-L6-v2`
-    - `L2_EMBED_MULTI_MODEL` default `paraphrase-multilingual-MiniLM-L12-v2`
-    - `L2_EMBED_EN_THRESHOLD` default `0.45`
-    - `L2_EMBED_MULTI_THRESHOLD` default `0.42`
-    - `L2_EMBED_MAX_CHARS` default `1800`
-- `services/data-pipeline/food_paper_crawler/crawler_v2.py`
-  - Imports and initializes dual embedding scorer.
-  - Embedding scores recorded in reason details.
-  - Accept if either model passes its threshold.
-  - Manifest now includes embedding config info.
-- `apps/expert-annotator/src/pages/Annotate.jsx`
-  - On save (draft/done/skipped) inserts a label event row into `paper_label_events`.
-  - Stores counts for food items and nutrient values.
-- `apps/expert-annotator/migration.sql`
-  - Added `paper_label_events` table + indexes.
-- `README.md`
-  - Explicitly notes language scope: English + Turkish only.
-
-**Label Event Table (New)**
-- Table: `paper_label_events`
-- Columns:
-  - `paper_id`, `annotation_id`, `user_id`
-  - `has_data`, `status` (draft, done, skipped)
-  - `food_item_count`, `nutrient_value_count`
-  - `source` (default `ui`)
-  - `created_at`
-- Purpose: track every human labeling action to feed model training.
+**Data Model Notes**
+- `paper_label_events`: per-save event log (paper_id, user_id, status, has_data, counts, source, created_at).
+- `paper_global_labels`: global no-data labels with reason + user.
+- Conflicts are **not** stored separately; they’re inferred from label events + global labels.
 
 **Migration Status**
-- `apps/expert-annotator/run-migration.js` executed successfully against Supabase.
-- Connection used: Supabase pooler session on port 5432.
+- `apps/expert-annotator/migration.sql` executed successfully against Supabase.
+- Includes RLS policy to allow users to delete their own global labels (undo).
 
-**Crawler L2 Scoring (Current Logic)**
-- Metadata rules in `crawler_v2.py` remain.
-- Embedding similarity is an additional positive signal:
-  - English anchor list and Turkish anchor list.
-  - Accept if any anchor similarity >= its threshold.
-- If `sentence-transformers` is not installed, the crawler logs `embed_unavailable` and uses rules only.
+**DB Sanity Checks (as of 2026-03-20 11:23 UTC)**
+- 3 “done” labels saved with annotations + food items + nutrient values.
+- 3 global skips saved in `paper_global_labels` + `paper_label_events`.
+- No conflicts detected yet.
+- Found a count mismatch on paper 2: label event `food_item_count=0` but 1 food item exists.
 
-**Language Scope**
-- English + Turkish only (in README and anchor list).
-- Anchors for TR: "gida bilesimi", "besin bilesimi", "gida kompozisyonu", "besin kompozisyonu".
+**Known Issues / Risks**
+- Label event counts can mismatch if a food item is empty (no name/FDC id).
+- Git push is blocked on this machine (missing GitHub credentials).
+- `sentence-transformers` must be installed for embeddings; no fallback desired.
+- `feedback/latest.json` is generated locally and is untracked.
 
-**Known Dependencies / Environment**
-- No `requirements.txt` currently in repo.
-- You must install `sentence-transformers` in your Python environment for embeddings.
-- UI uses Supabase auth and tables.
-
-**Running the Crawler (v2)**
-- Entry: `services/data-pipeline/main.py`
-- CLI: `services/data-pipeline/food_paper_crawler/cli_v2.py`
-- Example:
-  - `python3 services/data-pipeline/main.py --data-dir data --target-pdfs 12 --query-limit 50`
-
-**Running the Annotator**
-- `cd apps/expert-annotator`
-- `npm install`
-- `npm run dev`
+**How to Run Key Pieces**
+- Feedback update:
+  - `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
+  - Requires `SUPABASE_URL` (or `VITE_SUPABASE_URL`) + `SUPABASE_SERVICE_ROLE_KEY`.
+- Auto-crawl when UI runs low on papers:
+  - `python3 services/data-pipeline/scripts/ensure_paper_stock.py --threshold 0`
 
 **Where Secrets Live**
-- `Keys and links` contains Supabase URLs, anon/service keys, DB strings, GitHub token.
-- It is in `.gitignore` and should stay private.
+- `Keys and links` contains Supabase URLs, anon/service keys, and DB strings.
+- File is gitignored and must stay private.
 
 **Untracked / Local Data**
 - Multiple `services/data-pipeline/data/` run folders exist and are untracked.
-- Keep them uncommitted.
+- Local `__pycache__` and feedback outputs are untracked.
 
-**Current Backlog Ordering (Top Items)**
-1. L2 multilingual embedding baseline (implemented)
-2. L3 feedback loop from UI labels to crawler/L2 baseline
-3. Safe test mode (needs to be early alongside labeling)
-4. Global red “definitely no data” button
-5. L2 classifier training (after labels exist)
-6. Later: XLM-R fine-tuning
-
-**Next Steps (Recommended)**
-1. Ensure `sentence-transformers` is installed in the Python environment used for crawler runs.
-2. Validate label events flow by saving a paper and checking `paper_label_events` in Supabase.
-3. Build a simple export script to pull label events + paper text for training.
-4. Implement L3 feedback loop to update query terms and anchor lists.
-5. Add a safe test mode to avoid polluting production during UI testing.
-
-**Commits of Note**
-- `76215a9` Add dual embedding baseline for L2 metadata scoring.
-- `8963173` Limit embedding anchors to EN+TR and document scope.
-- `36eebe1` Log label events from annotator UI.
+**Current Backlog Top Items**
+1. Fix label event counts / prevent empty food items.
+2. Conflict resolution workflow for labels.
+3. Train and integrate L2 classifier.
 
 **Open Questions**
-- Do we want language routing (English model only when detected EN), or always compute both?
-- How should label exports be structured for first classifier training?
-- How strict should embedding thresholds be before we start collecting labels?
+- What is the conflict resolution workflow (review UI, admin queue, or batch rules)?
+- How frequently should feedback updates run (after N labels vs scheduled)?
+- Should we enforce a minimum valid food item before allowing “done”? 

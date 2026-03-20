@@ -8,7 +8,46 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
-## 1. Train and integrate the L2 classifier (depends on label volume)
+## 1. Fix label event counts and prevent empty food items
+
+### Problem
+Label events store `food_item_count` and `nutrient_value_count` based on non-empty food items, but the UI can save a “done” annotation with an empty food item (no name/FDC id). That causes count mismatches vs. the actual stored rows.
+
+### Goal
+Ensure counts match the stored data or block “done/draft” when no valid food item exists.
+
+### Likely technical area
+- `apps/expert-annotator/src/pages/Annotate.jsx`
+- `apps/expert-annotator/src/components/FoodItemForm.jsx`
+- `apps/expert-annotator/migration.sql` (if constraints are needed)
+
+### Done when
+- saved label event counts match the actual DB rows
+- “done/draft” can’t be submitted with empty food items
+
+
+
+
+## 2. Conflict resolution workflow for labels
+
+### Problem
+Conflicting labels (positive vs. negative across labelers) are excluded from training but have no dedicated resolution workflow.
+
+### Goal
+Provide a way to list, review, and resolve conflicts so they can be turned into a final label later.
+
+### Likely technical area
+- Supabase queries over `paper_label_events` and `paper_global_labels`
+- UI (admin or reviewer view)
+
+### Done when
+- conflicts are discoverable and reviewable
+- a reviewer can resolve a conflict into a final label
+
+
+
+
+## 3. Train and integrate the L2 classifier (depends on label volume)
 
 ### Problem
 Once labels exist, we need a trainable classifier so L2 can learn from feedback instead of only rules.
@@ -38,7 +77,7 @@ Train a lightweight classifier on embeddings and integrate it into the pipeline:
 
 
 
-## 2. (Later, depends on 1 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
+## 4. (Later, depends on 3 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
 
 
 ### Problem
@@ -66,7 +105,7 @@ Fine-tune a multilingual transformer (XLM-R) for relevance classification and co
 
 
 
-## 3. Route user suggestions into the backlog review queue
+## 5. Route user suggestions into the backlog review queue
 
 ### Problem
 The UI has a suggestion button, but suggestions are not flowing into an internal review workflow that is easy to track, triage, or follow up on.
@@ -102,7 +141,7 @@ Store each suggestion as a backlog review item that supports:
 
 
 
-## 4. (Depends on 3) Add image attachments to the suggestion flow
+## 6. (Depends on 5) Add image attachments to the suggestion flow
 
 ### Problem
 Users can submit text suggestions, but they cannot attach screenshots. That makes bug reports slower to understand and reproduce.
@@ -132,7 +171,7 @@ Allow one or more image attachments in the suggestion modal.
 
 
 
-## 5. Fix PDF nutrient highlighting errors
+## 7. Fix PDF nutrient highlighting errors
 
 ### Problem
 The nutrient highlighting feature works for many terms but fails for some words or phrases. In some PDFs it highlights partial words, the wrong word, or a broken segment inside a word.
@@ -177,7 +216,7 @@ Make nutrient highlighting reliable in PDF text layers, even when PDF.js splits 
 
 
 
-## 6. Improve fuzzy matching logic
+## 8. Improve fuzzy matching logic
 
 ### Problem
 Fuzzy matching can be too loose or too strict, which affects the quality of nutrient suggestions and matching confidence.
@@ -201,7 +240,7 @@ Improve fuzzy scoring and normalization so suggestions are ranked more accuratel
 
 
 
-## 7. (Depends on 6) Use improved fuzzy matching in PDF highlighting
+## 9. (Depends on 8) Use improved fuzzy matching in PDF highlighting
 
 ### Problem
 PDF highlighting uses term matching that does not benefit from improved fuzzy logic, which can miss or mis-rank matches.
@@ -225,7 +264,7 @@ Apply the improved fuzzy logic from item 6 to highlight matching in the PDF text
 
 
 
-## 8. Add limitless scrolling for papers list (no page clicks)
+## 10. Add limitless scrolling for papers list (no page clicks)
 
 ### Problem
 The papers list requires clicking across pages, which slows navigation and interrupts flow.
@@ -249,7 +288,7 @@ Replace paginated navigation with infinite/limitless scrolling.
 
 
 
-## 9. Hide papers list popover when clicking outside
+## 11. Hide papers list popover when clicking outside
 
 ### Problem
 The papers list dropdown/popup remains open when clicking elsewhere on the page.
@@ -272,7 +311,7 @@ Dismiss the papers list popover on outside click.
 
 
 
-## 10. Remove the “Trabzon Ekmeği” example text
+## 12. Remove the “Trabzon Ekmeği” example text
 
 ### Problem
 An example like “Trabzon Ekmeği” is shown, but no example is needed in that spot.
