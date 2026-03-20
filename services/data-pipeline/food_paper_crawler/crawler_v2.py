@@ -16,6 +16,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
+from .embeddings import DualEmbeddingScorer
 from .europe_pmc import EuropePMCClient
 from .models import CandidatePaper, DownloadRecord
 from .ranking import validate_pdf_text
@@ -104,6 +105,7 @@ class FoodCompositionCrawlerV2:
         nutrient_limit = nutrient_term_limit if nutrient_term_limit > 0 else 500
         self.food_terms = fetch_food_terms(supabase_url, supabase_key, limit=food_limit)
         self.nutrient_terms = fetch_nutrient_terms(supabase_url, supabase_key, limit=nutrient_limit)
+        self.embedding_scorer = DualEmbeddingScorer()
         self.max_queries = max_queries
         self.state = self._load_state()
 
@@ -207,6 +209,7 @@ class FoodCompositionCrawlerV2:
             "harvested_at": harvested_at,
             "query_count": len(queries),
             "rule_version": "l1-balanced-v1",
+            "embedding": self.embedding_scorer.info(),
             "target_pdfs": self.target_pdfs,
             "accepted_count": len(accepted_records),
             "rejected_count": len(rejected_records),
@@ -331,7 +334,45 @@ class FoodCompositionCrawlerV2:
         if nutrient_hit:
             self._append_reason(details, "nutrient_term_hit", f"Positive: nutrient term '{nutrient_hit}'")
 
-        accepted = bool(composition_hit or unit_hit or (food_hit and nutrient_hit))
+        embedding_accept = False
+        embedding_result = self.embedding_scorer.score(raw_text)
+        if embedding_result.get("available"):
+            en_result = embedding_result.get("en")
+            multi_result = embedding_result.get("multi")
+            if en_result:
+                self._append_reason(
+                    details,
+                    "embed_en",
+                    "Embedding EN sim {score:.3f} to '{anchor}' (thr {thr:.2f})".format(
+                        score=en_result["max_similarity"],
+                        anchor=en_result["anchor"],
+                        thr=en_result["threshold"],
+                    ),
+                )
+                if en_result["max_similarity"] >= en_result["threshold"]:
+                    embedding_accept = True
+            if multi_result:
+                self._append_reason(
+                    details,
+                    "embed_multi",
+                    "Embedding multi sim {score:.3f} to '{anchor}' (thr {thr:.2f})".format(
+                        score=multi_result["max_similarity"],
+                        anchor=multi_result["anchor"],
+                        thr=multi_result["threshold"],
+                    ),
+                )
+                if multi_result["max_similarity"] >= multi_result["threshold"]:
+                    embedding_accept = True
+            if embedding_accept:
+                self._append_reason(details, "embedding_positive", "Positive: embedding similarity above threshold")
+        else:
+            self._append_reason(
+                details,
+                "embed_unavailable",
+                f"Embedding unavailable: {embedding_result.get('error')}",
+            )
+
+        accepted = bool(composition_hit or unit_hit or (food_hit and nutrient_hit) or embedding_accept)
         if accepted:
             self._append_reason(details, "accepted_metadata", "Accepted by metadata rules")
         else:
