@@ -325,3 +325,24 @@ Remove the example text so the UI is cleaner.
 
 ### Done when
 - the example text is no longer displayed
+
+
+
+
+## 13. Add conflict resolution table + view
+
+### Problem
+Conflicting labels can be derived from existing tables, but there is no place to store a reviewer decision, status, or notes.
+
+### Goal
+Add a lightweight resolution table (plus a conflict view/query) so conflicts are reviewable and resolvable without mutating label history.
+
+### Likely technical area
+- `apps/expert-annotator/migration.sql`
+- Supabase views / queries for conflict detection
+- UI (admin or reviewer view)
+
+### Done when
+- conflicts are derivable via a consistent query or view
+- a reviewer decision can be stored per paper (with resolved_by + timestamp)
+- the decision can be read without scanning past label events
