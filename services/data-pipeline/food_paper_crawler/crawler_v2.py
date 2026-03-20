@@ -335,42 +335,40 @@ class FoodCompositionCrawlerV2:
             self._append_reason(details, "nutrient_term_hit", f"Positive: nutrient term '{nutrient_hit}'")
 
         embedding_accept = False
-        embedding_result = self.embedding_scorer.score(raw_text)
-        if embedding_result.get("available"):
-            en_result = embedding_result.get("en")
-            multi_result = embedding_result.get("multi")
-            if en_result:
-                self._append_reason(
-                    details,
-                    "embed_en",
-                    "Embedding EN sim {score:.3f} to '{anchor}' (thr {thr:.2f})".format(
-                        score=en_result["max_similarity"],
-                        anchor=en_result["anchor"],
-                        thr=en_result["threshold"],
-                    ),
-                )
-                if en_result["max_similarity"] >= en_result["threshold"]:
-                    embedding_accept = True
-            if multi_result:
-                self._append_reason(
-                    details,
-                    "embed_multi",
-                    "Embedding multi sim {score:.3f} to '{anchor}' (thr {thr:.2f})".format(
-                        score=multi_result["max_similarity"],
-                        anchor=multi_result["anchor"],
-                        thr=multi_result["threshold"],
-                    ),
-                )
-                if multi_result["max_similarity"] >= multi_result["threshold"]:
-                    embedding_accept = True
-            if embedding_accept:
-                self._append_reason(details, "embedding_positive", "Positive: embedding similarity above threshold")
-        else:
+        try:
+            embedding_result = self.embedding_scorer.score(raw_text)
+        except Exception as exc:
+            identifier = candidate.canonical_id or candidate.title or "unknown"
+            raise RuntimeError(f"Embedding scoring failed for candidate '{identifier}'.") from exc
+
+        en_result = embedding_result.get("en")
+        multi_result = embedding_result.get("multi")
+        if en_result:
             self._append_reason(
                 details,
-                "embed_unavailable",
-                f"Embedding unavailable: {embedding_result.get('error')}",
+                "embed_en",
+                "Embedding EN sim {score:.3f} to '{anchor}' (thr {thr:.2f})".format(
+                    score=en_result["max_similarity"],
+                    anchor=en_result["anchor"],
+                    thr=en_result["threshold"],
+                ),
             )
+            if en_result["max_similarity"] >= en_result["threshold"]:
+                embedding_accept = True
+        if multi_result:
+            self._append_reason(
+                details,
+                "embed_multi",
+                "Embedding multi sim {score:.3f} to '{anchor}' (thr {thr:.2f})".format(
+                    score=multi_result["max_similarity"],
+                    anchor=multi_result["anchor"],
+                    thr=multi_result["threshold"],
+                ),
+            )
+            if multi_result["max_similarity"] >= multi_result["threshold"]:
+                embedding_accept = True
+        if embedding_accept:
+            self._append_reason(details, "embedding_positive", "Positive: embedding similarity above threshold")
 
         accepted = bool(composition_hit or unit_hit or (food_hit and nutrient_hit) or embedding_accept)
         if accepted:

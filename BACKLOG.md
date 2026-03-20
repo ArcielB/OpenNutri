@@ -10,6 +10,8 @@ How to use this backlog:
 
 ## 1. (Arciel working) L2 multilingual embedding baseline (paper extractor part 2)
 
+Status: implemented; embedding scoring is required and fails fast if `sentence-transformers` is missing.
+
 ### Problem
 There is no L2 relevance baseline yet, so filtering cannot improve from labeling feedback or even triage before labels.
 

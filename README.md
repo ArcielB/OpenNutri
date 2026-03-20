@@ -115,6 +115,9 @@ Pipeline data outputs:
 - `docs/FAAP.md`: Food engineering action points.
 - `docs/draft_commercialization.txt`: Commercialization notes (TR).
 
+**Python Dependencies**
+- `sentence-transformers` (required for L2 embedding scoring; crawler will error if missing). Install with `python3 -m pip install sentence-transformers`.
+
 **Environment Variables**
 Frontend:
 - `VITE_SUPABASE_URL`

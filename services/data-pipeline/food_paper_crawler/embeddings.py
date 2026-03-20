@@ -4,10 +4,12 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+_sentence_transformers_import_error = None
 try:
     from sentence_transformers import SentenceTransformer
-except Exception:  # pragma: no cover - optional dependency
+except Exception as exc:  # pragma: no cover - optional dependency
     SentenceTransformer = None
+    _sentence_transformers_import_error = exc
 
 
 EN_ANCHOR_PHRASES = [
@@ -58,7 +60,12 @@ class DualEmbeddingScorer:
                 max_chars=int(os.environ.get("L2_EMBED_MAX_CHARS", "1800")),
             )
         self.config = config
-        self.available = SentenceTransformer is not None
+        if SentenceTransformer is None:
+            raise ModuleNotFoundError(
+                "sentence-transformers is required for L2 embedding scoring. "
+                "Install with `python3 -m pip install sentence-transformers`."
+            ) from _sentence_transformers_import_error
+        self.available = True
         self.error: Optional[str] = None
         self._en_model = None
         self._multi_model = None
@@ -66,17 +73,17 @@ class DualEmbeddingScorer:
         self._multi_anchors = MULTI_ANCHOR_PHRASES
         self._en_anchor_emb = None
         self._multi_anchor_emb = None
-        if not self.available:
-            self.error = "sentence-transformers not installed"
-            return
         try:
             self._en_model = SentenceTransformer(self.config.en_model)
             self._multi_model = SentenceTransformer(self.config.multi_model)
             self._en_anchor_emb = self._encode(self._en_model, self._en_anchors)
             self._multi_anchor_emb = self._encode(self._multi_model, self._multi_anchors)
         except Exception as exc:  # pragma: no cover
-            self.available = False
-            self.error = str(exc)
+            raise RuntimeError(
+                "Failed to initialize embedding models "
+                f"'{self.config.en_model}' and '{self.config.multi_model}'. "
+                "Ensure the models can be downloaded and loaded."
+            ) from exc
 
     def info(self) -> Dict[str, object]:
         return {
@@ -92,14 +99,11 @@ class DualEmbeddingScorer:
         }
 
     def score(self, text: str) -> Dict[str, object]:
-        if not self.available:
-            return {"available": False, "error": self.error}
-
         trimmed = " ".join((text or "").split())
         if self.config.max_chars > 0:
             trimmed = trimmed[: self.config.max_chars]
         if not trimmed:
-            return {"available": False, "error": "empty_text"}
+            raise ValueError("Embedding input is empty (missing title/abstract).")
 
         en_score, en_anchor = self._max_similarity(self._en_model, self._en_anchor_emb, trimmed, self._en_anchors)
         multi_score, multi_anchor = self._max_similarity(
