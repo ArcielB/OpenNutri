@@ -8,29 +8,18 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
-Execution order for the relevance pipeline (do these steps in order):
-1. Multilingual embeddings in the crawler pipeline.
-2. Anchor-phrase similarity scoring with thresholds (usable before labels).
-3. Data recording for every decision (text, scores, reasons, outcome).
-4. UI feedback loop for human labels.
-5. Use feedback to update scraper query terms and anchor list/thresholds.
-6. Train the lightweight classifier on embeddings once labels exist.
-7. Integrate the classifier and keep learning from feedback.
-8. Later: XLM-R fine-tune for a higher ceiling.
-
-## 1. (Arciel working) L2 embedding + classifier relevance filter (paper extractor part 2)
+## 1. (Arciel working) L2 multilingual embedding baseline (paper extractor part 2)
 
 ### Problem
-There is no trainable L2 relevance model yet, so filtering cannot improve from labeling feedback.
+There is no L2 relevance baseline yet, so filtering cannot improve from labeling feedback or even triage before labels.
 
 ### Goal
-Build an embedding + classifier relevance filter (multilingual) using title/abstract/journal signals:
-- multilingual sentence embeddings + linear classifier (logistic regression)
-- anchor-phrase similarity scoring baseline for pre-label filtering
-- example model: paraphrase-multilingual-MiniLM-L12-v2 or LaBSE
-- probability output with a configurable threshold
+Build a multilingual embedding baseline using title/abstract/journal signals:
+- multilingual sentence embeddings
+- anchor-phrase similarity scoring baseline (usable before labels)
+- configurable thresholds and decision reasons
 - feature logging for quick debugging
-- model artifact can be versioned and reloaded
+- model config can be versioned and reloaded
 
 ### Likely technical area
 - `services/data-pipeline/food_paper_crawler/`
@@ -38,13 +27,11 @@ Build an embedding + classifier relevance filter (multilingual) using title/abst
 
 ### Sources to check when needed
 - sentence-transformers embeddings: https://www.sbert.net/
-- scikit-learn text classification pipeline: https://scikit-learn.org/1.3/tutorial/text_analytics/working_with_text_data.html
-- fastText supervised classification: https://fasttext.cc/docs/en/supervised-tutorial.html
 
 ### Done when
-- a classifier can be trained from label data
-- crawler uses it before downloading PDFs
-- per-run metrics include classifier precision/recall
+- baseline relevance scoring runs before downloading PDFs
+- per-run metrics include baseline keep/reject counts and reasons
+- anchors and thresholds are configurable without code changes
 
 
 ## 2. Improve the crawler so it collects the right papers (Arciel working)
@@ -105,16 +92,18 @@ Build a crawler that:
 - the crawler records why each kept or rejected paper was classified that way
 
 
-## 3. (Depends on 1) L3 feedback loop from UI labels to crawler/classifier (paper extractor part 3)
+
+
+## 3. (Depends on 1) L3 feedback loop from UI labels to crawler/L2 baseline (paper extractor part 3)
 
 ### Problem
-Annotator decisions are not feeding back into the crawler or the classifier.
+Annotator decisions are not feeding back into the crawler or the L2 baseline.
 
 ### Goal
 Create a feedback pipeline that:
 - stores global paper labels with provenance
 - exports labeled data for model training
-- updates query term weights from good/bad examples
+- updates scraper query terms and anchor list/thresholds from good/bad examples
 
 ### Likely technical area
 - `apps/expert-annotator/src/pages/Annotate.jsx`
@@ -127,8 +116,10 @@ Create a feedback pipeline that:
 
 ### Done when
 - labels flow from UI to a training dataset
-- classifier retrain is repeatable
+- training export is repeatable and versioned
 - crawler term weights update from the label stats
+
+
 
 
 ## 4. (Depends on 3) Add a global “definitely no data” red button (immediate skip + training)
@@ -155,7 +146,35 @@ Add a red button that marks a paper as definitely no-data for everyone and sends
 - the label is immediately used by the training pipeline
 
 
-## 5. (Later, depends on 1 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
+
+
+## 5. (Depends on 3 + label volume) Train and integrate the L2 classifier
+
+### Problem
+Once labels exist, we need a trainable classifier so L2 can learn from feedback instead of only rules.
+
+### Goal
+Train a lightweight classifier on embeddings and integrate it into the pipeline:
+- linear classifier (logistic regression) on top of embeddings
+- probability output with configurable threshold
+- model artifact versioned and reloadable
+- evaluation on a fixed holdout split
+
+### Likely technical area
+- `services/data-pipeline/food_paper_crawler/`
+- `services/data-pipeline/food_paper_crawler/training/`
+
+### Sources to check when needed
+- scikit-learn text classification pipeline: https://scikit-learn.org/1.3/tutorial/text_analytics/working_with_text_data.html
+- fastText supervised classification: https://fasttext.cc/docs/en/supervised-tutorial.html
+
+### Done when
+- classifier training is repeatable from labeled data
+- crawler uses the classifier before downloading PDFs
+- per-run metrics include classifier precision/recall
+
+
+## 6. (Later, depends on 5 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
 
 
 ### Problem
@@ -177,7 +196,9 @@ Fine-tune a multilingual transformer (XLM-R) for relevance classification and co
 - the model can be swapped in via config
 
 
-## 6. Add a safe test mode that does not write to production data
+
+
+## 7. Add a safe test mode that does not write to production data
 
 ### Problem
 People need to test flows and extraction behavior, but test actions can currently look too similar to real actions and may write into the main database.
@@ -206,7 +227,9 @@ Add a clear test mode where users can exercise the app without updating producti
 - test-mode behavior is easy to turn on and off deliberately
 
 
-## 7. Route user suggestions into the backlog review queue
+
+
+## 8. Route user suggestions into the backlog review queue
 
 ### Problem
 The UI has a suggestion button, but suggestions are not flowing into an internal review workflow that is easy to track, triage, or follow up on.
@@ -236,7 +259,9 @@ Store each suggestion as a backlog review item that supports:
 - reviewers can change status later without losing the original suggestion text
 
 
-## 8. (Depends on 8) Add image attachments to the suggestion flow
+
+
+## 9. (Depends on 8) Add image attachments to the suggestion flow
 
 ### Problem
 Users can submit text suggestions, but they cannot attach screenshots. That makes bug reports slower to understand and reproduce.
@@ -260,7 +285,9 @@ Allow one or more image attachments in the suggestion modal.
 - failure states are visible to the user
 
 
-## 9. Fix PDF nutrient highlighting errors
+
+
+## 10. Fix PDF nutrient highlighting errors
 
 ### Problem
 The nutrient highlighting feature works for many terms but fails for some words or phrases. In some PDFs it highlights partial words, the wrong word, or a broken segment inside a word.
@@ -299,7 +326,9 @@ Make nutrient highlighting reliable in PDF text layers, even when PDF.js splits 
 - popover interaction still works
 
 
-## 10. Improve fuzzy matching logic
+
+
+## 11. Improve fuzzy matching logic
 
 ### Problem
 Fuzzy matching can be too loose or too strict, which affects the quality of nutrient suggestions and matching confidence.
@@ -317,7 +346,9 @@ Improve fuzzy scoring and normalization so suggestions are ranked more accuratel
 - scoring/ranking is stable across similar inputs
 
 
-## 11. (Depends on 11) Use improved fuzzy matching in PDF highlighting
+
+
+## 12. (Depends on 11) Use improved fuzzy matching in PDF highlighting
 
 ### Problem
 PDF highlighting uses term matching that does not benefit from improved fuzzy logic, which can miss or mis-rank matches.
@@ -335,7 +366,9 @@ Apply the improved fuzzy logic from item 11 to highlight matching in the PDF tex
 - existing exact matches continue to work
 
 
-## 12. Add limitless scrolling for papers list (no page clicks)
+
+
+## 13. Add limitless scrolling for papers list (no page clicks)
 
 ### Problem
 The papers list requires clicking across pages, which slows navigation and interrupts flow.
@@ -353,7 +386,9 @@ Replace paginated navigation with infinite/limitless scrolling.
 - pagination controls are no longer required
 
 
-## 13. Hide papers list popover when clicking outside
+
+
+## 14. Hide papers list popover when clicking outside
 
 ### Problem
 The papers list dropdown/popup remains open when clicking elsewhere on the page.
@@ -370,7 +405,9 @@ Dismiss the papers list popover on outside click.
 - clicking inside the popover does not close it
 
 
-## 14. Remove the “Trabzon Ekmeği” example text
+
+
+## 15. Remove the “Trabzon Ekmeği” example text
 
 ### Problem
 An example like “Trabzon Ekmeği” is shown, but no example is needed in that spot.
@@ -384,4 +421,3 @@ Remove the example text so the UI is cleaner.
 
 ### Done when
 - the example text is no longer displayed
-
