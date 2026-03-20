@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 
 from .embeddings import DualEmbeddingScorer
 from .europe_pmc import EuropePMCClient
+from .feedback_config import extract_terms, load_feedback_config, merge_terms
 from .models import CandidatePaper, DownloadRecord
 from .ranking import validate_pdf_text
 from .supabase_terms import fetch_food_terms, fetch_nutrient_terms
@@ -105,6 +106,12 @@ class FoodCompositionCrawlerV2:
         nutrient_limit = nutrient_term_limit if nutrient_term_limit > 0 else 500
         self.food_terms = fetch_food_terms(supabase_url, supabase_key, limit=food_limit)
         self.nutrient_terms = fetch_nutrient_terms(supabase_url, supabase_key, limit=nutrient_limit)
+        self.feedback_config = load_feedback_config()
+        self.feedback_positive_phrases = extract_terms(self.feedback_config, "positive_phrases")
+        self.feedback_negative_terms = extract_terms(self.feedback_config, "negative_terms")
+        self.feedback_query_terms = extract_terms(self.feedback_config, "query_terms")
+        self.positive_phrases = merge_terms(STRONG_POSITIVE_PHRASES, self.feedback_positive_phrases)
+        self.hard_negative_terms = merge_terms(HEALTH_OUTCOME_TERMS, self.feedback_negative_terms)
         self.embedding_scorer = DualEmbeddingScorer()
         self.max_queries = max_queries
         self.state = self._load_state()
@@ -210,6 +217,12 @@ class FoodCompositionCrawlerV2:
             "query_count": len(queries),
             "rule_version": "l1-balanced-v1",
             "embedding": self.embedding_scorer.info(),
+            "feedback": {
+                "config_path": str(self.feedback_config.get("config_path", "")),
+                "positive_phrases": self.feedback_positive_phrases[:20],
+                "negative_terms": self.feedback_negative_terms[:20],
+                "query_terms": self.feedback_query_terms[:20],
+            },
             "target_pdfs": self.target_pdfs,
             "accepted_count": len(accepted_records),
             "rejected_count": len(rejected_records),
@@ -267,6 +280,9 @@ class FoodCompositionCrawlerV2:
 
     def _build_term_pool(self) -> List[Tuple[str, str]]:
         pool: List[Tuple[str, str]] = []
+        for term in self.feedback_query_terms:
+            if term:
+                pool.append(("feedback", term))
         max_len = max(len(self.food_terms), len(self.nutrient_terms))
         for idx in range(max_len):
             if idx < len(self.food_terms):
@@ -277,6 +293,16 @@ class FoodCompositionCrawlerV2:
 
     def _build_term_query(self, term_type: str, term: str) -> QuerySpec:
         safe_term = term.replace('"', "").strip()
+        if term_type == "feedback":
+            return QuerySpec(
+                query=(
+                    f'("{safe_term}" AND ("food composition" OR "nutrient composition" OR '
+                    '"nutrient content" OR "proximate analysis" OR "chemical composition")) AND IN_PMC:y'
+                ),
+                template_id="feedback_phrase",
+                source_term=term,
+                term_type="feedback",
+            )
         if term_type == "nutrient":
             return QuerySpec(
                 query=(
@@ -313,12 +339,12 @@ class FoodCompositionCrawlerV2:
         raw_text = f"{candidate.title} {candidate.abstract}".strip().lower()
         normalized = self._normalize_for_match(raw_text)
 
-        hard_negative = self._first_term_hit(normalized, HEALTH_OUTCOME_TERMS)
+        hard_negative = self._first_term_hit(normalized, self.hard_negative_terms)
         if hard_negative:
             self._append_reason(details, "hard_negative", f"Rejected: hard negative term '{hard_negative}'")
             return False, details
 
-        composition_hit = self._first_term_hit(normalized, STRONG_POSITIVE_PHRASES)
+        composition_hit = self._first_term_hit(normalized, self.positive_phrases)
         if composition_hit:
             self._append_reason(details, "composition_phrase", f"Positive: composition phrase '{composition_hit}'")
 

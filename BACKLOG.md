@@ -8,39 +8,7 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
-## 1. L3 feedback loop from UI labels to crawler/L2 baseline (paper extractor part 3)
-
-### Problem
-Annotator decisions are not feeding back into the crawler or the L2 baseline.
-
-### Goal
-Create a feedback pipeline that:
-- stores global paper labels with provenance
-- exports labeled data for model training
-- updates scraper query terms and anchor list/thresholds from good/bad examples
-
-### Likely technical area
-- `apps/expert-annotator/src/pages/Annotate.jsx`
-- `apps/expert-annotator/migration.sql`
-- `services/data-pipeline/food_paper_crawler/`
-- `services/data-pipeline/core/knowledge.py`
-
-### Sources to check when needed
-- Snorkel weak supervision (optional): https://docs.snorkel.ai/docs/25.2/user-guide/intro/what-is-snorkel-flow
-
-### Done when
-- labels flow from UI to a training dataset
-- training export is repeatable and versioned
-- crawler term weights update from the label stats
-
-
-
-
-
-
-
-
-## 2. (Depends on 1 + label volume) Train and integrate the L2 classifier
+## 1. Train and integrate the L2 classifier (depends on label volume)
 
 ### Problem
 Once labels exist, we need a trainable classifier so L2 can learn from feedback instead of only rules.
@@ -70,7 +38,7 @@ Train a lightweight classifier on embeddings and integrate it into the pipeline:
 
 
 
-## 3. (Later, depends on 2 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
+## 2. (Later, depends on 1 + label volume) L2 fine-tuned multilingual transformer (XLM-R)
 
 
 ### Problem
@@ -98,7 +66,7 @@ Fine-tune a multilingual transformer (XLM-R) for relevance classification and co
 
 
 
-## 4. Route user suggestions into the backlog review queue
+## 3. Route user suggestions into the backlog review queue
 
 ### Problem
 The UI has a suggestion button, but suggestions are not flowing into an internal review workflow that is easy to track, triage, or follow up on.
@@ -134,7 +102,7 @@ Store each suggestion as a backlog review item that supports:
 
 
 
-## 5. (Depends on 4) Add image attachments to the suggestion flow
+## 4. (Depends on 3) Add image attachments to the suggestion flow
 
 ### Problem
 Users can submit text suggestions, but they cannot attach screenshots. That makes bug reports slower to understand and reproduce.
@@ -149,7 +117,7 @@ Allow one or more image attachments in the suggestion modal.
 - suggestion record linked to uploaded files
 
 ### Dependency
-- This may change the best implementation choice for item 5.
+- This may change the best implementation choice for item 4.
 
 ### Done when
 - a user can attach at least one image
@@ -164,7 +132,7 @@ Allow one or more image attachments in the suggestion modal.
 
 
 
-## 6. Fix PDF nutrient highlighting errors
+## 5. Fix PDF nutrient highlighting errors
 
 ### Problem
 The nutrient highlighting feature works for many terms but fails for some words or phrases. In some PDFs it highlights partial words, the wrong word, or a broken segment inside a word.
@@ -209,7 +177,7 @@ Make nutrient highlighting reliable in PDF text layers, even when PDF.js splits 
 
 
 
-## 7. Improve fuzzy matching logic
+## 6. Improve fuzzy matching logic
 
 ### Problem
 Fuzzy matching can be too loose or too strict, which affects the quality of nutrient suggestions and matching confidence.
@@ -233,13 +201,13 @@ Improve fuzzy scoring and normalization so suggestions are ranked more accuratel
 
 
 
-## 8. (Depends on 7) Use improved fuzzy matching in PDF highlighting
+## 7. (Depends on 6) Use improved fuzzy matching in PDF highlighting
 
 ### Problem
 PDF highlighting uses term matching that does not benefit from improved fuzzy logic, which can miss or mis-rank matches.
 
 ### Goal
-Apply the improved fuzzy logic from item 7 to highlight matching in the PDF text layer.
+Apply the improved fuzzy logic from item 6 to highlight matching in the PDF text layer.
 
 ### Likely technical area
 - `apps/expert-annotator/src/components/PdfViewer.jsx`
@@ -257,7 +225,7 @@ Apply the improved fuzzy logic from item 7 to highlight matching in the PDF text
 
 
 
-## 9. Add limitless scrolling for papers list (no page clicks)
+## 8. Add limitless scrolling for papers list (no page clicks)
 
 ### Problem
 The papers list requires clicking across pages, which slows navigation and interrupts flow.
@@ -281,7 +249,7 @@ Replace paginated navigation with infinite/limitless scrolling.
 
 
 
-## 10. Hide papers list popover when clicking outside
+## 9. Hide papers list popover when clicking outside
 
 ### Problem
 The papers list dropdown/popup remains open when clicking elsewhere on the page.
@@ -304,7 +272,7 @@ Dismiss the papers list popover on outside click.
 
 
 
-## 11. Remove the “Trabzon Ekmeği” example text
+## 10. Remove the “Trabzon Ekmeği” example text
 
 ### Problem
 An example like “Trabzon Ekmeği” is shown, but no example is needed in that spot.

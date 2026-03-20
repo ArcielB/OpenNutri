@@ -82,6 +82,12 @@ Key modules:
 - `extraction/`: LLM-based nutrient extraction and table parsing.
 - `core/`: Knowledge base (dedup + term scoring), orchestrator, Supabase data source.
 
+**Label Feedback Loop (L2)**
+- Generates positive/negative phrases from labeled papers to update crawler search/filter terms and embedding anchors.
+- Script: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
+  - Requires `SUPABASE_URL` (or `VITE_SUPABASE_URL`) and `SUPABASE_SERVICE_ROLE_KEY`.
+- Output: `services/data-pipeline/food_paper_crawler/feedback/latest.json` (loaded automatically by the crawler).
+
 Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/ingestor.py`: Entrez harvester into `data/raw_lake`.
 - `services/data-pipeline/scripts/ingestor_pdf.py`: PDF downloader with a focused composition query.

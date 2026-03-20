@@ -69,8 +69,13 @@ class DualEmbeddingScorer:
         self.error: Optional[str] = None
         self._en_model = None
         self._multi_model = None
-        self._en_anchors = EN_ANCHOR_PHRASES
-        self._multi_anchors = MULTI_ANCHOR_PHRASES
+        from .feedback_config import extract_terms, load_feedback_config, merge_terms
+
+        feedback_config = load_feedback_config()
+        feedback_anchors = extract_terms(feedback_config, "anchor_phrases")
+        feedback_multi = extract_terms(feedback_config, "anchor_phrases_multi") or feedback_anchors
+        self._en_anchors = merge_terms(EN_ANCHOR_PHRASES, feedback_anchors)
+        self._multi_anchors = merge_terms(MULTI_ANCHOR_PHRASES, feedback_multi)
         self._en_anchor_emb = None
         self._multi_anchor_emb = None
         try:
