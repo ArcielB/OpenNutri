@@ -23,6 +23,17 @@ function createEmptyFoodItem() {
     }
 }
 
+const GLOBAL_SKIP_REASONS = [
+    'No usable data',
+    'Wrong paper / off topic',
+    'No composition table',
+    'Only clinical outcomes',
+    'Duplicate / already labeled',
+    'Other',
+]
+
+const GLOBAL_SKIP_REASON_KEY = 'opennutri_global_skip_reason'
+
 export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     const [papers, setPapers] = useState([])
     const [currentIndex, setCurrentIndex] = useState(0)
@@ -37,6 +48,12 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     const [foodsLoaded, setFoodsLoaded] = useState(false)
     const [testMode, setTestMode] = useState(() => isTestModeEnabled())
     const [globalNoDataIds, setGlobalNoDataIds] = useState([])
+    const [showGlobalSkip, setShowGlobalSkip] = useState(false)
+    const [globalSkipReason, setGlobalSkipReason] = useState(() => {
+        if (typeof window === 'undefined') return GLOBAL_SKIP_REASONS[0]
+        return window.localStorage.getItem(GLOBAL_SKIP_REASON_KEY) || GLOBAL_SKIP_REASONS[0]
+    })
+    const [globalSkipCustom, setGlobalSkipCustom] = useState('')
 
     // Load nutrients master list once
     useEffect(() => {
@@ -229,6 +246,17 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         }
     }, [currentIndex, papers.length])
 
+    useEffect(() => {
+        if (!showGlobalSkip) return
+        if (typeof window !== 'undefined') {
+            const saved = window.localStorage.getItem(GLOBAL_SKIP_REASON_KEY)
+            setGlobalSkipReason(saved || GLOBAL_SKIP_REASONS[0])
+        } else {
+            setGlobalSkipReason(GLOBAL_SKIP_REASONS[0])
+        }
+        setGlobalSkipCustom('')
+    }, [showGlobalSkip])
+
     const currentPaper = papers[currentIndex] || null
     const pdfUrl = currentPaper
         ? supabase.storage.from('papers').getPublicUrl(currentPaper.filename).data.publicUrl
@@ -397,17 +425,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         }
     }
 
-    const handleGlobalNoData = async () => {
+    const handleGlobalNoData = async (reason) => {
         if (!currentPaper || isGlobalSkipped) return
-        const confirm = typeof window !== 'undefined'
-            ? window.confirm(
-                'Mark this paper as definitely no data for everyone? This removes it from all queues.'
-            )
-            : false
-        if (!confirm) return
-        const reason = typeof window !== 'undefined'
-            ? window.prompt('Reason for global skip (required):', '')
-            : ''
         if (!reason || !reason.trim()) {
             showToast('Global skip cancelled: reason required.', 'error')
             return
@@ -464,6 +483,24 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         } finally {
             setSaving(false)
         }
+    }
+
+    const openGlobalSkipModal = () => {
+        if (!currentPaper || isGlobalSkipped) return
+        setShowGlobalSkip(true)
+    }
+
+    const confirmGlobalSkip = async () => {
+        const finalReason = globalSkipReason === 'Other' ? globalSkipCustom.trim() : globalSkipReason
+        if (!finalReason) {
+            showToast('Please provide a reason for the global skip.', 'error')
+            return
+        }
+        if (typeof window !== 'undefined') {
+            window.localStorage.setItem(GLOBAL_SKIP_REASON_KEY, globalSkipReason === 'Other' ? finalReason : globalSkipReason)
+        }
+        setShowGlobalSkip(false)
+        await handleGlobalNoData(finalReason)
     }
 
     // Food items handlers
@@ -651,7 +688,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                         <div className="action-row">
                             <button
                                 className="btn btn-danger btn-global-skip"
-                                onClick={handleGlobalNoData}
+                                onClick={openGlobalSkipModal}
                                 disabled={saving || isGlobalSkipped}
                             >
                                 🛑 Definitely No Data (Global)
@@ -693,6 +730,49 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
             {/* Suggestion Modal */}
             {showSuggestion && (
                 <SuggestionModal user={user} onClose={() => setShowSuggestion(false)} testMode={testMode} />
+            )}
+
+            {showGlobalSkip && (
+                <div className="modal-overlay" onClick={() => setShowGlobalSkip(false)}>
+                    <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+                        <h2>Global Skip</h2>
+                        <p>This marks the paper as definitely no data for everyone and removes it from all queues.</p>
+                        <div className="reason-chips">
+                            {GLOBAL_SKIP_REASONS.map((reason) => (
+                                <button
+                                    key={reason}
+                                    className={`reason-chip ${globalSkipReason === reason ? 'active' : ''}`}
+                                    onClick={() => setGlobalSkipReason(reason)}
+                                    type="button"
+                                >
+                                    {reason}
+                                </button>
+                            ))}
+                        </div>
+                        {globalSkipReason === 'Other' && (
+                            <input
+                                className="modal-input"
+                                placeholder="Enter reason..."
+                                value={globalSkipCustom}
+                                onChange={(e) => setGlobalSkipCustom(e.target.value)}
+                                autoFocus
+                            />
+                        )}
+                        <div className="modal-actions">
+                            <button className="btn btn-outline" onClick={() => setShowGlobalSkip(false)}>
+                                Cancel
+                            </button>
+                            <button
+                                className="btn btn-danger"
+                                onClick={confirmGlobalSkip}
+                                disabled={saving || (globalSkipReason === 'Other' && !globalSkipCustom.trim())}
+                                style={{ width: 'auto' }}
+                            >
+                                Confirm Global Skip
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     )
