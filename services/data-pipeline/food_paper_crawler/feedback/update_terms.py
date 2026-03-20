@@ -9,7 +9,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -226,17 +226,51 @@ def resolve_paper_select(supabase_url: str, supabase_key: str) -> Tuple[str, Lis
     raise last_error if last_error else RuntimeError("Failed to fetch papers")
 
 
+def parse_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def latest_events_by_user(label_events: List[dict]) -> List[dict]:
+    latest: Dict[Tuple[int, str], Tuple[Optional[datetime], dict]] = {}
+    for event in label_events:
+        paper_id = event.get("paper_id")
+        user_id = event.get("user_id")
+        if not paper_id or not user_id:
+            continue
+        created_at = parse_timestamp(event.get("created_at"))
+        key = (paper_id, user_id)
+        current = latest.get(key)
+        if current is None:
+            latest[key] = (created_at, event)
+            continue
+        current_ts = current[0]
+        if current_ts is None:
+            if created_at is not None:
+                latest[key] = (created_at, event)
+            continue
+        if created_at is None:
+            continue
+        if created_at >= current_ts:
+            latest[key] = (created_at, event)
+    return [event for _, event in latest.values()]
+
+
 def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[set[int], set[int]]:
     good_ids: set[int] = set()
     skip_counts: Dict[int, set] = defaultdict(set)
-    for event in label_events:
+    for event in latest_events_by_user(label_events):
         paper_id = event.get("paper_id")
         if not paper_id:
             continue
         status = (event.get("status") or "").lower()
         has_data = bool(event.get("has_data"))
         user_id = event.get("user_id")
-        if status == "done" and has_data:
+        if status in {"done", "draft"} and has_data:
             good_ids.add(paper_id)
         if status == "skipped" and not has_data and user_id:
             skip_counts[paper_id].add(user_id)
@@ -299,7 +333,7 @@ def main() -> None:
         args.supabase_key,
         "paper_label_events",
         "paper_id,user_id,has_data,status,food_item_count,nutrient_value_count,created_at",
-        filters={"status": "in.(done,skipped)"},
+        filters={"status": "in.(done,skipped,draft)"},
         batch_size=1000,
     )
     global_labels = fetch_rows(
