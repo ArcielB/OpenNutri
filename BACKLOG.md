@@ -34,64 +34,31 @@ Build a multilingual embedding baseline using title/abstract/journal signals:
 - anchors and thresholds are configurable without code changes
 
 
-## 2. Improve the crawler so it collects the right papers (Arciel working)
+## 2. (Arciel working) Crawler query bank + retrieval reliability
 
 ### Problem
-The crawler should collect food composition papers, but it currently pulls many irrelevant papers or fails during live retrieval.
-
-### Wanted papers
-- food composition papers
-- nutrient composition papers
-- proximate composition papers
-- fatty acid, mineral, or vitamin content papers
-- database or table papers that report nutrient values for foods
-
-### Unwanted papers
-- health effect papers
-- supplementation or intervention studies
-- reviews without usable composition data
-- packaging, materials, sensor, and veterinary feed papers
+The crawler's query and retrieval layer is too broad and brittle, which leads to low-precision results and unreliable fetches.
 
 ### Goal
-Build a crawler that:
-- retrieves candidate papers reliably
-- filters for food composition relevance
-- stores paper artifacts consistently
-- records why a paper was accepted or rejected
+Build a deterministic, high-precision query bank and reliable retrieval layer:
+- versioned query templates that combine foods + nutrients + composition terms
+- negative terms and doc-type filters to avoid common junk
+- per-query stats (hits, kept, rejected, failures)
+- robust retries/backoff for search and PDF fetch
+- keep retrieval cleanly separated from L2 relevance scoring
 
-### Implementation direction
-- Use foods already known in the project catalog as search anchors, but do not restrict the system to only those foods forever.
-- Use a food-composition nutrient panel as search guidance: proximate nutrients, minerals, vitamins, fatty acids, amino acids.
-- Keep query templates small and high-precision instead of exploding into too many weak combinations.
-- Use a two-stage decision flow:
-  - metadata ranking to shortlist likely papers
-  - PDF full-text validation before saving a paper
-- Reject papers whose main contribution is not food composition data:
-  - body composition / physiology
-  - functional properties / rheology / viscosity / processing behavior
-  - extracts / essential oils / bioactivity
-  - materials / packaging / environmental chemistry
-- Accept papers only when they contain meaningful nutrient data that could plausibly map into the OpenNutri schema.
-- Record acceptance and rejection reasons so future feedback learning can be added on top of a stable baseline.
-- Pass through a small, deterministic slice of rejects (every 100th) for audit/recall checks.
-
-### Current technical area
-- `services/data-pipeline/main.py`
+### Likely technical area
 - `services/data-pipeline/food_paper_crawler/`
+- `services/data-pipeline/main.py`
 
 ### Known blocker
 - live paper retrieval has been unreliable in the current environment
 
-### Status
-- Arciel is currently working on the crawler.
-
 ### Done when
-- the crawler keeps papers that clearly contain food composition data
-- obvious junk classes are rejected consistently
-- saved papers are manually inspectable and defensible
-- the crawler records why each kept or rejected paper was classified that way
-
-
+- query bank is versioned and used in runs
+- per-query stats are logged
+- retrieval failures are retried and recorded
+- L2 filtering is separated from retrieval
 
 
 ## 3. (Depends on 1) L3 feedback loop from UI labels to crawler/L2 baseline (paper extractor part 3)
