@@ -95,7 +95,7 @@ Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/ingestor_structured.py`: XML table extraction into `data/structured_lake`.
 - `services/data-pipeline/scripts/config_targets.py`: Shared query configuration for script-based harvesters.
 - `services/data-pipeline/scripts/upload_to_supabase.py`: Upload PDFs to Supabase Storage and insert `papers` (including audit-flagged rejects).
-- `services/data-pipeline/scripts/ensure_paper_stock.py`: Auto-run crawler + upload when UI papers drop below a threshold.
+- `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, then crawl + upload when available UI papers are at/below a threshold; repeat until a target count is reached.
 - `services/data-pipeline/scripts/check_db.py`, `check_db.js`, `test_frontend_fetch.js`: DB and frontend connectivity checks.
 - `services/data-pipeline/scripts/check_rls.py`: Placeholder for RLS checks.
 

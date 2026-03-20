@@ -58,21 +58,39 @@ def fetch_count(
     return 0
 
 
-def run_command(label: str, cmd: list[str], env: dict) -> None:
+def run_command(label: str, cmd: list[str], env: dict, *, allow_failure: bool = False) -> bool:
     print(f"\n== {label} ==")
     print(" ".join(cmd))
     result = subprocess.run(cmd, env=env, check=False)
     if result.returncode != 0:
-        raise SystemExit(f"{label} failed with exit code {result.returncode}")
+        message = f"{label} failed with exit code {result.returncode}"
+        if allow_failure:
+            print(message)
+            return False
+        raise SystemExit(message)
+    return True
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ensure there are enough papers for the UI.")
-    parser.add_argument("--threshold", type=int, default=0, help="Minimum available papers before crawling")
+    parser.add_argument(
+        "--threshold",
+        type=int,
+        default=0,
+        help="Trigger crawl when available papers are <= this value",
+    )
+    parser.add_argument(
+        "--target",
+        type=int,
+        default=10,
+        help="Target available papers to reach after crawling",
+    )
     parser.add_argument("--data-dir", default="services/data-pipeline/data", help="Crawler data directory")
     parser.add_argument("--target-pdfs", type=int, default=12, help="How many PDFs to keep per crawl")
     parser.add_argument("--query-limit", type=int, default=50, help="Results to inspect per query")
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count")
+    parser.add_argument("--max-cycles", type=int, default=5, help="Maximum crawl cycles to avoid infinite loops")
+    parser.add_argument("--skip-feedback", action="store_true", help="Skip feedback refresh before crawling")
     parser.add_argument("--dry-run", action="store_true", help="Only report counts")
     args = parser.parse_args()
 
@@ -95,6 +113,7 @@ def main() -> None:
     print(f"Global no-data labels: {global_skips}")
     print(f"Available for UI: {available}")
     print(f"Threshold: {args.threshold}")
+    print(f"Target: {args.target}")
 
     if args.dry_run:
         return
@@ -102,35 +121,70 @@ def main() -> None:
     if available > args.threshold:
         print("Threshold not reached. No crawl triggered.")
         return
+    if available >= args.target:
+        print("Target already met. No crawl triggered.")
+        return
 
     env = os.environ.copy()
     env["SUPABASE_URL"] = supabase_url
     env["SUPABASE_KEY"] = supabase_key
     env["SUPABASE_SERVICE_ROLE_KEY"] = supabase_key
     env["VITE_SUPABASE_URL"] = supabase_url
+    cycles = 0
+    while available < args.target and cycles < args.max_cycles:
+        cycles += 1
+        print(f"\nCycle {cycles}: available={available}, target={args.target}")
 
-    run_command(
-        "Crawler v2",
-        [
-            sys.executable,
-            "services/data-pipeline/main.py",
-            "--data-dir",
-            args.data_dir,
-            "--target-pdfs",
-            str(args.target_pdfs),
-            "--query-limit",
-            str(args.query_limit),
-            "--max-queries",
-            str(args.max_queries),
-        ],
-        env,
-    )
+        if not args.skip_feedback:
+            run_command(
+                "Update feedback terms",
+                [sys.executable, "services/data-pipeline/food_paper_crawler/feedback/update_terms.py"],
+                env,
+                allow_failure=True,
+            )
 
-    run_command(
-        "Upload to Supabase",
-        [sys.executable, "services/data-pipeline/scripts/upload_to_supabase.py"],
-        env,
-    )
+        run_command(
+            "Crawler v2",
+            [
+                sys.executable,
+                "services/data-pipeline/main.py",
+                "--data-dir",
+                args.data_dir,
+                "--target-pdfs",
+                str(args.target_pdfs),
+                "--query-limit",
+                str(args.query_limit),
+                "--max-queries",
+                str(args.max_queries),
+            ],
+            env,
+        )
+
+        run_command(
+            "Upload to Supabase",
+            [sys.executable, "services/data-pipeline/scripts/upload_to_supabase.py"],
+            env,
+        )
+
+        total_papers = fetch_count(supabase_url, supabase_key, "papers")
+        global_skips = fetch_count(
+            supabase_url,
+            supabase_key,
+            "paper_global_labels",
+            filters={"label": "eq.definitely_no_data"},
+        )
+        next_available = max(total_papers - global_skips, 0)
+        print(f"Available for UI after cycle {cycles}: {next_available}")
+
+        if next_available <= available:
+            print("No additional papers detected. Stopping to avoid infinite loop.")
+            break
+        available = next_available
+
+    if available >= args.target:
+        print(f"Target reached: {available} available papers.")
+    else:
+        print(f"Stopped at {available} available papers (target {args.target}).")
 
 
 if __name__ == "__main__":
