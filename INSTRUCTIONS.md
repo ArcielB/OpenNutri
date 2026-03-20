@@ -2,6 +2,10 @@
 
 This file captures standing instructions and should be updated whenever new instructions are given.
 
+## Startup checklist
+- Read `INSTRUCTIONS.md` before doing any work.
+- Review `Keys and links` for required credentials/URLs before running operations that need them.
+
 - Commit and push every time something is known to be working.
 - Always read `INSTRUCTIONS.md` at the start of each task/session before doing work.
 - Edit `BACKLOG.md` whenever backlog-related changes happen.
