@@ -19,41 +19,71 @@ from urllib.request import Request, urlopen
 from .embeddings import DualEmbeddingScorer
 from .europe_pmc import EuropePMCClient
 from .feedback_config import extract_terms, load_feedback_config
-from .feedback_seed_terms import SEED_QUERY_PHRASES
+from .feedback_seed_terms import SEED_ANCHOR_PHRASES_BY_LANGUAGE, SEED_QUERY_PHRASES_BY_LANGUAGE
 from .feedback_terms import extract_scored_terms, extract_terms as extract_feedback_terms
+from .language_utils import SUPPORTED_LANGUAGES, normalize_language_text
 from .models import CandidatePaper, DownloadRecord
 from .ranking import validate_pdf_text
-from .supabase_terms import fetch_food_terms, fetch_nutrient_terms
+from .supabase_terms import fetch_food_terms_by_language, fetch_nutrient_terms_by_language
 
 
-HEALTH_OUTCOME_TERMS = [
-    "diet",
-    "dietary",
-    "intake",
-    "intervention",
-    "clinical",
-    "patients",
-    "dietary intake",
-    "dietary assessment",
-    "diet quality",
-    "diet pattern",
-    "dietary intervention",
-    "randomized",
-    "trial",
-    "cohort",
-    "case-control",
-    "odds ratio",
-    "hazard ratio",
-    "mortality",
-    "disease",
-    "diabetes",
-    "obesity",
-    "cardiovascular",
-    "hypertension",
-    "cancer",
-    "cholesterol",
-    "insulin",
-]
+HEALTH_OUTCOME_TERMS_BY_LANGUAGE = {
+    "en": [
+        "diet",
+        "dietary",
+        "intake",
+        "intervention",
+        "clinical",
+        "patients",
+        "dietary intake",
+        "dietary assessment",
+        "diet quality",
+        "diet pattern",
+        "dietary intervention",
+        "randomized",
+        "trial",
+        "cohort",
+        "case-control",
+        "odds ratio",
+        "hazard ratio",
+        "mortality",
+        "disease",
+        "diabetes",
+        "obesity",
+        "cardiovascular",
+        "hypertension",
+        "cancer",
+        "cholesterol",
+        "insulin",
+    ],
+    "tr": [
+        "diyet",
+        "diyetle",
+        "alım",
+        "alim",
+        "müdahale",
+        "müdahalesi",
+        "mudahale",
+        "klinik",
+        "hasta",
+        "hastalar",
+        "randomize",
+        "deneme",
+        "kohort",
+        "mortalite",
+        "hastalık",
+        "hastalik",
+        "diyabet",
+        "obezite",
+        "kardiyovasküler",
+        "kardiyovaskuler",
+        "hipertansiyon",
+        "kanser",
+        "kolesterol",
+        "insülin",
+        "insulin",
+    ],
+}
 
 UNIT_PATTERN = re.compile(r"\b(?:mg|g|µg|ug)\s*/?\s*100\s*g\b", re.IGNORECASE)
 
@@ -67,10 +97,16 @@ FILTER_TITLE_WEIGHT = 1.5
 FILTER_TA_WEIGHT = 1.0
 QUERY_BASE_FLOOR = 2
 QUERY_PHRASE_EXPLORATION_RATE = 0.02
-COMPOSITION_FRAME = (
-    '("food composition" OR "nutrient composition" OR "chemical composition" OR '
-    '"proximate analysis" OR "nutrient content")'
-)
+COMPOSITION_FRAMES = {
+    "en": (
+        '("food composition" OR "nutrient composition" OR "chemical composition" OR '
+        '"proximate analysis" OR "nutrient content")'
+    ),
+    "tr": (
+        '("gıda bileşimi" OR "besin bileşimi" OR "gıda kompozisyonu" OR '
+        '"besin kompozisyonu" OR "yaklaşık analiz" OR "besin içeriği")'
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -79,6 +115,7 @@ class QuerySpec:
     template_id: str
     source_term: Optional[str]
     term_type: str
+    language: str
 
 
 class FoodCompositionCrawlerV2:
@@ -102,12 +139,27 @@ class FoodCompositionCrawlerV2:
         self.query_limit = query_limit
         food_limit = food_term_limit if food_term_limit > 0 else 5000
         nutrient_limit = nutrient_term_limit if nutrient_term_limit > 0 else 500
-        self.food_terms = fetch_food_terms(supabase_url, supabase_key, limit=food_limit)
-        self.nutrient_terms = fetch_nutrient_terms(supabase_url, supabase_key, limit=nutrient_limit)
+        self.food_terms_by_language = fetch_food_terms_by_language(supabase_url, supabase_key, limit=food_limit)
+        self.nutrient_terms_by_language = fetch_nutrient_terms_by_language(supabase_url, supabase_key, limit=nutrient_limit)
         self.feedback_config = load_feedback_config()
-        self.query_phrases = extract_terms(self.feedback_config, "query_phrases") or list(SEED_QUERY_PHRASES)
-        self.anchor_phrases = extract_terms(self.feedback_config, "anchor_phrases") or list(self.query_phrases)
-        self.feedback_weighted_terms = extract_scored_terms(self.feedback_config)
+        self.query_phrases_by_language = {
+            language: (
+                extract_terms(self.feedback_config, "query_phrases", language=language)
+                or list(SEED_QUERY_PHRASES_BY_LANGUAGE[language])
+            )
+            for language in SUPPORTED_LANGUAGES
+        }
+        self.anchor_phrases_by_language = {
+            language: (
+                extract_terms(self.feedback_config, "anchor_phrases", language=language)
+                or list(SEED_ANCHOR_PHRASES_BY_LANGUAGE[language])
+            )
+            for language in SUPPORTED_LANGUAGES
+        }
+        self.feedback_weighted_terms_by_language = {
+            language: extract_scored_terms(self.feedback_config, language=language)
+            for language in SUPPORTED_LANGUAGES
+        }
         self.feedback_rules = self.feedback_config.get("rules", {}) if isinstance(self.feedback_config.get("rules"), dict) else {}
         self.feedback_max_ngram = max(1, int(self.feedback_rules.get("max_ngram", 3) or 3))
         self.feedback_min_token_len = max(1, int(self.feedback_rules.get("min_token_len", 3) or 3))
@@ -140,6 +192,7 @@ class FoodCompositionCrawlerV2:
             candidates = self.client.search(spec.query, limit=self.query_limit)
             stats = {
                 "query": spec.query,
+                "language": spec.language,
                 "template_id": spec.template_id,
                 "source_term": spec.source_term,
                 "term_type": spec.term_type,
@@ -150,6 +203,7 @@ class FoodCompositionCrawlerV2:
             }
             query_log.append(stats)
             query_stats[spec.query] = {
+                "language": spec.language,
                 "results": len(candidates),
                 "accepted": 0,
                 "rejected": 0,
@@ -171,6 +225,7 @@ class FoodCompositionCrawlerV2:
                 candidate.query = spec.query
                 candidate.source_term = spec.source_term
                 candidate.template_id = spec.template_id
+                candidate.workflow_language = spec.language
 
                 accepted, score, reason_details = self._metadata_decision(candidate)
                 if not candidate.pdf_url:
@@ -213,6 +268,14 @@ class FoodCompositionCrawlerV2:
 
         harvested_at = datetime.now(timezone.utc).isoformat()
         audit_count = sum(1 for record in rejected_records if record.audit)
+        accepted_count_by_language = {
+            language: sum(1 for record in accepted_records if record.workflow_language == language)
+            for language in SUPPORTED_LANGUAGES
+        }
+        rejected_count_by_language = {
+            language: sum(1 for record in rejected_records if record.workflow_language == language)
+            for language in SUPPORTED_LANGUAGES
+        }
 
         manifest = {
             "harvested_at": harvested_at,
@@ -221,16 +284,34 @@ class FoodCompositionCrawlerV2:
             "embedding": self.embedding_scorer.info(),
             "feedback": {
                 "config_path": str(self.feedback_config.get("config_path", "")),
-                "query_phrases": self.query_phrases[:20],
-                "anchor_phrases": self.anchor_phrases[:20],
-                "weighted_terms_count": len(self.feedback_weighted_terms),
+                "query_phrases_by_language": {
+                    language: phrases[:20]
+                    for language, phrases in self.query_phrases_by_language.items()
+                },
+                "anchor_phrases_by_language": {
+                    language: phrases[:20]
+                    for language, phrases in self.anchor_phrases_by_language.items()
+                },
+                "weighted_terms_count_by_language": {
+                    language: len(self.feedback_weighted_terms_by_language.get(language, {}))
+                    for language in SUPPORTED_LANGUAGES
+                },
                 "counts": self.feedback_config.get("counts"),
+                "counts_by_language": self.feedback_config.get("counts_by_language"),
             },
             "target_pdfs": self.target_pdfs,
             "accepted_count": len(accepted_records),
             "rejected_count": len(rejected_records),
-            "food_term_sample": self.food_terms[:20],
-            "nutrient_term_sample": self.nutrient_terms[:20],
+            "accepted_count_by_language": accepted_count_by_language,
+            "rejected_count_by_language": rejected_count_by_language,
+            "food_term_sample_by_language": {
+                language: self.food_terms_by_language.get(language, [])[:20]
+                for language in SUPPORTED_LANGUAGES
+            },
+            "nutrient_term_sample_by_language": {
+                language: self.nutrient_terms_by_language.get(language, [])[:20]
+                for language in SUPPORTED_LANGUAGES
+            },
             "query_stats": query_stats,
             "query_log": query_log,
             "audit": {
@@ -250,35 +331,92 @@ class FoodCompositionCrawlerV2:
         return self.audit_reject_counter % AUDIT_EVERY_N == 0
 
     def _build_queries(self) -> List[QuerySpec]:
-        base_queries = [
-            QuerySpec(
-                query=f'({COMPOSITION_FRAME} AND ("table" OR "content" OR "analysis")) AND IN_PMC:y',
-                template_id="base_core_composition",
-                source_term=None,
-                term_type="base",
-            ),
-            QuerySpec(
-                query='(("mineral content" OR "vitamin content" OR "fatty acid composition" OR '
-                f'"amino acid composition") AND {COMPOSITION_FRAME}) AND IN_PMC:y',
-                template_id="base_nutrient_content",
-                source_term=None,
-                term_type="base",
-            ),
-        ]
+        budgets = self._language_query_budget()
+        per_language = {
+            language: self._build_queries_for_language(language, budgets.get(language, 0))
+            for language in SUPPORTED_LANGUAGES
+        }
+        queries: List[QuerySpec] = []
+        max_len = max((len(items) for items in per_language.values()), default=0)
+        for idx in range(max_len):
+            for language in SUPPORTED_LANGUAGES:
+                items = per_language.get(language, [])
+                if idx < len(items):
+                    queries.append(items[idx])
+        return self._dedupe_queries(queries)[: self.max_queries]
 
-        concept_pool = self._build_concept_pool()
-        phrase_pool = self.query_phrases or list(SEED_QUERY_PHRASES)
-        if not concept_pool:
-            return self._dedupe_queries(base_queries)[: max(1, self.max_queries)]
+    def _language_query_budget(self) -> Dict[str, int]:
+        if self.max_queries <= 0:
+            return {language: 0 for language in SUPPORTED_LANGUAGES}
+        base_budget = self.max_queries // len(SUPPORTED_LANGUAGES)
+        budgets = {language: base_budget for language in SUPPORTED_LANGUAGES}
+        remainder = self.max_queries - sum(budgets.values())
+        if remainder > 0:
+            cursor = int(self.state.get("language_remainder_cursor", 0)) % len(SUPPORTED_LANGUAGES)
+            for offset in range(remainder):
+                language = SUPPORTED_LANGUAGES[(cursor + offset) % len(SUPPORTED_LANGUAGES)]
+                budgets[language] += 1
+            self.state["language_remainder_cursor"] = (cursor + remainder) % len(SUPPORTED_LANGUAGES)
+        return budgets
 
-        queries: List[QuerySpec] = list(base_queries[:QUERY_BASE_FLOOR])
-        remaining = max(0, self.max_queries - len(queries))
-        if remaining <= 0:
-            return self._dedupe_queries(queries)[: self.max_queries]
+    def _build_queries_for_language(self, language: str, budget: int) -> List[QuerySpec]:
+        if budget <= 0:
+            return []
 
-        concept_cursor = int(self.state.get("concept_cursor", self.state.get("term_cursor", 0))) % len(concept_pool)
-        phrase_cursor = int(self.state.get("phrase_cursor", 0))
-        phrase_explore_cursor = int(self.state.get("phrase_explore_cursor", 0))
+        composition_frame = COMPOSITION_FRAMES[language]
+        if language == "en":
+            base_queries = [
+                QuerySpec(
+                    query=f'({composition_frame} AND ("table" OR "content" OR "analysis")) AND IN_PMC:y',
+                    template_id="base_core_composition",
+                    source_term=None,
+                    term_type="base",
+                    language=language,
+                ),
+                QuerySpec(
+                    query='(("mineral content" OR "vitamin content" OR "fatty acid composition" OR '
+                    f'"amino acid composition") AND {composition_frame}) AND IN_PMC:y',
+                    template_id="base_nutrient_content",
+                    source_term=None,
+                    term_type="base",
+                    language=language,
+                ),
+            ]
+        else:
+            base_queries = [
+                QuerySpec(
+                    query=f'({composition_frame} AND ("tablo" OR "içerik" OR "analiz")) AND IN_PMC:y',
+                    template_id="base_core_composition",
+                    source_term=None,
+                    term_type="base",
+                    language=language,
+                ),
+                QuerySpec(
+                    query='(("mineral içeriği" OR "vitamin içeriği" OR "yağ asidi bileşimi" OR '
+                    f'"amino asit bileşimi") AND {composition_frame}) AND IN_PMC:y',
+                    template_id="base_nutrient_content",
+                    source_term=None,
+                    term_type="base",
+                    language=language,
+                ),
+            ]
+
+        concept_pool = self._build_concept_pool(language)
+        phrase_pool = self.query_phrases_by_language.get(language) or list(SEED_QUERY_PHRASES_BY_LANGUAGE[language])
+        queries: List[QuerySpec] = list(base_queries[: min(len(base_queries), budget)])
+        remaining = max(0, budget - len(queries))
+        if remaining <= 0 or not concept_pool:
+            return self._dedupe_queries(queries)[:budget]
+
+        # Each language keeps its own cursors so English labels only steer
+        # English query rotation and Turkish labels only steer Turkish rotation.
+        concept_cursor = int(
+            self.state.get(f"concept_cursor_{language}", self.state.get("concept_cursor", self.state.get("term_cursor", 0)))
+        ) % len(concept_pool)
+        phrase_cursor = int(self.state.get(f"phrase_cursor_{language}", self.state.get("phrase_cursor", 0)))
+        phrase_explore_cursor = int(
+            self.state.get(f"phrase_explore_cursor_{language}", self.state.get("phrase_explore_cursor", 0))
+        )
 
         exploration_pool_size = min(
             max(0, len(phrase_pool) - 1),
@@ -316,46 +454,60 @@ class FoodCompositionCrawlerV2:
                 primary_used += 1
                 template_id = f"{concept_type}_phrase_core"
 
-            queries.append(self._build_learned_query(concept_type, concept_term, phrase, template_id))
+            queries.append(self._build_learned_query(language, concept_type, concept_term, phrase, template_id))
 
-        self.state["concept_cursor"] = (concept_cursor + remaining) % len(concept_pool)
-        self.state["term_cursor"] = self.state["concept_cursor"]
-        self.state["phrase_cursor"] = (phrase_cursor + primary_used) % max(1, len(core_phrases))
+        self.state[f"concept_cursor_{language}"] = (concept_cursor + remaining) % len(concept_pool)
+        self.state[f"term_cursor_{language}"] = self.state[f"concept_cursor_{language}"]
+        self.state[f"phrase_cursor_{language}"] = (phrase_cursor + primary_used) % max(1, len(core_phrases))
         if exploration_phrases:
-            self.state["phrase_explore_cursor"] = (phrase_explore_cursor + explore_used) % len(exploration_phrases)
-        return self._dedupe_queries(queries)[: self.max_queries]
+            self.state[f"phrase_explore_cursor_{language}"] = (
+                (phrase_explore_cursor + explore_used) % len(exploration_phrases)
+            )
+        return self._dedupe_queries(queries)[:budget]
 
-    def _build_concept_pool(self) -> List[Tuple[str, str]]:
+    def _build_concept_pool(self, language: str) -> List[Tuple[str, str]]:
         pool: List[Tuple[str, str]] = []
-        max_len = max(len(self.food_terms), len(self.nutrient_terms))
+        food_terms = self.food_terms_by_language.get(language, [])
+        nutrient_terms = self.nutrient_terms_by_language.get(language, [])
+        max_len = max(len(food_terms), len(nutrient_terms))
         for idx in range(max_len):
-            if idx < len(self.food_terms):
-                pool.append(("food", self.food_terms[idx]))
-            if idx < len(self.nutrient_terms):
-                pool.append(("nutrient", self.nutrient_terms[idx]))
+            if idx < len(food_terms):
+                pool.append(("food", food_terms[idx]))
+            if idx < len(nutrient_terms):
+                pool.append(("nutrient", nutrient_terms[idx]))
         return pool
 
-    def _build_learned_query(self, concept_type: str, concept_term: str, phrase: str, template_id: str) -> QuerySpec:
+    def _build_learned_query(
+        self,
+        language: str,
+        concept_type: str,
+        concept_term: str,
+        phrase: str,
+        template_id: str,
+    ) -> QuerySpec:
         safe_concept = concept_term.replace('"', "").strip()
         safe_phrase = phrase.replace('"', "").strip()
-        query = f'("{safe_concept}" AND "{safe_phrase}" AND {COMPOSITION_FRAME}) AND IN_PMC:y'
+        composition_frame = COMPOSITION_FRAMES[language]
+        query = f'("{safe_concept}" AND "{safe_phrase}" AND {composition_frame}) AND IN_PMC:y'
         if concept_type == "nutrient":
             query = (
                 f'("{safe_concept}" AND "{safe_phrase}" AND '
-                f'({COMPOSITION_FRAME} OR "mg/100g" OR "g/100g")) AND IN_PMC:y'
+                f'({composition_frame} OR "mg/100g" OR "g/100g")) AND IN_PMC:y'
             )
         return QuerySpec(
             query=query,
             template_id=template_id,
             source_term=concept_term,
             term_type=concept_type,
+            language=language,
         )
 
     def _dedupe_queries(self, queries: List[QuerySpec]) -> List[QuerySpec]:
         seen: Set[str] = set()
         ordered: List[QuerySpec] = []
         for spec in queries:
-            key = re.sub(r"\s+", " ", spec.query.strip())
+            normalized_query = re.sub(r"\s+", " ", spec.query.strip())
+            key = f"{spec.language}:{normalized_query}"
             if not key or key in seen:
                 continue
             seen.add(key)
@@ -364,13 +516,22 @@ class FoodCompositionCrawlerV2:
 
     def _metadata_decision(self, candidate: CandidatePaper) -> Tuple[bool, float, List[Dict[str, str]]]:
         details: List[Dict[str, str]] = []
+        workflow_language = candidate.workflow_language if candidate.workflow_language in SUPPORTED_LANGUAGES else "en"
         title_text = " ".join((candidate.title or "").split())
         abstract_text = " ".join((candidate.abstract or "").split())
         raw_text = " ".join(part for part in (title_text, abstract_text) if part).strip()
         normalized = self._normalize_for_match(raw_text.lower())
         score = 0.0
+        anchor_phrases = self.anchor_phrases_by_language.get(workflow_language, [])
+        food_terms = self.food_terms_by_language.get(workflow_language, [])
+        nutrient_terms = self.nutrient_terms_by_language.get(workflow_language, [])
+        health_terms = HEALTH_OUTCOME_TERMS_BY_LANGUAGE.get(workflow_language, [])
 
-        composition_hit = self._first_term_hit(normalized, self.anchor_phrases)
+        # Metadata acceptance is intentionally additive: explicit composition
+        # cues, embedding similarity, and learned feedback n-grams all contribute.
+        # That keeps obviously strong papers near the top while avoiding over-trust
+        # in any single weak signal.
+        composition_hit = self._first_term_hit(normalized, anchor_phrases)
         if composition_hit:
             self._append_reason(details, "composition_phrase", f"Positive: composition phrase '{composition_hit}'")
             score += 1.35
@@ -380,12 +541,12 @@ class FoodCompositionCrawlerV2:
             self._append_reason(details, "unit_signal", "Positive: nutrient unit pattern (mg/100g or g/100g)")
             score += 1.25
 
-        food_hit = self._first_term_hit(normalized, self.food_terms)
+        food_hit = self._first_term_hit(normalized, food_terms)
         if food_hit:
             self._append_reason(details, "food_term_hit", f"Positive: food term '{food_hit}'")
             score += 0.65
 
-        nutrient_hit = self._first_term_hit(normalized, self.nutrient_terms)
+        nutrient_hit = self._first_term_hit(normalized, nutrient_terms)
         if nutrient_hit:
             self._append_reason(details, "nutrient_term_hit", f"Positive: nutrient term '{nutrient_hit}'")
             score += 0.65
@@ -394,7 +555,7 @@ class FoodCompositionCrawlerV2:
             score += 0.75
             self._append_reason(details, "food_nutrient_combo", "Positive: matched both food and nutrient terms")
 
-        health_hits = self._collect_term_hits(normalized, HEALTH_OUTCOME_TERMS)
+        health_hits = self._collect_term_hits(normalized, health_terms)
         if health_hits:
             penalty = min(MAX_HEALTH_PENALTY, 0.55 * len(health_hits))
             score -= penalty
@@ -406,44 +567,30 @@ class FoodCompositionCrawlerV2:
 
         embedding_accept = False
         try:
-            embedding_result = self.embedding_scorer.score(raw_text)
+            embedding_result = self.embedding_scorer.score(raw_text, workflow_language)
         except Exception as exc:
             identifier = candidate.canonical_id or candidate.title or "unknown"
             raise RuntimeError(f"Embedding scoring failed for candidate '{identifier}'.") from exc
 
-        en_result = embedding_result.get("en")
-        multi_result = embedding_result.get("multi")
-        if en_result:
-            self._append_reason(
-                details,
-                "embed_en",
-                "Embedding EN sim {score:.3f} to '{anchor}' (thr {thr:.2f})".format(
-                    score=en_result["max_similarity"],
-                    anchor=en_result["anchor"],
-                    thr=en_result["threshold"],
-                ),
-            )
-            if en_result["max_similarity"] >= en_result["threshold"]:
-                embedding_accept = True
-                score += 1.45
-        if multi_result:
-            self._append_reason(
-                details,
-                "embed_multi",
-                "Embedding multi sim {score:.3f} to '{anchor}' (thr {thr:.2f})".format(
-                    score=multi_result["max_similarity"],
-                    anchor=multi_result["anchor"],
-                    thr=multi_result["threshold"],
-                ),
-            )
-            if multi_result["max_similarity"] >= multi_result["threshold"]:
-                embedding_accept = True
-                score += 1.45
+        embed_code = f"embed_{workflow_language}"
+        self._append_reason(
+            details,
+            embed_code,
+            "Embedding {lang} sim {score:.3f} to '{anchor}' (thr {thr:.2f})".format(
+                lang=workflow_language.upper(),
+                score=embedding_result["max_similarity"],
+                anchor=embedding_result["anchor"],
+                thr=embedding_result["threshold"],
+            ),
+        )
+        if embedding_result["max_similarity"] >= embedding_result["threshold"]:
+            embedding_accept = True
+            score += 1.45
         if embedding_accept:
             score += 0.75
             self._append_reason(details, "embedding_positive", "Positive: embedding similarity above threshold")
 
-        score += self._feedback_score(title_text, abstract_text, details)
+        score += self._feedback_score(title_text, abstract_text, workflow_language, details)
 
         accepted = score >= METADATA_ACCEPT_THRESHOLD
         if accepted:
@@ -457,7 +604,7 @@ class FoodCompositionCrawlerV2:
         details.append({"code": code, "text": text})
 
     def _normalize_for_match(self, text: str) -> str:
-        return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+        return normalize_language_text(text)
 
     def _first_term_hit(self, text: str, terms: List[str]) -> Optional[str]:
         if not text:
@@ -466,7 +613,7 @@ class FoodCompositionCrawlerV2:
         for term in terms:
             if not term:
                 continue
-            normalized_term = re.sub(r"[^a-z0-9]+", " ", term.lower()).strip()
+            normalized_term = self._normalize_for_match(term)
             if not normalized_term:
                 continue
             needle = f" {normalized_term} "
@@ -480,7 +627,7 @@ class FoodCompositionCrawlerV2:
         padded = f" {text} "
         hits: List[str] = []
         for term in terms:
-            normalized_term = re.sub(r"[^a-z0-9]+", " ", (term or "").lower()).strip()
+            normalized_term = self._normalize_for_match(term)
             if not normalized_term:
                 continue
             needle = f" {normalized_term} "
@@ -488,8 +635,15 @@ class FoodCompositionCrawlerV2:
                 hits.append(normalized_term)
         return hits
 
-    def _feedback_score(self, title_text: str, abstract_text: str, details: List[Dict[str, str]]) -> float:
-        if not self.feedback_weighted_terms:
+    def _feedback_score(
+        self,
+        title_text: str,
+        abstract_text: str,
+        workflow_language: str,
+        details: List[Dict[str, str]],
+    ) -> float:
+        feedback_weighted_terms = self.feedback_weighted_terms_by_language.get(workflow_language, {})
+        if not feedback_weighted_terms:
             return 0.0
 
         title_terms = set(
@@ -511,7 +665,7 @@ class FoodCompositionCrawlerV2:
 
         matched_terms = []
         for term in sorted(title_terms | ta_terms):
-            weights = self.feedback_weighted_terms.get(term)
+            weights = feedback_weighted_terms.get(term)
             if not weights:
                 continue
             title_contrib = 0.0
@@ -581,6 +735,7 @@ class FoodCompositionCrawlerV2:
                 error=rejection_error,
                 source_term=candidate.source_term,
                 template_id=candidate.template_id,
+                workflow_language=candidate.workflow_language,
             )
         _, accepted, pdf_reasons = self._validate_downloaded_pdf(destination, candidate)
         pdf_reason_details = [
@@ -614,6 +769,7 @@ class FoodCompositionCrawlerV2:
                 error="Rejected by PDF validation",
                 source_term=candidate.source_term,
                 template_id=candidate.template_id,
+                workflow_language=candidate.workflow_language,
             )
 
         candidate.reason_details = combined_reason_details
@@ -636,6 +792,7 @@ class FoodCompositionCrawlerV2:
             pdf_url=candidate.pdf_url,
             source_term=candidate.source_term,
             template_id=candidate.template_id,
+            workflow_language=candidate.workflow_language,
         )
 
     def _fetch_pdf_with_oa(self, candidate: CandidatePaper) -> Tuple[bytes, str]:
@@ -808,7 +965,10 @@ class FoodCompositionCrawlerV2:
         text = re.sub(r"\s+", " ", text).strip()
         if len(text) < 200:
             return 0.0, False, ["pdf text too short to validate"]
-        return validate_pdf_text(text, candidate, self.food_terms, self.nutrient_terms)
+        workflow_language = candidate.workflow_language if candidate.workflow_language in SUPPORTED_LANGUAGES else "en"
+        food_terms = self.food_terms_by_language.get(workflow_language, [])
+        nutrient_terms = self.nutrient_terms_by_language.get(workflow_language, [])
+        return validate_pdf_text(text, candidate, food_terms, nutrient_terms)
 
     def _solve_pmc_pow(self, html: str) -> Optional[str]:
         challenge_match = re.search(r'POW_CHALLENGE = "([^"]+)"', html)
@@ -854,6 +1014,7 @@ class FoodCompositionCrawlerV2:
             error=error,
             source_term=candidate.source_term,
             template_id=candidate.template_id,
+            workflow_language=candidate.workflow_language,
         )
 
     def _failed_record(self, candidate: CandidatePaper, error: str, audit: bool = False) -> DownloadRecord:
@@ -874,17 +1035,21 @@ class FoodCompositionCrawlerV2:
             error=error,
             source_term=candidate.source_term,
             template_id=candidate.template_id,
+            workflow_language=candidate.workflow_language,
         )
 
     def _default_state(self) -> Dict[str, object]:
-        return {
+        state = {
             "seen_ids": [],
-            "term_cursor": 0,
-            "concept_cursor": 0,
-            "phrase_cursor": 0,
-            "phrase_explore_cursor": 0,
+            "language_remainder_cursor": 0,
             "audit_reject_counter": 0,
         }
+        for language in SUPPORTED_LANGUAGES:
+            state[f"term_cursor_{language}"] = 0
+            state[f"concept_cursor_{language}"] = 0
+            state[f"phrase_cursor_{language}"] = 0
+            state[f"phrase_explore_cursor_{language}"] = 0
+        return state
 
     def _load_state(self) -> Dict[str, object]:
         if not self.state_path.exists():

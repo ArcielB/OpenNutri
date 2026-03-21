@@ -23,6 +23,18 @@ COMPOSITION_TERMS = [
     "vitamin content",
     "fatty acid composition",
     "amino acid composition",
+    "gıda bileşimi",
+    "besin bileşimi",
+    "gıda kompozisyonu",
+    "besin kompozisyonu",
+    "kimyasal bileşim",
+    "yaklaşık bileşim",
+    "yaklaşık analiz",
+    "besin içeriği",
+    "mineral içeriği",
+    "vitamin içeriği",
+    "yağ asidi bileşimi",
+    "amino asit bileşimi",
 ]
 
 TABLE_TERMS = [
@@ -36,6 +48,12 @@ TABLE_TERMS = [
     "were analyzed",
     "determined by",
     "aoac",
+    "tablo 1",
+    "tablo 2",
+    "tablo 3",
+    "içerik",
+    "icerik",
+    "analiz",
 ]
 
 FOOD_CUES = [
@@ -68,6 +86,22 @@ FOOD_CUES = [
     "mushrooms",
     "edible",
     "consumed",
+    "gıda",
+    "besin",
+    "meyve",
+    "sebze",
+    "tahıl",
+    "tahil",
+    "baklagil",
+    "tohum",
+    "un",
+    "yaprak",
+    "süt",
+    "sut",
+    "et",
+    "balık",
+    "balik",
+    "mantar",
 ]
 
 NUTRIENT_MARKERS = [
@@ -91,6 +125,25 @@ NUTRIENT_MARKERS = [
     "copper",
     "manganese",
     "vitamin",
+    "yağ",
+    "yag",
+    "kül",
+    "kul",
+    "karbonhidrat",
+    "lif",
+    "nem",
+    "enerji",
+    "kalsiyum",
+    "demir",
+    "potasyum",
+    "magnezyum",
+    "fosfor",
+    "sodyum",
+    "çinko",
+    "cinko",
+    "bakır",
+    "bakir",
+    "manganez",
 ]
 
 DB_ALIGNMENT_BONUS_TERMS = {
@@ -409,7 +462,7 @@ def matching_nutrient_terms(text: str, nutrient_terms: Iterable[str], limit: int
 
 
 def bounded_contains(text: str, phrase: str) -> bool:
-    return re.search(rf"(?<![a-z]){re.escape(phrase)}(?![a-z])", text) is not None
+    return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, flags=re.UNICODE) is not None
 
 
 def extract_query_focus(query: str) -> str:

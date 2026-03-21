@@ -68,6 +68,7 @@ Supabase tables used by the UI:
 Location: `services/data-pipeline/`
 
 Language scope (current relevance filtering): English + Turkish only.
+Crawler v2 now splits its query budget across independent English and Turkish workflows, with separate query phrases, anchors, weighted n-grams, and language-scoped embedding/metadata scoring.
 
 Main entry points:
 - `services/data-pipeline/main.py`: Europe PMC crawler v2 (PDF download + validation).
@@ -87,13 +88,15 @@ Key modules:
 **Label Feedback Loop (L2)**
 - Generates cumulative field-aware n-gram stats from labeled papers to update crawler query phrases and soft metadata scoring.
 - Uses the latest label per user; any `has_data=true` draft or done counts as positive, and papers turn negative on global skip or 2+ unique skips. Mixed signals across labelers are treated as conflicts and excluded from both sides.
+- Feedback export now classifies papers into English vs Turkish buckets and writes separate phrase / anchor / weighted-term pools for each workflow.
 - Script: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
   - Requires `SUPABASE_URL` (or `VITE_SUPABASE_URL`) and `SUPABASE_SERVICE_ROLE_KEY`.
 - Output: `services/data-pipeline/food_paper_crawler/feedback/latest.json` (loaded automatically by the crawler).
+- `latest.json` now includes `languages.en` and `languages.tr` sections, plus language-specific query phrases, anchor phrases, and weighted terms.
 - `weighted_terms` stores cumulative per-term evidence for `title` and `title+abstract`, plus derived `good`, `bad`, and net scores.
 - Seed composition phrases are treated as a small positive prior, not as permanently merged winners.
-- The crawler uses all stored `weighted_terms` as soft scores only; feedback does not hard-reject papers.
-- Learned query generation pairs a rotated food/nutrient term with a high-confidence phrase from feedback, while two evergreen base queries remain for breadth.
+- The crawler uses each language's stored `weighted_terms` as soft scores only; feedback does not hard-reject papers.
+- Learned query generation pairs a rotated food/nutrient term with a high-confidence phrase from the matching language workflow, while two evergreen base queries remain for breadth in each language.
 
 Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/ingestor.py`: Entrez harvester into `data/raw_lake`.

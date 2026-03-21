@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 STOPWORDS_EN = {
     "a", "about", "after", "again", "against", "all", "also", "an", "and", "any", "are", "as",
@@ -92,8 +92,31 @@ TERM_NUMERIC_FIELDS = {
 }
 
 
-def extract_scored_terms(config: Dict[str, object], key: str = "weighted_terms") -> Dict[str, Dict[str, float]]:
-    raw = config.get(key)
+def _extract_weighted_payload(config: Dict[str, object], key: str, language: Optional[str]) -> object:
+    if language in {"en", "tr"}:
+        languages = config.get("languages")
+        if isinstance(languages, dict):
+            payload = languages.get(language)
+            if isinstance(payload, dict) and isinstance(payload.get(key), list):
+                return payload.get(key)
+
+        keyed = config.get(f"{key}_by_language")
+        if isinstance(keyed, dict) and isinstance(keyed.get(language), list):
+            return keyed.get(language)
+
+        if language == "tr":
+            return None
+
+    return config.get(key)
+
+
+def extract_scored_terms(
+    config: Dict[str, object],
+    key: str = "weighted_terms",
+    *,
+    language: Optional[str] = None,
+) -> Dict[str, Dict[str, float]]:
+    raw = _extract_weighted_payload(config, key, language)
     if not isinstance(raw, list):
         return {}
 

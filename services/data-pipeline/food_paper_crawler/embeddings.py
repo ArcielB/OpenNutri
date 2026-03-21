@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from .feedback_seed_terms import SEED_EN_ANCHOR_PHRASES, SEED_MULTI_ANCHOR_PHRASES
+from .feedback_seed_terms import SEED_ANCHOR_PHRASES_BY_LANGUAGE
 
 _sentence_transformers_import_error = None
 try:
@@ -17,11 +17,11 @@ except Exception as exc:  # pragma: no cover - optional dependency
 @dataclass
 class DualEmbeddingConfig:
     en_model: str
-    multi_model: str
+    tr_model: str
     en_threshold: float
-    multi_threshold: float
+    tr_threshold: float
     max_chars: int
-    version: str = "dual-embeddings-v1"
+    version: str = "language-scoped-embeddings-v2"
 
 
 class DualEmbeddingScorer:
@@ -29,9 +29,17 @@ class DualEmbeddingScorer:
         if config is None:
             config = DualEmbeddingConfig(
                 en_model=os.environ.get("L2_EMBED_EN_MODEL", "all-MiniLM-L6-v2"),
-                multi_model=os.environ.get("L2_EMBED_MULTI_MODEL", "paraphrase-multilingual-MiniLM-L12-v2"),
+                tr_model=(
+                    os.environ.get("L2_EMBED_TR_MODEL")
+                    or os.environ.get("L2_EMBED_MULTI_MODEL")
+                    or "paraphrase-multilingual-MiniLM-L12-v2"
+                ),
                 en_threshold=float(os.environ.get("L2_EMBED_EN_THRESHOLD", "0.45")),
-                multi_threshold=float(os.environ.get("L2_EMBED_MULTI_THRESHOLD", "0.42")),
+                tr_threshold=float(
+                    os.environ.get("L2_EMBED_TR_THRESHOLD")
+                    or os.environ.get("L2_EMBED_MULTI_THRESHOLD")
+                    or "0.42"
+                ),
                 max_chars=int(os.environ.get("L2_EMBED_MAX_CHARS", "1800")),
             )
         self.config = config
@@ -42,26 +50,27 @@ class DualEmbeddingScorer:
             ) from _sentence_transformers_import_error
         self.available = True
         self.error: Optional[str] = None
-        self._en_model = None
-        self._multi_model = None
+        self._models: Dict[str, SentenceTransformer] = {}
+        self._anchors: Dict[str, List[str]] = {}
+        self._anchor_embeddings: Dict[str, object] = {}
         from .feedback_config import extract_terms, load_feedback_config
 
         feedback_config = load_feedback_config()
-        feedback_anchors = extract_terms(feedback_config, "anchor_phrases")
-        feedback_multi = extract_terms(feedback_config, "anchor_phrases_multi")
-        self._en_anchors = feedback_anchors or list(SEED_EN_ANCHOR_PHRASES)
-        self._multi_anchors = feedback_multi or feedback_anchors or list(SEED_MULTI_ANCHOR_PHRASES)
-        self._en_anchor_emb = None
-        self._multi_anchor_emb = None
+        self._anchors["en"] = extract_terms(feedback_config, "anchor_phrases", language="en") or list(
+            SEED_ANCHOR_PHRASES_BY_LANGUAGE["en"]
+        )
+        self._anchors["tr"] = extract_terms(feedback_config, "anchor_phrases", language="tr") or list(
+            SEED_ANCHOR_PHRASES_BY_LANGUAGE["tr"]
+        )
         try:
-            self._en_model = SentenceTransformer(self.config.en_model)
-            self._multi_model = SentenceTransformer(self.config.multi_model)
-            self._en_anchor_emb = self._encode(self._en_model, self._en_anchors)
-            self._multi_anchor_emb = self._encode(self._multi_model, self._multi_anchors)
+            self._models["en"] = SentenceTransformer(self.config.en_model)
+            self._models["tr"] = SentenceTransformer(self.config.tr_model)
+            for language, model in self._models.items():
+                self._anchor_embeddings[language] = self._encode(model, self._anchors[language])
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(
                 "Failed to initialize embedding models "
-                f"'{self.config.en_model}' and '{self.config.multi_model}'. "
+                f"'{self.config.en_model}' and '{self.config.tr_model}'. "
                 "Ensure the models can be downloaded and loaded."
             ) from exc
 
@@ -70,40 +79,43 @@ class DualEmbeddingScorer:
             "version": self.config.version,
             "available": self.available,
             "error": self.error,
-            "en_model": self.config.en_model,
-            "multi_model": self.config.multi_model,
-            "en_threshold": self.config.en_threshold,
-            "multi_threshold": self.config.multi_threshold,
-            "en_anchor_count": len(self._en_anchors),
-            "multi_anchor_count": len(self._multi_anchors),
+            "languages": {
+                "en": {
+                    "model": self.config.en_model,
+                    "threshold": self.config.en_threshold,
+                    "anchor_count": len(self._anchors["en"]),
+                },
+                "tr": {
+                    "model": self.config.tr_model,
+                    "threshold": self.config.tr_threshold,
+                    "anchor_count": len(self._anchors["tr"]),
+                },
+            },
         }
 
-    def score(self, text: str) -> Dict[str, object]:
+    def score(self, text: str, language: str) -> Dict[str, object]:
+        if language not in {"en", "tr"}:
+            raise ValueError(f"Unsupported embedding language '{language}'.")
         trimmed = " ".join((text or "").split())
         if self.config.max_chars > 0:
             trimmed = trimmed[: self.config.max_chars]
         if not trimmed:
             raise ValueError("Embedding input is empty (missing title/abstract).")
 
-        en_score, en_anchor = self._max_similarity(self._en_model, self._en_anchor_emb, trimmed, self._en_anchors)
-        multi_score, multi_anchor = self._max_similarity(
-            self._multi_model, self._multi_anchor_emb, trimmed, self._multi_anchors
+        score, anchor = self._max_similarity(
+            self._models[language],
+            self._anchor_embeddings[language],
+            trimmed,
+            self._anchors[language],
         )
 
         return {
             "available": True,
-            "en": {
-                "model": self.config.en_model,
-                "threshold": self.config.en_threshold,
-                "max_similarity": en_score,
-                "anchor": en_anchor,
-            },
-            "multi": {
-                "model": self.config.multi_model,
-                "threshold": self.config.multi_threshold,
-                "max_similarity": multi_score,
-                "anchor": multi_anchor,
-            },
+            "language": language,
+            "model": self.config.en_model if language == "en" else self.config.tr_model,
+            "threshold": self.config.en_threshold if language == "en" else self.config.tr_threshold,
+            "max_similarity": score,
+            "anchor": anchor,
         }
 
     def _encode(self, model: SentenceTransformer, phrases: List[str]):

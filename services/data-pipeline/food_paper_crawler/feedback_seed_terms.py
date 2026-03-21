@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Iterable, List
+from typing import Dict, Iterable, List
 
 
-SEED_QUERY_PHRASES = [
+SEED_QUERY_PHRASES_EN = [
     "food composition",
     "composition table",
     "food composition table",
@@ -17,6 +17,21 @@ SEED_QUERY_PHRASES = [
     "fatty acid composition",
     "amino acid composition",
     "nutrient content",
+]
+
+SEED_QUERY_PHRASES_TR = [
+    "gıda bileşimi",
+    "besin bileşimi",
+    "gıda kompozisyonu",
+    "besin kompozisyonu",
+    "kimyasal bileşim",
+    "yaklaşık bileşim",
+    "yaklaşık analiz",
+    "mineral içeriği",
+    "vitamin içeriği",
+    "yağ asidi bileşimi",
+    "amino asit bileşimi",
+    "besin içeriği",
 ]
 
 SEED_EN_ANCHOR_PHRASES = [
@@ -38,13 +53,33 @@ SEED_EN_ANCHOR_PHRASES = [
     "composition data",
 ]
 
-SEED_MULTI_ANCHOR_PHRASES = SEED_EN_ANCHOR_PHRASES + [
-    "gida bilesimi",
-    "besin bilesimi",
-    "gida kompozisyonu",
+SEED_TR_ANCHOR_PHRASES = [
+    "gıda bileşimi",
+    "besin bileşimi",
+    "gıda kompozisyonu",
     "besin kompozisyonu",
+    "kimyasal bileşim",
+    "yaklaşık bileşim",
+    "yaklaşık analiz",
+    "besin içeriği",
+    "besin profili",
+    "mineral içeriği",
+    "vitamin içeriği",
+    "yağ asidi bileşimi",
+    "amino asit bileşimi",
+    "besin verisi",
+    "bileşim verisi",
 ]
 
+SEED_QUERY_PHRASES_BY_LANGUAGE: Dict[str, List[str]] = {
+    "en": SEED_QUERY_PHRASES_EN,
+    "tr": SEED_QUERY_PHRASES_TR,
+}
+
+SEED_ANCHOR_PHRASES_BY_LANGUAGE: Dict[str, List[str]] = {
+    "en": SEED_EN_ANCHOR_PHRASES,
+    "tr": SEED_TR_ANCHOR_PHRASES,
+}
 
 def normalize_seed_term(term: str) -> str:
     return " ".join((term or "").lower().strip().split())
@@ -63,8 +98,26 @@ def merge_seed_terms(*groups: Iterable[str]) -> List[str]:
     return merged
 
 
-SEED_GOOD_TERMS = merge_seed_terms(
-    SEED_QUERY_PHRASES,
+SEED_QUERY_PHRASES = list(SEED_QUERY_PHRASES_EN)
+SEED_MULTI_ANCHOR_PHRASES = merge_seed_terms(SEED_EN_ANCHOR_PHRASES, SEED_TR_ANCHOR_PHRASES)
+
+
+SEED_GOOD_TERMS_EN = merge_seed_terms(
+    SEED_QUERY_PHRASES_EN,
     SEED_EN_ANCHOR_PHRASES,
-    SEED_MULTI_ANCHOR_PHRASES,
+)
+
+SEED_GOOD_TERMS_TR = merge_seed_terms(
+    SEED_QUERY_PHRASES_TR,
+    SEED_TR_ANCHOR_PHRASES,
+)
+
+SEED_GOOD_TERMS_BY_LANGUAGE: Dict[str, List[str]] = {
+    "en": SEED_GOOD_TERMS_EN,
+    "tr": SEED_GOOD_TERMS_TR,
+}
+
+SEED_GOOD_TERMS = merge_seed_terms(
+    SEED_GOOD_TERMS_EN,
+    SEED_GOOD_TERMS_TR,
 )

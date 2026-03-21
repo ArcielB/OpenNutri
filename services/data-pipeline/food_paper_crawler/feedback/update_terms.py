@@ -17,20 +17,20 @@ from urllib.request import Request, urlopen
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from feedback_seed_terms import (
-        SEED_EN_ANCHOR_PHRASES,
-        SEED_GOOD_TERMS,
-        SEED_MULTI_ANCHOR_PHRASES,
-        SEED_QUERY_PHRASES,
+        SEED_ANCHOR_PHRASES_BY_LANGUAGE,
+        SEED_GOOD_TERMS_BY_LANGUAGE,
+        SEED_QUERY_PHRASES_BY_LANGUAGE,
     )
     from feedback_terms import extract_terms
+    from language_utils import SUPPORTED_LANGUAGES, detect_supported_language
 else:
     from ..feedback_seed_terms import (
-        SEED_EN_ANCHOR_PHRASES,
-        SEED_GOOD_TERMS,
-        SEED_MULTI_ANCHOR_PHRASES,
-        SEED_QUERY_PHRASES,
+        SEED_ANCHOR_PHRASES_BY_LANGUAGE,
+        SEED_GOOD_TERMS_BY_LANGUAGE,
+        SEED_QUERY_PHRASES_BY_LANGUAGE,
     )
     from ..feedback_terms import extract_terms
+    from ..language_utils import SUPPORTED_LANGUAGES, detect_supported_language
 
 
 @dataclass
@@ -148,6 +148,9 @@ def latest_events_by_user(label_events: List[dict]) -> List[dict]:
 
 
 def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[set[int], set[int], set[int]]:
+    # Training labels are derived from each annotator's latest visible state,
+    # not raw event totals. That makes the feedback loop mirror the UI's final
+    # judgment instead of over-counting old intermediate saves.
     positive_users: Dict[int, set] = defaultdict(set)
     negative_users: Dict[int, set] = defaultdict(set)
     for event in latest_events_by_user(label_events):
@@ -240,6 +243,38 @@ def count_bucket_terms(
     )
 
 
+def classify_papers_by_language(papers: List[dict]) -> Dict[str, set[int]]:
+    buckets: Dict[str, set[int]] = {language: set() for language in SUPPORTED_LANGUAGES}
+    for row in papers:
+        paper_id = row.get("id")
+        if paper_id is None:
+            continue
+        text = " ".join(
+            part.strip()
+            for part in (str(row.get("title") or ""), str(row.get("abstract") or ""))
+            if part and str(part).strip()
+        )
+        language = detect_supported_language(text, default="en")
+        buckets[language].add(paper_id)
+    return buckets
+
+
+def empty_language_counts(paper_count: int, conflict_count: int) -> Dict[str, int]:
+    background_count = max(0, paper_count - conflict_count)
+    return {
+        "good_count": 0,
+        "bad_count": 0,
+        "background_count": background_count,
+        "conflict_count": conflict_count,
+        "title_good_docs": 0,
+        "title_bad_docs": 0,
+        "title_background_docs": background_count,
+        "ta_good_docs": 0,
+        "ta_bad_docs": 0,
+        "ta_background_docs": background_count,
+    }
+
+
 def log_odds(left: float, right: float, left_total: float, right_total: float, alpha: float) -> float:
     left_total = max(left_total, left)
     right_total = max(right_total, right)
@@ -261,6 +296,7 @@ def build_scored_terms(
     alpha: float,
     seed_good_prior: float,
     seed_bad_prior: float,
+    seed_good_terms: Iterable[str],
 ) -> Tuple[List[TermScore], Dict[str, int]]:
     if not good_ids and not bad_ids:
         raise SystemExit("Not enough labeled papers to compute feedback terms.")
@@ -272,6 +308,9 @@ def build_scored_terms(
         if paper_id not in good_ids and paper_id not in bad_ids and paper_id not in conflict_ids
     ]
 
+    # We score title-only evidence separately from title+abstract evidence so the
+    # crawler can give stronger weight to concise high-signal phrases that appear
+    # directly in titles without losing broader abstract context.
     good_bucket = count_bucket_terms(
         papers_by_id,
         good_ids,
@@ -301,7 +340,7 @@ def build_scored_terms(
         | set(bad_bucket.ta_counts)
         | set(background_bucket.title_counts)
         | set(background_bucket.ta_counts)
-        | set(SEED_GOOD_TERMS)
+        | set(seed_good_terms)
     )
     if not all_terms:
         raise SystemExit("No extractable n-grams were found in the labeled/background papers.")
@@ -315,7 +354,7 @@ def build_scored_terms(
         ta_bad_df = int(bad_bucket.ta_counts.get(term, 0))
         ta_background_df = int(background_bucket.ta_counts.get(term, 0))
 
-        seed_good = float(seed_good_prior if term in SEED_GOOD_TERMS else 0.0)
+        seed_good = float(seed_good_prior if term in seed_good_terms else 0.0)
         seed_bad = float(seed_bad_prior)
         support_total = (
             title_good_df
@@ -515,22 +554,61 @@ def main() -> None:
     )
 
     good_ids, bad_ids, conflict_ids = build_labels(label_events, global_labels)
-    scored, counts = build_scored_terms(
-        papers,
-        good_ids,
-        bad_ids,
-        conflict_ids,
-        max_ngram=args.max_ngram,
-        min_token_len=args.min_token_len,
-        max_phrase_len=args.max_phrase_len,
-        min_total=args.min_total,
-        alpha=args.alpha,
-        seed_good_prior=args.seed_good_prior,
-        seed_bad_prior=args.seed_bad_prior,
-    )
+    paper_ids_by_language = classify_papers_by_language(papers)
 
-    query_phrases = select_query_phrases(scored, max_count=args.max_query_phrases)
-    anchor_phrases = select_anchor_phrases(scored, max_count=args.max_anchor_phrases)
+    language_payloads: Dict[str, Dict[str, object]] = {}
+    query_phrases_by_language: Dict[str, List[str]] = {}
+    anchor_phrases_by_language: Dict[str, List[str]] = {}
+    weighted_terms_by_language: Dict[str, List[dict]] = {}
+    counts_by_language: Dict[str, Dict[str, int]] = {}
+
+    for language in SUPPORTED_LANGUAGES:
+        language_ids = paper_ids_by_language.get(language, set())
+        language_papers = [row for row in papers if row.get("id") in language_ids]
+        language_good_ids = good_ids & language_ids
+        language_bad_ids = bad_ids & language_ids
+        language_conflict_ids = conflict_ids & language_ids
+
+        if language_good_ids or language_bad_ids:
+            scored, counts = build_scored_terms(
+                language_papers,
+                language_good_ids,
+                language_bad_ids,
+                language_conflict_ids,
+                max_ngram=args.max_ngram,
+                min_token_len=args.min_token_len,
+                max_phrase_len=args.max_phrase_len,
+                min_total=args.min_total,
+                alpha=args.alpha,
+                seed_good_prior=args.seed_good_prior,
+                seed_bad_prior=args.seed_bad_prior,
+                seed_good_terms=SEED_GOOD_TERMS_BY_LANGUAGE[language],
+            )
+        else:
+            scored = []
+            counts = empty_language_counts(len(language_papers), len(language_conflict_ids))
+
+        counts["paper_count"] = len(language_papers)
+
+        query_phrases = select_query_phrases(scored, max_count=args.max_query_phrases)
+        if not query_phrases:
+            query_phrases = list(SEED_QUERY_PHRASES_BY_LANGUAGE[language][: args.max_query_phrases])
+
+        anchor_phrases = select_anchor_phrases(scored, max_count=args.max_anchor_phrases)
+        if not anchor_phrases:
+            anchor_phrases = list(SEED_ANCHOR_PHRASES_BY_LANGUAGE[language][: args.max_anchor_phrases])
+
+        weighted_terms = [asdict(item) for item in scored]
+        query_phrases_by_language[language] = query_phrases
+        anchor_phrases_by_language[language] = anchor_phrases
+        weighted_terms_by_language[language] = weighted_terms
+        counts_by_language[language] = counts
+        language_payloads[language] = {
+            "counts": counts,
+            "query_phrases": query_phrases,
+            "anchor_phrases": anchor_phrases,
+            "weighted_terms": weighted_terms,
+        }
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -550,22 +628,36 @@ def main() -> None:
         "filter_ta_weight": 1.0,
     }
     priors = {
-        "seed_good_terms": SEED_GOOD_TERMS,
-        "seed_query_phrases": SEED_QUERY_PHRASES,
-        "seed_anchor_phrases": SEED_EN_ANCHOR_PHRASES,
-        "seed_anchor_phrases_multi": SEED_MULTI_ANCHOR_PHRASES,
+        "seed_good_terms_by_language": SEED_GOOD_TERMS_BY_LANGUAGE,
+        "seed_query_phrases_by_language": SEED_QUERY_PHRASES_BY_LANGUAGE,
+        "seed_anchor_phrases_by_language": SEED_ANCHOR_PHRASES_BY_LANGUAGE,
     }
+    global_counts = {
+        "good_count": len(good_ids),
+        "bad_count": len(bad_ids),
+        "conflict_count": len(conflict_ids),
+        "paper_count": len([row for row in papers if row.get("id") is not None]),
+    }
+    english_weighted_terms = weighted_terms_by_language.get("en", [])
+    english_query_phrases = query_phrases_by_language.get("en", [])
+    english_anchor_phrases = anchor_phrases_by_language.get("en", [])
+    turkish_anchor_phrases = anchor_phrases_by_language.get("tr", [])
 
     scores_path = output_dir / f"term_scores_{timestamp}.json"
     payload = {
         "generated_at": generated_at,
-        "counts": counts,
+        "counts": global_counts,
+        "counts_by_language": counts_by_language,
         "rules": rules,
         "priors": priors,
-        "query_phrases": query_phrases,
-        "anchor_phrases": anchor_phrases,
-        "anchor_phrases_multi": anchor_phrases,
-        "weighted_terms": [asdict(item) for item in scored],
+        "languages": language_payloads,
+        "query_phrases_by_language": query_phrases_by_language,
+        "anchor_phrases_by_language": anchor_phrases_by_language,
+        "weighted_terms_by_language": weighted_terms_by_language,
+        "query_phrases": english_query_phrases,
+        "anchor_phrases": english_anchor_phrases,
+        "anchor_phrases_multi": turkish_anchor_phrases,
+        "weighted_terms": english_weighted_terms,
     }
     scores_path.write_text(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
 
@@ -573,13 +665,18 @@ def main() -> None:
     latest_payload = {
         "generated_at": generated_at,
         "config_path": str(latest_path),
-        "counts": counts,
+        "counts": global_counts,
+        "counts_by_language": counts_by_language,
         "rules": rules,
         "priors": priors,
-        "query_phrases": query_phrases,
-        "anchor_phrases": anchor_phrases,
-        "anchor_phrases_multi": anchor_phrases,
-        "weighted_terms": [asdict(item) for item in scored],
+        "languages": language_payloads,
+        "query_phrases_by_language": query_phrases_by_language,
+        "anchor_phrases_by_language": anchor_phrases_by_language,
+        "weighted_terms_by_language": weighted_terms_by_language,
+        "query_phrases": english_query_phrases,
+        "anchor_phrases": english_anchor_phrases,
+        "anchor_phrases_multi": turkish_anchor_phrases,
+        "weighted_terms": english_weighted_terms,
     }
     latest_path.write_text(json.dumps(latest_payload, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
 

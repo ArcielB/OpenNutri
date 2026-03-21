@@ -24,6 +24,7 @@ class CandidatePaper:
     reason_details: List[Dict[str, str]] = field(default_factory=list)
     source_term: Optional[str] = None
     template_id: Optional[str] = None
+    workflow_language: str = "en"
 
     @property
     def canonical_id(self) -> str:
@@ -53,6 +54,7 @@ class CandidatePaper:
             "reason_details": self.reason_details,
             "source_term": self.source_term,
             "template_id": self.template_id,
+            "workflow_language": self.workflow_language,
         }
 
 
@@ -76,6 +78,7 @@ class DownloadRecord:
     reason_details: List[Dict[str, str]] = field(default_factory=list)
     source_term: Optional[str] = None
     template_id: Optional[str] = None
+    workflow_language: str = "en"
 
     def to_dict(self) -> Dict[str, object]:
         payload = {
@@ -96,6 +99,7 @@ class DownloadRecord:
             "pdf_url": self.pdf_url,
             "source_term": self.source_term,
             "template_id": self.template_id,
+            "workflow_language": self.workflow_language,
         }
         if self.error:
             payload["error"] = self.error

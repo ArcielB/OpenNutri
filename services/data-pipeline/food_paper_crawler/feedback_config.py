@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 DEFAULT_FEEDBACK_PATH = Path(__file__).resolve().parent / "feedback" / "latest.json"
+SUPPORTED_LANGUAGES = ("en", "tr")
 
 
 def load_feedback_config(path: Optional[str] = None) -> Dict[str, object]:
@@ -31,12 +32,42 @@ def merge_terms(base: Iterable[str], extra: Iterable[str]) -> List[str]:
         normalized = _normalize_term(term)
         if not normalized or normalized in seen:
             continue
-        seen.add(normalized)
-        merged.append(normalized)
+            seen.add(normalized)
+            merged.append(normalized)
     return merged
 
 
-def extract_terms(config: Dict[str, object], key: str) -> List[str]:
+def _extract_list(payload: object) -> List[str]:
+    if not isinstance(payload, list):
+        return []
+    return [str(term).strip() for term in payload if str(term).strip()]
+
+
+def _language_payload(config: Dict[str, object], language: str) -> Dict[str, object]:
+    languages = config.get("languages")
+    if isinstance(languages, dict):
+        payload = languages.get(language)
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def extract_terms(config: Dict[str, object], key: str, language: Optional[str] = None) -> List[str]:
+    if language in SUPPORTED_LANGUAGES:
+        payload = _language_payload(config, language)
+        scoped = _extract_list(payload.get(key))
+        if scoped:
+            return scoped
+
+        keyed = config.get(f"{key}_by_language")
+        if isinstance(keyed, dict):
+            scoped = _extract_list(keyed.get(language))
+            if scoped:
+                return scoped
+
+        if language == "tr":
+            return []
+
     raw = config.get(key)
     if not isinstance(raw, list):
         return []
