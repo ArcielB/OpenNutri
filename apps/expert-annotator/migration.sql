@@ -77,8 +77,15 @@ ALTER TABLE master_nutrients
 CREATE TABLE IF NOT EXISTS papers (
     id SERIAL PRIMARY KEY,
     title TEXT,
+    abstract TEXT,
     doi TEXT,
     filename TEXT NOT NULL,
+    source TEXT,
+    source_record_id TEXT,
+    workflow_language TEXT
+        CHECK (workflow_language IN ('en', 'tr')),
+    search_gate_score REAL,
+    filter_score REAL,
     ingest_status TEXT NOT NULL DEFAULT 'accepted',
     audit_flag BOOLEAN NOT NULL DEFAULT FALSE,
     rejection_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -86,9 +93,42 @@ CREATE TABLE IF NOT EXISTS papers (
 );
 
 ALTER TABLE papers
+    ADD COLUMN IF NOT EXISTS abstract TEXT,
+    ADD COLUMN IF NOT EXISTS source TEXT,
+    ADD COLUMN IF NOT EXISTS source_record_id TEXT,
+    ADD COLUMN IF NOT EXISTS workflow_language TEXT
+        CHECK (workflow_language IN ('en', 'tr')),
+    ADD COLUMN IF NOT EXISTS search_gate_score REAL,
+    ADD COLUMN IF NOT EXISTS filter_score REAL,
     ADD COLUMN IF NOT EXISTS ingest_status TEXT NOT NULL DEFAULT 'accepted',
     ADD COLUMN IF NOT EXISTS audit_flag BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS rejection_reasons JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE TABLE IF NOT EXISTS paper_search_hits (
+    id BIGSERIAL PRIMARY KEY,
+    paper_id INTEGER REFERENCES papers(id) ON DELETE SET NULL,
+    canonical_key TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_record_id TEXT,
+    external_id TEXT,
+    pmcid TEXT,
+    doi TEXT,
+    title TEXT,
+    abstract TEXT,
+    workflow_language TEXT NOT NULL
+        CHECK (workflow_language IN ('en', 'tr')),
+    query_text TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    source_term TEXT,
+    term_type TEXT NOT NULL,
+    query_phrase TEXT,
+    search_gate_score REAL NOT NULL DEFAULT 0,
+    search_gate_pass BOOLEAN NOT NULL DEFAULT FALSE,
+    filter_score REAL,
+    filter_pass BOOLEAN,
+    is_duplicate BOOLEAN NOT NULL DEFAULT FALSE,
+    discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS annotations (
     id SERIAL PRIMARY KEY,
@@ -217,6 +257,9 @@ CREATE INDEX IF NOT EXISTS idx_paper_label_events_paper ON paper_label_events(pa
 CREATE INDEX IF NOT EXISTS idx_paper_label_events_user ON paper_label_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_paper_global_labels_paper ON paper_global_labels(paper_id);
 CREATE INDEX IF NOT EXISTS idx_paper_global_labels_label ON paper_global_labels(label);
+CREATE INDEX IF NOT EXISTS idx_paper_search_hits_paper ON paper_search_hits(paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_search_hits_canonical ON paper_search_hits(canonical_key);
+CREATE INDEX IF NOT EXISTS idx_paper_search_hits_pair ON paper_search_hits(source, workflow_language, template_id, source_term);
 
 CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(canonical_name);
 CREATE INDEX IF NOT EXISTS idx_entities_source_record_id ON entities(source_record_id);
@@ -242,6 +285,7 @@ ALTER TABLE master_nutrients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE claims ENABLE ROW LEVEL SECURITY;
 ALTER TABLE papers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_search_hits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_global_labels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE annotations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_items ENABLE ROW LEVEL SECURITY;
@@ -302,6 +346,15 @@ BEGIN
     ) THEN
         CREATE POLICY "Authenticated users can read papers"
             ON papers FOR SELECT TO authenticated USING (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'paper_search_hits'
+          AND policyname = 'Service role can manage paper search hits'
+    ) THEN
+        CREATE POLICY "Service role can manage paper search hits"
+            ON paper_search_hits FOR ALL TO service_role USING (true) WITH CHECK (true);
     END IF;
 
     IF NOT EXISTS (

@@ -8,7 +8,6 @@ import subprocess
 import tarfile
 import tempfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -17,13 +16,18 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from .embeddings import DualEmbeddingScorer
-from .europe_pmc import EuropePMCClient
-from .feedback_config import extract_terms, load_feedback_config
+from .feedback_config import (
+    extract_pair_scores,
+    extract_source_priors,
+    extract_terms,
+    load_feedback_config,
+)
 from .feedback_seed_terms import SEED_ANCHOR_PHRASES_BY_LANGUAGE, SEED_QUERY_PHRASES_BY_LANGUAGE
 from .feedback_terms import extract_scored_terms, extract_terms as extract_feedback_terms
 from .language_utils import SUPPORTED_LANGUAGES, normalize_language_text
-from .models import CandidatePaper, DownloadRecord
-from .ranking import validate_pdf_text
+from .models import CandidatePaper, DiscoveryHit, DownloadRecord, QuerySpec, SearchTask
+from .ranking import HARD_NEGATIVE_TERMS, SOFT_NEGATIVE_TERMS, validate_pdf_text
+from .search_sources import DEFAULT_SEARCH_SOURCES, build_search_sources
 from .supabase_terms import fetch_food_terms_by_language, fetch_nutrient_terms_by_language
 
 
@@ -90,11 +94,13 @@ UNIT_PATTERN = re.compile(r"\b(?:mg|g|µg|ug)\s*/?\s*100\s*g\b", re.IGNORECASE)
 PMC_OA_API = "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi"
 AUDIT_EVERY_N = 100
 METADATA_ACCEPT_THRESHOLD = 1.75
+SEARCH_GATE_REJECT_THRESHOLD = -0.35
 MAX_FEEDBACK_TERM_ABS = 2.5
 MAX_FEEDBACK_SCORE_ABS = 6.0
 MAX_HEALTH_PENALTY = 2.0
 FILTER_TITLE_WEIGHT = 1.5
 FILTER_TA_WEIGHT = 1.0
+MAX_SOURCE_PRIOR_ABS = 0.9
 QUERY_BASE_FLOOR = 2
 QUERY_PHRASE_EXPLORATION_RATE = 0.02
 COMPOSITION_FRAMES = {
@@ -109,15 +115,6 @@ COMPOSITION_FRAMES = {
 }
 
 
-@dataclass(frozen=True)
-class QuerySpec:
-    query: str
-    template_id: str
-    source_term: Optional[str]
-    term_type: str
-    language: str
-
-
 class FoodCompositionCrawlerV2:
     def __init__(
         self,
@@ -129,12 +126,14 @@ class FoodCompositionCrawlerV2:
         food_term_limit: int = 0,
         nutrient_term_limit: int = 0,
         max_queries: int = 80,
+        sources: Optional[List[str]] = None,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.raw_pdf_dir = self.data_dir / "raw_pdfs"
         self.state_path = self.data_dir / "crawl_state.json"
         self.manifest_path = self.raw_pdf_dir / "_harvest_metadata.json"
-        self.client = EuropePMCClient(page_size=query_limit)
+        self.candidate_store_path = self.data_dir / "search_candidates.json"
+        self.search_hits_path = self.data_dir / "search_hits.json"
         self.target_pdfs = target_pdfs
         self.query_limit = query_limit
         food_limit = food_term_limit if food_term_limit > 0 else 5000
@@ -166,8 +165,21 @@ class FoodCompositionCrawlerV2:
         self.feedback_max_phrase_len = max(1, int(self.feedback_rules.get("max_phrase_len", 40) or 40))
         self.filter_title_weight = float(self.feedback_rules.get("filter_title_weight", FILTER_TITLE_WEIGHT) or FILTER_TITLE_WEIGHT)
         self.filter_ta_weight = float(self.feedback_rules.get("filter_ta_weight", FILTER_TA_WEIGHT) or FILTER_TA_WEIGHT)
+        self.source_priors_by_language = {
+            language: extract_source_priors(self.feedback_config, language)
+            for language in SUPPORTED_LANGUAGES
+        }
+        self.pair_scores_by_language = {
+            language: extract_pair_scores(self.feedback_config, language)
+            for language in SUPPORTED_LANGUAGES
+        }
         self.embedding_scorer = DualEmbeddingScorer()
         self.max_queries = max_queries
+        self.search_sources = build_search_sources(
+            list(sources or DEFAULT_SEARCH_SOURCES),
+            data_dir=self.data_dir,
+            page_size=query_limit,
+        )
         self.state = self._load_state()
 
     def run(self, replace_existing: bool = False) -> Dict[str, object]:
@@ -176,98 +188,23 @@ class FoodCompositionCrawlerV2:
             shutil.rmtree(self.raw_pdf_dir)
         if replace_existing:
             self.state = self._default_state()
+            self.candidate_store_path.unlink(missing_ok=True)
+            self.search_hits_path.unlink(missing_ok=True)
         self.raw_pdf_dir.mkdir(parents=True, exist_ok=True)
-
-        accepted_records: List[DownloadRecord] = []
-        rejected_records: List[DownloadRecord] = []
-        seen_ids: Set[str] = set(self.state.get("seen_ids", []))
-        query_stats: Dict[str, Dict[str, int]] = {}
-        query_log: List[Dict[str, object]] = []
-
-        queries = self._build_queries()
-
-        for spec in queries:
-            if len(accepted_records) >= self.target_pdfs:
-                break
-            candidates = self.client.search(spec.query, limit=self.query_limit)
-            stats = {
-                "query": spec.query,
-                "language": spec.language,
-                "template_id": spec.template_id,
-                "source_term": spec.source_term,
-                "term_type": spec.term_type,
-                "results": len(candidates),
-                "accepted": 0,
-                "rejected": 0,
-                "skipped_seen": 0,
-            }
-            query_log.append(stats)
-            query_stats[spec.query] = {
-                "language": spec.language,
-                "results": len(candidates),
-                "accepted": 0,
-                "rejected": 0,
-                "skipped_seen": 0,
-            }
-            if not candidates:
-                continue
-
-            for candidate in candidates:
-                if len(accepted_records) >= self.target_pdfs:
-                    break
-                canonical_id = candidate.canonical_id
-                if not canonical_id or canonical_id in seen_ids:
-                    stats["skipped_seen"] += 1
-                    query_stats[spec.query]["skipped_seen"] += 1
-                    continue
-
-                seen_ids.add(canonical_id)
-                candidate.query = spec.query
-                candidate.source_term = spec.source_term
-                candidate.template_id = spec.template_id
-                candidate.workflow_language = spec.language
-
-                accepted, score, reason_details = self._metadata_decision(candidate)
-                if not candidate.pdf_url:
-                    self._append_reason(reason_details, "no_pdf_url", "Rejected: no PDF URL available")
-                    accepted = False
-
-                candidate.accepted = accepted
-                candidate.reason_details = reason_details
-                candidate.reasons = [reason["text"] for reason in reason_details]
-                candidate.score = score
-
-                if not accepted:
-                    if candidate.pdf_url or candidate.pmcid:
-                        audit_flag = self._next_audit_flag()
-                        if audit_flag:
-                            record = self._download_candidate(
-                                candidate,
-                                force_audit=True,
-                                skip_validation=True,
-                                rejection_error="Rejected by metadata rules",
-                            )
-                            rejected_records.append(record)
-                        else:
-                            rejected_records.append(self._skip_record(candidate, "Rejected by metadata rules"))
-                    else:
-                        rejected_records.append(self._skip_record(candidate, "Rejected by metadata rules"))
-                    stats["rejected"] += 1
-                    query_stats[spec.query]["rejected"] += 1
-                    continue
-
-                record = self._download_candidate(candidate)
-                if record.status == "success":
-                    accepted_records.append(record)
-                    stats["accepted"] += 1
-                    query_stats[spec.query]["accepted"] += 1
-                else:
-                    rejected_records.append(record)
-                    stats["rejected"] += 1
-                    query_stats[spec.query]["rejected"] += 1
+        seen_ids: Set[str] = {
+            self._normalize_seen_key(value)
+            for value in self.state.get("seen_ids", [])
+            if self._normalize_seen_key(value)
+        }
+        search_tasks = self._build_search_tasks()
+        candidates, discovery_hits, query_log, query_stats = self._search_candidates(search_tasks, seen_ids)
+        self._filter_candidates(candidates, discovery_hits, query_log, query_stats)
+        accepted_records, rejected_records = self._acquire_candidates(candidates)
 
         harvested_at = datetime.now(timezone.utc).isoformat()
         audit_count = sum(1 for record in rejected_records if record.audit)
+        search_gate_pass_count = sum(1 for hit in discovery_hits if hit.search_gate_pass)
+        filter_pass_count = sum(1 for candidate in candidates if candidate.filter_pass)
         accepted_count_by_language = {
             language: sum(1 for record in accepted_records if record.workflow_language == language)
             for language in SUPPORTED_LANGUAGES
@@ -276,11 +213,17 @@ class FoodCompositionCrawlerV2:
             language: sum(1 for record in rejected_records if record.workflow_language == language)
             for language in SUPPORTED_LANGUAGES
         }
+        candidate_count_by_language = {
+            language: sum(1 for candidate in candidates if candidate.workflow_language == language)
+            for language in SUPPORTED_LANGUAGES
+        }
+        self._write_candidate_artifacts(harvested_at, candidates, discovery_hits)
 
         manifest = {
             "harvested_at": harvested_at,
-            "query_count": len(queries),
-            "rule_version": "field-aware-soft-v2",
+            "query_count": len(search_tasks),
+            "rule_version": "search-filter-acquisition-v3",
+            "sources": list(self.search_sources.keys()),
             "embedding": self.embedding_scorer.info(),
             "feedback": {
                 "config_path": str(self.feedback_config.get("config_path", "")),
@@ -300,6 +243,11 @@ class FoodCompositionCrawlerV2:
                 "counts_by_language": self.feedback_config.get("counts_by_language"),
             },
             "target_pdfs": self.target_pdfs,
+            "candidate_count": len(candidates),
+            "candidate_count_by_language": candidate_count_by_language,
+            "search_hit_count": len(discovery_hits),
+            "search_gate_pass_count": search_gate_pass_count,
+            "filter_pass_count": filter_pass_count,
             "accepted_count": len(accepted_records),
             "rejected_count": len(rejected_records),
             "accepted_count_by_language": accepted_count_by_language,
@@ -318,9 +266,12 @@ class FoodCompositionCrawlerV2:
                 "every": AUDIT_EVERY_N,
                 "sample_count": audit_count,
             },
+            "candidate_store": str(self.candidate_store_path.relative_to(self.data_dir.parent)),
+            "search_hits": str(self.search_hits_path.relative_to(self.data_dir.parent)),
             "results": [record.to_dict() for record in accepted_records + rejected_records],
         }
         self._write_json(self.manifest_path, manifest)
+        seen_ids.update(hit.canonical_key for hit in discovery_hits if hit.canonical_key)
         self.state["seen_ids"] = sorted(seen_ids)
         self.state["audit_reject_counter"] = self.audit_reject_counter
         self._save_state()
@@ -330,20 +281,27 @@ class FoodCompositionCrawlerV2:
         self.audit_reject_counter += 1
         return self.audit_reject_counter % AUDIT_EVERY_N == 0
 
-    def _build_queries(self) -> List[QuerySpec]:
+    def _build_search_tasks(self) -> List[SearchTask]:
         budgets = self._language_query_budget()
-        per_language = {
-            language: self._build_queries_for_language(language, budgets.get(language, 0))
+        per_language_specs = {
+            language: self._build_queries_for_language(
+                language,
+                max(1, (budgets.get(language, 0) + max(1, len(self.search_sources)) - 1) // max(1, len(self.search_sources))),
+            )
             for language in SUPPORTED_LANGUAGES
         }
-        queries: List[QuerySpec] = []
-        max_len = max((len(items) for items in per_language.values()), default=0)
+        per_language_tasks = {
+            language: self._expand_search_tasks(language, per_language_specs.get(language, []), budgets.get(language, 0))
+            for language in SUPPORTED_LANGUAGES
+        }
+        tasks: List[SearchTask] = []
+        max_len = max((len(items) for items in per_language_tasks.values()), default=0)
         for idx in range(max_len):
             for language in SUPPORTED_LANGUAGES:
-                items = per_language.get(language, [])
+                items = per_language_tasks.get(language, [])
                 if idx < len(items):
-                    queries.append(items[idx])
-        return self._dedupe_queries(queries)[: self.max_queries]
+                    tasks.append(items[idx])
+        return tasks[: self.max_queries]
 
     def _language_query_budget(self) -> Dict[str, int]:
         if self.max_queries <= 0:
@@ -368,36 +326,44 @@ class FoodCompositionCrawlerV2:
             base_queries = [
                 QuerySpec(
                     query=f'({composition_frame} AND ("table" OR "content" OR "analysis")) AND IN_PMC:y',
+                    keywords=("food composition", "nutrient composition", "table", "analysis"),
                     template_id="base_core_composition",
                     source_term=None,
                     term_type="base",
                     language=language,
+                    query_phrase="food composition",
                 ),
                 QuerySpec(
                     query='(("mineral content" OR "vitamin content" OR "fatty acid composition" OR '
                     f'"amino acid composition") AND {composition_frame}) AND IN_PMC:y',
+                    keywords=("mineral content", "vitamin content", "fatty acid composition", "food composition"),
                     template_id="base_nutrient_content",
                     source_term=None,
                     term_type="base",
                     language=language,
+                    query_phrase="mineral content",
                 ),
             ]
         else:
             base_queries = [
                 QuerySpec(
                     query=f'({composition_frame} AND ("tablo" OR "içerik" OR "analiz")) AND IN_PMC:y',
+                    keywords=("gıda bileşimi", "besin bileşimi", "tablo", "analiz"),
                     template_id="base_core_composition",
                     source_term=None,
                     term_type="base",
                     language=language,
+                    query_phrase="gıda bileşimi",
                 ),
                 QuerySpec(
                     query='(("mineral içeriği" OR "vitamin içeriği" OR "yağ asidi bileşimi" OR '
                     f'"amino asit bileşimi") AND {composition_frame}) AND IN_PMC:y',
+                    keywords=("mineral içeriği", "vitamin içeriği", "yağ asidi bileşimi", "gıda bileşimi"),
                     template_id="base_nutrient_content",
                     source_term=None,
                     term_type="base",
                     language=language,
+                    query_phrase="mineral içeriği",
                 ),
             ]
 
@@ -496,10 +462,18 @@ class FoodCompositionCrawlerV2:
             )
         return QuerySpec(
             query=query,
+            keywords=(
+                safe_concept,
+                safe_phrase,
+                "food composition" if language == "en" else "gıda bileşimi",
+                "mg/100g",
+                "g/100g",
+            ),
             template_id=template_id,
             source_term=concept_term,
             term_type=concept_type,
             language=language,
+            query_phrase=phrase,
         )
 
     def _dedupe_queries(self, queries: List[QuerySpec]) -> List[QuerySpec]:
@@ -513,6 +487,377 @@ class FoodCompositionCrawlerV2:
             seen.add(key)
             ordered.append(spec)
         return ordered
+
+    def _expand_search_tasks(self, language: str, specs: List[QuerySpec], budget: int) -> List[SearchTask]:
+        if budget <= 0 or not specs:
+            return []
+        expanded: List[SearchTask] = []
+        source_names = list(self.search_sources.keys())
+        for spec in specs:
+            source_tasks = [
+                SearchTask(
+                    source=source,
+                    spec=spec,
+                    query_text=self._source_query_text(source, spec),
+                    pair_score=self._pair_score(language, source, spec),
+                )
+                for source in source_names
+            ]
+            source_tasks.sort(key=lambda item: item.pair_score, reverse=True)
+            expanded.extend(source_tasks)
+        return expanded[:budget]
+
+    def _source_query_text(self, source: str, spec: QuerySpec) -> str:
+        client = self.search_sources.get(source)
+        if client is None:
+            return spec.query
+        query_text_fn = getattr(client, "query_text", None)
+        if callable(query_text_fn):
+            return str(query_text_fn(spec) or spec.query)
+        return spec.query
+
+    def _pair_score(self, language: str, source: str, spec: QuerySpec) -> float:
+        normalized_term = self._normalize_for_match(spec.source_term or "")
+        key = f"{source}|{spec.template_id}|{normalized_term}"
+        pair_score = float(self.pair_scores_by_language.get(language, {}).get(key, 0.0))
+        source_prior = float(self.source_priors_by_language.get(language, {}).get(source, 0.0))
+        return pair_score + 0.15 * source_prior
+
+    def _search_candidates(
+        self,
+        tasks: List[SearchTask],
+        seen_ids: Set[str],
+    ) -> Tuple[List[CandidatePaper], List[DiscoveryHit], List[Dict[str, object]], Dict[str, Dict[str, int]]]:
+        query_log: List[Dict[str, object]] = []
+        query_stats: Dict[str, Dict[str, int]] = {}
+        candidates_by_key: Dict[str, CandidatePaper] = {}
+        discovery_hits: List[DiscoveryHit] = []
+
+        for task in tasks:
+            client = self.search_sources.get(task.source)
+            if client is None:
+                continue
+            spec = task.spec
+            raw_candidates = client.search(spec, limit=self.query_limit)[: self.query_limit]
+            stat_key = self._task_key(task)
+            stats = {
+                "source": task.source,
+                "query": task.query_text,
+                "language": spec.language,
+                "template_id": spec.template_id,
+                "source_term": spec.source_term,
+                "term_type": spec.term_type,
+                "query_phrase": spec.query_phrase,
+                "results": len(raw_candidates),
+                "search_gate_passed": 0,
+                "search_gate_rejected": 0,
+                "filter_passed": 0,
+                "rejected": 0,
+                "duplicates": 0,
+                "skipped_seen": 0,
+            }
+            query_log.append(stats)
+            query_stats[stat_key] = dict(stats)
+
+            for candidate in raw_candidates:
+                candidate.query = task.query_text
+                candidate.source_term = spec.source_term
+                candidate.template_id = spec.template_id
+                candidate.query_phrase = spec.query_phrase
+                candidate.workflow_language = spec.language
+                candidate.source_record_id = candidate.source_record_id or candidate.external_id
+                canonical_key = candidate.canonical_key
+                if not canonical_key or canonical_key in seen_ids:
+                    stats["skipped_seen"] += 1
+                    query_stats[stat_key]["skipped_seen"] += 1
+                    continue
+
+                gate_pass, gate_score, reason_details = self._search_gate_decision(candidate)
+                candidate.search_gate_pass = gate_pass
+                candidate.search_gate_score = gate_score
+                hit = DiscoveryHit(
+                    canonical_key=canonical_key,
+                    source=task.source,
+                    source_record_id=candidate.source_record_id,
+                    external_id=candidate.external_id,
+                    pmcid=candidate.pmcid,
+                    doi=candidate.doi,
+                    title=candidate.title,
+                    abstract=candidate.abstract,
+                    workflow_language=spec.language,
+                    query=task.query_text,
+                    template_id=spec.template_id,
+                    source_term=spec.source_term,
+                    term_type=spec.term_type,
+                    query_phrase=spec.query_phrase,
+                    search_gate_score=gate_score,
+                    search_gate_pass=gate_pass,
+                    is_duplicate=canonical_key in candidates_by_key,
+                )
+                discovery_hits.append(hit)
+
+                if not gate_pass:
+                    stats["search_gate_rejected"] += 1
+                    query_stats[stat_key]["search_gate_rejected"] += 1
+                    continue
+
+                stats["search_gate_passed"] += 1
+                query_stats[stat_key]["search_gate_passed"] += 1
+                candidate.reason_details = reason_details
+                candidate.reasons = [reason["text"] for reason in reason_details]
+
+                if canonical_key in candidates_by_key:
+                    stats["duplicates"] += 1
+                    query_stats[stat_key]["duplicates"] += 1
+                    self._merge_candidate(candidates_by_key[canonical_key], candidate)
+                    continue
+
+                candidates_by_key[canonical_key] = candidate
+
+        ordered_candidates = list(candidates_by_key.values())
+        return ordered_candidates, discovery_hits, query_log, query_stats
+
+    def _filter_candidates(
+        self,
+        candidates: List[CandidatePaper],
+        discovery_hits: List[DiscoveryHit],
+        query_log: List[Dict[str, object]],
+        query_stats: Dict[str, Dict[str, int]],
+    ) -> None:
+        hits_by_key: Dict[str, List[DiscoveryHit]] = {}
+        for hit in discovery_hits:
+            hits_by_key.setdefault(hit.canonical_key, []).append(hit)
+
+        log_index = {
+            self._stat_hit_key(
+                hit_source=entry["source"],
+                query=entry["query"],
+                template_id=entry["template_id"],
+                source_term=entry["source_term"],
+            ): entry
+            for entry in query_log
+        }
+        for candidate in candidates:
+            accepted, score, reason_details = self._metadata_decision(candidate)
+            candidate.filter_pass = accepted
+            candidate.accepted = accepted
+            candidate.filter_score = score
+            candidate.score = score
+            candidate.reason_details = reason_details
+            candidate.reasons = [reason["text"] for reason in reason_details]
+            for hit in hits_by_key.get(candidate.canonical_key, []):
+                hit.filter_score = score
+                hit.filter_pass = accepted
+                stat_key = self._stat_hit_key(
+                    hit_source=hit.source,
+                    query=hit.query,
+                    template_id=hit.template_id,
+                    source_term=hit.source_term,
+                )
+                if accepted:
+                    if stat_key in log_index:
+                        log_index[stat_key]["filter_passed"] += 1
+                    if stat_key in query_stats:
+                        query_stats[stat_key]["filter_passed"] += 1
+
+    def _acquire_candidates(
+        self,
+        candidates: List[CandidatePaper],
+    ) -> Tuple[List[DownloadRecord], List[DownloadRecord]]:
+        accepted_records: List[DownloadRecord] = []
+        rejected_records: List[DownloadRecord] = []
+        ranked_candidates = sorted(
+            candidates,
+            key=lambda item: (item.filter_pass, item.filter_score, item.search_gate_score),
+            reverse=True,
+        )
+
+        for candidate in ranked_candidates:
+            if candidate.filter_pass and len(accepted_records) >= self.target_pdfs:
+                break
+
+            if not candidate.filter_pass:
+                if candidate.pdf_url or candidate.pmcid:
+                    audit_flag = self._next_audit_flag()
+                    if audit_flag:
+                        rejected_records.append(
+                            self._download_candidate(
+                                candidate,
+                                force_audit=True,
+                                skip_validation=True,
+                                rejection_error="Rejected by metadata filter",
+                            )
+                        )
+                    else:
+                        rejected_records.append(self._skip_record(candidate, "Rejected by metadata filter"))
+                else:
+                    rejected_records.append(self._skip_record(candidate, "Rejected by metadata filter"))
+                continue
+
+            if not candidate.pdf_url and not candidate.pmcid:
+                candidate.reason_details = candidate.reason_details + [
+                    {"code": "no_pdf_url", "text": "Rejected: no PDF URL available"}
+                ]
+                candidate.reasons = [reason["text"] for reason in candidate.reason_details]
+                rejected_records.append(self._skip_record(candidate, "Rejected: no PDF URL available"))
+                continue
+
+            record = self._download_candidate(candidate)
+            if record.status == "success":
+                accepted_records.append(record)
+            else:
+                rejected_records.append(record)
+        return accepted_records, rejected_records
+
+    def _write_candidate_artifacts(
+        self,
+        harvested_at: str,
+        candidates: List[CandidatePaper],
+        discovery_hits: List[DiscoveryHit],
+    ) -> None:
+        candidate_payload = {
+            "harvested_at": harvested_at,
+            "candidate_count": len(candidates),
+            "candidates": [candidate.to_dict() for candidate in candidates],
+        }
+        hit_payload = {
+            "harvested_at": harvested_at,
+            "hit_count": len(discovery_hits),
+            "hits": [hit.to_dict() for hit in discovery_hits],
+        }
+        self._write_json(self.candidate_store_path, candidate_payload)
+        self._write_json(self.search_hits_path, hit_payload)
+
+    def _task_key(self, task: SearchTask) -> str:
+        return self._stat_hit_key(
+            hit_source=task.source,
+            query=task.query_text,
+            template_id=task.spec.template_id,
+            source_term=task.spec.source_term,
+        )
+
+    def _stat_hit_key(
+        self,
+        *,
+        hit_source: str,
+        query: str,
+        template_id: str,
+        source_term: Optional[str],
+    ) -> str:
+        normalized_term = self._normalize_for_match(source_term or "")
+        return f"{hit_source}:{template_id}:{normalized_term}:{query}"
+
+    def _merge_candidate(self, target: CandidatePaper, incoming: CandidatePaper) -> None:
+        if not target.abstract and incoming.abstract:
+            target.abstract = incoming.abstract
+        if not target.pdf_url and incoming.pdf_url:
+            target.pdf_url = incoming.pdf_url
+        if not target.landing_url and incoming.landing_url:
+            target.landing_url = incoming.landing_url
+        if not target.doi and incoming.doi:
+            target.doi = incoming.doi
+        if not target.pmcid and incoming.pmcid:
+            target.pmcid = incoming.pmcid
+
+    def _normalize_seen_key(self, value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        if text.startswith("pmcid:") or text.startswith("doi:") or text.startswith("title:") or text.startswith("source:"):
+            return text.lower()
+        if text.upper().startswith("PMC"):
+            return f"pmcid:{text.lower()}"
+        if text.startswith("10."):
+            return f"doi:{text.lower()}"
+        return text.lower()
+
+    def _search_gate_decision(self, candidate: CandidatePaper) -> Tuple[bool, float, List[Dict[str, str]]]:
+        details: List[Dict[str, str]] = []
+        workflow_language = candidate.workflow_language if candidate.workflow_language in SUPPORTED_LANGUAGES else "en"
+        title_text = " ".join((candidate.title or "").split())
+        abstract_text = " ".join((candidate.abstract or "").split())
+        raw_text = " ".join(part for part in (title_text, abstract_text) if part).strip()
+        if not raw_text:
+            self._append_reason(details, "missing_metadata", "Rejected by search gate: missing title/abstract")
+            return False, -2.0, details
+
+        normalized = self._normalize_for_match(raw_text.lower())
+        score = 0.0
+        anchor_phrases = self.anchor_phrases_by_language.get(workflow_language, [])
+        food_terms = self.food_terms_by_language.get(workflow_language, [])
+        nutrient_terms = self.nutrient_terms_by_language.get(workflow_language, [])
+        health_terms = HEALTH_OUTCOME_TERMS_BY_LANGUAGE.get(workflow_language, [])
+
+        composition_hit = self._first_term_hit(normalized, anchor_phrases)
+        if composition_hit:
+            score += 0.9
+            self._append_reason(details, "composition_phrase", f"Search gate: composition phrase '{composition_hit}'")
+
+        food_hit = self._first_term_hit(normalized, food_terms)
+        if food_hit:
+            score += 0.35
+            self._append_reason(details, "food_term_hit", f"Search gate: food term '{food_hit}'")
+
+        nutrient_hit = self._first_term_hit(normalized, nutrient_terms)
+        if nutrient_hit:
+            score += 0.35
+            self._append_reason(details, "nutrient_term_hit", f"Search gate: nutrient term '{nutrient_hit}'")
+
+        unit_hit = bool(UNIT_PATTERN.search(raw_text))
+        if unit_hit:
+            score += 0.7
+            self._append_reason(details, "unit_signal", "Search gate: nutrient unit pattern")
+
+        if food_hit and nutrient_hit:
+            score += 0.45
+            self._append_reason(details, "food_nutrient_combo", "Search gate: matched both food and nutrient terms")
+
+        if not abstract_text:
+            penalty = 1.3 if not (food_hit or nutrient_hit or unit_hit) else 0.45
+            score -= penalty
+            self._append_reason(
+                details,
+                "missing_abstract_penalty",
+                f"Search gate penalty {penalty:.2f}: missing abstract",
+            )
+
+        hard_negative_hits = self._collect_term_hits(normalized, HARD_NEGATIVE_TERMS)
+        if hard_negative_hits:
+            penalty = min(2.5, 0.95 * len(hard_negative_hits))
+            score -= penalty
+            self._append_reason(
+                details,
+                "hard_negative",
+                f"Search gate penalty {penalty:.2f}: hard negatives {', '.join(hard_negative_hits[:4])}",
+            )
+
+        soft_negative_hits = self._collect_term_hits(normalized, SOFT_NEGATIVE_TERMS)
+        if soft_negative_hits:
+            penalty = min(1.5, 0.45 * len(soft_negative_hits))
+            score -= penalty
+            self._append_reason(
+                details,
+                "soft_negative",
+                f"Search gate penalty {penalty:.2f}: soft negatives {', '.join(soft_negative_hits[:4])}",
+            )
+
+        health_hits = self._collect_term_hits(normalized, health_terms)
+        if health_hits:
+            penalty = min(1.6, 0.35 * len(health_hits))
+            score -= penalty
+            self._append_reason(
+                details,
+                "health_penalty",
+                f"Search gate penalty {penalty:.2f}: health terms {', '.join(health_hits[:4])}",
+            )
+
+        accepted = score >= SEARCH_GATE_REJECT_THRESHOLD
+        self._append_reason(
+            details,
+            "search_gate_pass" if accepted else "search_gate_reject",
+            f"{'Passed' if accepted else 'Rejected'} search gate with score {score:.2f}",
+        )
+        return accepted, score, details
 
     def _metadata_decision(self, candidate: CandidatePaper) -> Tuple[bool, float, List[Dict[str, str]]]:
         details: List[Dict[str, str]] = []
@@ -555,6 +900,11 @@ class FoodCompositionCrawlerV2:
             score += 0.75
             self._append_reason(details, "food_nutrient_combo", "Positive: matched both food and nutrient terms")
 
+        if not abstract_text:
+            penalty = 1.1 if not (food_hit or nutrient_hit or unit_hit) else 0.35
+            score -= penalty
+            self._append_reason(details, "missing_abstract_penalty", f"Penalty {penalty:.2f}: missing abstract")
+
         health_hits = self._collect_term_hits(normalized, health_terms)
         if health_hits:
             penalty = min(MAX_HEALTH_PENALTY, 0.55 * len(health_hits))
@@ -564,6 +914,12 @@ class FoodCompositionCrawlerV2:
                 "health_penalty",
                 f"Penalty {penalty:.2f}: health-outcome terms {', '.join(health_hits[:4])}",
             )
+
+        source_prior = float(self.source_priors_by_language.get(workflow_language, {}).get(candidate.source, 0.0))
+        if source_prior:
+            source_prior = max(-MAX_SOURCE_PRIOR_ABS, min(MAX_SOURCE_PRIOR_ABS, source_prior))
+            score += source_prior
+            self._append_reason(details, "source_prior", f"Source prior {source_prior:+.2f} from '{candidate.source}'")
 
         embedding_accept = False
         try:
@@ -726,6 +1082,8 @@ class FoodCompositionCrawlerV2:
                 reason_details=candidate.reason_details,
                 audit=force_audit,
                 file=str(destination.relative_to(self.data_dir.parent)),
+                source_record_id=candidate.source_record_id,
+                canonical_key=candidate.canonical_key,
                 pmcid=candidate.pmcid,
                 doi=candidate.doi,
                 journal=candidate.journal,
@@ -735,7 +1093,12 @@ class FoodCompositionCrawlerV2:
                 error=rejection_error,
                 source_term=candidate.source_term,
                 template_id=candidate.template_id,
+                query_phrase=candidate.query_phrase,
                 workflow_language=candidate.workflow_language,
+                search_gate_score=candidate.search_gate_score,
+                filter_score=candidate.filter_score,
+                search_gate_pass=candidate.search_gate_pass,
+                filter_pass=candidate.filter_pass,
             )
         _, accepted, pdf_reasons = self._validate_downloaded_pdf(destination, candidate)
         pdf_reason_details = [
@@ -760,6 +1123,8 @@ class FoodCompositionCrawlerV2:
                 reason_details=combined_reason_details,
                 audit=True,
                 file=str(destination.relative_to(self.data_dir.parent)),
+                source_record_id=candidate.source_record_id,
+                canonical_key=candidate.canonical_key,
                 pmcid=candidate.pmcid,
                 doi=candidate.doi,
                 journal=candidate.journal,
@@ -769,7 +1134,12 @@ class FoodCompositionCrawlerV2:
                 error="Rejected by PDF validation",
                 source_term=candidate.source_term,
                 template_id=candidate.template_id,
+                query_phrase=candidate.query_phrase,
                 workflow_language=candidate.workflow_language,
+                search_gate_score=candidate.search_gate_score,
+                filter_score=candidate.filter_score,
+                search_gate_pass=candidate.search_gate_pass,
+                filter_pass=candidate.filter_pass,
             )
 
         candidate.reason_details = combined_reason_details
@@ -784,6 +1154,8 @@ class FoodCompositionCrawlerV2:
             reason_details=combined_reason_details,
             audit=False,
             file=str(destination.relative_to(self.data_dir.parent)),
+            source_record_id=candidate.source_record_id,
+            canonical_key=candidate.canonical_key,
             pmcid=candidate.pmcid,
             doi=candidate.doi,
             journal=candidate.journal,
@@ -792,7 +1164,12 @@ class FoodCompositionCrawlerV2:
             pdf_url=candidate.pdf_url,
             source_term=candidate.source_term,
             template_id=candidate.template_id,
+            query_phrase=candidate.query_phrase,
             workflow_language=candidate.workflow_language,
+            search_gate_score=candidate.search_gate_score,
+            filter_score=candidate.filter_score,
+            search_gate_pass=candidate.search_gate_pass,
+            filter_pass=candidate.filter_pass,
         )
 
     def _fetch_pdf_with_oa(self, candidate: CandidatePaper) -> Tuple[bytes, str]:
@@ -1006,6 +1383,8 @@ class FoodCompositionCrawlerV2:
             reasons=candidate.reasons,
             reason_details=candidate.reason_details,
             audit=audit,
+            source_record_id=candidate.source_record_id,
+            canonical_key=candidate.canonical_key,
             pmcid=candidate.pmcid,
             doi=candidate.doi,
             journal=candidate.journal,
@@ -1014,7 +1393,12 @@ class FoodCompositionCrawlerV2:
             error=error,
             source_term=candidate.source_term,
             template_id=candidate.template_id,
+            query_phrase=candidate.query_phrase,
             workflow_language=candidate.workflow_language,
+            search_gate_score=candidate.search_gate_score,
+            filter_score=candidate.filter_score,
+            search_gate_pass=candidate.search_gate_pass,
+            filter_pass=candidate.filter_pass,
         )
 
     def _failed_record(self, candidate: CandidatePaper, error: str, audit: bool = False) -> DownloadRecord:
@@ -1027,6 +1411,8 @@ class FoodCompositionCrawlerV2:
             reasons=candidate.reasons,
             reason_details=candidate.reason_details,
             audit=audit,
+            source_record_id=candidate.source_record_id,
+            canonical_key=candidate.canonical_key,
             pmcid=candidate.pmcid,
             doi=candidate.doi,
             journal=candidate.journal,
@@ -1035,7 +1421,12 @@ class FoodCompositionCrawlerV2:
             error=error,
             source_term=candidate.source_term,
             template_id=candidate.template_id,
+            query_phrase=candidate.query_phrase,
             workflow_language=candidate.workflow_language,
+            search_gate_score=candidate.search_gate_score,
+            filter_score=candidate.filter_score,
+            search_gate_pass=candidate.search_gate_pass,
+            filter_pass=candidate.filter_pass,
         )
 
     def _default_state(self) -> Dict[str, object]:

@@ -32,8 +32,8 @@ def merge_terms(base: Iterable[str], extra: Iterable[str]) -> List[str]:
         normalized = _normalize_term(term)
         if not normalized or normalized in seen:
             continue
-            seen.add(normalized)
-            merged.append(normalized)
+        seen.add(normalized)
+        merged.append(normalized)
     return merged
 
 
@@ -72,3 +72,35 @@ def extract_terms(config: Dict[str, object], key: str, language: Optional[str] =
     if not isinstance(raw, list):
         return []
     return [str(term).strip() for term in raw if str(term).strip()]
+
+
+def extract_source_priors(config: Dict[str, object], language: str) -> Dict[str, float]:
+    payload = _language_payload(config, language)
+    priors = payload.get("source_priors") if isinstance(payload.get("source_priors"), dict) else {}
+    result: Dict[str, float] = {}
+    for source, value in priors.items():
+        try:
+            result[str(source)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def extract_pair_scores(config: Dict[str, object], language: str) -> Dict[str, float]:
+    payload = _language_payload(config, language)
+    pair_scores = payload.get("pair_scores") if isinstance(payload.get("pair_scores"), list) else []
+    scores: Dict[str, float] = {}
+    for row in pair_scores:
+        if not isinstance(row, dict):
+            continue
+        source = str(row.get("source") or "").strip().lower()
+        template_id = str(row.get("template_id") or "").strip()
+        source_term = _normalize_term(str(row.get("source_term") or ""))
+        if not source or not template_id:
+            continue
+        key = f"{source}|{template_id}|{source_term}"
+        try:
+            scores[key] = float(row.get("score") or 0.0)
+        except (TypeError, ValueError):
+            scores[key] = 0.0
+    return scores

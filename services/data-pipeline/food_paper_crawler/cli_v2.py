@@ -15,6 +15,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--food-term-limit", type=int, default=0, help="How many food terms to use (0 = all)")
     parser.add_argument("--nutrient-term-limit", type=int, default=0, help="How many nutrient terms to use (0 = all)")
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count")
+    parser.add_argument(
+        "--sources",
+        default="europepmc,openalex,semanticscholar,dergipark",
+        help="Comma-separated metadata sources to search",
+    )
     parser.add_argument("--replace-existing", action="store_true", help="Delete previous harvested PDFs first")
     return parser
 
@@ -34,6 +39,7 @@ def run_cli() -> int:
         food_term_limit=args.food_term_limit,
         nutrient_term_limit=args.nutrient_term_limit,
         max_queries=args.max_queries,
+        sources=[part.strip() for part in args.sources.split(",") if part.strip()],
     )
     manifest = crawler.run(replace_existing=args.replace_existing)
     print(json.dumps(

@@ -52,6 +52,7 @@ Supabase schema and migrations:
 - `apps/expert-annotator/add_user.js`: Scripted Supabase sign-up for a test user.
 Notes:
 - `papers` includes `ingest_status`, `audit_flag`, `rejection_reasons` for audit sampling.
+- `paper_search_hits` stores metadata-stage search discoveries separately from downloaded papers, including source, language, rendered query text, search-gate score, filter score, and duplicate status.
 
 Frontend config and templates:
 - `apps/expert-annotator/index.html`: Vite HTML entry point.
@@ -69,9 +70,13 @@ Location: `services/data-pipeline/`
 
 Language scope (current relevance filtering): English + Turkish only.
 Crawler v2 now splits its query budget across independent English and Turkish workflows, with separate query phrases, anchors, weighted n-grams, and language-scoped embedding/metadata scoring.
+Crawler v2 now also runs as `Search -> Filter -> Acquisition`:
+- `Search`: metadata-only retrieval from Europe PMC, OpenAlex, Semantic Scholar, and DergiPark.
+- `Filter`: metadata-only relevance scoring using language-scoped lexical signals, source priors, embeddings, and learned feedback n-grams.
+- `Acquisition`: PDF/full-text download plus PDF validation only after a candidate passes the metadata filter.
 
 Main entry points:
-- `services/data-pipeline/main.py`: Europe PMC crawler v2 (PDF download + validation).
+- `services/data-pipeline/main.py`: Multi-source crawler v2.
 - `services/data-pipeline/food_paper_crawler/`: Europe PMC crawler v1/v2 + ranking logic.
 - `services/data-pipeline/orchestrator_cli.py`: Systematic PMC harvester (Entrez-based).
 - `services/data-pipeline/harvester/foodcomp_crawler.py`: High-precision food composition crawler (PMC XML + PDF).
@@ -87,7 +92,7 @@ Key modules:
 
 **Label Feedback Loop (L2)**
 - Generates cumulative field-aware n-gram stats from labeled papers to update crawler query phrases and soft metadata scoring.
-- Uses the latest label per user; any `has_data=true` draft or done counts as positive, and papers turn negative on global skip or 2+ unique skips. Mixed signals across labelers are treated as conflicts and excluded from both sides.
+- Uses the latest label per user; a paper only counts as positive when the latest visible `draft`/`done` state also has `has_data=true`, `food_item_count > 0`, and `nutrient_value_count > 0`. Papers turn negative on global skip or 2+ unique skips. Mixed signals across labelers are treated as conflicts and excluded from both sides.
 - Feedback export now classifies papers into English vs Turkish buckets and writes separate phrase / anchor / weighted-term pools for each workflow.
 - Script: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
   - Requires `SUPABASE_URL` (or `VITE_SUPABASE_URL`) and `SUPABASE_SERVICE_ROLE_KEY`.
@@ -96,14 +101,15 @@ Key modules:
 - `weighted_terms` stores cumulative per-term evidence for `title` and `title+abstract`, plus derived `good`, `bad`, and net scores.
 - Seed composition phrases are treated as a small positive prior, not as permanently merged winners.
 - The crawler uses each language's stored `weighted_terms` as soft scores only; feedback does not hard-reject papers.
-- Learned query generation pairs a rotated food/nutrient term with a high-confidence phrase from the matching language workflow, while two evergreen base queries remain for breadth in each language.
+- Learned query generation pairs a rotated food/nutrient term with a high-confidence phrase from the matching language workflow, while evergreen base queries remain for breadth in each language.
+- The shared feedback refresh also writes `pair_scores`, `source_priors`, and discovery candidates so source-term pairs can be ranked by novelty-adjusted yield instead of only lexical relevance.
 
 Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/ingestor.py`: Entrez harvester into `data/raw_lake`.
 - `services/data-pipeline/scripts/ingestor_pdf.py`: PDF downloader with a focused composition query.
 - `services/data-pipeline/scripts/ingestor_structured.py`: XML table extraction into `data/structured_lake`.
 - `services/data-pipeline/scripts/config_targets.py`: Shared query configuration for script-based harvesters.
-- `services/data-pipeline/scripts/upload_to_supabase.py`: Upload PDFs to Supabase Storage and insert `papers` (including audit-flagged rejects).
+- `services/data-pipeline/scripts/upload_to_supabase.py`: Upload accepted PDFs to Supabase Storage, update `papers`, and persist metadata-stage discovery hits into `paper_search_hits` when those artifacts exist in the crawl manifest.
 - `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, then crawl + upload when available UI papers are at/below a threshold; repeat until a target count is reached.
 - `services/data-pipeline/scripts/check_db.py`, `check_db.js`, `test_frontend_fetch.js`: DB and frontend connectivity checks.
 - `services/data-pipeline/scripts/check_rls.py`: Placeholder for RLS checks.

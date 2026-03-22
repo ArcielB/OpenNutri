@@ -101,7 +101,12 @@ def fetch_rows(
 
 
 def resolve_paper_select(supabase_url: str, supabase_key: str) -> Tuple[str, List[dict]]:
-    attempts = ["id,title,abstract", "id,title"]
+    attempts = [
+        "id,title,abstract,source,workflow_language",
+        "id,title,abstract,source",
+        "id,title,abstract",
+        "id,title",
+    ]
     last_error = None
     for select in attempts:
         try:
@@ -159,8 +164,16 @@ def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[s
             continue
         status = (event.get("status") or "").lower()
         has_data = bool(event.get("has_data"))
+        food_item_count = int(event.get("food_item_count") or 0)
+        nutrient_value_count = int(event.get("nutrient_value_count") or 0)
         user_id = event.get("user_id")
-        if status in {"done", "draft"} and has_data and user_id:
+        if (
+            status in {"done", "draft"}
+            and has_data
+            and food_item_count > 0
+            and nutrient_value_count > 0
+            and user_id
+        ):
             positive_users[paper_id].add(user_id)
         if status == "skipped" and not has_data and user_id:
             negative_users[paper_id].add(user_id)
@@ -517,6 +530,176 @@ def select_anchor_phrases(items: List[TermScore], *, max_count: int) -> List[str
     return selected
 
 
+def merge_ranked_terms(*groups: Iterable[str], max_count: int) -> List[str]:
+    merged: List[str] = []
+    seen = set()
+    for group in groups:
+        for term in group:
+            normalized = " ".join((term or "").lower().strip().split())
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            merged.append(normalized)
+            if len(merged) >= max_count:
+                return merged
+    return merged
+
+
+def build_discovery_term_candidates(
+    search_hits: List[dict],
+    positive_ids: set[int],
+    *,
+    language: str,
+    max_ngram: int,
+    min_token_len: int,
+    max_phrase_len: int,
+    max_count: int,
+) -> List[str]:
+    docs_by_key: Dict[str, str] = {}
+    positive_keys: set[str] = set()
+
+    for row in search_hits:
+        if row.get("workflow_language") != language:
+            continue
+        canonical_key = str(row.get("canonical_key") or "").strip()
+        if not canonical_key:
+            continue
+        text = " ".join(
+            part.strip()
+            for part in (str(row.get("title") or ""), str(row.get("abstract") or ""))
+            if part and str(part).strip()
+        )
+        if not text:
+            continue
+        docs_by_key.setdefault(canonical_key, text)
+        paper_id = row.get("paper_id")
+        if isinstance(paper_id, int) and paper_id in positive_ids:
+            positive_keys.add(canonical_key)
+
+    if not docs_by_key or not positive_keys:
+        return []
+
+    corpus_df: Counter = Counter()
+    positive_df: Counter = Counter()
+    for canonical_key, text in docs_by_key.items():
+        terms = set(
+            extract_terms(
+                text,
+                max_ngram=max_ngram,
+                min_token_len=min_token_len,
+                max_phrase_len=max_phrase_len,
+            )
+        )
+        if not terms:
+            continue
+        corpus_df.update(terms)
+        if canonical_key in positive_keys:
+            positive_df.update(terms)
+
+    total_docs = max(1, len(docs_by_key))
+    ranked = []
+    for term, pos_df in positive_df.items():
+        if term.count(" ") < 1:
+            continue
+        background_df = corpus_df.get(term, 0)
+        score = pos_df * math.log((1 + total_docs) / (1 + background_df))
+        if score <= 0:
+            continue
+        ranked.append((score, pos_df, term))
+
+    ranked.sort(reverse=True)
+    return [term for _, _, term in ranked[:max_count]]
+
+
+def build_search_pair_feedback(
+    search_hits: List[dict],
+    good_ids: set[int],
+    bad_ids: set[int],
+    *,
+    language: str,
+) -> Tuple[List[dict], Dict[str, float]]:
+    pair_stats: Dict[Tuple[str, str, str], Dict[str, object]] = {}
+    source_positive: Dict[str, set[int]] = defaultdict(set)
+    source_negative: Dict[str, set[int]] = defaultdict(set)
+
+    for row in search_hits:
+        if row.get("workflow_language") != language:
+            continue
+        source = str(row.get("source") or "").strip().lower()
+        template_id = str(row.get("template_id") or "").strip()
+        source_term = " ".join(str(row.get("source_term") or "").lower().strip().split())
+        if not source or not template_id:
+            continue
+        key = (source, template_id, source_term)
+        stats = pair_stats.setdefault(
+            key,
+            {
+                "source": source,
+                "template_id": template_id,
+                "source_term": source_term or None,
+                "retrieved": 0,
+                "search_gate_passed": 0,
+                "filter_passed": 0,
+                "novel_positive_papers": set(),
+                "duplicate_positive_papers": set(),
+                "negative_papers": set(),
+            },
+        )
+        stats["retrieved"] = int(stats["retrieved"]) + 1
+        if row.get("search_gate_pass"):
+            stats["search_gate_passed"] = int(stats["search_gate_passed"]) + 1
+        if row.get("filter_pass"):
+            stats["filter_passed"] = int(stats["filter_passed"]) + 1
+
+        paper_id = row.get("paper_id")
+        if not isinstance(paper_id, int):
+            continue
+        if paper_id in good_ids:
+            source_positive[source].add(paper_id)
+            bucket = "duplicate_positive_papers" if row.get("is_duplicate") else "novel_positive_papers"
+            stats[bucket].add(paper_id)
+        elif paper_id in bad_ids:
+            source_negative[source].add(paper_id)
+            stats["negative_papers"].add(paper_id)
+
+    pair_payloads: List[dict] = []
+    for stats in pair_stats.values():
+        retrieved = max(1, int(stats["retrieved"]))
+        novel_positive_count = len(stats["novel_positive_papers"])
+        duplicate_positive_count = len(stats["duplicate_positive_papers"])
+        negative_count = len(stats["negative_papers"])
+        pair_payloads.append(
+            {
+                "source": stats["source"],
+                "template_id": stats["template_id"],
+                "source_term": stats["source_term"],
+                "retrieved": retrieved,
+                "search_gate_passed": int(stats["search_gate_passed"]),
+                "filter_passed": int(stats["filter_passed"]),
+                "novel_positive_count": novel_positive_count,
+                "duplicate_positive_count": duplicate_positive_count,
+                "negative_count": negative_count,
+                "score": novel_positive_count / retrieved,
+            }
+        )
+    pair_payloads.sort(
+        key=lambda row: (
+            row["score"],
+            row["novel_positive_count"],
+            row["filter_passed"],
+            row["retrieved"],
+        ),
+        reverse=True,
+    )
+
+    source_priors: Dict[str, float] = {}
+    for source in sorted(set(source_positive) | set(source_negative)):
+        positive = len(source_positive.get(source, set()))
+        negative = len(source_negative.get(source, set()))
+        source_priors[source] = math.log((positive + 1.0) / (negative + 1.0))
+    return pair_payloads, source_priors
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate cumulative field-aware soft-feedback n-gram weights from labeled papers.")
     parser.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL"))
@@ -550,6 +733,13 @@ def main() -> None:
         args.supabase_key,
         "paper_global_labels",
         "paper_id,user_id,label,reason,created_at",
+        batch_size=1000,
+    )
+    search_hits = fetch_rows(
+        args.supabase_url,
+        args.supabase_key,
+        "paper_search_hits",
+        "paper_id,canonical_key,source,template_id,source_term,workflow_language,title,abstract,search_gate_pass,filter_pass,is_duplicate",
         batch_size=1000,
     )
 
@@ -591,12 +781,29 @@ def main() -> None:
         counts["paper_count"] = len(language_papers)
 
         query_phrases = select_query_phrases(scored, max_count=args.max_query_phrases)
+        discovery_candidates = build_discovery_term_candidates(
+            search_hits,
+            language_good_ids,
+            language=language,
+            max_ngram=args.max_ngram,
+            min_token_len=args.min_token_len,
+            max_phrase_len=args.max_phrase_len,
+            max_count=args.max_query_phrases,
+        )
+        query_phrases = merge_ranked_terms(discovery_candidates, query_phrases, max_count=args.max_query_phrases)
         if not query_phrases:
             query_phrases = list(SEED_QUERY_PHRASES_BY_LANGUAGE[language][: args.max_query_phrases])
 
         anchor_phrases = select_anchor_phrases(scored, max_count=args.max_anchor_phrases)
         if not anchor_phrases:
             anchor_phrases = list(SEED_ANCHOR_PHRASES_BY_LANGUAGE[language][: args.max_anchor_phrases])
+
+        pair_scores, source_priors = build_search_pair_feedback(
+            search_hits,
+            good_ids,
+            bad_ids,
+            language=language,
+        )
 
         weighted_terms = [asdict(item) for item in scored]
         query_phrases_by_language[language] = query_phrases
@@ -608,6 +815,9 @@ def main() -> None:
             "query_phrases": query_phrases,
             "anchor_phrases": anchor_phrases,
             "weighted_terms": weighted_terms,
+            "pair_scores": pair_scores,
+            "source_priors": source_priors,
+            "discovery_candidates": discovery_candidates,
         }
 
     output_dir = Path(args.output_dir)
