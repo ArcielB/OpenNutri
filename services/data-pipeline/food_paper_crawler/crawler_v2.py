@@ -152,6 +152,7 @@ class FoodCompositionCrawlerV2:
         nutrient_term_limit: int = 0,
         max_queries: int = 80,
         sources: Optional[List[str]] = None,
+        dergipark_scan_budget: int = 400,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.raw_pdf_dir = self.data_dir / "raw_pdfs"
@@ -209,10 +210,12 @@ class FoodCompositionCrawlerV2:
         }
         self.embedding_scorer = DualEmbeddingScorer()
         self.max_queries = max_queries
+        self.dergipark_scan_budget = max(1, int(dergipark_scan_budget))
         self.search_sources = build_search_sources(
             list(sources or DEFAULT_SEARCH_SOURCES),
             data_dir=self.data_dir,
             page_size=query_limit,
+            dergipark_scan_budget=self.dergipark_scan_budget,
         )
         self.state = self._load_state()
 
@@ -247,13 +250,15 @@ class FoodCompositionCrawlerV2:
             language: sum(1 for candidate in candidates if candidate.workflow_language == language)
             for language in SUPPORTED_LANGUAGES
         }
+        summary = self._build_run_summary(candidates, discovery_hits, accepted_records, rejected_records)
         self._write_candidate_artifacts(harvested_at, candidates, discovery_hits)
 
         manifest = {
             "harvested_at": harvested_at,
             "query_count": len(search_tasks),
-            "rule_version": "search-filter-acquisition-v3",
+            "rule_version": "search-filter-acquisition-v4",
             "sources": list(self.search_sources.keys()),
+            "dergipark_scan_budget": self.dergipark_scan_budget,
             "embedding": self.embedding_scorer.info(),
             "feedback": {
                 "config_path": str(self.feedback_config.get("config_path", "")),
@@ -297,6 +302,7 @@ class FoodCompositionCrawlerV2:
             },
             "query_stats": query_stats,
             "query_log": query_log,
+            "summary": summary,
             "audit": {
                 "every": AUDIT_EVERY_N,
                 "sample_count": audit_count,
@@ -829,6 +835,90 @@ class FoodCompositionCrawlerV2:
         }
         self._write_json(self.candidate_store_path, candidate_payload)
         self._write_json(self.search_hits_path, hit_payload)
+
+    def _empty_summary_bucket(self) -> Dict[str, int]:
+        return {
+            "hits": 0,
+            "search_gate_pass": 0,
+            "metadata_pass": 0,
+            "pdf_fetch_fail": 0,
+            "pdf_validation_fail": 0,
+            "accepted": 0,
+        }
+
+    def _bump_summary_metric(
+        self,
+        container: Dict[str, Dict[str, int]],
+        key: str,
+        metric: str,
+    ) -> None:
+        if key not in container:
+            container[key] = self._empty_summary_bucket()
+        container[key][metric] += 1
+
+    def _build_run_summary(
+        self,
+        candidates: List[CandidatePaper],
+        discovery_hits: List[DiscoveryHit],
+        accepted_records: List[DownloadRecord],
+        rejected_records: List[DownloadRecord],
+    ) -> Dict[str, object]:
+        languages = {
+            language: self._empty_summary_bucket()
+            for language in SUPPORTED_LANGUAGES
+        }
+        sources = {
+            source: self._empty_summary_bucket()
+            for source in self.search_sources.keys()
+        }
+        rejections = {
+            "search_gate": 0,
+            "metadata_filter": 0,
+            "pdf_fetch": 0,
+            "pdf_validation": 0,
+        }
+
+        for hit in discovery_hits:
+            if hit.workflow_language in SUPPORTED_LANGUAGES:
+                self._bump_summary_metric(languages, hit.workflow_language, "hits")
+            self._bump_summary_metric(sources, hit.source, "hits")
+            if hit.search_gate_pass:
+                if hit.workflow_language in SUPPORTED_LANGUAGES:
+                    self._bump_summary_metric(languages, hit.workflow_language, "search_gate_pass")
+                self._bump_summary_metric(sources, hit.source, "search_gate_pass")
+            else:
+                rejections["search_gate"] += 1
+
+        for candidate in candidates:
+            if not candidate.filter_pass:
+                continue
+            if candidate.workflow_language in SUPPORTED_LANGUAGES:
+                self._bump_summary_metric(languages, candidate.workflow_language, "metadata_pass")
+            self._bump_summary_metric(sources, candidate.source, "metadata_pass")
+
+        for record in accepted_records:
+            if record.workflow_language in SUPPORTED_LANGUAGES:
+                self._bump_summary_metric(languages, record.workflow_language, "accepted")
+            self._bump_summary_metric(sources, record.source, "accepted")
+
+        for record in rejected_records:
+            stage = record.decision_stage or ""
+            if stage in rejections:
+                rejections[stage] += 1
+            if stage == "pdf_fetch":
+                if record.workflow_language in SUPPORTED_LANGUAGES:
+                    self._bump_summary_metric(languages, record.workflow_language, "pdf_fetch_fail")
+                self._bump_summary_metric(sources, record.source, "pdf_fetch_fail")
+            elif stage == "pdf_validation":
+                if record.workflow_language in SUPPORTED_LANGUAGES:
+                    self._bump_summary_metric(languages, record.workflow_language, "pdf_validation_fail")
+                self._bump_summary_metric(sources, record.source, "pdf_validation_fail")
+
+        return {
+            "languages": languages,
+            "sources": dict(sorted(sources.items())),
+            "rejections": {stage: count for stage, count in rejections.items() if count > 0},
+        }
 
     def _task_key(self, task: SearchTask) -> str:
         return self._stat_hit_key(

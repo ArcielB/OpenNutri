@@ -24,6 +24,7 @@ OAI_NS = {
 DOI_PATTERN = re.compile(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", re.IGNORECASE)
 PMCID_PATTERN = re.compile(r"PMC\d+", re.IGNORECASE)
 UNIT_QUERY_TERMS = {"mg/100g", "g/100g", "ug/100g", "µg/100g"}
+NORMALIZED_UNIT_QUERY_TERMS = {normalize_language_text(term) for term in UNIT_QUERY_TERMS}
 
 
 def build_search_sources(
@@ -31,12 +32,13 @@ def build_search_sources(
     *,
     data_dir: Path,
     page_size: int,
+    dergipark_scan_budget: int = 400,
 ) -> Dict[str, object]:
     available = {
         "europepmc": EuropePMCSearchSource(page_size=page_size),
         "openalex": OpenAlexSearchSource(),
         "semanticscholar": SemanticScholarSearchSource(),
-        "dergipark": DergiParkOAISource(data_dir=data_dir),
+        "dergipark": DergiParkOAISource(data_dir=data_dir, scan_budget=dergipark_scan_budget),
     }
     selected: Dict[str, object] = {}
     for raw_name in names:
@@ -285,11 +287,25 @@ class SemanticScholarSearchSource:
 
 class DergiParkOAISource:
     base_url = "https://dergipark.org.tr/api/public/oai/"
+    FIELD_WEIGHTS = {
+        "title": 2,
+        "abstract": 1,
+        "subjects": 1,
+    }
+    SUPPORT_TERMS_BY_LANGUAGE = {
+        "en": {"table", "content", "analysis"},
+        "tr": {"tablo", "içerik", "icerik", "analiz"},
+    }
+    ANCHOR_HINTS_BY_LANGUAGE = {
+        "en": ("composition", "content", "analysis", "proximate"),
+        "tr": ("bileşim", "bilesim", "kompozisyon", "içeri", "icerigi", "yaklasik"),
+    }
 
     def __init__(self, *, data_dir: Path, scan_budget: int = 400) -> None:
         self.cache_path = data_dir / "dergipark_oai_cache.jsonl"
         self.state_path = data_dir / "dergipark_oai_state.json"
         self.scan_budget = scan_budget
+        self.remaining_scan_budget = scan_budget
         self._records: List[dict] = self._load_cache()
         self._state = self._load_state()
 
@@ -305,49 +321,105 @@ class DergiParkOAISource:
         if len(matches) >= limit:
             return matches[:limit]
 
-        scanned = 0
-        while len(matches) < limit and scanned < self.scan_budget:
+        while len(matches) < limit and self.remaining_scan_budget > 0:
             fetched = self._fetch_next_batch()
             if not fetched:
                 break
-            scanned += fetched
+            self.remaining_scan_budget = max(0, self.remaining_scan_budget - fetched)
             matches = self._match_records(spec, normalized_keywords, limit)
         return matches[:limit]
 
     def _normalized_keywords(self, spec: QuerySpec) -> List[str]:
         seen = set()
         keywords: List[str] = []
-        for raw_keyword in spec.keywords:
+        for raw_keyword in ((spec.query_phrase, spec.source_term) + spec.keywords):
             normalized = normalize_language_text(raw_keyword)
             if len(normalized) < 3 or normalized in seen:
+                continue
+            if normalized in NORMALIZED_UNIT_QUERY_TERMS:
                 continue
             seen.add(normalized)
             keywords.append(normalized)
         return keywords
 
     def _match_records(self, spec: QuerySpec, keywords: List[str], limit: int) -> List[CandidatePaper]:
-        results: List[CandidatePaper] = []
-        required_hits = 1 if spec.source_term else 2
+        results: List[tuple[tuple[int, int, int, int], CandidatePaper]] = []
+        anchor_terms = self._anchor_terms(spec, keywords)
         for record in self._records:
-            record_language = str(record.get("language") or "").strip().lower()
-            if record_language in {"en", "tr"} and record_language != spec.language:
+            score = self._score_record(record, spec, keywords, anchor_terms)
+            if score is None:
                 continue
-            text = normalize_language_text(
-                " ".join(
-                    part for part in (
-                        record.get("title", ""),
-                        record.get("abstract", ""),
-                        " ".join(record.get("subjects", [])),
-                    ) if part
-                )
-            )
-            hit_count = sum(1 for keyword in keywords if f" {keyword} " in f" {text} ")
-            if hit_count < required_hits:
+            results.append((score, self._to_candidate(record, spec)))
+        results.sort(key=lambda item: item[0], reverse=True)
+        return [candidate for _, candidate in results[:limit]]
+
+    def _anchor_terms(self, spec: QuerySpec, keywords: List[str]) -> set[str]:
+        support_terms = self.SUPPORT_TERMS_BY_LANGUAGE.get(spec.language, set())
+        anchor_hints = self.ANCHOR_HINTS_BY_LANGUAGE.get(spec.language, ())
+        anchors: set[str] = set()
+        for term in keywords:
+            if term in support_terms:
                 continue
-            results.append(self._to_candidate(record, spec))
-            if len(results) >= limit:
-                break
-        return results
+            if any(hint in term for hint in anchor_hints):
+                anchors.add(term)
+        return anchors
+
+    def _score_record(
+        self,
+        record: dict,
+        spec: QuerySpec,
+        keywords: List[str],
+        anchor_terms: set[str],
+    ) -> Optional[tuple[int, int, int, int]]:
+        record_language = str(record.get("language") or "").strip().lower()
+        if record_language in {"en", "tr"} and record_language != spec.language:
+            return None
+
+        field_texts = {
+            "title": normalize_language_text(record.get("title", "")),
+            "abstract": normalize_language_text(record.get("abstract", "")),
+            "subjects": normalize_language_text(" ".join(record.get("subjects", []))),
+        }
+        term_scores: Dict[str, int] = {}
+        title_match_terms: set[str] = set()
+        matched_anchors: set[str] = set()
+        matched_source_term = False
+        normalized_source_term = normalize_language_text(spec.source_term or "")
+
+        for term in keywords:
+            field_score = 0
+            for field_name, text in field_texts.items():
+                if not text:
+                    continue
+                if f" {term} " not in f" {text} ":
+                    continue
+                field_score = max(field_score, self.FIELD_WEIGHTS[field_name])
+                if field_name == "title":
+                    title_match_terms.add(term)
+            if field_score <= 0:
+                continue
+            term_scores[term] = field_score
+            if term in anchor_terms:
+                matched_anchors.add(term)
+            if normalized_source_term and term == normalized_source_term:
+                matched_source_term = True
+
+        total_score = sum(term_scores.values())
+        if spec.source_term:
+            if not matched_source_term or total_score < 3:
+                return None
+        elif not matched_anchors or total_score < 3:
+            return None
+
+        has_pdf = 1 if record.get("pdf_url") else 0
+        year = self._sort_year(record.get("year"))
+        return total_score, len(title_match_terms), has_pdf, year
+
+    def _sort_year(self, raw_year: object) -> int:
+        match = re.search(r"\d{4}", str(raw_year or ""))
+        if not match:
+            return 0
+        return int(match.group(0))
 
     def _to_candidate(self, record: dict, spec: QuerySpec) -> CandidatePaper:
         return CandidatePaper(

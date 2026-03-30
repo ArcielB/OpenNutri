@@ -20,6 +20,7 @@ from food_paper_crawler.feedback.update_terms import (
 from food_paper_crawler.models import CandidatePaper, DiscoveryHit, DownloadRecord, QuerySpec, SearchTask
 from food_paper_crawler.search_sources import DergiParkOAISource, OAI_NS, OpenAlexSearchSource, SemanticScholarSearchSource
 from food_paper_crawler import supabase_terms
+from scripts import upload_to_supabase
 
 
 class SearchSourceTests(unittest.TestCase):
@@ -87,6 +88,99 @@ class SearchSourceTests(unittest.TestCase):
         self.assertEqual(parsed["language"], "tr")
         self.assertEqual(parsed["title"], "Yenilebilir Mantarların Besin Bileşimi")
         self.assertEqual(parsed["pdf_url"], "https://dergipark.org.tr/en/download/article-file/10.pdf")
+
+    def test_dergipark_weighted_matching_prefers_stronger_turkish_candidate(self) -> None:
+        spec = QuerySpec(
+            query='("gıda bileşimi" AND ("tablo" OR "analiz")) AND IN_PMC:y',
+            keywords=("gıda bileşimi", "besin bileşimi", "tablo", "analiz"),
+            template_id="base_core_composition",
+            source_term=None,
+            term_type="base",
+            language="tr",
+            query_phrase="gıda bileşimi",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = DergiParkOAISource(data_dir=Path(tmpdir), scan_budget=1)
+            source._records = [
+                {
+                    "oai_id": "weak",
+                    "title": "Yerel ürünlerde analiz",
+                    "abstract": "Bu çalışma ürünleri tanımlar.",
+                    "subjects": [],
+                    "language": "tr",
+                    "pdf_url": None,
+                    "landing_url": "https://example.com/weak",
+                    "year": "2023",
+                },
+                {
+                    "oai_id": "strong",
+                    "title": "Mantarların Besin Bileşimi ve Mineral İçeriği",
+                    "abstract": "Tablo halinde analiz sonuçları verilmiştir.",
+                    "subjects": ["gıda bileşimi"],
+                    "language": "tr",
+                    "pdf_url": "https://example.com/strong.pdf",
+                    "landing_url": "https://example.com/strong",
+                    "year": "2025",
+                },
+                {
+                    "oai_id": "medium",
+                    "title": "Mantarlarda gıda bileşimi",
+                    "abstract": "Tanımlayıcı analiz özeti",
+                    "subjects": [],
+                    "language": "tr",
+                    "pdf_url": None,
+                    "landing_url": "https://example.com/medium",
+                    "year": "2024",
+                },
+            ]
+            matches = source.search(spec, limit=5)
+
+        self.assertEqual([item.external_id for item in matches], ["strong", "medium"])
+
+    def test_dergipark_search_uses_scan_budget_until_match_found(self) -> None:
+        spec = QuerySpec(
+            query='("gıda bileşimi" AND ("tablo" OR "analiz")) AND IN_PMC:y',
+            keywords=("gıda bileşimi", "besin bileşimi", "tablo", "analiz"),
+            template_id="base_core_composition",
+            source_term=None,
+            term_type="base",
+            language="tr",
+            query_phrase="gıda bileşimi",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = DergiParkOAISource(data_dir=Path(tmpdir), scan_budget=2)
+            source._records = []
+            fetch_counter = {"count": 0}
+            batches = iter(
+                [
+                    {
+                        "oai_id": "late-match",
+                        "title": "Mercimekte Besin Bileşimi",
+                        "abstract": "Tablo ve analiz sonuçları verilmiştir.",
+                        "subjects": [],
+                        "language": "tr",
+                        "pdf_url": "https://example.com/late.pdf",
+                        "landing_url": "https://example.com/late",
+                        "year": "2025",
+                    }
+                ]
+            )
+
+            def fake_fetch_next_batch() -> int:
+                fetch_counter["count"] += 1
+                try:
+                    source._records.append(next(batches))
+                    return 1
+                except StopIteration:
+                    return 0
+
+            source._fetch_next_batch = fake_fetch_next_batch
+            matches = source.search(spec, limit=1)
+            source.search(spec, limit=1)
+
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].external_id, "late-match")
+        self.assertEqual(fetch_counter["count"], 1)
 
 
 class FeedbackTests(unittest.TestCase):
@@ -362,6 +456,81 @@ class CrawlerStateTests(unittest.TestCase):
         self.assertTrue(filename_one.endswith(".pdf"))
         self.assertNotEqual(filename_one, filename_two)
 
+    def test_run_summary_counts_hits_and_rejections_by_stage(self) -> None:
+        crawler = self.make_crawler()
+        crawler.search_sources = {"openalex": object(), "dergipark": object()}
+        candidate = self.make_candidate("summary-paper")
+        candidate.workflow_language = "tr"
+        candidate.filter_pass = True
+        hit_pass = DiscoveryHit(
+            canonical_key=candidate.canonical_key,
+            source="dergipark",
+            source_record_id="summary-paper",
+            external_id="summary-paper",
+            pmcid=None,
+            doi=None,
+            title=candidate.title,
+            abstract=candidate.abstract,
+            workflow_language="tr",
+            query="gıda bileşimi",
+            template_id="base_core_composition",
+            source_term=None,
+            term_type="base",
+            query_phrase="gıda bileşimi",
+            search_gate_score=1.0,
+            search_gate_pass=True,
+        )
+        hit_reject = DiscoveryHit(
+            canonical_key="title:reject",
+            source="dergipark",
+            source_record_id="reject",
+            external_id="reject",
+            pmcid=None,
+            doi=None,
+            title="reject",
+            abstract="reject",
+            workflow_language="tr",
+            query="gıda bileşimi",
+            template_id="base_core_composition",
+            source_term=None,
+            term_type="base",
+            query_phrase="gıda bileşimi",
+            search_gate_score=-1.0,
+            search_gate_pass=False,
+        )
+        accepted = DownloadRecord(
+            status="success",
+            title=candidate.title,
+            score=3.0,
+            source="dergipark",
+            query=candidate.query,
+            reasons=[],
+            canonical_key=candidate.canonical_key,
+            workflow_language="tr",
+            decision_stage="acquisition",
+        )
+        rejected = DownloadRecord(
+            status="failed",
+            title="pdf-fetch-fail",
+            score=0.0,
+            source="dergipark",
+            query="gıda bileşimi",
+            reasons=[],
+            canonical_key="title:fetch-fail",
+            workflow_language="tr",
+            decision_stage="pdf_fetch",
+        )
+
+        summary = crawler._build_run_summary([candidate], [hit_pass, hit_reject], [accepted], [rejected])
+        self.assertEqual(summary["languages"]["tr"]["hits"], 2)
+        self.assertEqual(summary["languages"]["tr"]["search_gate_pass"], 1)
+        self.assertEqual(summary["languages"]["tr"]["metadata_pass"], 1)
+        self.assertEqual(summary["languages"]["tr"]["pdf_fetch_fail"], 1)
+        self.assertEqual(summary["languages"]["tr"]["accepted"], 1)
+        self.assertEqual(summary["sources"]["dergipark"]["hits"], 2)
+        self.assertEqual(summary["rejections"]["search_gate"], 1)
+        self.assertEqual(summary["rejections"]["pdf_fetch"], 1)
+
 
 class FeedbackDeduplicationTests(unittest.TestCase):
     def test_duplicate_search_hits_do_not_inflate_feedback_retrieval_counts(self) -> None:
@@ -408,6 +577,44 @@ class FeedbackDeduplicationTests(unittest.TestCase):
         concept_scores = build_concept_feedback(deduped, {1}, set(), language="en")
         self.assertEqual(concept_scores[0]["retrieved"], 1)
         self.assertEqual(concept_scores[0]["positive_count"], 1)
+
+
+class UploadTests(unittest.TestCase):
+    def test_prepare_search_hits_keeps_metadata_only_rows_and_uses_existing_paper_lookup(self) -> None:
+        rows = [
+            {
+                "canonical_key": "doi:10.1000/test",
+                "source": "dergipark",
+                "source_record_id": "oai:1",
+                "external_id": "oai:1",
+                "pmcid": None,
+                "doi": "10.1000/test",
+                "title": "Türkçe makale",
+                "abstract": "Besin bileşimi ve tablo sonuçları.",
+                "workflow_language": "tr",
+                "query": '"gıda bileşimi" tablo',
+                "template_id": "base_core_composition",
+                "source_term": None,
+                "term_type": "base",
+                "query_phrase": "gıda bileşimi",
+                "search_gate_score": 1.25,
+                "search_gate_pass": True,
+                "filter_score": None,
+                "filter_pass": None,
+                "is_duplicate": False,
+            }
+        ]
+
+        prepared = upload_to_supabase._prepare_search_hits(
+            rows,
+            paper_id_by_key={},
+            existing_paper_id_lookup=lambda canonical_key: 77 if canonical_key == "doi:10.1000/test" else None,
+        )
+
+        self.assertEqual(len(prepared), 1)
+        self.assertEqual(prepared[0]["paper_id"], 77)
+        self.assertEqual(prepared[0]["workflow_language"], "tr")
+        self.assertEqual(prepared[0]["query_text"], '"gıda bileşimi" tablo')
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Dict
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -136,6 +137,66 @@ def print_counts(prefix: str, counts: Dict[str, int], targets: Dict[str, int]) -
         print(f"  Available unscoped: {counts['unscoped']}")
 
 
+def _load_manifest_summary(data_dir: str) -> dict | None:
+    manifest_path = Path(data_dir) / "raw_pdfs" / "_harvest_metadata.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    summary = payload.get("summary")
+    return summary if isinstance(summary, dict) else None
+
+
+def print_run_summary(data_dir: str) -> None:
+    summary = _load_manifest_summary(data_dir)
+    if not summary:
+        print("Run summary: unavailable")
+        return
+
+    print("Run summary:")
+    languages = summary.get("languages") if isinstance(summary.get("languages"), dict) else {}
+    for language in SUPPORTED_LANGUAGES:
+        row = languages.get(language) or {}
+        print(
+            f"  {language.upper()}: "
+            f"hits={int(row.get('hits', 0))} "
+            f"gate_pass={int(row.get('search_gate_pass', 0))} "
+            f"metadata_pass={int(row.get('metadata_pass', 0))} "
+            f"pdf_fetch_fail={int(row.get('pdf_fetch_fail', 0))} "
+            f"pdf_validation_fail={int(row.get('pdf_validation_fail', 0))} "
+            f"accepted={int(row.get('accepted', 0))}"
+        )
+
+    sources = summary.get("sources") if isinstance(summary.get("sources"), dict) else {}
+    nonzero_sources = [
+        (source, row)
+        for source, row in sorted(sources.items())
+        if isinstance(row, dict) and any(int(row.get(metric, 0)) for metric in row)
+    ]
+    if nonzero_sources:
+        print("  By source:")
+        for source, row in nonzero_sources:
+            print(
+                f"    {source}: "
+                f"hits={int(row.get('hits', 0))} "
+                f"gate_pass={int(row.get('search_gate_pass', 0))} "
+                f"metadata_pass={int(row.get('metadata_pass', 0))} "
+                f"pdf_fetch_fail={int(row.get('pdf_fetch_fail', 0))} "
+                f"pdf_validation_fail={int(row.get('pdf_validation_fail', 0))} "
+                f"accepted={int(row.get('accepted', 0))}"
+            )
+
+    rejections = summary.get("rejections") if isinstance(summary.get("rejections"), dict) else {}
+    if rejections:
+        rendered = ", ".join(
+            f"{stage}={int(count)}"
+            for stage, count in sorted(rejections.items())
+        )
+        print(f"  Rejections: {rendered}")
+
+
 def run_refill_cycle(
     *,
     deficits: Dict[str, int],
@@ -174,9 +235,12 @@ def run_refill_cycle(
             str(args.query_limit),
             "--max-queries",
             str(args.max_queries),
+            "--dergipark-scan-budget",
+            str(args.dergipark_scan_budget),
         ],
         env,
     )
+    print_run_summary(args.data_dir)
 
     run_command(
         "Upload to Supabase",
@@ -209,6 +273,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", default="services/data-pipeline/data", help="Crawler data directory")
     parser.add_argument("--query-limit", type=int, default=50, help="Results to inspect per query")
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count per crawler run")
+    parser.add_argument("--dergipark-scan-budget", type=int, default=400, help="How many DergiPark OAI records to scan per crawler run")
     parser.add_argument("--max-cycles", type=int, default=5, help="Maximum bilingual refill cycles")
     parser.add_argument(
         "--max-effort-tr",
@@ -231,8 +296,8 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    supabase_url = os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL")
-    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
     if not supabase_url or not supabase_key:
         raise SystemExit("Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY for auto-crawl.")
@@ -255,9 +320,7 @@ def main() -> None:
 
     env = os.environ.copy()
     env["SUPABASE_URL"] = supabase_url
-    env["SUPABASE_KEY"] = supabase_key
     env["SUPABASE_SERVICE_ROLE_KEY"] = supabase_key
-    env["VITE_SUPABASE_URL"] = supabase_url
 
     for cycle in range(1, args.max_cycles + 1):
         current_deficits = deficits_for(targets, counts)

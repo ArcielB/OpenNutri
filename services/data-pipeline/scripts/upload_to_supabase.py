@@ -5,7 +5,6 @@ import os
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
 from supabase import Client, create_client
 
 
@@ -15,18 +14,6 @@ if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
 from food_paper_crawler.models import build_search_hit_key
-
-annotator_env_path = PROJECT_ROOT / "apps" / "expert-annotator" / ".env"
-load_dotenv(annotator_env_path)
-
-url: str = os.environ.get("VITE_SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("VITE_SUPABASE_ANON_KEY")
-
-if not url or not key:
-    print("Error: Missing Supabase credentials in apps/expert-annotator/.env")
-    raise SystemExit(1)
-
-supabase: Client = create_client(url, key)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -83,7 +70,7 @@ def _resolve_crawl_path(manifest_path: Path, raw_value: str) -> Path:
     return path
 
 
-def _require_record_fields(record: dict, *, context: str) -> None:
+def _require_paper_fields(record: dict, *, context: str) -> None:
     required = ("source", "workflow_language", "search_gate_score", "filter_score")
     missing = [field for field in required if record.get(field) in {None, ""}]
     if missing:
@@ -92,8 +79,17 @@ def _require_record_fields(record: dict, *, context: str) -> None:
         raise RuntimeError(f"{context} has invalid workflow_language: {record.get('workflow_language')!r}")
 
 
+def _require_search_hit_fields(record: dict, *, context: str) -> None:
+    required = ("source", "workflow_language", "search_gate_score")
+    missing = [field for field in required if record.get(field) in {None, ""}]
+    if missing:
+        raise RuntimeError(f"{context} missing required fields: {', '.join(missing)}")
+    if record.get("workflow_language") not in {"en", "tr"}:
+        raise RuntimeError(f"{context} has invalid workflow_language: {record.get('workflow_language')!r}")
+
+
 def _paper_payload(record: dict, filename: str) -> dict:
-    _require_record_fields(record, context=f"paper '{filename}'")
+    _require_paper_fields(record, context=f"paper '{filename}'")
     pmc_id = record.get("pmc_id") or record.get("pmcid")
     return {
         "title": record.get("title") or f"PMC{pmc_id or ''}",
@@ -116,7 +112,15 @@ def _chunked(rows: list[dict], size: int) -> list[list[dict]]:
     return [rows[idx: idx + size] for idx in range(0, len(rows), size)]
 
 
-def _find_existing_paper(payload: dict, filename: str) -> dict | None:
+def _create_supabase_client_from_env() -> Client:
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not key:
+        raise SystemExit("Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY for upload.")
+    return create_client(url, key)
+
+
+def _find_existing_paper(supabase: Client, payload: dict, filename: str) -> dict | None:
     canonical_key = payload.get("canonical_key")
     if canonical_key:
         existing = supabase.table("papers").select("id,canonical_key").eq("canonical_key", canonical_key).execute()
@@ -149,6 +153,28 @@ def _find_existing_paper(payload: dict, filename: str) -> dict | None:
         if not row.get("canonical_key"):
             return row
     return existing.data[0]
+
+
+def _lookup_existing_paper_id(
+    supabase: Client,
+    canonical_key: object,
+    cache: dict[str, int | None],
+) -> int | None:
+    normalized_key = str(canonical_key or "").strip()
+    if not normalized_key:
+        return None
+    if normalized_key in cache:
+        return cache[normalized_key]
+    existing = (
+        supabase.table("papers")
+        .select("id")
+        .eq("canonical_key", normalized_key)
+        .limit(1)
+        .execute()
+    )
+    paper_id = int(existing.data[0]["id"]) if existing.data else None
+    cache[normalized_key] = paper_id
+    return paper_id
 
 
 def _dedupe_search_hits(rows: list[dict]) -> list[dict]:
@@ -184,7 +210,51 @@ def _dedupe_search_hits(rows: list[dict]) -> list[dict]:
     return list(deduped.values())
 
 
-async def upload_papers(args: argparse.Namespace) -> None:
+def _prepare_search_hits(
+    rows: list[dict],
+    *,
+    paper_id_by_key: dict[str, int],
+    existing_paper_id_lookup,
+) -> list[dict]:
+    prepared: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        _require_search_hit_fields(row, context=f"search hit {row.get('canonical_key') or 'unknown'}")
+        canonical_key = str(row.get("canonical_key") or "").strip()
+        paper_id = paper_id_by_key.get(canonical_key)
+        if paper_id is None and canonical_key:
+            paper_id = existing_paper_id_lookup(canonical_key)
+        payload = {
+            "paper_id": paper_id,
+            "hit_key": row.get("hit_key"),
+            "canonical_key": row.get("canonical_key"),
+            "source": row.get("source"),
+            "source_record_id": row.get("source_record_id"),
+            "external_id": row.get("external_id"),
+            "pmcid": row.get("pmcid"),
+            "doi": row.get("doi"),
+            "title": row.get("title"),
+            "abstract": row.get("abstract"),
+            "workflow_language": row.get("workflow_language"),
+            "query_text": row.get("query_text") or row.get("query"),
+            "template_id": row.get("template_id"),
+            "source_term": row.get("source_term"),
+            "term_type": row.get("term_type"),
+            "query_phrase": row.get("query_phrase"),
+            "search_gate_score": row.get("search_gate_score"),
+            "search_gate_pass": row.get("search_gate_pass"),
+            "filter_score": row.get("filter_score"),
+            "filter_pass": row.get("filter_pass"),
+            "is_duplicate": row.get("is_duplicate") or False,
+        }
+        if not payload["canonical_key"] or not payload["source"] or not payload["query_text"]:
+            raise SystemExit(f"Incomplete search-hit payload for canonical_key={payload['canonical_key']!r}")
+        prepared.append(payload)
+    return _dedupe_search_hits(prepared)
+
+
+async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
     manifest_path = (
         Path(args.manifest)
         if args.manifest
@@ -202,9 +272,6 @@ async def upload_papers(args: argparse.Namespace) -> None:
     manifest = _load_json(manifest_path)
     results = manifest.get("results", [])
     upload_candidates = [row for row in results if row.get("status") == "success"]
-    if not upload_candidates:
-        raise SystemExit("Manifest contains no successful downloads to upload.")
-
     candidate_store_path = _resolve_artifact(manifest_path, manifest, "candidate_store")
     search_hits_path = _resolve_artifact(manifest_path, manifest, "search_hits")
     candidate_store = _load_json(candidate_store_path)
@@ -223,6 +290,7 @@ async def upload_papers(args: argparse.Namespace) -> None:
         for row in candidate_store.get("candidates", [])
         if isinstance(row, dict) and row.get("canonical_key")
     }
+    paper_id_cache: dict[str, int | None] = {}
 
     try:
         supabase.storage.create_bucket("papers", options={"public": True})
@@ -258,7 +326,7 @@ async def upload_papers(args: argparse.Namespace) -> None:
                 )
 
             payload = _paper_payload(paper_row, filename)
-            existing = _find_existing_paper(payload, filename)
+            existing = _find_existing_paper(supabase, payload, filename)
             if existing:
                 paper_id = int(existing["id"])
                 supabase.table("papers").update(payload).eq("id", paper_id).execute()
@@ -277,39 +345,15 @@ async def upload_papers(args: argparse.Namespace) -> None:
     if upload_errors:
         raise SystemExit("Upload failed:\n- " + "\n- ".join(upload_errors))
 
-    search_hits = []
-    for row in search_hits_payload.get("hits", []):
-        if not isinstance(row, dict):
-            continue
-        _require_record_fields(row, context=f"search hit {row.get('canonical_key') or 'unknown'}")
-        payload = {
-            "paper_id": paper_id_by_key.get(row.get("canonical_key")),
-            "hit_key": row.get("hit_key"),
-            "canonical_key": row.get("canonical_key"),
-            "source": row.get("source"),
-            "source_record_id": row.get("source_record_id"),
-            "external_id": row.get("external_id"),
-            "pmcid": row.get("pmcid"),
-            "doi": row.get("doi"),
-            "title": row.get("title"),
-            "abstract": row.get("abstract"),
-            "workflow_language": row.get("workflow_language"),
-            "query_text": row.get("query"),
-            "template_id": row.get("template_id"),
-            "source_term": row.get("source_term"),
-            "term_type": row.get("term_type"),
-            "query_phrase": row.get("query_phrase"),
-            "search_gate_score": row.get("search_gate_score"),
-            "search_gate_pass": row.get("search_gate_pass"),
-            "filter_score": row.get("filter_score"),
-            "filter_pass": row.get("filter_pass"),
-            "is_duplicate": row.get("is_duplicate") or False,
-        }
-        if not payload["canonical_key"] or not payload["source"] or not payload["query_text"]:
-            raise SystemExit(f"Incomplete search-hit payload for canonical_key={payload['canonical_key']!r}")
-        search_hits.append(payload)
-
-    search_hits = _dedupe_search_hits(search_hits)
+    search_hits = _prepare_search_hits(
+        search_hits_payload.get("hits", []),
+        paper_id_by_key=paper_id_by_key,
+        existing_paper_id_lookup=lambda canonical_key: _lookup_existing_paper_id(
+            supabase,
+            canonical_key,
+            paper_id_cache,
+        ),
+    )
 
     if not search_hits:
         raise SystemExit("Search-hit persistence is empty; refusing to treat this upload as successful.")
@@ -323,11 +367,14 @@ async def upload_papers(args: argparse.Namespace) -> None:
         raise SystemExit("Search hits were not persisted.")
 
     print("=" * 60)
-    print(f"Successfully uploaded and registered {uploaded_count} PDFs.")
+    if uploaded_count > 0:
+        print(f"Successfully uploaded and registered {uploaded_count} PDFs.")
+    else:
+        print("No PDFs were accepted in this run; persisted metadata-stage search hits only.")
     print(f"Persisted {inserted_hits} metadata-stage search hits.")
     print("=" * 60)
 
 
 if __name__ == "__main__":
     parsed_args = build_parser().parse_args()
-    asyncio.run(upload_papers(parsed_args))
+    asyncio.run(upload_papers(parsed_args, _create_supabase_client_from_env()))

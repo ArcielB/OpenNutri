@@ -78,6 +78,7 @@ Crawler v2 now also runs as `Search -> Filter -> Acquisition`:
 - `Acquisition`: PDF/full-text download plus PDF validation only after a candidate passes the metadata filter.
 - Crawler state now records terminal paper decisions as `accepted` or `rejected` with the stage where that outcome was reached, and future runs skip those recorded papers until state is reset.
 - Accepted PDF filenames are now identity-based (`pmcid_*`, `doi_*`, or hashed canonical keys) instead of title slugs.
+- Crawl manifests now include a `summary` section with per-language and per-source funnel counts (`hits`, `search_gate_pass`, `metadata_pass`, `pdf_fetch_fail`, `pdf_validation_fail`, `accepted`) plus rejection counts by stage.
 
 Main entry points:
 - `services/data-pipeline/main.py`: Multi-source crawler v2.
@@ -99,7 +100,7 @@ Key modules:
 - Uses the latest label per user; a paper only counts as positive when the latest visible `draft`/`done` state also has `has_data=true`, `food_item_count > 0`, and `nutrient_value_count > 0`. Papers turn negative on global skip or 2+ unique skips. Mixed signals across labelers are treated as conflicts and excluded from both sides.
 - Feedback export now classifies papers into English vs Turkish buckets and writes separate phrase / anchor / weighted-term pools for each workflow.
 - Script: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
-  - Requires `SUPABASE_URL` (or `VITE_SUPABASE_URL`) and `SUPABASE_SERVICE_ROLE_KEY`.
+  - Requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 - Output: `services/data-pipeline/food_paper_crawler/feedback/latest.json` (loaded automatically by the crawler).
 - `latest.json` now includes `languages.en` and `languages.tr` sections, plus language-specific query phrases, anchor phrases, weighted terms, pair scores, source priors, and concept-term scores.
 - `weighted_terms` stores cumulative per-term evidence for `title` and `title+abstract`, plus derived `good`, `bad`, and net scores.
@@ -113,8 +114,8 @@ Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/ingestor_pdf.py`: PDF downloader with a focused composition query.
 - `services/data-pipeline/scripts/ingestor_structured.py`: XML table extraction into `data/structured_lake`.
 - `services/data-pipeline/scripts/config_targets.py`: Shared query configuration for script-based harvesters.
-- `services/data-pipeline/scripts/upload_to_supabase.py`: Upload accepted PDFs to Supabase Storage, update `papers` by canonical identity, and upsert metadata-stage discovery hits into `paper_search_hits` via deterministic `hit_key` values. Pass `--data-dir` or `--manifest`; the script now fails hard if the manifest-linked artifacts are missing or if workflow/source metadata is absent.
-- `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, then crawl + upload until per-language targets are met. Supports `--target-en`, `--target-tr`, `--max-effort-tr`, and `--quota-fallback`.
+- `services/data-pipeline/scripts/upload_to_supabase.py`: Upload accepted PDFs to Supabase Storage, update `papers` by canonical identity, and upsert metadata-stage discovery hits into `paper_search_hits` via deterministic `hit_key` values. Metadata-stage runs with zero accepted PDFs are now valid as long as search hits exist, and hits keep `paper_id` nullable until a paper row exists. Pass `--data-dir` or `--manifest`; the script now requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+- `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, then crawl + upload until per-language targets are met. Supports `--target-en`, `--target-tr`, `--max-effort-tr`, `--quota-fallback`, and `--dergipark-scan-budget`, and now prints the crawler manifest summary after each cycle.
 - `services/data-pipeline/scripts/check_db.py`, `check_db.js`, `test_frontend_fetch.js`: DB and frontend connectivity checks.
 - `services/data-pipeline/scripts/check_rls.py`: Placeholder for RLS checks.
 
@@ -154,6 +155,7 @@ Frontend:
 - `VITE_SUPABASE_ANON_KEY`
 
 Data pipeline and ETL:
+- `SUPABASE_URL` (required for active crawler/upload/feedback write paths)
 - `SUPABASE_SERVICE_ROLE_KEY` (required for write operations)
 - `GEMINI_API_KEY` (required for LLM evaluator/extractor)
 - `SUPABASE_RESOLVE_IP` (optional; IP pinning for SR legacy ETL)

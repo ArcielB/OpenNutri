@@ -802,8 +802,8 @@ def build_concept_feedback(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate cumulative field-aware soft-feedback n-gram weights from labeled papers.")
-    parser.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL"))
-    parser.add_argument("--supabase-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY"))
+    parser.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
+    parser.add_argument("--supabase-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
     parser.add_argument("--output-dir", default=str(Path(__file__).resolve().parent))
     parser.add_argument("--max-query-phrases", "--max-query-terms", dest="max_query_phrases", type=int, default=64)
     parser.add_argument("--max-anchor-phrases", "--max-anchors", dest="max_anchor_phrases", type=int, default=16)
