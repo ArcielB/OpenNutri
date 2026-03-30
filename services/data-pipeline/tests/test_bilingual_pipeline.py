@@ -18,6 +18,7 @@ from food_paper_crawler.feedback.update_terms import (
     dedupe_search_hits,
 )
 from food_paper_crawler.models import CandidatePaper, DiscoveryHit, DownloadRecord, QuerySpec, SearchTask
+from food_paper_crawler.ranking import score_candidate, validate_pdf_text
 from food_paper_crawler.search_sources import DergiParkOAISource, OAI_NS, OpenAlexSearchSource, SemanticScholarSearchSource
 from food_paper_crawler import supabase_terms
 from scripts import upload_to_supabase
@@ -287,6 +288,62 @@ class FoodTermTests(unittest.TestCase):
         self.assertNotIn("niacin", terms["en"])
         self.assertNotIn("kroger", terms["en"])
         self.assertNotIn("acerola juice", terms["en"])
+
+
+class RankingTests(unittest.TestCase):
+    def test_metadata_negative_signal_is_soft_not_veto(self) -> None:
+        candidate = CandidatePaper(
+            source="openalex",
+            query="food composition",
+            external_id="paper-1",
+            source_record_id="paper-1",
+            pmcid=None,
+            doi=None,
+            title="Mushroom food composition and mineral content",
+            abstract=(
+                "The food composition of edible mushrooms was analyzed in table 1 with protein, fat, "
+                "calcium, iron, potassium and moisture reported. Growth conditions were also noted."
+            ),
+            journal="Food Chemistry",
+            year="2025",
+        )
+        score, acceptable, reasons = score_candidate(
+            candidate,
+            food_terms=["mushroom", "milk"],
+            nutrient_terms=["protein", "fat", "calcium", "iron", "potassium", "moisture"],
+        )
+        self.assertTrue(acceptable)
+        self.assertGreaterEqual(score, 8)
+        self.assertIn("negative signal: growth", reasons)
+
+    def test_pdf_validation_ignores_reference_section_negative_terms(self) -> None:
+        candidate = CandidatePaper(
+            source="dergipark",
+            query="fatty acid composition",
+            external_id="paper-2",
+            source_record_id="paper-2",
+            pmcid=None,
+            doi="10.1000/test",
+            title="Fatty acid composition of wild mushrooms",
+            abstract="Composition study",
+            journal="Gıda",
+            year="2026",
+        )
+        body = (
+            "Fatty acid composition of edible mushroom samples was determined by gc and reported in table 1. "
+            "Moisture protein fat lipid ash fiber carbohydrate calcium iron potassium phosphorus magnesium "
+            "values were measured in mg/100 g and % for mushroom samples. "
+        ) * 10
+        text = body + " References growth review association between unrelated studies. "
+        score, acceptable, reasons = validate_pdf_text(
+            text,
+            candidate,
+            food_terms=["mushroom", "milk"],
+            nutrient_terms=["moisture", "protein", "fat", "lipid", "ash", "fiber", "carbohydrate", "calcium", "iron", "potassium", "phosphorus", "magnesium"],
+        )
+        self.assertTrue(acceptable)
+        self.assertGreaterEqual(score, 18)
+        self.assertNotIn("negative signal: growth", reasons)
 
 
 class CrawlerQuotaTests(unittest.TestCase):

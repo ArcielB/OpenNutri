@@ -187,7 +187,7 @@ DB_ALIGNMENT_BONUS_TERMS = {
     "yogurt",
 }
 
-HARD_NEGATIVE_TERMS = [
+STRONG_NEGATIVE_SIGNAL_TERMS = [
     "dataset",
     "database",
     "perspective",
@@ -281,7 +281,7 @@ def score_candidate(candidate: CandidatePaper, food_terms: Iterable[str], nutrie
     explicit_nutrient_hits = matching_nutrient_terms(text, nutrient_terms, limit=8)
     food_hits = matching_food_terms(text, food_terms, limit=6)
     cue_hits = first_hits(text, FOOD_CUES, limit=4)
-    hard_negatives = first_hits(text, HARD_NEGATIVE_TERMS, limit=4)
+    strong_negative_signals = first_hits(text, STRONG_NEGATIVE_SIGNAL_TERMS, limit=4)
     soft_negatives = first_hits(text, SOFT_NEGATIVE_TERMS, limit=4)
 
     if title_comp:
@@ -321,9 +321,9 @@ def score_candidate(candidate: CandidatePaper, food_terms: Iterable[str], nutrie
         score += 4
         reasons.append(f"query focus match: {query_focus}")
 
-    if hard_negatives:
-        score -= 14 + len(hard_negatives)
-        reasons.append(f"hard negative: {hard_negatives[0]}")
+    if strong_negative_signals:
+        score -= min(10, 4 + 2 * len(strong_negative_signals))
+        reasons.append(f"negative signal: {strong_negative_signals[0]}")
     if soft_negatives:
         score -= min(10, 3 + len(soft_negatives))
         reasons.append(f"soft negative: {soft_negatives[0]}")
@@ -334,12 +334,12 @@ def score_candidate(candidate: CandidatePaper, food_terms: Iterable[str], nutrie
     has_composition = bool(title_comp or abstract_comp)
     has_data_signal = bool(table_hits or UNIT_PATTERN.search(text) or len(nutrient_hits) >= 3 or len(explicit_nutrient_hits) >= 2)
     has_food_signal = bool(food_hits or cue_hits or query_focus and bounded_contains(text, query_focus))
-    acceptable = score >= 8 and has_composition and has_data_signal and has_food_signal and not hard_negatives
+    acceptable = score >= 8 and has_composition and has_data_signal and has_food_signal
     return score, acceptable, reasons
 
 
 def validate_pdf_text(text: str, candidate: CandidatePaper, food_terms: Iterable[str], nutrient_terms: Iterable[str]) -> Tuple[float, bool, List[str]]:
-    normalized = normalize_text(text)
+    normalized = strip_reference_sections(normalize_text(text))
     reasons: List[str] = []
     score = 0.0
 
@@ -347,8 +347,8 @@ def validate_pdf_text(text: str, candidate: CandidatePaper, food_terms: Iterable
     nutrient_hits = first_hits(normalized, NUTRIENT_MARKERS, limit=12)
     explicit_nutrient_hits = matching_nutrient_terms(normalized, nutrient_terms, limit=12)
     food_hits = matching_food_terms(normalized, food_terms, limit=8)
-    pdf_hard_negative_terms = [term for term in HARD_NEGATIVE_TERMS if term not in {"dataset", "database", "perspective"}]
-    hard_negatives = first_hits(normalized, pdf_hard_negative_terms, limit=6)
+    pdf_strong_negative_terms = [term for term in STRONG_NEGATIVE_SIGNAL_TERMS if term not in {"dataset", "database", "perspective"}]
+    strong_negative_signals = first_hits(normalized, pdf_strong_negative_terms, limit=6)
     soft_negatives = first_hits(normalized, SOFT_NEGATIVE_TERMS, limit=6)
 
     if any(term in normalized for term in COMPOSITION_TERMS):
@@ -380,9 +380,9 @@ def validate_pdf_text(text: str, candidate: CandidatePaper, food_terms: Iterable
         score += 2
         reasons.append("percentage values present")
 
-    if hard_negatives:
-        score -= 18 + len(hard_negatives)
-        reasons.append(f"hard negative: {hard_negatives[0]}")
+    if strong_negative_signals:
+        score -= min(12, 5 + 2 * len(strong_negative_signals))
+        reasons.append(f"negative signal: {strong_negative_signals[0]}")
     if soft_negatives:
         score -= min(10, 2 + len(soft_negatives))
         reasons.append(f"soft negative: {soft_negatives[0]}")
@@ -417,12 +417,22 @@ def validate_pdf_text(text: str, candidate: CandidatePaper, food_terms: Iterable
         or (("proximate composition" in normalized or "proximate compositions" in normalized) and nutrient_overlap >= 4)
     )
     has_food_signal = bool(food_hits or any(term in normalized for term in FOOD_CUES))
-    acceptable = score >= 18 and has_table_signal and has_food_signal and nutrient_overlap >= 4 and not hard_negatives
+    acceptable = score >= 18 and has_table_signal and has_food_signal and nutrient_overlap >= 4
     return score, acceptable, reasons
 
 
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").lower()).strip()
+
+
+def strip_reference_sections(text: str) -> str:
+    normalized = text or ""
+    markers = (" references ", " bibliography ", " kaynaklar ", " referanslar ")
+    for marker in markers:
+        idx = normalized.find(marker)
+        if idx >= 0 and idx >= max(1200, int(len(normalized) * 0.45)):
+            return normalized[:idx].strip()
+    return normalized
 
 
 def first_hits(text: str, phrases: Iterable[str], limit: int = 3) -> List[str]:

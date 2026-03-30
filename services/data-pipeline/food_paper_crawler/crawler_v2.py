@@ -27,7 +27,7 @@ from .feedback_seed_terms import SEED_ANCHOR_PHRASES_BY_LANGUAGE, SEED_QUERY_PHR
 from .feedback_terms import extract_scored_terms, extract_terms as extract_feedback_terms
 from .language_utils import SUPPORTED_LANGUAGES, normalize_language_text
 from .models import CandidatePaper, DiscoveryHit, DownloadRecord, QuerySpec, SearchTask, build_storage_filename
-from .ranking import HARD_NEGATIVE_TERMS, SOFT_NEGATIVE_TERMS, validate_pdf_text
+from .ranking import SOFT_NEGATIVE_TERMS, STRONG_NEGATIVE_SIGNAL_TERMS, validate_pdf_text
 from .search_sources import DEFAULT_SEARCH_SOURCES, build_search_sources
 from .supabase_terms import fetch_food_terms_by_language, fetch_nutrient_terms_by_language
 
@@ -1077,14 +1077,14 @@ class FoodCompositionCrawlerV2:
                 f"Search gate penalty {penalty:.2f}: missing abstract",
             )
 
-        hard_negative_hits = self._collect_term_hits(normalized, HARD_NEGATIVE_TERMS)
-        if hard_negative_hits:
-            penalty = min(2.5, 0.95 * len(hard_negative_hits))
+        strong_negative_hits = self._collect_term_hits(normalized, STRONG_NEGATIVE_SIGNAL_TERMS)
+        if strong_negative_hits:
+            penalty = min(2.5, 0.95 * len(strong_negative_hits))
             score -= penalty
             self._append_reason(
                 details,
-                "hard_negative",
-                f"Search gate penalty {penalty:.2f}: hard negatives {', '.join(hard_negative_hits[:4])}",
+                "negative_signal",
+                f"Search gate penalty {penalty:.2f}: negative signals {', '.join(strong_negative_hits[:4])}",
             )
 
         soft_negative_hits = self._collect_term_hits(normalized, SOFT_NEGATIVE_TERMS)

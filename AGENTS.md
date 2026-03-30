@@ -39,6 +39,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Reproduce bugs first when feasible.
 - Edit source files, not generated artifacts.
 - Prefer small, testable changes.
+- Do not use hard-negative veto logic in crawler/ranking relevance decisions. Prefer additive scoring and soft penalties. If a true hard reject seems necessary, stop and discuss it first.
 - When a task changes `apps/expert-annotator/migration.sql` or otherwise changes the live schema, apply that migration to the target database in the same task unless the user explicitly says not to or there is a concrete blocker. Do not stop at the file edit without calling out the DB state.
 - Update `BACKLOG.md` when backlog scope changes; delete completed items instead of leaving status notes.
 - Update `README.md` when commands, architecture, or important behavior changes.

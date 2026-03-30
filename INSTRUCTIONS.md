@@ -20,3 +20,4 @@ This file captures standing instructions and should be updated whenever new inst
 - Do not add fallback behavior for missing dependencies; fail fast with an error and install missing dependencies.
 - If something is not installed, install it.
 - You may rewrite files instead of patching if that yields better results.
+- Do not implement hard-negative veto logic in crawler/ranking relevance decisions. Use additive or penalty-based scoring instead, and discuss any proposed true hard reject with the user before adding it.
