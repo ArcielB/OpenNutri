@@ -7,6 +7,7 @@ This file captures standing instructions and should be updated whenever new inst
 - Review `Keys and links` for required credentials/URLs before running operations that need them.
 - Use `Keys and links` as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
 
+- Commit every change you make once it is in a known working state.
 - Commit and push every time something is known to be working.
 - Always read `INSTRUCTIONS.md` at the start of each task/session before doing work.
 - If you change the schema or `apps/expert-annotator/migration.sql`, apply that migration to the real target database in the same task unless the user explicitly says not to or there is a concrete blocker. Call out DB state explicitly.
