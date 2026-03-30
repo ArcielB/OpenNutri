@@ -39,6 +39,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Reproduce bugs first when feasible.
 - Edit source files, not generated artifacts.
 - Prefer small, testable changes.
+- When a task changes `apps/expert-annotator/migration.sql` or otherwise changes the live schema, apply that migration to the target database in the same task unless the user explicitly says not to or there is a concrete blocker. Do not stop at the file edit without calling out the DB state.
 - Update `BACKLOG.md` when backlog scope changes; delete completed items instead of leaving status notes.
 - Update `README.md` when commands, architecture, or important behavior changes.
 - Fail fast on missing dependencies; install them instead of adding fallback behavior.
@@ -61,6 +62,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Frontend validation: `cd apps/expert-annotator && npm run build`
 - Frontend lint: `cd apps/expert-annotator && npm run lint`
 - Apply schema migration: `cd apps/expert-annotator && DATABASE_URL=... node run-migration.js`
+- After changing schema, verify the new columns/indexes or behavior against the live database before closing the task.
 - Refresh label-feedback terms: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
 - Refill low paper stock: `python3 services/data-pipeline/scripts/ensure_paper_stock.py --threshold 0`
 
