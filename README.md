@@ -73,12 +73,13 @@ Crawler v2 now splits its query budget across independent English and Turkish wo
 Accepted-paper targets can now be set per language, so the crawler can fill English and Turkish quotas independently instead of collapsing everything into one shared accepted pool.
 Crawler v2 now also runs as `Search -> Filter -> Acquisition`:
 - `Search`: metadata-only retrieval from Europe PMC, OpenAlex, Semantic Scholar, and DergiPark.
-- `Search` uses source-specific query rendering; Turkish metadata search is intentionally simpler on OpenAlex / Semantic Scholar, while DergiPark is the primary Turkish-native source.
+- `Search` uses source-specific query rendering; Turkish metadata search is intentionally simpler on OpenAlex / Semantic Scholar, while DergiPark now searches a locally refreshed journal/article index instead of the old global OAI slice.
 - `Filter`: metadata-only relevance scoring using language-scoped lexical signals, source priors, embeddings, and learned feedback n-grams.
 - `Acquisition`: PDF/full-text download plus PDF validation only after a candidate passes the metadata filter.
 - Crawler state now records terminal paper decisions as `accepted` or `rejected` with the stage where that outcome was reached, and future runs skip those recorded papers until state is reset.
 - Accepted PDF filenames are now identity-based (`pmcid_*`, `doi_*`, or hashed canonical keys) instead of title slugs.
-- Crawl manifests now include a `summary` section with per-language and per-source funnel counts (`hits`, `search_gate_pass`, `metadata_pass`, `pdf_fetch_fail`, `pdf_validation_fail`, `accepted`) plus rejection counts by stage.
+- DergiPark indexing is now a separate step that refreshes archive issues and article pages into `dergipark_articles.jsonl`, with coverage tracked in `dergipark_refresh_report.json`.
+- Crawl manifests now include both a `summary` section with per-language and per-source funnel counts (`hits`, `search_gate_pass`, `metadata_pass`, `pdf_fetch_fail`, `pdf_validation_fail`, `accepted`) plus rejection counts by stage, and a `dergipark_index` section with the journal/article coverage that was searched.
 
 Main entry points:
 - `services/data-pipeline/main.py`: Multi-source crawler v2.
@@ -114,8 +115,9 @@ Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/ingestor_pdf.py`: PDF downloader with a focused composition query.
 - `services/data-pipeline/scripts/ingestor_structured.py`: XML table extraction into `data/structured_lake`.
 - `services/data-pipeline/scripts/config_targets.py`: Shared query configuration for script-based harvesters.
+- `services/data-pipeline/scripts/refresh_dergipark_index.py`: Refresh the local DergiPark journal/article index from archive and article pages. Outputs `dergipark_journals.json`, `dergipark_articles.jsonl`, `dergipark_refresh_state.json`, and `dergipark_refresh_report.json` under the chosen `--data-dir`.
 - `services/data-pipeline/scripts/upload_to_supabase.py`: Upload accepted PDFs to Supabase Storage, update `papers` by canonical identity, and upsert metadata-stage discovery hits into `paper_search_hits` via deterministic `hit_key` values. Metadata-stage runs with zero accepted PDFs are now valid as long as search hits exist, and hits keep `paper_id` nullable until a paper row exists. Pass `--data-dir` or `--manifest`; the script now requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
-- `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, then crawl + upload until per-language targets are met. Supports `--target-en`, `--target-tr`, `--max-effort-tr`, `--quota-fallback`, and `--dergipark-scan-budget`, and now prints the crawler manifest summary after each cycle.
+- `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, refresh the DergiPark journal/article index, then crawl + upload until per-language targets are met. Supports `--target-en`, `--target-tr`, `--max-effort-tr`, `--quota-fallback`, `--dergipark-journal-limit`, and `--dergipark-max-issues-per-journal`, and prints both the crawler funnel summary and DergiPark index coverage after each cycle.
 - `services/data-pipeline/scripts/check_db.py`, `check_db.js`, `test_frontend_fetch.js`: DB and frontend connectivity checks.
 - `services/data-pipeline/scripts/check_rls.py`: Placeholder for RLS checks.
 

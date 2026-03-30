@@ -103,41 +103,56 @@ class SearchSourceTests(unittest.TestCase):
             source = DergiParkOAISource(data_dir=Path(tmpdir), scan_budget=1)
             source._records = [
                 {
-                    "oai_id": "weak",
+                    "article_url": "https://dergipark.org.tr/tr/pub/test/article/weak",
+                    "journal_slug": "test",
+                    "journal_title": "Test Journal",
                     "title": "Yerel ürünlerde analiz",
                     "abstract": "Bu çalışma ürünleri tanımlar.",
-                    "subjects": [],
+                    "keywords": [],
                     "language": "tr",
+                    "article_type": "Araştırma Makalesi",
                     "pdf_url": None,
-                    "landing_url": "https://example.com/weak",
+                    "last_seen_at": "2026-03-30T00:00:00+00:00",
                     "year": "2023",
                 },
                 {
-                    "oai_id": "strong",
+                    "article_url": "https://dergipark.org.tr/tr/pub/test/article/strong",
+                    "journal_slug": "test",
+                    "journal_title": "Food Composition Journal",
                     "title": "Mantarların Besin Bileşimi ve Mineral İçeriği",
                     "abstract": "Tablo halinde analiz sonuçları verilmiştir.",
-                    "subjects": ["gıda bileşimi"],
+                    "keywords": ["gıda bileşimi", "mineral içeriği"],
                     "language": "tr",
+                    "article_type": "Araştırma Makalesi",
                     "pdf_url": "https://example.com/strong.pdf",
-                    "landing_url": "https://example.com/strong",
+                    "last_seen_at": "2026-03-30T00:00:00+00:00",
                     "year": "2025",
                 },
                 {
-                    "oai_id": "medium",
+                    "article_url": "https://dergipark.org.tr/tr/pub/test/article/medium",
+                    "journal_slug": "test",
+                    "journal_title": "Test Journal",
                     "title": "Mantarlarda gıda bileşimi",
                     "abstract": "Tanımlayıcı analiz özeti",
-                    "subjects": [],
+                    "keywords": [],
                     "language": "tr",
+                    "article_type": "Araştırma Makalesi",
                     "pdf_url": None,
-                    "landing_url": "https://example.com/medium",
+                    "last_seen_at": "2026-03-30T00:00:00+00:00",
                     "year": "2024",
                 },
             ]
             matches = source.search(spec, limit=5)
 
-        self.assertEqual([item.external_id for item in matches], ["strong", "medium"])
+        self.assertEqual(
+            [item.external_id for item in matches],
+            [
+                "https://dergipark.org.tr/tr/pub/test/article/strong",
+                "https://dergipark.org.tr/tr/pub/test/article/medium",
+            ],
+        )
 
-    def test_dergipark_search_uses_scan_budget_until_match_found(self) -> None:
+    def test_dergipark_refresh_indexes_archive_articles_and_reuses_existing_rows(self) -> None:
         spec = QuerySpec(
             query='("gıda bileşimi" AND ("tablo" OR "analiz")) AND IN_PMC:y',
             keywords=("gıda bileşimi", "besin bileşimi", "tablo", "analiz"),
@@ -147,40 +162,99 @@ class SearchSourceTests(unittest.TestCase):
             language="tr",
             query_phrase="gıda bileşimi",
         )
+
+        archive_html = """
+<html><body>
+  <a href="/tr/pub/gida/issue/100412">Cilt 51 Sayı 1</a>
+</body></html>
+"""
+        issue_html = """
+<html><body>
+  <a href="/tr/pub/gida/article/1776088">Fatty acid compositions</a>
+  <a href="/tr/download/article-file/5204385">PDF</a>
+</body></html>
+"""
+        article_html = """
+<html><head>
+  <meta name="citation_journal_title" content="Gıda">
+  <meta name="citation_title" content="FATTY ACID COMPOSITIONS OF SOME WILD MUSHROOMS">
+  <meta name="citation_doi" content="10.15237/gida.GD25114">
+  <meta name="citation_abstract" content="The food composition and fatty acid compositions of wild mushrooms were examined and analysis tables were reported.">
+  <meta name="citation_keywords" content="yabani mantarlar; gıda bileşimi; yağ asidi bileşimi; analiz">
+  <meta name="citation_pdf_url" content="/tr/download/article-file/5204385">
+  <meta name="citation_language" content="tr">
+  <meta name="citation_article_type" content="Araştırma Makalesi">
+  <meta name="citation_publication_date" content="2026-01-21">
+</head><body></body></html>
+"""
+
+        class FakeDergiParkSource(DergiParkOAISource):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.fetch_log: list[str] = []
+                self.responses: dict[str, str] = {}
+
+            def _fetch_text(self, url: str) -> str:
+                self.fetch_log.append(url)
+                if url not in self.responses:
+                    raise RuntimeError(url)
+                return self.responses[url]
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            source = DergiParkOAISource(data_dir=Path(tmpdir), scan_budget=2)
-            source._records = []
-            fetch_counter = {"count": 0}
-            batches = iter(
-                [
-                    {
-                        "oai_id": "late-match",
-                        "title": "Mercimekte Besin Bileşimi",
-                        "abstract": "Tablo ve analiz sonuçları verilmiştir.",
-                        "subjects": [],
-                        "language": "tr",
-                        "pdf_url": "https://example.com/late.pdf",
-                        "landing_url": "https://example.com/late",
-                        "year": "2025",
-                    }
-                ]
-            )
-
-            def fake_fetch_next_batch() -> int:
-                fetch_counter["count"] += 1
-                try:
-                    source._records.append(next(batches))
-                    return 1
-                except StopIteration:
-                    return 0
-
-            source._fetch_next_batch = fake_fetch_next_batch
+            source = FakeDergiParkSource(data_dir=Path(tmpdir), max_issues_per_journal=4)
+            source.registry_path.write_text('[{"slug": "gida", "enabled": true}]', encoding="utf-8")
+            source.responses = {
+                "https://dergipark.org.tr/tr/pub/gida/archive": archive_html,
+                "https://dergipark.org.tr/tr/pub/gida/issue/100412": issue_html,
+                "https://dergipark.org.tr/tr/pub/gida/article/1776088": article_html,
+            }
+            report = source.refresh_index(journal_limit=1, max_issues_per_journal=4)
             matches = source.search(spec, limit=1)
-            source.search(spec, limit=1)
+            second_report = source.refresh_index(journal_limit=1, max_issues_per_journal=4)
 
         self.assertEqual(len(matches), 1)
-        self.assertEqual(matches[0].external_id, "late-match")
-        self.assertEqual(fetch_counter["count"], 1)
+        self.assertEqual(matches[0].external_id, "https://dergipark.org.tr/tr/pub/gida/article/1776088")
+        self.assertEqual(matches[0].pdf_url, "https://dergipark.org.tr/tr/download/article-file/5204385")
+        self.assertEqual(report["journal_count"], 1)
+        self.assertEqual(report["article_count"], 1)
+        self.assertEqual(report["articles_with_pdf_url"], 1)
+        self.assertEqual(second_report["article_count"], 1)
+        self.assertEqual(sum(1 for url in source.fetch_log if "/article/" in url), 1)
+
+    def test_dergipark_allows_simple_phrase_inflection_matches(self) -> None:
+        spec = QuerySpec(
+            query='("fatty acid composition" AND "analysis")',
+            keywords=("fatty acid composition", "analysis", "food composition"),
+            template_id="base_nutrient_content",
+            source_term=None,
+            term_type="base",
+            language="en",
+            query_phrase="fatty acid composition",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = DergiParkOAISource(data_dir=Path(tmpdir))
+            source._records = [
+                {
+                    "article_url": "https://dergipark.org.tr/tr/pub/test/article/1",
+                    "journal_slug": "test",
+                    "journal_title": "Gıda",
+                    "title": "Fatty acid compositions of some wild mushrooms",
+                    "abstract": "Analysis tables were reported for mushroom samples.",
+                    "keywords": [],
+                    "doi": "10.1000/test",
+                    "pdf_url": "https://dergipark.org.tr/tr/download/article-file/1",
+                    "language": "en",
+                    "year": "2026",
+                    "article_type": "Research Article",
+                    "authors": ["A. Author"],
+                    "last_seen_at": "2026-03-30T00:00:00+00:00",
+                }
+            ]
+
+            matches = source.search(spec, limit=5)
+
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].title, "Fatty acid compositions of some wild mushrooms")
 
 
 class FeedbackTests(unittest.TestCase):

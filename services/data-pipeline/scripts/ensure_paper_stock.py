@@ -137,7 +137,7 @@ def print_counts(prefix: str, counts: Dict[str, int], targets: Dict[str, int]) -
         print(f"  Available unscoped: {counts['unscoped']}")
 
 
-def _load_manifest_summary(data_dir: str) -> dict | None:
+def _load_manifest_payload(data_dir: str) -> dict | None:
     manifest_path = Path(data_dir) / "raw_pdfs" / "_harvest_metadata.json"
     if not manifest_path.exists():
         return None
@@ -145,17 +145,31 @@ def _load_manifest_summary(data_dir: str) -> dict | None:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
-    summary = payload.get("summary")
-    return summary if isinstance(summary, dict) else None
+    return payload if isinstance(payload, dict) else None
 
 
 def print_run_summary(data_dir: str) -> None:
-    summary = _load_manifest_summary(data_dir)
-    if not summary:
+    payload = _load_manifest_payload(data_dir)
+    summary = payload.get("summary") if isinstance(payload, dict) else None
+    if not isinstance(summary, dict):
         print("Run summary: unavailable")
         return
 
     print("Run summary:")
+    dergipark_index = payload.get("dergipark_index") if isinstance(payload, dict) else None
+    if isinstance(dergipark_index, dict):
+        print(
+            "  DergiPark index: "
+            f"journals={int(dergipark_index.get('journal_count', 0))} "
+            f"issues={int(dergipark_index.get('issue_count', 0))} "
+            f"articles={int(dergipark_index.get('article_count', 0))} "
+            f"with_abstract={int(dergipark_index.get('articles_with_abstract', 0))} "
+            f"with_pdf={int(dergipark_index.get('articles_with_pdf_url', 0))}"
+        )
+        refreshed_at = dergipark_index.get("refreshed_at")
+        if refreshed_at:
+            print(f"  DergiPark index refreshed_at={refreshed_at}")
+
     languages = summary.get("languages") if isinstance(summary.get("languages"), dict) else {}
     for language in SUPPORTED_LANGUAGES:
         row = languages.get(language) or {}
@@ -220,6 +234,22 @@ def run_refill_cycle(
             allow_failure=True,
         )
 
+    if not args.skip_dergipark_refresh:
+        run_command(
+            "Refresh DergiPark index",
+            [
+                sys.executable,
+                "services/data-pipeline/scripts/refresh_dergipark_index.py",
+                "--data-dir",
+                args.data_dir,
+                "--journal-limit",
+                str(args.dergipark_journal_limit),
+                "--max-issues-per-journal",
+                str(args.dergipark_max_issues_per_journal),
+            ],
+            env,
+        )
+
     run_command(
         "Crawler v2",
         [
@@ -235,8 +265,6 @@ def run_refill_cycle(
             str(args.query_limit),
             "--max-queries",
             str(args.max_queries),
-            "--dergipark-scan-budget",
-            str(args.dergipark_scan_budget),
         ],
         env,
     )
@@ -273,7 +301,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", default="services/data-pipeline/data", help="Crawler data directory")
     parser.add_argument("--query-limit", type=int, default=50, help="Results to inspect per query")
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count per crawler run")
-    parser.add_argument("--dergipark-scan-budget", type=int, default=400, help="How many DergiPark OAI records to scan per crawler run")
+    parser.add_argument("--dergipark-journal-limit", type=int, default=0, help="Limit how many configured DergiPark journals are refreshed per cycle (0 = all)")
+    parser.add_argument("--dergipark-max-issues-per-journal", type=int, default=12, help="How many newest archive issues to inspect per DergiPark journal refresh")
+    parser.add_argument("--dergipark-scan-budget", type=int, default=0, help="Deprecated alias for --dergipark-max-issues-per-journal")
     parser.add_argument("--max-cycles", type=int, default=5, help="Maximum bilingual refill cycles")
     parser.add_argument(
         "--max-effort-tr",
@@ -288,6 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="What to do if Turkish stays under target after the configured effort cap",
     )
     parser.add_argument("--skip-feedback", action="store_true", help="Skip feedback refresh before crawling")
+    parser.add_argument("--skip-dergipark-refresh", action="store_true", help="Skip refreshing the local DergiPark journal/article index before crawling")
     parser.add_argument("--dry-run", action="store_true", help="Only report counts")
     return parser
 
@@ -307,6 +338,8 @@ def main() -> None:
     print_counts("Current paper stock:", counts, targets)
     print(f"Threshold: {args.threshold}")
     print(f"Quota fallback: {args.quota_fallback}")
+    if args.dergipark_scan_budget > 0:
+        args.dergipark_max_issues_per_journal = args.dergipark_scan_budget
 
     if args.dry_run:
         return

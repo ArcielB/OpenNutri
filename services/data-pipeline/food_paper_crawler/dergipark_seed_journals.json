@@ -1,0 +1,32 @@
+[
+  {
+    "slug": "gida",
+    "enabled": true,
+    "priority": 100
+  },
+  {
+    "slug": "akademik-gida",
+    "enabled": true,
+    "priority": 95
+  },
+  {
+    "slug": "cuzfd",
+    "enabled": true,
+    "priority": 90
+  },
+  {
+    "slug": "harranziraat",
+    "enabled": true,
+    "priority": 85
+  },
+  {
+    "slug": "gidaveyem",
+    "enabled": true,
+    "priority": 80
+  },
+  {
+    "slug": "medfar",
+    "enabled": true,
+    "priority": 75
+  }
+]

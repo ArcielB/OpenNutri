@@ -252,13 +252,16 @@ class FoodCompositionCrawlerV2:
         }
         summary = self._build_run_summary(candidates, discovery_hits, accepted_records, rejected_records)
         self._write_candidate_artifacts(harvested_at, candidates, discovery_hits)
+        dergipark_source = self.search_sources.get("dergipark")
+        dergipark_index = dergipark_source.index_info() if hasattr(dergipark_source, "index_info") else None
 
         manifest = {
             "harvested_at": harvested_at,
             "query_count": len(search_tasks),
-            "rule_version": "search-filter-acquisition-v4",
+            "rule_version": "search-filter-acquisition-v5",
             "sources": list(self.search_sources.keys()),
             "dergipark_scan_budget": self.dergipark_scan_budget,
+            "dergipark_index": dergipark_index,
             "embedding": self.embedding_scorer.info(),
             "feedback": {
                 "config_path": str(self.feedback_config.get("config_path", "")),
