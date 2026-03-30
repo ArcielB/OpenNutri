@@ -164,6 +164,129 @@ WHERE id IN (
 ALTER TABLE paper_search_hits
     ALTER COLUMN hit_key SET NOT NULL;
 
+CREATE TABLE IF NOT EXISTS paper_search_batches (
+    batch_id TEXT PRIMARY KEY,
+    batch_key TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    batch_rank INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL,
+    workflow_language TEXT NOT NULL
+        CHECK (workflow_language IN ('en', 'tr')),
+    query_text TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    source_term TEXT,
+    term_type TEXT NOT NULL,
+    query_phrase TEXT,
+    query_limit INTEGER NOT NULL DEFAULT 0,
+    results INTEGER NOT NULL DEFAULT 0,
+    search_gate_passed INTEGER NOT NULL DEFAULT 0,
+    search_gate_rejected INTEGER NOT NULL DEFAULT 0,
+    filter_passed INTEGER NOT NULL DEFAULT 0,
+    duplicates INTEGER NOT NULL DEFAULT 0,
+    skipped_seen INTEGER NOT NULL DEFAULT 0,
+    accepted INTEGER NOT NULL DEFAULT 0,
+    metadata_rejected INTEGER NOT NULL DEFAULT 0,
+    pdf_fetch_fail INTEGER NOT NULL DEFAULT 0,
+    pdf_validation_fail INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS paper_search_batch_hits (
+    batch_id TEXT NOT NULL REFERENCES paper_search_batches(batch_id) ON DELETE CASCADE,
+    hit_key TEXT NOT NULL REFERENCES paper_search_hits(hit_key) ON DELETE CASCADE,
+    result_rank INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (batch_id, hit_key)
+);
+
+INSERT INTO paper_search_batches (
+    batch_id,
+    batch_key,
+    run_id,
+    batch_rank,
+    source,
+    workflow_language,
+    query_text,
+    template_id,
+    source_term,
+    term_type,
+    query_phrase,
+    query_limit,
+    results,
+    search_gate_passed,
+    search_gate_rejected,
+    filter_passed,
+    duplicates,
+    skipped_seen,
+    accepted,
+    metadata_rejected,
+    pdf_fetch_fail,
+    pdf_validation_fail
+)
+SELECT
+    'legacy:' || md5(
+        regexp_replace(lower(trim(coalesce(source, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(workflow_language, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(template_id, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(source_term, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(query_phrase, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(query_text, ''))), '\s+', ' ', 'g')
+    ) AS batch_id,
+    md5(
+        regexp_replace(lower(trim(coalesce(source, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(workflow_language, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(template_id, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(source_term, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(query_phrase, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(query_text, ''))), '\s+', ' ', 'g')
+    ) AS batch_key,
+    'legacy' AS run_id,
+    0 AS batch_rank,
+    source,
+    workflow_language,
+    query_text,
+    template_id,
+    source_term,
+    term_type,
+    query_phrase,
+    GREATEST(COUNT(*), 1)::INTEGER AS query_limit,
+    COUNT(*)::INTEGER AS results,
+    COUNT(*) FILTER (WHERE search_gate_pass IS TRUE)::INTEGER AS search_gate_passed,
+    COUNT(*) FILTER (WHERE search_gate_pass IS FALSE)::INTEGER AS search_gate_rejected,
+    COUNT(*) FILTER (WHERE filter_pass IS TRUE)::INTEGER AS filter_passed,
+    COUNT(*) FILTER (WHERE is_duplicate IS TRUE)::INTEGER AS duplicates,
+    0 AS skipped_seen,
+    0 AS accepted,
+    COUNT(*) FILTER (WHERE search_gate_pass IS TRUE AND COALESCE(filter_pass, FALSE) IS FALSE)::INTEGER AS metadata_rejected,
+    0 AS pdf_fetch_fail,
+    0 AS pdf_validation_fail
+FROM paper_search_hits
+GROUP BY
+    source,
+    workflow_language,
+    query_text,
+    template_id,
+    source_term,
+    term_type,
+    query_phrase
+ON CONFLICT (batch_id) DO NOTHING;
+
+INSERT INTO paper_search_batch_hits (batch_id, hit_key, result_rank)
+SELECT
+    'legacy:' || md5(
+        regexp_replace(lower(trim(coalesce(source, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(workflow_language, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(template_id, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(source_term, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(query_phrase, ''))), '\s+', ' ', 'g') || '|' ||
+        regexp_replace(lower(trim(coalesce(query_text, ''))), '\s+', ' ', 'g')
+    ) AS batch_id,
+    hit_key,
+    NULL::INTEGER AS result_rank
+FROM paper_search_hits
+WHERE hit_key IS NOT NULL AND hit_key <> ''
+ON CONFLICT (batch_id, hit_key) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS annotations (
     id SERIAL PRIMARY KEY,
     paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
@@ -296,6 +419,10 @@ CREATE INDEX IF NOT EXISTS idx_paper_search_hits_paper ON paper_search_hits(pape
 CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_search_hits_hit_key_unique ON paper_search_hits(hit_key);
 CREATE INDEX IF NOT EXISTS idx_paper_search_hits_canonical ON paper_search_hits(canonical_key);
 CREATE INDEX IF NOT EXISTS idx_paper_search_hits_pair ON paper_search_hits(source, workflow_language, template_id, source_term);
+CREATE INDEX IF NOT EXISTS idx_paper_search_batches_run ON paper_search_batches(run_id, batch_rank);
+CREATE INDEX IF NOT EXISTS idx_paper_search_batches_language_source ON paper_search_batches(workflow_language, source, template_id, source_term);
+CREATE INDEX IF NOT EXISTS idx_paper_search_batches_key ON paper_search_batches(batch_key);
+CREATE INDEX IF NOT EXISTS idx_paper_search_batch_hits_hit ON paper_search_batch_hits(hit_key);
 
 CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(canonical_name);
 CREATE INDEX IF NOT EXISTS idx_entities_source_record_id ON entities(source_record_id);
@@ -322,6 +449,8 @@ ALTER TABLE sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE claims ENABLE ROW LEVEL SECURITY;
 ALTER TABLE papers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_search_hits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_search_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_search_batch_hits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_global_labels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE annotations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_items ENABLE ROW LEVEL SECURITY;
@@ -391,6 +520,24 @@ BEGIN
     ) THEN
         CREATE POLICY "Service role can manage paper search hits"
             ON paper_search_hits FOR ALL TO service_role USING (true) WITH CHECK (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'paper_search_batches'
+          AND policyname = 'Service role can manage paper search batches'
+    ) THEN
+        CREATE POLICY "Service role can manage paper search batches"
+            ON paper_search_batches FOR ALL TO service_role USING (true) WITH CHECK (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'paper_search_batch_hits'
+          AND policyname = 'Service role can manage paper search batch hits'
+    ) THEN
+        CREATE POLICY "Service role can manage paper search batch hits"
+            ON paper_search_batch_hits FOR ALL TO service_role USING (true) WITH CHECK (true);
     END IF;
 
     IF NOT EXISTS (

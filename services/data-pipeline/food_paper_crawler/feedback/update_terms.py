@@ -706,6 +706,125 @@ def build_search_pair_feedback(
     return pair_payloads, source_priors
 
 
+def build_search_batch_feedback(
+    search_batches: List[dict],
+    batch_hits: List[dict],
+    search_hits: List[dict],
+    good_ids: set[int],
+    bad_ids: set[int],
+    *,
+    language: str,
+) -> List[dict]:
+    batch_meta: Dict[str, dict] = {}
+    for row in search_batches:
+        if row.get("workflow_language") != language:
+            continue
+        batch_id = str(row.get("batch_id") or "").strip()
+        batch_key = str(row.get("batch_key") or "").strip().lower()
+        if not batch_id or not batch_key:
+            continue
+        batch_meta[batch_id] = {
+            "batch_key": batch_key,
+            "source": str(row.get("source") or "").strip().lower(),
+            "template_id": str(row.get("template_id") or "").strip(),
+            "source_term": " ".join(str(row.get("source_term") or "").lower().strip().split()) or None,
+            "query_phrase": str(row.get("query_phrase") or "").strip() or None,
+            "query_text": str(row.get("query_text") or "").strip(),
+            "results": int(row.get("results") or 0),
+            "search_gate_passed": int(row.get("search_gate_passed") or 0),
+            "filter_passed": int(row.get("filter_passed") or 0),
+        }
+
+    hit_rows_by_key: Dict[str, dict] = {}
+    for row in search_hits:
+        hit_key = str(
+            row.get("hit_key")
+            or build_search_hit_key(
+                canonical_key=row.get("canonical_key"),
+                source=row.get("source"),
+                workflow_language=row.get("workflow_language"),
+                template_id=row.get("template_id"),
+                source_term=row.get("source_term"),
+                query_phrase=row.get("query_phrase"),
+                query_text=row.get("query_text"),
+            )
+        ).strip()
+        if hit_key:
+            hit_rows_by_key[hit_key] = row
+
+    stats_by_key: Dict[str, Dict[str, object]] = {}
+    for relation in batch_hits:
+        batch_id = str(relation.get("batch_id") or "").strip()
+        hit_key = str(relation.get("hit_key") or "").strip()
+        meta = batch_meta.get(batch_id)
+        hit_row = hit_rows_by_key.get(hit_key)
+        if meta is None or hit_row is None:
+            continue
+        batch_key = meta["batch_key"]
+        stats = stats_by_key.setdefault(
+            batch_key,
+            {
+                "batch_key": batch_key,
+                "source": meta["source"],
+                "template_id": meta["template_id"],
+                "source_term": meta["source_term"],
+                "query_phrase": meta["query_phrase"],
+                "query_text": meta["query_text"],
+                "batch_ids": set(),
+                "results": 0,
+                "search_gate_passed": 0,
+                "filter_passed": 0,
+                "positive_papers": set(),
+                "negative_papers": set(),
+            },
+        )
+        if batch_id not in stats["batch_ids"]:
+            stats["batch_ids"].add(batch_id)
+            stats["results"] = int(stats["results"]) + int(meta["results"])
+            stats["search_gate_passed"] = int(stats["search_gate_passed"]) + int(meta["search_gate_passed"])
+            stats["filter_passed"] = int(stats["filter_passed"]) + int(meta["filter_passed"])
+        paper_id = hit_row.get("paper_id")
+        if not isinstance(paper_id, int):
+            continue
+        if paper_id in good_ids:
+            stats["positive_papers"].add(paper_id)
+        elif paper_id in bad_ids:
+            stats["negative_papers"].add(paper_id)
+
+    payloads: List[dict] = []
+    for stats in stats_by_key.values():
+        retrieved = max(1, int(stats["results"]))
+        positive_count = len(stats["positive_papers"])
+        negative_count = len(stats["negative_papers"])
+        payloads.append(
+            {
+                "batch_key": stats["batch_key"],
+                "source": stats["source"],
+                "template_id": stats["template_id"],
+                "source_term": stats["source_term"],
+                "query_phrase": stats["query_phrase"],
+                "query_text": stats["query_text"],
+                "batch_count": len(stats["batch_ids"]),
+                "retrieved": retrieved,
+                "search_gate_passed": int(stats["search_gate_passed"]),
+                "filter_passed": int(stats["filter_passed"]),
+                "positive_count": positive_count,
+                "negative_count": negative_count,
+                "score": positive_count / retrieved,
+            }
+        )
+    payloads.sort(
+        key=lambda row: (
+            row["score"],
+            row["positive_count"],
+            row["filter_passed"],
+            row["retrieved"],
+        ),
+        reverse=True,
+    )
+    return payloads
+
+
 def dedupe_search_hits(search_hits: List[dict]) -> List[dict]:
     deduped: Dict[str, dict] = {}
     for row in search_hits:
@@ -843,6 +962,20 @@ def main() -> None:
         batch_size=1000,
     )
     search_hits = dedupe_search_hits(search_hits)
+    search_batches = fetch_rows(
+        args.supabase_url,
+        args.supabase_key,
+        "paper_search_batches",
+        "batch_id,batch_key,source,workflow_language,query_text,template_id,source_term,term_type,query_phrase,query_limit,results,search_gate_passed,filter_passed",
+        batch_size=1000,
+    )
+    search_batch_hits = fetch_rows(
+        args.supabase_url,
+        args.supabase_key,
+        "paper_search_batch_hits",
+        "batch_id,hit_key",
+        batch_size=1000,
+    )
 
     good_ids, bad_ids, conflict_ids = build_labels(label_events, global_labels)
     paper_ids_by_language = classify_papers_by_language(papers)
@@ -905,6 +1038,14 @@ def main() -> None:
             bad_ids,
             language=language,
         )
+        batch_scores = build_search_batch_feedback(
+            search_batches,
+            search_batch_hits,
+            search_hits,
+            good_ids,
+            bad_ids,
+            language=language,
+        )
         concept_scores = build_concept_feedback(
             search_hits,
             good_ids,
@@ -923,6 +1064,7 @@ def main() -> None:
             "anchor_phrases": anchor_phrases,
             "weighted_terms": weighted_terms,
             "pair_scores": pair_scores,
+            "batch_scores": batch_scores,
             "concept_scores": concept_scores,
             "source_priors": source_priors,
             "discovery_candidates": discovery_candidates,

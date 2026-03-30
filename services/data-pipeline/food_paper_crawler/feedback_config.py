@@ -106,6 +106,23 @@ def extract_pair_scores(config: Dict[str, object], language: str) -> Dict[str, f
     return scores
 
 
+def extract_batch_scores(config: Dict[str, object], language: str) -> Dict[str, float]:
+    payload = _language_payload(config, language)
+    batch_scores = payload.get("batch_scores") if isinstance(payload.get("batch_scores"), list) else []
+    scores: Dict[str, float] = {}
+    for row in batch_scores:
+        if not isinstance(row, dict):
+            continue
+        batch_key = _normalize_term(str(row.get("batch_key") or ""))
+        if not batch_key:
+            continue
+        try:
+            scores[batch_key] = float(row.get("score") or 0.0)
+        except (TypeError, ValueError):
+            scores[batch_key] = 0.0
+    return scores
+
+
 def extract_concept_scores(config: Dict[str, object], language: str) -> Dict[str, float]:
     payload = _language_payload(config, language)
     concept_scores = payload.get("concept_scores") if isinstance(payload.get("concept_scores"), list) else []

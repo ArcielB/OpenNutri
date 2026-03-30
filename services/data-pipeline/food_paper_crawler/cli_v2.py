@@ -15,7 +15,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-pdfs", type=int, default=12, help="How many PDFs to keep")
     parser.add_argument("--target-pdfs-en", type=int, default=0, help="Accepted English PDF target (0 = derive from --target-pdfs)")
     parser.add_argument("--target-pdfs-tr", type=int, default=0, help="Accepted Turkish PDF target (0 = derive from --target-pdfs)")
-    parser.add_argument("--query-limit", type=int, default=50, help="Results to inspect per query")
+    parser.add_argument(
+        "--query-limit",
+        "--search-batch-size",
+        dest="query_limit",
+        type=int,
+        default=50,
+        help="Max search hits to inspect per query batch before moving to the next batch",
+    )
     parser.add_argument("--food-term-limit", type=int, default=0, help="How many food terms to use (0 = all)")
     parser.add_argument("--nutrient-term-limit", type=int, default=0, help="How many nutrient terms to use (0 = all)")
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count")

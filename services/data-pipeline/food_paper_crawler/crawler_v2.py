@@ -14,9 +14,11 @@ from typing import Dict, List, Optional, Set, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 from .embeddings import DualEmbeddingScorer
 from .feedback_config import (
+    extract_batch_scores,
     extract_concept_scores,
     extract_pair_scores,
     extract_source_priors,
@@ -26,7 +28,15 @@ from .feedback_config import (
 from .feedback_seed_terms import SEED_ANCHOR_PHRASES_BY_LANGUAGE, SEED_QUERY_PHRASES_BY_LANGUAGE
 from .feedback_terms import extract_scored_terms, extract_terms as extract_feedback_terms
 from .language_utils import SUPPORTED_LANGUAGES, normalize_language_text
-from .models import CandidatePaper, DiscoveryHit, DownloadRecord, QuerySpec, SearchTask, build_storage_filename
+from .models import (
+    CandidatePaper,
+    DiscoveryHit,
+    DownloadRecord,
+    QuerySpec,
+    SearchTask,
+    build_search_batch_key,
+    build_storage_filename,
+)
 from .ranking import SOFT_NEGATIVE_TERMS, STRONG_NEGATIVE_SIGNAL_TERMS, validate_pdf_text
 from .search_sources import DEFAULT_SEARCH_SOURCES, build_search_sources
 from .supabase_terms import fetch_food_terms_by_language, fetch_nutrient_terms_by_language
@@ -204,6 +214,10 @@ class FoodCompositionCrawlerV2:
             language: extract_pair_scores(self.feedback_config, language)
             for language in SUPPORTED_LANGUAGES
         }
+        self.batch_scores_by_language = {
+            language: extract_batch_scores(self.feedback_config, language)
+            for language in SUPPORTED_LANGUAGES
+        }
         self.concept_scores_by_language = {
             language: extract_concept_scores(self.feedback_config, language)
             for language in SUPPORTED_LANGUAGES
@@ -229,10 +243,16 @@ class FoodCompositionCrawlerV2:
             self.search_hits_path.unlink(missing_ok=True)
         self.raw_pdf_dir.mkdir(parents=True, exist_ok=True)
         skip_keys = self._state_skip_keys()
-        search_tasks = self._build_search_tasks()
-        candidates, discovery_hits, query_log, query_stats = self._search_candidates(search_tasks, skip_keys)
-        self._filter_candidates(candidates, discovery_hits, query_log, query_stats)
-        accepted_records, rejected_records = self._acquire_candidates(candidates)
+        crawl_run_id = uuid4().hex
+        search_tasks = self._build_search_tasks(run_id=crawl_run_id)
+        (
+            candidates,
+            discovery_hits,
+            query_log,
+            query_stats,
+            accepted_records,
+            rejected_records,
+        ) = self._run_search_batches(search_tasks, skip_keys)
 
         harvested_at = datetime.now(timezone.utc).isoformat()
         audit_count = sum(1 for record in rejected_records if record.audit)
@@ -256,8 +276,10 @@ class FoodCompositionCrawlerV2:
         dergipark_index = dergipark_source.index_info() if hasattr(dergipark_source, "index_info") else None
 
         manifest = {
+            "crawl_run_id": crawl_run_id,
             "harvested_at": harvested_at,
             "query_count": len(search_tasks),
+            "search_batch_count": len(query_log),
             "rule_version": "search-filter-acquisition-v5",
             "sources": list(self.search_sources.keys()),
             "dergipark_scan_budget": self.dergipark_scan_budget,
@@ -320,6 +342,233 @@ class FoodCompositionCrawlerV2:
         self._save_state()
         return manifest
 
+    def _run_search_batches(
+        self,
+        tasks: List[SearchTask],
+        skip_keys: Set[str],
+    ) -> Tuple[
+        List[CandidatePaper],
+        List[DiscoveryHit],
+        List[Dict[str, object]],
+        Dict[str, Dict[str, object]],
+        List[DownloadRecord],
+        List[DownloadRecord],
+    ]:
+        query_log: List[Dict[str, object]] = []
+        query_stats: Dict[str, Dict[str, object]] = {}
+        candidates_by_key: Dict[str, CandidatePaper] = {}
+        discovery_hits: List[DiscoveryHit] = []
+        accepted_records: List[DownloadRecord] = []
+        rejected_records: List[DownloadRecord] = []
+        accepted_counts = {language: 0 for language in SUPPORTED_LANGUAGES}
+        active_languages = self._active_languages()
+
+        for task in tasks:
+            language = task.spec.language
+            if language not in active_languages:
+                continue
+            if accepted_counts[language] >= self.target_pdfs_by_language.get(language, 0):
+                continue
+
+            client = self.search_sources.get(task.source)
+            if client is None:
+                continue
+
+            raw_candidates = client.search(task.spec, limit=self.query_limit)[: self.query_limit]
+            stat_key = self._task_key(task)
+            stats: Dict[str, object] = {
+                "batch_id": task.batch_id,
+                "batch_key": task.batch_key,
+                "batch_rank": task.batch_rank,
+                "priority_score": round(task.priority_score, 4),
+                "pair_score": round(task.pair_score, 4),
+                "batch_score": round(task.batch_score, 4),
+                "query_limit": self.query_limit,
+                "source": task.source,
+                "query": task.query_text,
+                "language": language,
+                "template_id": task.spec.template_id,
+                "source_term": task.spec.source_term,
+                "term_type": task.spec.term_type,
+                "query_phrase": task.spec.query_phrase,
+                "results": len(raw_candidates),
+                "search_gate_passed": 0,
+                "search_gate_rejected": 0,
+                "filter_passed": 0,
+                "duplicates": 0,
+                "skipped_seen": 0,
+                "accepted": 0,
+                "pdf_fetch_fail": 0,
+                "pdf_validation_fail": 0,
+                "metadata_rejected": 0,
+            }
+            query_log.append(stats)
+            query_stats[stat_key] = stats
+
+            batch_hits: List[DiscoveryHit] = []
+            batch_candidates_by_key: Dict[str, CandidatePaper] = {}
+            for result_rank, candidate in enumerate(raw_candidates, start=1):
+                candidate.query = task.query_text
+                candidate.source_term = task.spec.source_term
+                candidate.template_id = task.spec.template_id
+                candidate.query_phrase = task.spec.query_phrase
+                candidate.workflow_language = language
+                candidate.source_record_id = candidate.source_record_id or candidate.external_id
+                candidate.batch_id = task.batch_id
+                candidate.batch_key = task.batch_key
+                candidate.batch_rank = task.batch_rank
+                canonical_key = candidate.canonical_key
+                if not canonical_key or canonical_key in skip_keys:
+                    stats["skipped_seen"] = int(stats["skipped_seen"]) + 1
+                    continue
+
+                gate_pass, gate_score, reason_details = self._search_gate_decision(candidate)
+                candidate.search_gate_pass = gate_pass
+                candidate.search_gate_score = gate_score
+                is_duplicate = canonical_key in candidates_by_key
+                hit = DiscoveryHit(
+                    canonical_key=canonical_key,
+                    source=task.source,
+                    source_record_id=candidate.source_record_id,
+                    external_id=candidate.external_id,
+                    pmcid=candidate.pmcid,
+                    doi=candidate.doi,
+                    title=candidate.title,
+                    abstract=candidate.abstract,
+                    workflow_language=language,
+                    query=task.query_text,
+                    template_id=task.spec.template_id,
+                    source_term=task.spec.source_term,
+                    term_type=task.spec.term_type,
+                    query_phrase=task.spec.query_phrase,
+                    search_gate_score=gate_score,
+                    search_gate_pass=gate_pass,
+                    is_duplicate=is_duplicate,
+                    batch_id=task.batch_id,
+                    batch_key=task.batch_key,
+                    batch_rank=task.batch_rank,
+                    result_rank=result_rank,
+                )
+                batch_hits.append(hit)
+                discovery_hits.append(hit)
+
+                if not gate_pass:
+                    stats["search_gate_rejected"] = int(stats["search_gate_rejected"]) + 1
+                    continue
+
+                stats["search_gate_passed"] = int(stats["search_gate_passed"]) + 1
+                candidate.reason_details = reason_details
+                candidate.reasons = [reason["text"] for reason in reason_details]
+
+                if is_duplicate:
+                    stats["duplicates"] = int(stats["duplicates"]) + 1
+                    existing_candidate = candidates_by_key[canonical_key]
+                    existing_signature = self._candidate_merge_signature(existing_candidate)
+                    existing_accepted = existing_candidate.accepted
+                    self._merge_candidate(existing_candidate, candidate)
+                    if not existing_accepted and existing_signature != self._candidate_merge_signature(existing_candidate):
+                        batch_candidates_by_key[canonical_key] = existing_candidate
+                    continue
+
+                candidates_by_key[canonical_key] = candidate
+                batch_candidates_by_key[canonical_key] = candidate
+
+            batch_candidates = list(batch_candidates_by_key.values())
+            self._filter_candidates(batch_candidates, batch_hits, [stats], {stat_key: stats})
+            batch_accepted, batch_rejected = self._acquire_batch_candidates(batch_candidates)
+            accepted_records.extend(batch_accepted)
+            rejected_records.extend(batch_rejected)
+            self._update_batch_outcome_stats(stats, batch_accepted, batch_rejected)
+            accepted_counts[language] += sum(1 for record in batch_accepted if record.workflow_language == language)
+
+            if all(
+                accepted_counts[current_language] >= self.target_pdfs_by_language.get(current_language, 0)
+                for current_language in active_languages
+            ):
+                break
+
+        return list(candidates_by_key.values()), discovery_hits, query_log, query_stats, accepted_records, rejected_records
+
+    def _candidate_merge_signature(self, candidate: CandidatePaper) -> Tuple[object, ...]:
+        return (
+            candidate.title,
+            candidate.abstract,
+            candidate.pdf_url,
+            candidate.landing_url,
+            candidate.doi,
+            candidate.pmcid,
+            candidate.journal,
+            candidate.year,
+        )
+
+    def _acquire_batch_candidates(
+        self,
+        candidates: List[CandidatePaper],
+    ) -> Tuple[List[DownloadRecord], List[DownloadRecord]]:
+        accepted_records: List[DownloadRecord] = []
+        rejected_records: List[DownloadRecord] = []
+        ranked_candidates = sorted(
+            candidates,
+            key=lambda item: (item.filter_pass, item.filter_score, item.search_gate_score),
+            reverse=True,
+        )
+
+        for candidate in ranked_candidates:
+            if not candidate.filter_pass:
+                if candidate.pdf_url or candidate.pmcid:
+                    audit_flag = self._next_audit_flag()
+                    if audit_flag:
+                        rejected_records.append(
+                            self._download_candidate(
+                                candidate,
+                                force_audit=True,
+                                skip_validation=True,
+                                rejection_error="Rejected by metadata filter",
+                                rejection_stage="metadata_filter",
+                            )
+                        )
+                    else:
+                        rejected_records.append(
+                            self._skip_record(candidate, "Rejected by metadata filter", decision_stage="metadata_filter")
+                        )
+                else:
+                    rejected_records.append(
+                        self._skip_record(candidate, "Rejected by metadata filter", decision_stage="metadata_filter")
+                    )
+                continue
+
+            if not candidate.pdf_url and not candidate.pmcid:
+                candidate.reason_details = candidate.reason_details + [
+                    {"code": "no_pdf_url", "text": "Rejected: no PDF URL available"}
+                ]
+                candidate.reasons = [reason["text"] for reason in candidate.reason_details]
+                rejected_records.append(
+                    self._skip_record(candidate, "Rejected: no PDF URL available", decision_stage="pdf_fetch")
+                )
+                continue
+
+            record = self._download_candidate(candidate)
+            if record.status == "success":
+                accepted_records.append(record)
+            else:
+                rejected_records.append(record)
+        return accepted_records, rejected_records
+
+    def _update_batch_outcome_stats(
+        self,
+        stats: Dict[str, object],
+        accepted_records: List[DownloadRecord],
+        rejected_records: List[DownloadRecord],
+    ) -> None:
+        stats["accepted"] = int(stats.get("accepted", 0)) + len(accepted_records)
+        for record in rejected_records:
+            if record.decision_stage == "metadata_filter":
+                stats["metadata_rejected"] = int(stats.get("metadata_rejected", 0)) + 1
+            elif record.decision_stage == "pdf_fetch":
+                stats["pdf_fetch_fail"] = int(stats.get("pdf_fetch_fail", 0)) + 1
+            elif record.decision_stage == "pdf_validation":
+                stats["pdf_validation_fail"] = int(stats.get("pdf_validation_fail", 0)) + 1
+
     def _next_audit_flag(self) -> bool:
         self.audit_reject_counter += 1
         return self.audit_reject_counter % AUDIT_EVERY_N == 0
@@ -349,7 +598,7 @@ class FoodCompositionCrawlerV2:
             if self.target_pdfs_by_language.get(language, 0) > 0
         ]
 
-    def _build_search_tasks(self) -> List[SearchTask]:
+    def _build_search_tasks(self, *, run_id: Optional[str] = None) -> List[SearchTask]:
         active_languages = self._active_languages()
         if not active_languages:
             return []
@@ -372,7 +621,7 @@ class FoodCompositionCrawlerV2:
                 items = per_language_tasks.get(language, [])
                 if idx < len(items):
                     tasks.append(items[idx])
-        return tasks[: self.max_queries]
+        return self._assign_batch_metadata(tasks[: self.max_queries], run_id=run_id or uuid4().hex)
 
     def _language_query_budget(self) -> Dict[str, int]:
         active_languages = self._active_languages()
@@ -589,12 +838,45 @@ class FoodCompositionCrawlerV2:
                     spec=spec,
                     query_text=self._source_query_text(source, spec),
                     pair_score=self._pair_score(language, source, spec),
+                    batch_score=self._batch_score(language, source, spec),
+                    priority_score=(
+                        self._pair_score(language, source, spec)
+                        + self._batch_score(language, source, spec)
+                    ),
                 )
                 for source in source_names
             ]
-            source_tasks.sort(key=lambda item: item.pair_score, reverse=True)
+            source_tasks.sort(key=lambda item: item.priority_score, reverse=True)
             expanded.extend(source_tasks)
         return expanded[:budget]
+
+    def _assign_batch_metadata(self, tasks: List[SearchTask], *, run_id: str) -> List[SearchTask]:
+        assigned: List[SearchTask] = []
+        for index, task in enumerate(tasks):
+            batch_rank = index + 1
+            batch_key = build_search_batch_key(
+                source=task.source,
+                workflow_language=task.spec.language,
+                template_id=task.spec.template_id,
+                source_term=task.spec.source_term,
+                query_phrase=task.spec.query_phrase,
+                query_text=task.query_text,
+            )
+            batch_id = f"{run_id}:{batch_rank:04d}"
+            assigned.append(
+                SearchTask(
+                    source=task.source,
+                    spec=task.spec,
+                    query_text=task.query_text,
+                    pair_score=task.pair_score,
+                    batch_score=task.batch_score,
+                    priority_score=task.priority_score,
+                    batch_id=batch_id,
+                    batch_key=batch_key,
+                    batch_rank=batch_rank,
+                )
+            )
+        return assigned
 
     def _source_query_text(self, source: str, spec: QuerySpec) -> str:
         client = self.search_sources.get(source)
@@ -612,6 +894,17 @@ class FoodCompositionCrawlerV2:
         source_prior = float(self.source_priors_by_language.get(language, {}).get(source, 0.0))
         static_bias = float(DEFAULT_SOURCE_BIAS_BY_LANGUAGE.get(language, {}).get(source, 0.0))
         return pair_score + 0.15 * source_prior + static_bias
+
+    def _batch_score(self, language: str, source: str, spec: QuerySpec) -> float:
+        key = build_search_batch_key(
+            source=source,
+            workflow_language=language,
+            template_id=spec.template_id,
+            source_term=spec.source_term,
+            query_phrase=spec.query_phrase,
+            query_text=self._source_query_text(source, spec),
+        )
+        return float(self.batch_scores_by_language.get(language, {}).get(key, 0.0))
 
     def _search_candidates(
         self,
@@ -631,6 +924,13 @@ class FoodCompositionCrawlerV2:
             raw_candidates = client.search(spec, limit=self.query_limit)[: self.query_limit]
             stat_key = self._task_key(task)
             stats = {
+                "batch_id": task.batch_id,
+                "batch_key": task.batch_key,
+                "batch_rank": task.batch_rank,
+                "priority_score": round(task.priority_score, 4),
+                "pair_score": round(task.pair_score, 4),
+                "batch_score": round(task.batch_score, 4),
+                "query_limit": self.query_limit,
                 "source": task.source,
                 "query": task.query_text,
                 "language": spec.language,
@@ -656,6 +956,9 @@ class FoodCompositionCrawlerV2:
                 candidate.query_phrase = spec.query_phrase
                 candidate.workflow_language = spec.language
                 candidate.source_record_id = candidate.source_record_id or candidate.external_id
+                candidate.batch_id = task.batch_id
+                candidate.batch_key = task.batch_key
+                candidate.batch_rank = task.batch_rank
                 canonical_key = candidate.canonical_key
                 if not canonical_key or canonical_key in skip_keys:
                     stats["skipped_seen"] += 1
@@ -683,6 +986,9 @@ class FoodCompositionCrawlerV2:
                     search_gate_score=gate_score,
                     search_gate_pass=gate_pass,
                     is_duplicate=canonical_key in candidates_by_key,
+                    batch_id=task.batch_id,
+                    batch_key=task.batch_key,
+                    batch_rank=task.batch_rank,
                 )
                 discovery_hits.append(hit)
 
@@ -924,6 +1230,8 @@ class FoodCompositionCrawlerV2:
         }
 
     def _task_key(self, task: SearchTask) -> str:
+        if task.batch_id:
+            return task.batch_id
         return self._stat_hit_key(
             hit_source=task.source,
             query=task.query_text,
@@ -1357,6 +1665,9 @@ class FoodCompositionCrawlerV2:
                 search_gate_pass=candidate.search_gate_pass,
                 filter_pass=candidate.filter_pass,
                 decision_stage=rejection_stage,
+                batch_id=candidate.batch_id,
+                batch_key=candidate.batch_key,
+                batch_rank=candidate.batch_rank,
             )
         _, accepted, pdf_reasons = self._validate_downloaded_pdf(destination, candidate)
         pdf_reason_details = [
@@ -1401,9 +1712,12 @@ class FoodCompositionCrawlerV2:
                 search_gate_score=candidate.search_gate_score,
                 filter_score=candidate.filter_score,
                 search_gate_pass=candidate.search_gate_pass,
-                filter_pass=candidate.filter_pass,
-                decision_stage="pdf_validation",
-            )
+                    filter_pass=candidate.filter_pass,
+                    decision_stage="pdf_validation",
+                    batch_id=candidate.batch_id,
+                    batch_key=candidate.batch_key,
+                    batch_rank=candidate.batch_rank,
+                )
 
         candidate.reason_details = combined_reason_details
         candidate.reasons = combined_reasons
@@ -1434,6 +1748,9 @@ class FoodCompositionCrawlerV2:
             search_gate_pass=candidate.search_gate_pass,
             filter_pass=candidate.filter_pass,
             decision_stage="acquisition",
+            batch_id=candidate.batch_id,
+            batch_key=candidate.batch_key,
+            batch_rank=candidate.batch_rank,
         )
 
     def _fetch_pdf_with_oa(self, candidate: CandidatePaper) -> Tuple[bytes, str]:
@@ -1669,6 +1986,9 @@ class FoodCompositionCrawlerV2:
             search_gate_pass=candidate.search_gate_pass,
             filter_pass=candidate.filter_pass,
             decision_stage=decision_stage,
+            batch_id=candidate.batch_id,
+            batch_key=candidate.batch_key,
+            batch_rank=candidate.batch_rank,
         )
 
     def _failed_record(
@@ -1704,6 +2024,9 @@ class FoodCompositionCrawlerV2:
             search_gate_pass=candidate.search_gate_pass,
             filter_pass=candidate.filter_pass,
             decision_stage=decision_stage,
+            batch_id=candidate.batch_id,
+            batch_key=candidate.batch_key,
+            batch_rank=candidate.batch_rank,
         )
 
     def _default_state(self) -> Dict[str, object]:

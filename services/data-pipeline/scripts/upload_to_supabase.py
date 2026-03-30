@@ -13,7 +13,7 @@ PIPELINE_ROOT = PROJECT_ROOT / "services" / "data-pipeline"
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
-from food_paper_crawler.models import build_search_hit_key
+from food_paper_crawler.models import build_search_batch_key, build_search_hit_key
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -81,6 +81,15 @@ def _require_paper_fields(record: dict, *, context: str) -> None:
 
 def _require_search_hit_fields(record: dict, *, context: str) -> None:
     required = ("source", "workflow_language", "search_gate_score")
+    missing = [field for field in required if record.get(field) in {None, ""}]
+    if missing:
+        raise RuntimeError(f"{context} missing required fields: {', '.join(missing)}")
+    if record.get("workflow_language") not in {"en", "tr"}:
+        raise RuntimeError(f"{context} has invalid workflow_language: {record.get('workflow_language')!r}")
+
+
+def _require_search_batch_fields(record: dict, *, context: str) -> None:
+    required = ("batch_id", "batch_key", "source", "workflow_language", "query_text", "template_id", "term_type")
     missing = [field for field in required if record.get(field) in {None, ""}]
     if missing:
         raise RuntimeError(f"{context} missing required fields: {', '.join(missing)}")
@@ -254,6 +263,86 @@ def _prepare_search_hits(
     return _dedupe_search_hits(prepared)
 
 
+def _prepare_search_batches(manifest: dict) -> list[dict]:
+    crawl_run_id = str(manifest.get("crawl_run_id") or "").strip()
+    query_log = manifest.get("query_log")
+    if not crawl_run_id or not isinstance(query_log, list):
+        return []
+    prepared: list[dict] = []
+    for row in query_log:
+        if not isinstance(row, dict):
+            continue
+        payload = {
+            "batch_id": row.get("batch_id"),
+            "batch_key": row.get("batch_key")
+            or build_search_batch_key(
+                source=row.get("source"),
+                workflow_language=row.get("language"),
+                template_id=row.get("template_id"),
+                source_term=row.get("source_term"),
+                query_phrase=row.get("query_phrase"),
+                query_text=row.get("query"),
+            ),
+            "run_id": crawl_run_id,
+            "batch_rank": row.get("batch_rank") or 0,
+            "source": row.get("source"),
+            "workflow_language": row.get("language"),
+            "query_text": row.get("query"),
+            "template_id": row.get("template_id"),
+            "source_term": row.get("source_term"),
+            "term_type": row.get("term_type"),
+            "query_phrase": row.get("query_phrase"),
+            "query_limit": row.get("query_limit") or 0,
+            "results": row.get("results") or 0,
+            "search_gate_passed": row.get("search_gate_passed") or 0,
+            "search_gate_rejected": row.get("search_gate_rejected") or 0,
+            "filter_passed": row.get("filter_passed") or 0,
+            "duplicates": row.get("duplicates") or 0,
+            "skipped_seen": row.get("skipped_seen") or 0,
+            "accepted": row.get("accepted") or 0,
+            "metadata_rejected": row.get("metadata_rejected") or 0,
+            "pdf_fetch_fail": row.get("pdf_fetch_fail") or 0,
+            "pdf_validation_fail": row.get("pdf_validation_fail") or 0,
+        }
+        _require_search_batch_fields(payload, context=f"search batch {payload.get('batch_id') or 'unknown'}")
+        prepared.append(payload)
+    return prepared
+
+
+def _prepare_search_batch_hits(rows: list[dict]) -> list[dict]:
+    deduped: dict[tuple[str, str], dict] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        batch_id = str(row.get("batch_id") or "").strip()
+        hit_key = str(
+            row.get("hit_key")
+            or build_search_hit_key(
+                canonical_key=row.get("canonical_key"),
+                source=row.get("source"),
+                workflow_language=row.get("workflow_language"),
+                template_id=row.get("template_id"),
+                source_term=row.get("source_term"),
+                query_phrase=row.get("query_phrase"),
+                query_text=row.get("query_text") or row.get("query"),
+            )
+        ).strip()
+        if not batch_id or not hit_key:
+            continue
+        result_rank = row.get("result_rank")
+        try:
+            parsed_rank = int(result_rank) if result_rank is not None else None
+        except (TypeError, ValueError):
+            parsed_rank = None
+        payload = {
+            "batch_id": batch_id,
+            "hit_key": hit_key,
+            "result_rank": parsed_rank,
+        }
+        deduped[(batch_id, hit_key)] = payload
+    return list(deduped.values())
+
+
 async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
     manifest_path = (
         Path(args.manifest)
@@ -358,6 +447,9 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
     if not search_hits:
         raise SystemExit("Search-hit persistence is empty; refusing to treat this upload as successful.")
 
+    search_batches = _prepare_search_batches(manifest)
+    search_batch_hits = _prepare_search_batch_hits(search_hits_payload.get("hits", []))
+
     inserted_hits = 0
     for batch in _chunked(search_hits, 500):
         supabase.table("paper_search_hits").upsert(batch, on_conflict="hit_key").execute()
@@ -366,12 +458,24 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
     if inserted_hits <= 0:
         raise SystemExit("Search hits were not persisted.")
 
+    inserted_batches = 0
+    for batch in _chunked(search_batches, 250):
+        supabase.table("paper_search_batches").upsert(batch, on_conflict="batch_id").execute()
+        inserted_batches += len(batch)
+
+    inserted_batch_hits = 0
+    for batch in _chunked(search_batch_hits, 500):
+        supabase.table("paper_search_batch_hits").upsert(batch, on_conflict="batch_id,hit_key").execute()
+        inserted_batch_hits += len(batch)
+
     print("=" * 60)
     if uploaded_count > 0:
         print(f"Successfully uploaded and registered {uploaded_count} PDFs.")
     else:
         print("No PDFs were accepted in this run; persisted metadata-stage search hits only.")
     print(f"Persisted {inserted_hits} metadata-stage search hits.")
+    print(f"Persisted {inserted_batches} search batches.")
+    print(f"Persisted {inserted_batch_hits} search batch-hit links.")
     print("=" * 60)
 
 

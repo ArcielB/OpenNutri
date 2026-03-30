@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from food_paper_crawler.crawler_v2 import FoodCompositionCrawlerV2
 from food_paper_crawler.feedback.update_terms import (
+    build_search_batch_feedback,
     build_concept_feedback,
     build_search_pair_feedback,
     classify_papers_by_language,
@@ -428,6 +429,91 @@ class CrawlerQuotaTests(unittest.TestCase):
         self.assertEqual([record.title for record in accepted], ["en-strong", "tr-strong"])
         self.assertEqual(rejected, [])
 
+    def test_run_search_batches_stops_language_only_after_current_batch(self) -> None:
+        crawler = object.__new__(FoodCompositionCrawlerV2)
+        crawler.target_pdfs_by_language = {"en": 0, "tr": 1}
+        crawler.query_limit = 10
+        crawler.search_sources = {}
+        crawler._next_audit_flag = lambda: False
+
+        batch_one = [
+            self.make_candidate("tr-first", "tr", 5.0),
+            self.make_candidate("tr-second", "tr", 4.5),
+        ]
+        batch_two = [self.make_candidate("tr-third", "tr", 4.0)]
+
+        class FakeSearchSource:
+            def __init__(self, batches: list[list[CandidatePaper]]) -> None:
+                self.batches = batches
+                self.calls = 0
+
+            def search(self, spec: QuerySpec, limit: int) -> list[CandidatePaper]:
+                batch = self.batches[self.calls]
+                self.calls += 1
+                return batch
+
+        source = FakeSearchSource([batch_one, batch_two])
+        crawler.search_sources["openalex"] = source
+        crawler._search_gate_decision = lambda candidate: (
+            True,
+            candidate.search_gate_score,
+            [{"code": "gate", "text": "gate pass"}],
+        )
+        crawler._metadata_decision = lambda candidate: (
+            True,
+            candidate.filter_score,
+            [{"code": "metadata", "text": "metadata pass"}],
+        )
+        crawler._download_candidate = lambda candidate, **_: DownloadRecord(
+            status="success",
+            title=candidate.title,
+            score=candidate.filter_score,
+            source=candidate.source,
+            query=candidate.query,
+            reasons=[],
+            canonical_key=candidate.canonical_key,
+            workflow_language=candidate.workflow_language,
+            decision_stage="acquisition",
+            batch_id=candidate.batch_id,
+            batch_key=candidate.batch_key,
+            batch_rank=candidate.batch_rank,
+        )
+
+        spec = QuerySpec(
+            query="gıda bileşimi",
+            keywords=("gıda bileşimi",),
+            template_id="base_core_composition",
+            source_term=None,
+            term_type="base",
+            language="tr",
+            query_phrase="gıda bileşimi",
+        )
+        tasks = [
+            SearchTask(
+                source="openalex",
+                spec=spec,
+                query_text="gıda bileşimi",
+                batch_id="run:0001",
+                batch_key="batch-one",
+                batch_rank=1,
+            ),
+            SearchTask(
+                source="openalex",
+                spec=spec,
+                query_text="gıda bileşimi tablo",
+                batch_id="run:0002",
+                batch_key="batch-two",
+                batch_rank=2,
+            ),
+        ]
+
+        _, _, query_log, _, accepted, _ = crawler._run_search_batches(tasks, set())
+
+        self.assertEqual([record.title for record in accepted], ["tr-first", "tr-second"])
+        self.assertEqual(len(query_log), 1)
+        self.assertEqual(query_log[0]["accepted"], 2)
+        self.assertEqual(source.calls, 1)
+
 
 class CrawlerStateTests(unittest.TestCase):
     def make_candidate(
@@ -709,6 +795,84 @@ class FeedbackDeduplicationTests(unittest.TestCase):
         self.assertEqual(concept_scores[0]["retrieved"], 1)
         self.assertEqual(concept_scores[0]["positive_count"], 1)
 
+    def test_batch_feedback_scores_query_batches_by_positive_yield(self) -> None:
+        search_batches = [
+            {
+                "batch_id": "b1",
+                "batch_key": "k1",
+                "source": "openalex",
+                "workflow_language": "en",
+                "query_text": 'spinach "food composition"',
+                "template_id": "food_phrase_core",
+                "source_term": "spinach",
+                "term_type": "food",
+                "query_phrase": "food composition",
+                "query_limit": 100,
+                "results": 100,
+                "search_gate_passed": 20,
+                "filter_passed": 4,
+            },
+            {
+                "batch_id": "b2",
+                "batch_key": "k1",
+                "source": "openalex",
+                "workflow_language": "en",
+                "query_text": 'spinach "food composition"',
+                "template_id": "food_phrase_core",
+                "source_term": "spinach",
+                "term_type": "food",
+                "query_phrase": "food composition",
+                "query_limit": 100,
+                "results": 100,
+                "search_gate_passed": 16,
+                "filter_passed": 3,
+            },
+        ]
+        batch_hits = [
+            {"batch_id": "b1", "hit_key": "h1"},
+            {"batch_id": "b2", "hit_key": "h2"},
+        ]
+        search_hits = [
+            {
+                "hit_key": "h1",
+                "paper_id": 1,
+                "canonical_key": "doi:1",
+                "source": "openalex",
+                "template_id": "food_phrase_core",
+                "source_term": "spinach",
+                "workflow_language": "en",
+                "query_text": 'spinach "food composition"',
+                "query_phrase": "food composition",
+            },
+            {
+                "hit_key": "h2",
+                "paper_id": 2,
+                "canonical_key": "doi:2",
+                "source": "openalex",
+                "template_id": "food_phrase_core",
+                "source_term": "spinach",
+                "workflow_language": "en",
+                "query_text": 'spinach "food composition"',
+                "query_phrase": "food composition",
+            },
+        ]
+
+        payloads = build_search_batch_feedback(
+            search_batches,
+            batch_hits,
+            search_hits,
+            {1},
+            {2},
+            language="en",
+        )
+
+        self.assertEqual(len(payloads), 1)
+        self.assertEqual(payloads[0]["batch_count"], 2)
+        self.assertEqual(payloads[0]["retrieved"], 200)
+        self.assertEqual(payloads[0]["positive_count"], 1)
+        self.assertEqual(payloads[0]["negative_count"], 1)
+        self.assertAlmostEqual(payloads[0]["score"], 0.005)
+
 
 class UploadTests(unittest.TestCase):
     def test_prepare_search_hits_keeps_metadata_only_rows_and_uses_existing_paper_lookup(self) -> None:
@@ -746,6 +910,59 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(prepared[0]["paper_id"], 77)
         self.assertEqual(prepared[0]["workflow_language"], "tr")
         self.assertEqual(prepared[0]["query_text"], '"gıda bileşimi" tablo')
+
+    def test_prepare_search_batches_and_batch_hits_from_manifest(self) -> None:
+        manifest = {
+            "crawl_run_id": "run-123",
+            "query_log": [
+                {
+                    "batch_id": "run-123:0001",
+                    "batch_key": "batch-key",
+                    "batch_rank": 1,
+                    "source": "openalex",
+                    "language": "en",
+                    "query": 'spinach "food composition"',
+                    "template_id": "food_phrase_core",
+                    "source_term": "spinach",
+                    "term_type": "food",
+                    "query_phrase": "food composition",
+                    "query_limit": 100,
+                    "results": 80,
+                    "search_gate_passed": 12,
+                    "search_gate_rejected": 68,
+                    "filter_passed": 3,
+                    "duplicates": 1,
+                    "skipped_seen": 4,
+                    "accepted": 2,
+                    "metadata_rejected": 9,
+                    "pdf_fetch_fail": 1,
+                    "pdf_validation_fail": 0,
+                }
+            ],
+        }
+        rows = [
+            {
+                "batch_id": "run-123:0001",
+                "canonical_key": "doi:10.1000/test",
+                "source": "openalex",
+                "workflow_language": "en",
+                "template_id": "food_phrase_core",
+                "source_term": "spinach",
+                "query_phrase": "food composition",
+                "query": 'spinach "food composition"',
+                "result_rank": 3,
+            }
+        ]
+
+        batches = upload_to_supabase._prepare_search_batches(manifest)
+        batch_hits = upload_to_supabase._prepare_search_batch_hits(rows)
+
+        self.assertEqual(len(batches), 1)
+        self.assertEqual(batches[0]["run_id"], "run-123")
+        self.assertEqual(batches[0]["accepted"], 2)
+        self.assertEqual(len(batch_hits), 1)
+        self.assertEqual(batch_hits[0]["batch_id"], "run-123:0001")
+        self.assertEqual(batch_hits[0]["result_rank"], 3)
 
 
 if __name__ == "__main__":

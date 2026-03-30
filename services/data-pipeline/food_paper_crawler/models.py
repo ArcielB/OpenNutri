@@ -105,6 +105,26 @@ def build_search_hit_key(
     return hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()
 
 
+def build_search_batch_key(
+    *,
+    source: object,
+    workflow_language: object,
+    template_id: object,
+    source_term: object = None,
+    query_phrase: object = None,
+    query_text: object = None,
+) -> str:
+    parts = (
+        _normalize_free_text(source),
+        _normalize_free_text(workflow_language),
+        _normalize_free_text(template_id),
+        _normalize_free_text(source_term),
+        _normalize_free_text(query_phrase),
+        _normalize_free_text(query_text),
+    )
+    return hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()
+
+
 @dataclass
 class CandidatePaper:
     source: str
@@ -132,6 +152,9 @@ class CandidatePaper:
     template_id: Optional[str] = None
     query_phrase: Optional[str] = None
     workflow_language: str = "en"
+    batch_id: Optional[str] = None
+    batch_key: Optional[str] = None
+    batch_rank: Optional[int] = None
 
     @property
     def canonical_id(self) -> str:
@@ -182,6 +205,9 @@ class CandidatePaper:
             "template_id": self.template_id,
             "query_phrase": self.query_phrase,
             "workflow_language": self.workflow_language,
+            "batch_id": self.batch_id,
+            "batch_key": self.batch_key,
+            "batch_rank": self.batch_rank,
         }
 
 
@@ -214,6 +240,9 @@ class DownloadRecord:
     search_gate_pass: bool = False
     filter_pass: bool = False
     decision_stage: Optional[str] = None
+    batch_id: Optional[str] = None
+    batch_key: Optional[str] = None
+    batch_rank: Optional[int] = None
 
     def to_dict(self) -> Dict[str, object]:
         payload = {
@@ -243,6 +272,9 @@ class DownloadRecord:
             "search_gate_pass": self.search_gate_pass,
             "filter_pass": self.filter_pass,
             "decision_stage": self.decision_stage,
+            "batch_id": self.batch_id,
+            "batch_key": self.batch_key,
+            "batch_rank": self.batch_rank,
         }
         if self.error:
             payload["error"] = self.error
@@ -260,12 +292,17 @@ class QuerySpec:
     query_phrase: Optional[str] = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class SearchTask:
     source: str
     spec: QuerySpec
     query_text: str
     pair_score: float = 0.0
+    batch_score: float = 0.0
+    priority_score: float = 0.0
+    batch_id: str = ""
+    batch_key: str = ""
+    batch_rank: int = 0
 
 
 @dataclass
@@ -290,6 +327,10 @@ class DiscoveryHit:
     filter_pass: Optional[bool] = None
     is_duplicate: bool = False
     paper_id: Optional[int] = None
+    batch_id: Optional[str] = None
+    batch_key: Optional[str] = None
+    batch_rank: Optional[int] = None
+    result_rank: Optional[int] = None
 
     @property
     def hit_key(self) -> str:
@@ -326,4 +367,8 @@ class DiscoveryHit:
             "filter_pass": self.filter_pass,
             "is_duplicate": self.is_duplicate,
             "paper_id": self.paper_id,
+            "batch_id": self.batch_id,
+            "batch_key": self.batch_key,
+            "batch_rank": self.batch_rank,
+            "result_rank": self.result_rank,
         }
