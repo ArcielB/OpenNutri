@@ -104,3 +104,20 @@ def extract_pair_scores(config: Dict[str, object], language: str) -> Dict[str, f
         except (TypeError, ValueError):
             scores[key] = 0.0
     return scores
+
+
+def extract_concept_scores(config: Dict[str, object], language: str) -> Dict[str, float]:
+    payload = _language_payload(config, language)
+    concept_scores = payload.get("concept_scores") if isinstance(payload.get("concept_scores"), list) else []
+    scores: Dict[str, float] = {}
+    for row in concept_scores:
+        if not isinstance(row, dict):
+            continue
+        source_term = _normalize_term(str(row.get("source_term") or ""))
+        if not source_term:
+            continue
+        try:
+            scores[source_term] = float(row.get("score") or 0.0)
+        except (TypeError, ValueError):
+            scores[source_term] = 0.0
+    return scores

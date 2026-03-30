@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 
 from .embeddings import DualEmbeddingScorer
 from .feedback_config import (
+    extract_concept_scores,
     extract_pair_scores,
     extract_source_priors,
     extract_terms,
@@ -25,7 +26,7 @@ from .feedback_config import (
 from .feedback_seed_terms import SEED_ANCHOR_PHRASES_BY_LANGUAGE, SEED_QUERY_PHRASES_BY_LANGUAGE
 from .feedback_terms import extract_scored_terms, extract_terms as extract_feedback_terms
 from .language_utils import SUPPORTED_LANGUAGES, normalize_language_text
-from .models import CandidatePaper, DiscoveryHit, DownloadRecord, QuerySpec, SearchTask
+from .models import CandidatePaper, DiscoveryHit, DownloadRecord, QuerySpec, SearchTask, build_storage_filename
 from .ranking import HARD_NEGATIVE_TERMS, SOFT_NEGATIVE_TERMS, validate_pdf_text
 from .search_sources import DEFAULT_SEARCH_SOURCES, build_search_sources
 from .supabase_terms import fetch_food_terms_by_language, fetch_nutrient_terms_by_language
@@ -113,6 +114,28 @@ COMPOSITION_FRAMES = {
         '"besin kompozisyonu" OR "yaklaşık analiz" OR "besin içeriği")'
     ),
 }
+DEFAULT_SOURCE_BIAS_BY_LANGUAGE = {
+    "en": {
+        "europepmc": 0.35,
+        "openalex": 0.15,
+        "semanticscholar": 0.05,
+        "dergipark": -0.15,
+    },
+    "tr": {
+        "dergipark": 0.35,
+        "openalex": 0.2,
+        "semanticscholar": 0.1,
+        "europepmc": -0.3,
+    },
+}
+TERMINAL_DECISIONS = {"accepted", "rejected"}
+TERMINAL_DECISION_STAGES = {
+    "search_gate",
+    "metadata_filter",
+    "pdf_fetch",
+    "pdf_validation",
+    "acquisition",
+}
 
 
 class FoodCompositionCrawlerV2:
@@ -122,6 +145,8 @@ class FoodCompositionCrawlerV2:
         supabase_url: str,
         supabase_key: str,
         target_pdfs: int = 12,
+        target_pdfs_en: Optional[int] = None,
+        target_pdfs_tr: Optional[int] = None,
         query_limit: int = 50,
         food_term_limit: int = 0,
         nutrient_term_limit: int = 0,
@@ -134,7 +159,12 @@ class FoodCompositionCrawlerV2:
         self.manifest_path = self.raw_pdf_dir / "_harvest_metadata.json"
         self.candidate_store_path = self.data_dir / "search_candidates.json"
         self.search_hits_path = self.data_dir / "search_hits.json"
-        self.target_pdfs = target_pdfs
+        self.target_pdfs_by_language = self._resolve_target_pdfs_by_language(
+            target_pdfs=target_pdfs,
+            target_pdfs_en=target_pdfs_en,
+            target_pdfs_tr=target_pdfs_tr,
+        )
+        self.target_pdfs = sum(self.target_pdfs_by_language.values())
         self.query_limit = query_limit
         food_limit = food_term_limit if food_term_limit > 0 else 5000
         nutrient_limit = nutrient_term_limit if nutrient_term_limit > 0 else 500
@@ -173,6 +203,10 @@ class FoodCompositionCrawlerV2:
             language: extract_pair_scores(self.feedback_config, language)
             for language in SUPPORTED_LANGUAGES
         }
+        self.concept_scores_by_language = {
+            language: extract_concept_scores(self.feedback_config, language)
+            for language in SUPPORTED_LANGUAGES
+        }
         self.embedding_scorer = DualEmbeddingScorer()
         self.max_queries = max_queries
         self.search_sources = build_search_sources(
@@ -191,13 +225,9 @@ class FoodCompositionCrawlerV2:
             self.candidate_store_path.unlink(missing_ok=True)
             self.search_hits_path.unlink(missing_ok=True)
         self.raw_pdf_dir.mkdir(parents=True, exist_ok=True)
-        seen_ids: Set[str] = {
-            self._normalize_seen_key(value)
-            for value in self.state.get("seen_ids", [])
-            if self._normalize_seen_key(value)
-        }
+        skip_keys = self._state_skip_keys()
         search_tasks = self._build_search_tasks()
-        candidates, discovery_hits, query_log, query_stats = self._search_candidates(search_tasks, seen_ids)
+        candidates, discovery_hits, query_log, query_stats = self._search_candidates(search_tasks, skip_keys)
         self._filter_candidates(candidates, discovery_hits, query_log, query_stats)
         accepted_records, rejected_records = self._acquire_candidates(candidates)
 
@@ -239,10 +269,15 @@ class FoodCompositionCrawlerV2:
                     language: len(self.feedback_weighted_terms_by_language.get(language, {}))
                     for language in SUPPORTED_LANGUAGES
                 },
+                "concept_scores_count_by_language": {
+                    language: len(self.concept_scores_by_language.get(language, {}))
+                    for language in SUPPORTED_LANGUAGES
+                },
                 "counts": self.feedback_config.get("counts"),
                 "counts_by_language": self.feedback_config.get("counts_by_language"),
             },
             "target_pdfs": self.target_pdfs,
+            "target_pdfs_by_language": self.target_pdfs_by_language,
             "candidate_count": len(candidates),
             "candidate_count_by_language": candidate_count_by_language,
             "search_hit_count": len(discovery_hits),
@@ -271,8 +306,7 @@ class FoodCompositionCrawlerV2:
             "results": [record.to_dict() for record in accepted_records + rejected_records],
         }
         self._write_json(self.manifest_path, manifest)
-        seen_ids.update(hit.canonical_key for hit in discovery_hits if hit.canonical_key)
-        self.state["seen_ids"] = sorted(seen_ids)
+        self._record_terminal_states(candidates, discovery_hits, accepted_records, rejected_records)
         self.state["audit_reject_counter"] = self.audit_reject_counter
         self._save_state()
         return manifest
@@ -281,40 +315,73 @@ class FoodCompositionCrawlerV2:
         self.audit_reject_counter += 1
         return self.audit_reject_counter % AUDIT_EVERY_N == 0
 
+    def _resolve_target_pdfs_by_language(
+        self,
+        *,
+        target_pdfs: int,
+        target_pdfs_en: Optional[int],
+        target_pdfs_tr: Optional[int],
+    ) -> Dict[str, int]:
+        if target_pdfs_en is not None or target_pdfs_tr is not None:
+            return {
+                "en": max(0, int(target_pdfs_en or 0)),
+                "tr": max(0, int(target_pdfs_tr or 0)),
+            }
+
+        total = max(0, int(target_pdfs))
+        en_target = total // 2
+        tr_target = total - en_target
+        return {"en": en_target, "tr": tr_target}
+
+    def _active_languages(self) -> List[str]:
+        return [
+            language
+            for language in SUPPORTED_LANGUAGES
+            if self.target_pdfs_by_language.get(language, 0) > 0
+        ]
+
     def _build_search_tasks(self) -> List[SearchTask]:
+        active_languages = self._active_languages()
+        if not active_languages:
+            return []
         budgets = self._language_query_budget()
         per_language_specs = {
             language: self._build_queries_for_language(
                 language,
                 max(1, (budgets.get(language, 0) + max(1, len(self.search_sources)) - 1) // max(1, len(self.search_sources))),
             )
-            for language in SUPPORTED_LANGUAGES
+            for language in active_languages
         }
         per_language_tasks = {
             language: self._expand_search_tasks(language, per_language_specs.get(language, []), budgets.get(language, 0))
-            for language in SUPPORTED_LANGUAGES
+            for language in active_languages
         }
         tasks: List[SearchTask] = []
         max_len = max((len(items) for items in per_language_tasks.values()), default=0)
         for idx in range(max_len):
-            for language in SUPPORTED_LANGUAGES:
+            for language in active_languages:
                 items = per_language_tasks.get(language, [])
                 if idx < len(items):
                     tasks.append(items[idx])
         return tasks[: self.max_queries]
 
     def _language_query_budget(self) -> Dict[str, int]:
+        active_languages = self._active_languages()
+        budgets = {language: 0 for language in SUPPORTED_LANGUAGES}
         if self.max_queries <= 0:
-            return {language: 0 for language in SUPPORTED_LANGUAGES}
-        base_budget = self.max_queries // len(SUPPORTED_LANGUAGES)
-        budgets = {language: base_budget for language in SUPPORTED_LANGUAGES}
+            return budgets
+        if not active_languages:
+            return budgets
+        base_budget = self.max_queries // len(active_languages)
+        for language in active_languages:
+            budgets[language] = base_budget
         remainder = self.max_queries - sum(budgets.values())
         if remainder > 0:
-            cursor = int(self.state.get("language_remainder_cursor", 0)) % len(SUPPORTED_LANGUAGES)
+            cursor = int(self.state.get("language_remainder_cursor", 0)) % len(active_languages)
             for offset in range(remainder):
-                language = SUPPORTED_LANGUAGES[(cursor + offset) % len(SUPPORTED_LANGUAGES)]
+                language = active_languages[(cursor + offset) % len(active_languages)]
                 budgets[language] += 1
-            self.state["language_remainder_cursor"] = (cursor + remainder) % len(SUPPORTED_LANGUAGES)
+            self.state["language_remainder_cursor"] = (cursor + remainder) % len(active_languages)
         return budgets
 
     def _build_queries_for_language(self, language: str, budget: int) -> List[QuerySpec]:
@@ -433,8 +500,21 @@ class FoodCompositionCrawlerV2:
 
     def _build_concept_pool(self, language: str) -> List[Tuple[str, str]]:
         pool: List[Tuple[str, str]] = []
-        food_terms = self.food_terms_by_language.get(language, [])
-        nutrient_terms = self.nutrient_terms_by_language.get(language, [])
+        concept_scores = self.concept_scores_by_language.get(language, {})
+
+        def sort_terms(terms: List[str]) -> List[str]:
+            enumerated = list(enumerate(terms))
+            enumerated.sort(
+                key=lambda item: (
+                    concept_scores.get(self._normalize_for_match(item[1]), 0.0),
+                    -item[0],
+                ),
+                reverse=True,
+            )
+            return [term for _, term in enumerated]
+
+        food_terms = sort_terms(self.food_terms_by_language.get(language, []))
+        nutrient_terms = sort_terms(self.nutrient_terms_by_language.get(language, []))
         max_len = max(len(food_terms), len(nutrient_terms))
         for idx in range(max_len):
             if idx < len(food_terms):
@@ -521,12 +601,13 @@ class FoodCompositionCrawlerV2:
         key = f"{source}|{spec.template_id}|{normalized_term}"
         pair_score = float(self.pair_scores_by_language.get(language, {}).get(key, 0.0))
         source_prior = float(self.source_priors_by_language.get(language, {}).get(source, 0.0))
-        return pair_score + 0.15 * source_prior
+        static_bias = float(DEFAULT_SOURCE_BIAS_BY_LANGUAGE.get(language, {}).get(source, 0.0))
+        return pair_score + 0.15 * source_prior + static_bias
 
     def _search_candidates(
         self,
         tasks: List[SearchTask],
-        seen_ids: Set[str],
+        skip_keys: Set[str],
     ) -> Tuple[List[CandidatePaper], List[DiscoveryHit], List[Dict[str, object]], Dict[str, Dict[str, int]]]:
         query_log: List[Dict[str, object]] = []
         query_stats: Dict[str, Dict[str, int]] = {}
@@ -567,7 +648,7 @@ class FoodCompositionCrawlerV2:
                 candidate.workflow_language = spec.language
                 candidate.source_record_id = candidate.source_record_id or candidate.external_id
                 canonical_key = candidate.canonical_key
-                if not canonical_key or canonical_key in seen_ids:
+                if not canonical_key or canonical_key in skip_keys:
                     stats["skipped_seen"] += 1
                     query_stats[stat_key]["skipped_seen"] += 1
                     continue
@@ -666,6 +747,7 @@ class FoodCompositionCrawlerV2:
     ) -> Tuple[List[DownloadRecord], List[DownloadRecord]]:
         accepted_records: List[DownloadRecord] = []
         rejected_records: List[DownloadRecord] = []
+        accepted_counts = {language: 0 for language in SUPPORTED_LANGUAGES}
         ranked_candidates = sorted(
             candidates,
             key=lambda item: (item.filter_pass, item.filter_score, item.search_gate_score),
@@ -673,7 +755,16 @@ class FoodCompositionCrawlerV2:
         )
 
         for candidate in ranked_candidates:
-            if candidate.filter_pass and len(accepted_records) >= self.target_pdfs:
+            candidate_language = (
+                candidate.workflow_language if candidate.workflow_language in SUPPORTED_LANGUAGES else "en"
+            )
+            if (
+                candidate.filter_pass
+                and all(
+                    accepted_counts[language] >= self.target_pdfs_by_language.get(language, 0)
+                    for language in self._active_languages()
+                )
+            ):
                 break
 
             if not candidate.filter_pass:
@@ -686,12 +777,17 @@ class FoodCompositionCrawlerV2:
                                 force_audit=True,
                                 skip_validation=True,
                                 rejection_error="Rejected by metadata filter",
+                                rejection_stage="metadata_filter",
                             )
                         )
                     else:
-                        rejected_records.append(self._skip_record(candidate, "Rejected by metadata filter"))
+                        rejected_records.append(
+                            self._skip_record(candidate, "Rejected by metadata filter", decision_stage="metadata_filter")
+                        )
                 else:
-                    rejected_records.append(self._skip_record(candidate, "Rejected by metadata filter"))
+                    rejected_records.append(
+                        self._skip_record(candidate, "Rejected by metadata filter", decision_stage="metadata_filter")
+                    )
                 continue
 
             if not candidate.pdf_url and not candidate.pmcid:
@@ -699,12 +795,18 @@ class FoodCompositionCrawlerV2:
                     {"code": "no_pdf_url", "text": "Rejected: no PDF URL available"}
                 ]
                 candidate.reasons = [reason["text"] for reason in candidate.reason_details]
-                rejected_records.append(self._skip_record(candidate, "Rejected: no PDF URL available"))
+                rejected_records.append(
+                    self._skip_record(candidate, "Rejected: no PDF URL available", decision_stage="pdf_fetch")
+                )
+                continue
+
+            if accepted_counts[candidate_language] >= self.target_pdfs_by_language.get(candidate_language, 0):
                 continue
 
             record = self._download_candidate(candidate)
             if record.status == "success":
                 accepted_records.append(record)
+                accepted_counts[candidate_language] += 1
             else:
                 rejected_records.append(record)
         return accepted_records, rejected_records
@@ -770,6 +872,67 @@ class FoodCompositionCrawlerV2:
         if text.startswith("10."):
             return f"doi:{text.lower()}"
         return text.lower()
+
+    def _normalize_paper_states(self, payload: object) -> Dict[str, Dict[str, str]]:
+        if not isinstance(payload, dict):
+            return {}
+        normalized: Dict[str, Dict[str, str]] = {}
+        for raw_key, raw_value in payload.items():
+            key = self._normalize_seen_key(raw_key)
+            if not key or not isinstance(raw_value, dict):
+                continue
+            decision = str(raw_value.get("decision") or "").strip().lower()
+            stage = str(raw_value.get("stage") or "").strip().lower()
+            if decision not in TERMINAL_DECISIONS or stage not in TERMINAL_DECISION_STAGES:
+                continue
+            normalized[key] = {"decision": decision, "stage": stage}
+        return dict(sorted(normalized.items()))
+
+    def _paper_states(self) -> Dict[str, Dict[str, str]]:
+        payload = self.state.get("paper_states")
+        if not isinstance(payload, dict):
+            payload = {}
+            self.state["paper_states"] = payload
+        return payload
+
+    def _state_skip_keys(self) -> Set[str]:
+        skip_keys = set(self._paper_states().keys())
+        skip_keys.update(
+            self._normalize_seen_key(value)
+            for value in self.state.get("seen_ids", [])
+            if self._normalize_seen_key(value)
+        )
+        return skip_keys
+
+    def _record_terminal_state(self, canonical_key: Optional[str], *, decision: str, stage: str) -> None:
+        normalized_key = self._normalize_seen_key(canonical_key)
+        if not normalized_key or decision not in TERMINAL_DECISIONS or stage not in TERMINAL_DECISION_STAGES:
+            return
+        self._paper_states()[normalized_key] = {"decision": decision, "stage": stage}
+
+    def _record_terminal_states(
+        self,
+        candidates: List[CandidatePaper],
+        discovery_hits: List[DiscoveryHit],
+        accepted_records: List[DownloadRecord],
+        rejected_records: List[DownloadRecord],
+    ) -> None:
+        for record in accepted_records + rejected_records:
+            if not record.decision_stage:
+                continue
+            decision = "accepted" if record.status == "success" else "rejected"
+            self._record_terminal_state(record.canonical_key, decision=decision, stage=record.decision_stage)
+
+        candidate_keys = {
+            self._normalize_seen_key(candidate.canonical_key)
+            for candidate in candidates
+            if self._normalize_seen_key(candidate.canonical_key)
+        }
+        for hit in discovery_hits:
+            normalized_key = self._normalize_seen_key(hit.canonical_key)
+            if not normalized_key or hit.search_gate_pass or normalized_key in candidate_keys:
+                continue
+            self._record_terminal_state(normalized_key, decision="rejected", stage="search_gate")
 
     def _search_gate_decision(self, candidate: CandidatePaper) -> Tuple[bool, float, List[Dict[str, str]]]:
         details: List[Dict[str, str]] = []
@@ -1058,15 +1221,16 @@ class FoodCompositionCrawlerV2:
         force_audit: bool = False,
         skip_validation: bool = False,
         rejection_error: Optional[str] = None,
+        rejection_stage: Optional[str] = None,
     ) -> DownloadRecord:
         if not candidate.pdf_url and not candidate.pmcid:
-            return self._failed_record(candidate, "No PDF URL available", audit=force_audit)
+            return self._failed_record(candidate, "No PDF URL available", audit=force_audit, decision_stage="pdf_fetch")
 
         try:
             content, source_url = self._fetch_pdf_with_oa(candidate)
             candidate.pdf_url = source_url
         except Exception as exc:
-            return self._failed_record(candidate, str(exc), audit=force_audit)
+            return self._failed_record(candidate, str(exc), audit=force_audit, decision_stage="pdf_fetch")
 
         file_name = self._build_filename(candidate)
         destination = self.raw_pdf_dir / file_name
@@ -1099,6 +1263,7 @@ class FoodCompositionCrawlerV2:
                 filter_score=candidate.filter_score,
                 search_gate_pass=candidate.search_gate_pass,
                 filter_pass=candidate.filter_pass,
+                decision_stage=rejection_stage,
             )
         _, accepted, pdf_reasons = self._validate_downloaded_pdf(destination, candidate)
         pdf_reason_details = [
@@ -1112,7 +1277,11 @@ class FoodCompositionCrawlerV2:
             audit_flag = force_audit or self._next_audit_flag()
             if not audit_flag:
                 destination.unlink(missing_ok=True)
-                return self._failed_record(candidate, "Rejected by PDF validation")
+                return self._failed_record(
+                    candidate,
+                    "Rejected by PDF validation",
+                    decision_stage="pdf_validation",
+                )
             return DownloadRecord(
                 status="failed",
                 title=candidate.title,
@@ -1140,6 +1309,7 @@ class FoodCompositionCrawlerV2:
                 filter_score=candidate.filter_score,
                 search_gate_pass=candidate.search_gate_pass,
                 filter_pass=candidate.filter_pass,
+                decision_stage="pdf_validation",
             )
 
         candidate.reason_details = combined_reason_details
@@ -1170,6 +1340,7 @@ class FoodCompositionCrawlerV2:
             filter_score=candidate.filter_score,
             search_gate_pass=candidate.search_gate_pass,
             filter_pass=candidate.filter_pass,
+            decision_stage="acquisition",
         )
 
     def _fetch_pdf_with_oa(self, candidate: CandidatePaper) -> Tuple[bytes, str]:
@@ -1366,14 +1537,19 @@ class FoodCompositionCrawlerV2:
             nonce += 1
 
     def _build_filename(self, candidate: CandidatePaper) -> str:
-        if candidate.pmcid:
-            return f"{candidate.pmcid}.pdf"
-        stem = candidate.title.lower()
-        stem = re.sub(r"[^a-z0-9]+", "_", stem).strip("_")
-        stem = stem[:80] or "paper"
-        return f"{stem}.pdf"
+        return build_storage_filename(
+            canonical_key=candidate.canonical_key,
+            pmcid=candidate.pmcid,
+            doi=candidate.doi,
+        )
 
-    def _skip_record(self, candidate: CandidatePaper, error: str, audit: bool = False) -> DownloadRecord:
+    def _skip_record(
+        self,
+        candidate: CandidatePaper,
+        error: str,
+        audit: bool = False,
+        decision_stage: Optional[str] = None,
+    ) -> DownloadRecord:
         return DownloadRecord(
             status="skipped",
             title=candidate.title,
@@ -1399,9 +1575,16 @@ class FoodCompositionCrawlerV2:
             filter_score=candidate.filter_score,
             search_gate_pass=candidate.search_gate_pass,
             filter_pass=candidate.filter_pass,
+            decision_stage=decision_stage,
         )
 
-    def _failed_record(self, candidate: CandidatePaper, error: str, audit: bool = False) -> DownloadRecord:
+    def _failed_record(
+        self,
+        candidate: CandidatePaper,
+        error: str,
+        audit: bool = False,
+        decision_stage: Optional[str] = None,
+    ) -> DownloadRecord:
         return DownloadRecord(
             status="failed",
             title=candidate.title,
@@ -1427,11 +1610,13 @@ class FoodCompositionCrawlerV2:
             filter_score=candidate.filter_score,
             search_gate_pass=candidate.search_gate_pass,
             filter_pass=candidate.filter_pass,
+            decision_stage=decision_stage,
         )
 
     def _default_state(self) -> Dict[str, object]:
         state = {
             "seen_ids": [],
+            "paper_states": {},
             "language_remainder_cursor": 0,
             "audit_reject_counter": 0,
         }
@@ -1453,9 +1638,11 @@ class FoodCompositionCrawlerV2:
             return self._default_state()
         state = self._default_state()
         state.update(payload)
+        state["paper_states"] = self._normalize_paper_states(state.get("paper_states"))
         return state
 
     def _save_state(self) -> None:
+        self.state["paper_states"] = self._normalize_paper_states(self.state.get("paper_states"))
         self._write_json(self.state_path, self.state)
 
     def _write_json(self, path: Path, payload: Dict[str, object]) -> None:

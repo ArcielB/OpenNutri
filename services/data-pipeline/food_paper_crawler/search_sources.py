@@ -18,10 +18,12 @@ DEFAULT_SEARCH_SOURCES = ("europepmc", "openalex", "semanticscholar", "dergipark
 OPENALEX_ALLOWED_TYPES = {"article", "preprint"}
 OAI_NS = {
     "oai": "http://www.openarchives.org/OAI/2.0/",
+    "oai_dc": "http://www.openarchives.org/OAI/2.0/oai_dc/",
     "dc": "http://purl.org/dc/elements/1.1/",
 }
 DOI_PATTERN = re.compile(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", re.IGNORECASE)
 PMCID_PATTERN = re.compile(r"PMC\d+", re.IGNORECASE)
+UNIT_QUERY_TERMS = {"mg/100g", "g/100g", "ug/100g", "µg/100g"}
 
 
 def build_search_sources(
@@ -68,6 +70,47 @@ def build_plain_query(spec: QuerySpec) -> str:
     return " ".join(parts) if parts else spec.query
 
 
+def build_metadata_query(spec: QuerySpec) -> str:
+    candidates: List[str] = []
+    seen = set()
+
+    def append(term: object) -> None:
+        normalized = " ".join(str(term or "").split())
+        if not normalized:
+            return
+        lowered = normalized.lower()
+        if lowered in seen or lowered in UNIT_QUERY_TERMS:
+            return
+        seen.add(lowered)
+        candidates.append(normalized)
+
+    if spec.source_term:
+        append(spec.source_term)
+    if spec.query_phrase:
+        append(spec.query_phrase)
+
+    if not candidates:
+        for keyword in spec.keywords:
+            append(keyword)
+            if len(candidates) >= 2:
+                break
+
+    # Metadata search APIs work better with one concise composition phrase for
+    # base discovery and two terms for learned concept queries.
+    if not spec.source_term and candidates:
+        candidates = candidates[:1]
+    else:
+        candidates = candidates[:2]
+
+    if not candidates:
+        return build_plain_query(spec)
+
+    rendered: List[str] = []
+    for term in candidates:
+        rendered.append(f'"{term}"' if " " in term else term)
+    return " ".join(rendered)
+
+
 class EuropePMCSearchSource:
     def __init__(self, *, page_size: int) -> None:
         self.client = EuropePMCClient(page_size=page_size)
@@ -83,7 +126,7 @@ class OpenAlexSearchSource:
     base_url = "https://api.openalex.org/works"
 
     def query_text(self, spec: QuerySpec) -> str:
-        return build_plain_query(spec)
+        return build_metadata_query(spec)
 
     def search(self, spec: QuerySpec, limit: int) -> List[CandidatePaper]:
         query = self.query_text(spec)
@@ -184,7 +227,7 @@ class SemanticScholarSearchSource:
     fields = "paperId,title,abstract,year,externalIds,openAccessPdf,url,journal"
 
     def query_text(self, spec: QuerySpec) -> str:
-        return build_plain_query(spec)
+        return build_metadata_query(spec)
 
     def search(self, spec: QuerySpec, limit: int) -> List[CandidatePaper]:
         query = self.query_text(spec)
@@ -372,7 +415,7 @@ class DergiParkOAISource:
         metadata = record_node.find("oai:metadata", OAI_NS)
         if metadata is None:
             return None
-        dc = metadata.find(".//dc:dc", OAI_NS)
+        dc = metadata.find(".//oai_dc:dc", OAI_NS)
         if dc is None:
             return None
 

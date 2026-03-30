@@ -23,6 +23,7 @@ if __package__ in {None, ""}:
     )
     from feedback_terms import extract_terms
     from language_utils import SUPPORTED_LANGUAGES, detect_supported_language
+    from models import build_search_hit_key
 else:
     from ..feedback_seed_terms import (
         SEED_ANCHOR_PHRASES_BY_LANGUAGE,
@@ -31,6 +32,7 @@ else:
     )
     from ..feedback_terms import extract_terms
     from ..language_utils import SUPPORTED_LANGUAGES, detect_supported_language
+    from ..models import build_search_hit_key
 
 
 @dataclass
@@ -261,6 +263,10 @@ def classify_papers_by_language(papers: List[dict]) -> Dict[str, set[int]]:
     for row in papers:
         paper_id = row.get("id")
         if paper_id is None:
+            continue
+        workflow_language = str(row.get("workflow_language") or "").strip().lower()
+        if workflow_language in SUPPORTED_LANGUAGES:
+            buckets[workflow_language].add(paper_id)
             continue
         text = " ".join(
             part.strip()
@@ -700,6 +706,100 @@ def build_search_pair_feedback(
     return pair_payloads, source_priors
 
 
+def dedupe_search_hits(search_hits: List[dict]) -> List[dict]:
+    deduped: Dict[str, dict] = {}
+    for row in search_hits:
+        hit_key = str(
+            row.get("hit_key")
+            or build_search_hit_key(
+                canonical_key=row.get("canonical_key"),
+                source=row.get("source"),
+                workflow_language=row.get("workflow_language"),
+                template_id=row.get("template_id"),
+                source_term=row.get("source_term"),
+                query_phrase=row.get("query_phrase"),
+                query_text=row.get("query_text"),
+            )
+        ).strip()
+        if not hit_key:
+            continue
+        existing = deduped.get(hit_key)
+        if existing is None:
+            normalized = dict(row)
+            normalized["hit_key"] = hit_key
+            deduped[hit_key] = normalized
+            continue
+        if existing.get("paper_id") is None and row.get("paper_id") is not None:
+            existing["paper_id"] = row["paper_id"]
+        existing["search_gate_pass"] = bool(existing.get("search_gate_pass") or row.get("search_gate_pass"))
+        existing["filter_pass"] = bool(existing.get("filter_pass") or row.get("filter_pass"))
+        existing["is_duplicate"] = bool(existing.get("is_duplicate") or row.get("is_duplicate"))
+        if not existing.get("title") and row.get("title"):
+            existing["title"] = row["title"]
+        if not existing.get("abstract") and row.get("abstract"):
+            existing["abstract"] = row["abstract"]
+    return list(deduped.values())
+
+
+def build_concept_feedback(
+    search_hits: List[dict],
+    good_ids: set[int],
+    bad_ids: set[int],
+    *,
+    language: str,
+) -> List[dict]:
+    concept_stats: Dict[str, Dict[str, object]] = {}
+    for row in search_hits:
+        if row.get("workflow_language") != language:
+            continue
+        source_term = " ".join(str(row.get("source_term") or "").lower().strip().split())
+        if not source_term:
+            continue
+        stats = concept_stats.setdefault(
+            source_term,
+            {
+                "source_term": source_term,
+                "retrieved": 0,
+                "positive_papers": set(),
+                "negative_papers": set(),
+            },
+        )
+        stats["retrieved"] = int(stats["retrieved"]) + 1
+        paper_id = row.get("paper_id")
+        if not isinstance(paper_id, int):
+            continue
+        if paper_id in good_ids:
+            stats["positive_papers"].add(paper_id)
+        elif paper_id in bad_ids:
+            stats["negative_papers"].add(paper_id)
+
+    payloads: List[dict] = []
+    for stats in concept_stats.values():
+        retrieved = max(1, int(stats["retrieved"]))
+        positive_count = len(stats["positive_papers"])
+        negative_count = len(stats["negative_papers"])
+        payloads.append(
+            {
+                "source_term": stats["source_term"],
+                "retrieved": retrieved,
+                "positive_count": positive_count,
+                "negative_count": negative_count,
+                "score": (positive_count - negative_count) / retrieved,
+            }
+        )
+    payloads.sort(
+        key=lambda row: (
+            row["score"],
+            row["positive_count"],
+            -row["negative_count"],
+            row["retrieved"],
+            row["source_term"],
+        ),
+        reverse=True,
+    )
+    return payloads
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate cumulative field-aware soft-feedback n-gram weights from labeled papers.")
     parser.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL"))
@@ -739,9 +839,10 @@ def main() -> None:
         args.supabase_url,
         args.supabase_key,
         "paper_search_hits",
-        "paper_id,canonical_key,source,template_id,source_term,workflow_language,title,abstract,search_gate_pass,filter_pass,is_duplicate",
+        "paper_id,canonical_key,source,template_id,source_term,workflow_language,title,abstract,query_text,query_phrase,search_gate_pass,filter_pass,is_duplicate",
         batch_size=1000,
     )
+    search_hits = dedupe_search_hits(search_hits)
 
     good_ids, bad_ids, conflict_ids = build_labels(label_events, global_labels)
     paper_ids_by_language = classify_papers_by_language(papers)
@@ -804,6 +905,12 @@ def main() -> None:
             bad_ids,
             language=language,
         )
+        concept_scores = build_concept_feedback(
+            search_hits,
+            good_ids,
+            bad_ids,
+            language=language,
+        )
 
         weighted_terms = [asdict(item) for item in scored]
         query_phrases_by_language[language] = query_phrases
@@ -816,6 +923,7 @@ def main() -> None:
             "anchor_phrases": anchor_phrases,
             "weighted_terms": weighted_terms,
             "pair_scores": pair_scores,
+            "concept_scores": concept_scores,
             "source_priors": source_priors,
             "discovery_candidates": discovery_candidates,
         }

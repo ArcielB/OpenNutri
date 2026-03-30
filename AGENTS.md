@@ -5,7 +5,7 @@ Use this file to keep context narrow. Read this first, then open only the files 
 ## Startup Order
 1. Read `INSTRUCTIONS.md`.
 2. Check `git status --short` before editing so you do not disturb local run artifacts or user changes.
-3. Read `Keys and links` only if the task needs credentials, network calls, or database writes.
+3. Read `Keys and links` only if the task needs credentials, network calls, or database writes. Use it as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
 4. Read `README.md` or `docs/handoff_2026-03-20/STATE.md` only for the subsystem you are touching.
 
 ## Active Surfaces
@@ -66,6 +66,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 
 ## Secrets
 - `Keys and links` is the main local source for GitHub, Supabase, and database credentials.
+- For GitHub network operations, use the GitHub token from `Keys and links` through a non-interactive auth path such as `GIT_ASKPASS`; do not rely on memory or interactive prompts.
 - Hardcoded credentials also exist in some internal files such as `services/data-pipeline/config.py`; treat that as sensitive debt, not documentation.
 - Never copy secret values into `AGENTS.md`, `README.md`, commits, tickets, or model responses.
 - Refer to secrets by env var name only, for example `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `GEMINI_API_KEY`.

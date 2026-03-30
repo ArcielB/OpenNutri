@@ -6,6 +6,105 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 
+def _normalize_space(value: object) -> str:
+    return " ".join(str(value or "").strip().split())
+
+
+def _normalize_identity_text(value: object) -> str:
+    text = _normalize_space(value).lower()
+    return re.sub(r"[\W_]+", " ", text, flags=re.UNICODE).strip()
+
+
+def _normalize_free_text(value: object) -> str:
+    return _normalize_space(value).lower()
+
+
+def build_canonical_key(
+    *,
+    pmcid: Optional[str],
+    doi: Optional[str],
+    title: str,
+    year: Optional[str],
+    journal: Optional[str],
+    source: str,
+    source_record_id: Optional[str],
+    external_id: str,
+) -> str:
+    normalized_pmcid = re.sub(r"[^a-z0-9]+", "", _normalize_free_text(pmcid))
+    if normalized_pmcid:
+        if not normalized_pmcid.startswith("pmc"):
+            normalized_pmcid = f"pmc{normalized_pmcid}"
+        return f"pmcid:{normalized_pmcid}"
+
+    normalized_doi = _normalize_free_text(doi)
+    if normalized_doi:
+        return f"doi:{normalized_doi}"
+
+    normalized_title = _normalize_identity_text(title)
+    if normalized_title:
+        parts = [normalized_title]
+        normalized_year = re.sub(r"[^0-9]+", "", _normalize_space(year))[:4]
+        normalized_journal = _normalize_identity_text(journal)
+        if normalized_year:
+            parts.append(normalized_year)
+        if normalized_journal:
+            parts.append(normalized_journal)
+        else:
+            source_key = _normalize_free_text(source)
+            record_key = _normalize_free_text(source_record_id or external_id)
+            if source_key or record_key:
+                parts.append(f"{source_key}:{record_key}")
+        digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:24]
+        return f"title:{digest}"
+
+    normalized_source = _normalize_free_text(source) or "unknown"
+    normalized_record = _normalize_free_text(source_record_id or external_id) or "unknown"
+    return f"source:{normalized_source}:{normalized_record}"
+
+
+def build_storage_filename(
+    *,
+    canonical_key: str,
+    pmcid: Optional[str],
+    doi: Optional[str],
+) -> str:
+    normalized_pmcid = re.sub(r"[^a-z0-9]+", "", _normalize_free_text(pmcid))
+    if normalized_pmcid:
+        if not normalized_pmcid.startswith("pmc"):
+            normalized_pmcid = f"pmc{normalized_pmcid}"
+        return f"pmcid_{normalized_pmcid}.pdf"
+
+    normalized_doi = _normalize_free_text(doi)
+    if normalized_doi:
+        digest = hashlib.sha1(normalized_doi.encode("utf-8")).hexdigest()[:24]
+        return f"doi_{digest}.pdf"
+
+    digest = hashlib.sha1(_normalize_free_text(canonical_key).encode("utf-8")).hexdigest()[:24]
+    return f"paper_{digest}.pdf"
+
+
+def build_search_hit_key(
+    *,
+    canonical_key: object,
+    source: object,
+    workflow_language: object,
+    template_id: object,
+    source_term: object = None,
+    query_phrase: object = None,
+    query_text: object = None,
+) -> str:
+    parts = (
+        _normalize_free_text(canonical_key),
+        _normalize_free_text(source),
+        _normalize_free_text(workflow_language),
+        _normalize_free_text(template_id),
+        _normalize_free_text(source_term),
+        _normalize_free_text(query_phrase),
+        _normalize_free_text(query_text),
+    )
+    return hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()
+
+
 @dataclass
 class CandidatePaper:
     source: str
@@ -44,15 +143,16 @@ class CandidatePaper:
 
     @property
     def canonical_key(self) -> str:
-        if self.pmcid:
-            return f"pmcid:{self.pmcid.lower()}"
-        if self.doi:
-            return f"doi:{self.doi.lower()}"
-        normalized_title = re.sub(r"[^a-z0-9]+", " ", (self.title or "").lower()).strip()
-        if normalized_title:
-            digest = hashlib.sha1(normalized_title.encode("utf-8")).hexdigest()[:16]
-            return f"title:{digest}"
-        return f"source:{self.source}:{self.external_id}"
+        return build_canonical_key(
+            pmcid=self.pmcid,
+            doi=self.doi,
+            title=self.title,
+            year=self.year,
+            journal=self.journal,
+            source=self.source,
+            source_record_id=self.source_record_id,
+            external_id=self.external_id,
+        )
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -113,6 +213,7 @@ class DownloadRecord:
     filter_score: float = 0.0
     search_gate_pass: bool = False
     filter_pass: bool = False
+    decision_stage: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         payload = {
@@ -141,6 +242,7 @@ class DownloadRecord:
             "filter_score": round(self.filter_score, 2),
             "search_gate_pass": self.search_gate_pass,
             "filter_pass": self.filter_pass,
+            "decision_stage": self.decision_stage,
         }
         if self.error:
             payload["error"] = self.error
@@ -189,8 +291,21 @@ class DiscoveryHit:
     is_duplicate: bool = False
     paper_id: Optional[int] = None
 
+    @property
+    def hit_key(self) -> str:
+        return build_search_hit_key(
+            canonical_key=self.canonical_key,
+            source=self.source,
+            workflow_language=self.workflow_language,
+            template_id=self.template_id,
+            source_term=self.source_term,
+            query_phrase=self.query_phrase,
+            query_text=self.query,
+        )
+
     def to_dict(self) -> Dict[str, object]:
         return {
+            "hit_key": self.hit_key,
             "canonical_key": self.canonical_key,
             "source": self.source,
             "source_record_id": self.source_record_id,

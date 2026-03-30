@@ -234,9 +234,12 @@ NUTRIENT_SYNONYMS = {
 
 def fetch_food_terms_by_language(supabase_url: str, supabase_key: str, limit: int = 120) -> Dict[str, List[str]]:
     remote = _fetch_remote_food_terms_by_language(supabase_url, supabase_key, limit=limit)
-    local_en = _load_local_food_terms(limit=limit * 2)
     return {
-        "en": _merge_terms(CURATED_FOOD_TERMS_EN, remote["en"], local_en, limit=limit),
+        # Local FDC food descriptions are too noisy for retrieval terms and can
+        # leak nutrient or brand tokens such as "niacin" or "kroger" into the
+        # food concept pool. Keep English food discovery anchored to curated and
+        # DB-derived food terms only.
+        "en": _merge_terms(CURATED_FOOD_TERMS_EN, remote["en"], limit=limit),
         "tr": _merge_terms(CURATED_FOOD_TERMS_TR, remote["tr"], limit=limit),
     }
 

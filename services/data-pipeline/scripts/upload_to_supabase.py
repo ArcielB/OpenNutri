@@ -1,49 +1,105 @@
+import argparse
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 from supabase import Client, create_client
 
 
-annotator_env_path = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "apps", "expert-annotator", ".env")
-)
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PIPELINE_ROOT = PROJECT_ROOT / "services" / "data-pipeline"
+if str(PIPELINE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PIPELINE_ROOT))
+
+from food_paper_crawler.models import build_search_hit_key
+
+annotator_env_path = PROJECT_ROOT / "apps" / "expert-annotator" / ".env"
 load_dotenv(annotator_env_path)
 
 url: str = os.environ.get("VITE_SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("VITE_SUPABASE_ANON_KEY")
 
 if not url or not key:
-    print("❌ Error: Missing Supabase credentials in apps/expert-annotator/.env")
+    print("Error: Missing Supabase credentials in apps/expert-annotator/.env")
     raise SystemExit(1)
 
 supabase: Client = create_client(url, key)
 
-RAW_PDFS_DIR = Path("data/raw_pdfs")
-METADATA_FILE = RAW_PDFS_DIR / "_harvest_metadata.json"
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Upload crawled PDFs and metadata to Supabase.")
+    parser.add_argument(
+        "--data-dir",
+        default="services/data-pipeline/data",
+        help="Crawler data directory that contains raw_pdfs/ and manifest-linked artifacts.",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Optional explicit path to _harvest_metadata.json. Overrides --data-dir.",
+    )
+    return parser
 
 
 def _load_json(path: Path) -> dict:
-    if not path.exists():
-        return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _resolve_artifact(manifest: dict, key_name: str) -> Path | None:
+def _resolve_artifact(manifest_path: Path, manifest: dict, key_name: str) -> Path:
     raw_value = manifest.get(key_name)
     if not raw_value:
-        return None
-    return Path(str(raw_value))
+        raise SystemExit(f"Missing '{key_name}' in manifest {manifest_path}")
+    crawl_root = manifest_path.parent.parent.parent
+    candidate = Path(str(raw_value))
+    if candidate.is_absolute():
+        return candidate
+    if candidate.exists():
+        return candidate
+    crawl_relative = crawl_root / candidate
+    if crawl_relative.exists():
+        return crawl_relative
+    project_relative = PROJECT_ROOT / candidate
+    if project_relative.exists():
+        return project_relative
+    raise SystemExit(f"Artifact '{key_name}' not found: {raw_value}")
+
+
+def _resolve_crawl_path(manifest_path: Path, raw_value: str) -> Path:
+    path = Path(raw_value)
+    if path.is_absolute():
+        return path
+    if path.exists():
+        return path
+    crawl_root = manifest_path.parent.parent.parent
+    crawl_relative = crawl_root / path
+    if crawl_relative.exists():
+        return crawl_relative
+    project_relative = PROJECT_ROOT / path
+    if project_relative.exists():
+        return project_relative
+    return path
+
+
+def _require_record_fields(record: dict, *, context: str) -> None:
+    required = ("source", "workflow_language", "search_gate_score", "filter_score")
+    missing = [field for field in required if record.get(field) in {None, ""}]
+    if missing:
+        raise RuntimeError(f"{context} missing required fields: {', '.join(missing)}")
+    if record.get("workflow_language") not in {"en", "tr"}:
+        raise RuntimeError(f"{context} has invalid workflow_language: {record.get('workflow_language')!r}")
 
 
 def _paper_payload(record: dict, filename: str) -> dict:
+    _require_record_fields(record, context=f"paper '{filename}'")
     pmc_id = record.get("pmc_id") or record.get("pmcid")
     return {
         "title": record.get("title") or f"PMC{pmc_id or ''}",
         "abstract": record.get("abstract"),
         "doi": record.get("doi") or (f"pmc:{pmc_id}" if pmc_id else None),
+        "canonical_key": record.get("canonical_key"),
         "filename": filename,
         "source": record.get("source"),
         "source_record_id": record.get("source_record_id"),
@@ -60,25 +116,108 @@ def _chunked(rows: list[dict], size: int) -> list[list[dict]]:
     return [rows[idx: idx + size] for idx in range(0, len(rows), size)]
 
 
-async def upload_papers() -> None:
-    print("=" * 60)
-    print("🚀 OpenNutri: Uploading Crawled PDFs to Supabase")
-    print("=" * 60)
+def _find_existing_paper(payload: dict, filename: str) -> dict | None:
+    canonical_key = payload.get("canonical_key")
+    if canonical_key:
+        existing = supabase.table("papers").select("id,canonical_key").eq("canonical_key", canonical_key).execute()
+        if existing.data:
+            return existing.data[0]
 
-    if not METADATA_FILE.exists():
-        print(f"❌ Error: Metadata file not found at {METADATA_FILE}")
-        return
+    doi = payload.get("doi")
+    if doi:
+        existing = supabase.table("papers").select("id,canonical_key").eq("doi", doi).execute()
+        if existing.data:
+            return existing.data[0]
 
-    manifest = _load_json(METADATA_FILE)
+    source = payload.get("source")
+    source_record_id = payload.get("source_record_id")
+    if source and source_record_id:
+        existing = (
+            supabase.table("papers")
+            .select("id,canonical_key")
+            .eq("source", source)
+            .eq("source_record_id", source_record_id)
+            .execute()
+        )
+        if existing.data:
+            return existing.data[0]
+
+    existing = supabase.table("papers").select("id,canonical_key").eq("filename", filename).execute()
+    if not existing.data:
+        return None
+    for row in existing.data:
+        if not row.get("canonical_key"):
+            return row
+    return existing.data[0]
+
+
+def _dedupe_search_hits(rows: list[dict]) -> list[dict]:
+    deduped: dict[str, dict] = {}
+    for row in rows:
+        hit_key = row.get("hit_key") or build_search_hit_key(
+            canonical_key=row.get("canonical_key"),
+            source=row.get("source"),
+            workflow_language=row.get("workflow_language"),
+            template_id=row.get("template_id"),
+            source_term=row.get("source_term"),
+            query_phrase=row.get("query_phrase"),
+            query_text=row.get("query_text"),
+        )
+        row["hit_key"] = hit_key
+        existing = deduped.get(hit_key)
+        if existing is None:
+            deduped[hit_key] = row
+            continue
+        if existing.get("paper_id") is None and row.get("paper_id") is not None:
+            existing["paper_id"] = row["paper_id"]
+        if not existing.get("title") and row.get("title"):
+            existing["title"] = row["title"]
+        if not existing.get("abstract") and row.get("abstract"):
+            existing["abstract"] = row["abstract"]
+        if existing.get("search_gate_score") in {None, ""} and row.get("search_gate_score") not in {None, ""}:
+            existing["search_gate_score"] = row["search_gate_score"]
+        if existing.get("filter_score") in {None, ""} and row.get("filter_score") not in {None, ""}:
+            existing["filter_score"] = row["filter_score"]
+        existing["search_gate_pass"] = bool(existing.get("search_gate_pass") or row.get("search_gate_pass"))
+        existing["filter_pass"] = bool(existing.get("filter_pass") or row.get("filter_pass"))
+        existing["is_duplicate"] = bool(existing.get("is_duplicate") or row.get("is_duplicate"))
+    return list(deduped.values())
+
+
+async def upload_papers(args: argparse.Namespace) -> None:
+    manifest_path = (
+        Path(args.manifest)
+        if args.manifest
+        else Path(args.data_dir) / "raw_pdfs" / "_harvest_metadata.json"
+    )
+
+    print("=" * 60)
+    print("OpenNutri: Uploading Crawled PDFs to Supabase")
+    print("=" * 60)
+    print(f"Manifest: {manifest_path}")
+
+    if not manifest_path.exists():
+        raise SystemExit(f"Manifest file not found at {manifest_path}")
+
+    manifest = _load_json(manifest_path)
     results = manifest.get("results", [])
     upload_candidates = [row for row in results if row.get("status") == "success"]
+    if not upload_candidates:
+        raise SystemExit("Manifest contains no successful downloads to upload.")
 
-    print(f"📦 Found {len(upload_candidates)} successful downloads in metadata.")
+    candidate_store_path = _resolve_artifact(manifest_path, manifest, "candidate_store")
+    search_hits_path = _resolve_artifact(manifest_path, manifest, "search_hits")
+    candidate_store = _load_json(candidate_store_path)
+    search_hits_payload = _load_json(search_hits_path)
+    if not isinstance(candidate_store.get("candidates"), list):
+        raise SystemExit(f"Candidate store is missing 'candidates': {candidate_store_path}")
+    if not isinstance(search_hits_payload.get("hits"), list):
+        raise SystemExit(f"Search-hit payload is missing 'hits': {search_hits_path}")
 
-    candidate_store_path = _resolve_artifact(manifest, "candidate_store")
-    search_hits_path = _resolve_artifact(manifest, "search_hits")
-    candidate_store = _load_json(candidate_store_path) if candidate_store_path else {}
-    search_hits_payload = _load_json(search_hits_path) if search_hits_path else {}
+    print(f"Found {len(upload_candidates)} successful downloads in metadata.")
+    print(f"Candidate store: {candidate_store_path}")
+    print(f"Search hits: {search_hits_path}")
+
     candidate_by_key = {
         row.get("canonical_key"): row
         for row in candidate_store.get("candidates", [])
@@ -87,17 +226,17 @@ async def upload_papers() -> None:
 
     try:
         supabase.storage.create_bucket("papers", options={"public": True})
-        print("✅ Created 'papers' bucket in Supabase Storage.")
     except Exception:
         pass
 
     paper_id_by_key: dict[str, int] = {}
+    upload_errors: list[str] = []
     uploaded_count = 0
 
     for record in upload_candidates:
-        file_path = Path(record.get("file") or "")
+        file_path = _resolve_crawl_path(manifest_path, str(record.get("file") or ""))
         if not file_path.exists():
-            print(f"⚠️ Warning: File {file_path} not found on disk. Skipping.")
+            upload_errors.append(f"Missing file on disk: {file_path}")
             continue
 
         filename = file_path.name
@@ -105,7 +244,7 @@ async def upload_papers() -> None:
         candidate_row = candidate_by_key.get(canonical_key, {})
         paper_row = {**candidate_row, **record}
 
-        print(f"\n📤 Processing {filename}...")
+        print(f"\nProcessing {filename}...")
         try:
             with file_path.open("rb") as handle:
                 supabase.storage.from_("papers").upload(
@@ -117,30 +256,35 @@ async def upload_papers() -> None:
                         "content-type": "application/pdf",
                     },
                 )
-            print("   ✓ Uploaded to Storage bucket.")
 
-            existing = supabase.table("papers").select("id").eq("filename", filename).execute()
-            if existing.data:
-                paper_id = int(existing.data[0]["id"])
-                supabase.table("papers").update(_paper_payload(paper_row, filename)).eq("id", paper_id).execute()
-                print("   ✓ Updated existing paper metadata.")
+            payload = _paper_payload(paper_row, filename)
+            existing = _find_existing_paper(payload, filename)
+            if existing:
+                paper_id = int(existing["id"])
+                supabase.table("papers").update(payload).eq("id", paper_id).execute()
+                print("  Updated existing paper metadata.")
             else:
-                inserted = supabase.table("papers").insert(_paper_payload(paper_row, filename)).execute()
+                inserted = supabase.table("papers").insert(payload).execute()
                 paper_id = int(inserted.data[0]["id"])
-                print("   ✓ Inserted into Database.")
+                print("  Inserted paper row.")
 
             if canonical_key:
                 paper_id_by_key[canonical_key] = paper_id
             uploaded_count += 1
         except Exception as exc:
-            print(f"   ❌ Error uploading {filename}: {exc}")
+            upload_errors.append(f"{filename}: {exc}")
+
+    if upload_errors:
+        raise SystemExit("Upload failed:\n- " + "\n- ".join(upload_errors))
 
     search_hits = []
     for row in search_hits_payload.get("hits", []):
         if not isinstance(row, dict):
             continue
+        _require_record_fields(row, context=f"search hit {row.get('canonical_key') or 'unknown'}")
         payload = {
             "paper_id": paper_id_by_key.get(row.get("canonical_key")),
+            "hit_key": row.get("hit_key"),
             "canonical_key": row.get("canonical_key"),
             "source": row.get("source"),
             "source_record_id": row.get("source_record_id"),
@@ -162,25 +306,28 @@ async def upload_papers() -> None:
             "is_duplicate": row.get("is_duplicate") or False,
         }
         if not payload["canonical_key"] or not payload["source"] or not payload["query_text"]:
-            continue
+            raise SystemExit(f"Incomplete search-hit payload for canonical_key={payload['canonical_key']!r}")
         search_hits.append(payload)
+
+    search_hits = _dedupe_search_hits(search_hits)
+
+    if not search_hits:
+        raise SystemExit("Search-hit persistence is empty; refusing to treat this upload as successful.")
 
     inserted_hits = 0
     for batch in _chunked(search_hits, 500):
-        if not batch:
-            continue
-        try:
-            supabase.table("paper_search_hits").insert(batch).execute()
-            inserted_hits += len(batch)
-        except Exception as exc:
-            print(f"⚠️ Failed inserting search-hit batch: {exc}")
-            raise
+        supabase.table("paper_search_hits").upsert(batch, on_conflict="hit_key").execute()
+        inserted_hits += len(batch)
+
+    if inserted_hits <= 0:
+        raise SystemExit("Search hits were not persisted.")
 
     print("=" * 60)
-    print(f"🎉 Successfully uploaded and registered {uploaded_count} PDFs!")
-    print(f"🧾 Persisted {inserted_hits} metadata-stage search hits.")
+    print(f"Successfully uploaded and registered {uploaded_count} PDFs.")
+    print(f"Persisted {inserted_hits} metadata-stage search hits.")
     print("=" * 60)
 
 
 if __name__ == "__main__":
-    asyncio.run(upload_papers())
+    parsed_args = build_parser().parse_args()
+    asyncio.run(upload_papers(parsed_args))

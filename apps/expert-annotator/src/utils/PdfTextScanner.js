@@ -84,6 +84,9 @@ export function highlightNutrientsInTextLayer(textLayerEl, matcher, onNutrientCl
     }
 
     const resolveMarkFromEvent = (event) => {
+        // PDF.js text layer bazen tıklanan highlight'ı doğrudan event target olarak
+        // vermiyor. Bu yüzden target, elementsFromPoint ve caret tabanlı fallback'leri
+        // sırayla deneyip gerçekten işaretlenen nutrient öğesini buluyoruz.
         const directTarget = event.target?.closest?.('mark.nutrient-highlight')
         if (directTarget && textLayerEl.contains(directTarget)) {
             return directTarget
@@ -179,6 +182,9 @@ function collectMatches(text, matcher) {
     const resolved = []
     let lastEnd = -1
 
+    // Aynı span içinde çakışan eşleşmeler olduğunda daha erken başlayan ve
+    // daha uzun terimleri koruyoruz; bu sayede kısa terimler uzun nutrient
+    // adlarını parçalayıp hatalı highlight üretmiyor.
     for (const match of matches) {
         if (match.start < lastEnd) continue
         resolved.push(match)

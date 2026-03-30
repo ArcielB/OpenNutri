@@ -291,6 +291,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     // Save annotation
     const saveAnnotation = async (hasData, status) => {
         if (!currentPaper) return
+        // Kaydedilecek sayaçları boş placeholder kartlardan etkilenmemesi için
+        // sadece gerçekten doldurulmuş gıda öğeleri üzerinden hesaplıyoruz.
         const validFoodItems = hasData
             ? foodItems.filter(isValidFoodItem).map(normalizeFoodItem)
             : []
@@ -306,6 +308,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
         try {
             if (testMode) {
+                // Test mode gerçek veritabanı davranışını taklit ediyor, ancak kalıcı
+                // yazma yerine local event kaydı tutarak demo/deneme akışını güvenli kılıyor.
                 appendTestEvent({
                     type: 'annotation_save',
                     paper_id: currentPaper.id,

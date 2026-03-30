@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS papers (
     title TEXT,
     abstract TEXT,
     doi TEXT,
+    canonical_key TEXT,
     filename TEXT NOT NULL,
     source TEXT,
     source_record_id TEXT,
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS papers (
 
 ALTER TABLE papers
     ADD COLUMN IF NOT EXISTS abstract TEXT,
+    ADD COLUMN IF NOT EXISTS canonical_key TEXT,
     ADD COLUMN IF NOT EXISTS source TEXT,
     ADD COLUMN IF NOT EXISTS source_record_id TEXT,
     ADD COLUMN IF NOT EXISTS workflow_language TEXT
@@ -107,6 +109,7 @@ ALTER TABLE papers
 CREATE TABLE IF NOT EXISTS paper_search_hits (
     id BIGSERIAL PRIMARY KEY,
     paper_id INTEGER REFERENCES papers(id) ON DELETE SET NULL,
+    hit_key TEXT NOT NULL,
     canonical_key TEXT NOT NULL,
     source TEXT NOT NULL,
     source_record_id TEXT,
@@ -129,6 +132,37 @@ CREATE TABLE IF NOT EXISTS paper_search_hits (
     is_duplicate BOOLEAN NOT NULL DEFAULT FALSE,
     discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE paper_search_hits
+    ADD COLUMN IF NOT EXISTS hit_key TEXT;
+
+UPDATE paper_search_hits
+SET hit_key = md5(
+    regexp_replace(lower(trim(coalesce(canonical_key, ''))), '\s+', ' ', 'g') || '|' ||
+    regexp_replace(lower(trim(coalesce(source, ''))), '\s+', ' ', 'g') || '|' ||
+    regexp_replace(lower(trim(coalesce(workflow_language, ''))), '\s+', ' ', 'g') || '|' ||
+    regexp_replace(lower(trim(coalesce(template_id, ''))), '\s+', ' ', 'g') || '|' ||
+    regexp_replace(lower(trim(coalesce(source_term, ''))), '\s+', ' ', 'g') || '|' ||
+    regexp_replace(lower(trim(coalesce(query_phrase, ''))), '\s+', ' ', 'g') || '|' ||
+    regexp_replace(lower(trim(coalesce(query_text, ''))), '\s+', ' ', 'g')
+)
+WHERE hit_key IS NULL OR hit_key = '';
+
+DELETE FROM paper_search_hits
+WHERE id IN (
+    SELECT id
+    FROM (
+        SELECT
+            id,
+            ROW_NUMBER() OVER (PARTITION BY hit_key ORDER BY id) AS row_num
+        FROM paper_search_hits
+        WHERE hit_key IS NOT NULL AND hit_key <> ''
+    ) ranked
+    WHERE row_num > 1
+);
+
+ALTER TABLE paper_search_hits
+    ALTER COLUMN hit_key SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS annotations (
     id SERIAL PRIMARY KEY,
@@ -257,7 +291,9 @@ CREATE INDEX IF NOT EXISTS idx_paper_label_events_paper ON paper_label_events(pa
 CREATE INDEX IF NOT EXISTS idx_paper_label_events_user ON paper_label_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_paper_global_labels_paper ON paper_global_labels(paper_id);
 CREATE INDEX IF NOT EXISTS idx_paper_global_labels_label ON paper_global_labels(label);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_papers_canonical_key_unique ON papers(canonical_key);
 CREATE INDEX IF NOT EXISTS idx_paper_search_hits_paper ON paper_search_hits(paper_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_search_hits_hit_key_unique ON paper_search_hits(hit_key);
 CREATE INDEX IF NOT EXISTS idx_paper_search_hits_canonical ON paper_search_hits(canonical_key);
 CREATE INDEX IF NOT EXISTS idx_paper_search_hits_pair ON paper_search_hits(source, workflow_language, template_id, source_term);
 

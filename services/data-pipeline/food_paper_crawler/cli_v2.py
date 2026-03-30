@@ -11,6 +11,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OpenNutri food composition crawler v2")
     parser.add_argument("--data-dir", default="data", help="Crawler data directory")
     parser.add_argument("--target-pdfs", type=int, default=12, help="How many PDFs to keep")
+    parser.add_argument("--target-pdfs-en", type=int, default=0, help="Accepted English PDF target (0 = derive from --target-pdfs)")
+    parser.add_argument("--target-pdfs-tr", type=int, default=0, help="Accepted Turkish PDF target (0 = derive from --target-pdfs)")
     parser.add_argument("--query-limit", type=int, default=50, help="Results to inspect per query")
     parser.add_argument("--food-term-limit", type=int, default=0, help="How many food terms to use (0 = all)")
     parser.add_argument("--nutrient-term-limit", type=int, default=0, help="How many nutrient terms to use (0 = all)")
@@ -35,6 +37,8 @@ def run_cli() -> int:
         supabase_url=os.environ.get("SUPABASE_URL", SUPABASE_URL),
         supabase_key=os.environ.get("SUPABASE_KEY", SUPABASE_KEY),
         target_pdfs=args.target_pdfs,
+        target_pdfs_en=args.target_pdfs_en or None,
+        target_pdfs_tr=args.target_pdfs_tr or None,
         query_limit=args.query_limit,
         food_term_limit=args.food_term_limit,
         nutrient_term_limit=args.nutrient_term_limit,
