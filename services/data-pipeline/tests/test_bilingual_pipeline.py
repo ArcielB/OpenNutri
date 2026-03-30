@@ -514,6 +514,82 @@ class CrawlerQuotaTests(unittest.TestCase):
         self.assertEqual(query_log[0]["accepted"], 2)
         self.assertEqual(source.calls, 1)
 
+    def test_run_search_batches_counts_query_limit_after_search_gate(self) -> None:
+        crawler = object.__new__(FoodCompositionCrawlerV2)
+        crawler.target_pdfs_by_language = {"en": 0, "tr": 2}
+        crawler.query_limit = 2
+        crawler.search_sources = {}
+        crawler._next_audit_flag = lambda: False
+        crawler._raw_search_limit = lambda query_limit=None: 6
+
+        raw_candidates = [
+            self.make_candidate("reject-1", "tr", 1.0),
+            self.make_candidate("reject-2", "tr", 1.0),
+            self.make_candidate("accept-1", "tr", 5.0),
+            self.make_candidate("accept-1", "tr", 4.0),
+            self.make_candidate("accept-2", "tr", 4.5),
+        ]
+
+        class FakeSearchSource:
+            def search(self, spec: QuerySpec, limit: int) -> list[CandidatePaper]:
+                return raw_candidates[:limit]
+
+        crawler.search_sources["openalex"] = FakeSearchSource()
+        crawler._search_gate_decision = lambda candidate: (
+            not candidate.title.startswith("reject"),
+            candidate.search_gate_score,
+            [{"code": "gate", "text": "gate pass"}],
+        )
+        crawler._metadata_decision = lambda candidate: (
+            True,
+            candidate.filter_score,
+            [{"code": "metadata", "text": "metadata pass"}],
+        )
+        crawler._download_candidate = lambda candidate, **_: DownloadRecord(
+            status="success",
+            title=candidate.title,
+            score=candidate.filter_score,
+            source=candidate.source,
+            query=candidate.query,
+            reasons=[],
+            canonical_key=candidate.canonical_key,
+            workflow_language=candidate.workflow_language,
+            decision_stage="acquisition",
+            batch_id=candidate.batch_id,
+            batch_key=candidate.batch_key,
+            batch_rank=candidate.batch_rank,
+        )
+
+        spec = QuerySpec(
+            query="gıda bileşimi",
+            keywords=("gıda bileşimi",),
+            template_id="base_core_composition",
+            source_term=None,
+            term_type="base",
+            language="tr",
+            query_phrase="gıda bileşimi",
+        )
+        tasks = [
+            SearchTask(
+                source="openalex",
+                spec=spec,
+                query_text="gıda bileşimi",
+                batch_id="run:0001",
+                batch_key="batch-one",
+                batch_rank=1,
+            )
+        ]
+
+        _, hits, query_log, _, accepted, _ = crawler._run_search_batches(tasks, set())
+
+        self.assertEqual([record.title for record in accepted], ["accept-1", "accept-2"])
+        self.assertEqual(query_log[0]["raw_results"], 5)
+        self.assertEqual(query_log[0]["results"], 2)
+        self.assertEqual(query_log[0]["search_gate_passed"], 2)
+        self.assertEqual(query_log[0]["search_gate_pass_total"], 3)
+        self.assertEqual(query_log[0]["duplicates"], 1)
+        self.assertEqual(len(hits), 5)
+
 
 class CrawlerStateTests(unittest.TestCase):
     def make_candidate(
@@ -868,10 +944,10 @@ class FeedbackDeduplicationTests(unittest.TestCase):
 
         self.assertEqual(len(payloads), 1)
         self.assertEqual(payloads[0]["batch_count"], 2)
-        self.assertEqual(payloads[0]["retrieved"], 200)
+        self.assertEqual(payloads[0]["retrieved"], 36)
         self.assertEqual(payloads[0]["positive_count"], 1)
         self.assertEqual(payloads[0]["negative_count"], 1)
-        self.assertAlmostEqual(payloads[0]["score"], 0.005)
+        self.assertAlmostEqual(payloads[0]["score"], 1 / 36)
 
 
 class UploadTests(unittest.TestCase):
@@ -951,6 +1027,8 @@ class UploadTests(unittest.TestCase):
                 "query_phrase": "food composition",
                 "query": 'spinach "food composition"',
                 "result_rank": 3,
+                "search_gate_pass": True,
+                "is_duplicate": False,
             }
         ]
 

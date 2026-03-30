@@ -114,6 +114,9 @@ FILTER_TA_WEIGHT = 1.0
 MAX_SOURCE_PRIOR_ABS = 0.9
 QUERY_BASE_FLOOR = 2
 QUERY_PHRASE_EXPLORATION_RATE = 0.02
+RAW_SEARCH_RESULT_MULTIPLIER = 4
+MIN_RAW_SEARCH_LIMIT = 100
+MAX_RAW_SEARCH_LIMIT = 400
 COMPOSITION_FRAMES = {
     "en": (
         '("food composition" OR "nutrient composition" OR "chemical composition" OR '
@@ -176,7 +179,7 @@ class FoodCompositionCrawlerV2:
             target_pdfs_tr=target_pdfs_tr,
         )
         self.target_pdfs = sum(self.target_pdfs_by_language.values())
-        self.query_limit = query_limit
+        self.query_limit = max(1, int(query_limit))
         food_limit = food_term_limit if food_term_limit > 0 else 5000
         nutrient_limit = nutrient_term_limit if nutrient_term_limit > 0 else 500
         self.food_terms_by_language = fetch_food_terms_by_language(supabase_url, supabase_key, limit=food_limit)
@@ -228,7 +231,7 @@ class FoodCompositionCrawlerV2:
         self.search_sources = build_search_sources(
             list(sources or DEFAULT_SEARCH_SOURCES),
             data_dir=self.data_dir,
-            page_size=query_limit,
+            page_size=self._raw_search_limit(query_limit),
             dergipark_scan_budget=self.dergipark_scan_budget,
         )
         self.state = self._load_state()
@@ -362,6 +365,7 @@ class FoodCompositionCrawlerV2:
         rejected_records: List[DownloadRecord] = []
         accepted_counts = {language: 0 for language in SUPPORTED_LANGUAGES}
         active_languages = self._active_languages()
+        raw_limit = self._raw_search_limit()
 
         for task in tasks:
             language = task.spec.language
@@ -374,7 +378,7 @@ class FoodCompositionCrawlerV2:
             if client is None:
                 continue
 
-            raw_candidates = client.search(task.spec, limit=self.query_limit)[: self.query_limit]
+            raw_candidates = client.search(task.spec, limit=raw_limit)[:raw_limit]
             stat_key = self._task_key(task)
             stats: Dict[str, object] = {
                 "batch_id": task.batch_id,
@@ -384,6 +388,7 @@ class FoodCompositionCrawlerV2:
                 "pair_score": round(task.pair_score, 4),
                 "batch_score": round(task.batch_score, 4),
                 "query_limit": self.query_limit,
+                "raw_result_limit": raw_limit,
                 "source": task.source,
                 "query": task.query_text,
                 "language": language,
@@ -391,8 +396,10 @@ class FoodCompositionCrawlerV2:
                 "source_term": task.spec.source_term,
                 "term_type": task.spec.term_type,
                 "query_phrase": task.spec.query_phrase,
-                "results": len(raw_candidates),
+                "results": 0,
+                "raw_results": len(raw_candidates),
                 "search_gate_passed": 0,
+                "search_gate_pass_total": 0,
                 "search_gate_rejected": 0,
                 "filter_passed": 0,
                 "duplicates": 0,
@@ -456,7 +463,7 @@ class FoodCompositionCrawlerV2:
                     stats["search_gate_rejected"] = int(stats["search_gate_rejected"]) + 1
                     continue
 
-                stats["search_gate_passed"] = int(stats["search_gate_passed"]) + 1
+                stats["search_gate_pass_total"] = int(stats["search_gate_pass_total"]) + 1
                 candidate.reason_details = reason_details
                 candidate.reasons = [reason["text"] for reason in reason_details]
 
@@ -472,6 +479,10 @@ class FoodCompositionCrawlerV2:
 
                 candidates_by_key[canonical_key] = candidate
                 batch_candidates_by_key[canonical_key] = candidate
+                stats["results"] = int(stats["results"]) + 1
+                stats["search_gate_passed"] = int(stats["search_gate_passed"]) + 1
+                if int(stats["results"]) >= self.query_limit:
+                    break
 
             batch_candidates = list(batch_candidates_by_key.values())
             self._filter_candidates(batch_candidates, batch_hits, [stats], {stat_key: stats})
@@ -590,6 +601,13 @@ class FoodCompositionCrawlerV2:
         en_target = total // 2
         tr_target = total - en_target
         return {"en": en_target, "tr": tr_target}
+
+    def _raw_search_limit(self, query_limit: Optional[int] = None) -> int:
+        batch_size = max(1, int(query_limit if query_limit is not None else self.query_limit))
+        return min(
+            MAX_RAW_SEARCH_LIMIT,
+            max(batch_size, MIN_RAW_SEARCH_LIMIT, batch_size * RAW_SEARCH_RESULT_MULTIPLIER),
+        )
 
     def _active_languages(self) -> List[str]:
         return [

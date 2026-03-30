@@ -780,7 +780,8 @@ def build_search_batch_feedback(
         )
         if batch_id not in stats["batch_ids"]:
             stats["batch_ids"].add(batch_id)
-            stats["results"] = int(stats["results"]) + int(meta["results"])
+            selected_count = int(meta["search_gate_passed"] or meta["results"] or 0)
+            stats["results"] = int(stats["results"]) + selected_count
             stats["search_gate_passed"] = int(stats["search_gate_passed"]) + int(meta["search_gate_passed"])
             stats["filter_passed"] = int(stats["filter_passed"]) + int(meta["filter_passed"])
         paper_id = hit_row.get("paper_id")

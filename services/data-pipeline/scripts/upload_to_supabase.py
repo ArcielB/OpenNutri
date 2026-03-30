@@ -314,6 +314,8 @@ def _prepare_search_batch_hits(rows: list[dict]) -> list[dict]:
     for row in rows:
         if not isinstance(row, dict):
             continue
+        if not row.get("search_gate_pass") or row.get("is_duplicate"):
+            continue
         batch_id = str(row.get("batch_id") or "").strip()
         hit_key = str(
             row.get("hit_key")
