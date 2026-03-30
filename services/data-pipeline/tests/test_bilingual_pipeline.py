@@ -739,6 +739,41 @@ class CrawlerStateTests(unittest.TestCase):
         self.assertEqual(hits, [])
         self.assertEqual(next(iter(stats.values()))["skipped_seen"], 1)
 
+    def test_legacy_seen_ids_do_not_skip_candidates(self) -> None:
+        candidate = self.make_candidate("legacy-seen-paper")
+
+        class FakeSearchSource:
+            def search(self, spec: QuerySpec, limit: int) -> list[CandidatePaper]:
+                return [candidate]
+
+        crawler = self.make_crawler()
+        crawler.state["seen_ids"] = [candidate.canonical_key]
+        crawler.search_sources = {"openalex": FakeSearchSource()}
+        crawler.query_limit = 10
+        crawler._search_gate_decision = lambda candidate: (
+            True,
+            1.0,
+            [{"code": "gate", "text": "gate pass"}],
+        )
+        task = SearchTask(
+            source="openalex",
+            spec=QuerySpec(
+                query="food composition",
+                keywords=("food composition",),
+                template_id="base_core_composition",
+                source_term=None,
+                term_type="base",
+                language="en",
+                query_phrase="food composition",
+            ),
+            query_text="food composition",
+        )
+
+        candidates, hits, _, stats = crawler._search_candidates([task], crawler._state_skip_keys())
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(next(iter(stats.values()))["skipped_seen"], 0)
+
     def test_non_pmc_filenames_use_identity_hash(self) -> None:
         crawler = self.make_crawler()
         candidate_one = self.make_candidate("same title", year="2024")

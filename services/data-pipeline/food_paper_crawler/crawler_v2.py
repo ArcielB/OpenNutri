@@ -1315,13 +1315,7 @@ class FoodCompositionCrawlerV2:
         return payload
 
     def _state_skip_keys(self) -> Set[str]:
-        skip_keys = set(self._paper_states().keys())
-        skip_keys.update(
-            self._normalize_seen_key(value)
-            for value in self.state.get("seen_ids", [])
-            if self._normalize_seen_key(value)
-        )
-        return skip_keys
+        return set(self._paper_states().keys())
 
     def _record_terminal_state(self, canonical_key: Optional[str], *, decision: str, stage: str) -> None:
         normalized_key = self._normalize_seen_key(canonical_key)
