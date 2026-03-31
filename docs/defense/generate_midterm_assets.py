@@ -215,8 +215,9 @@ def generate_placeholder():
                 "3. Aynı karede şunlar görünsün:",
                 "   PDF viewer, vurgulanmış bir nutrient, sağdaki food item formu,",
                 "   üstte ilerleme / durum alanı.",
-                "4. Görseli docs/defense/assets/annotator_screenshot.png olarak kaydedin",
-                "   ve rapordaki bu yer tutucu ile değiştirin.",
+                "4. Ekran görüntüsünü bu dosyanın yerine gelecek şekilde",
+                "   docs/defense/assets/figure_4_annotator_placeholder.png",
+                "   adıyla kaydedin ve export betiğini yeniden çalıştırın.",
             ]
         ),
         fc="#f8fafc",

@@ -196,7 +196,7 @@ Arayüz ekranı için Şekil 4'te bir yer tutucu bırakılmıştır.
 
 ![Şekil 4 - Annotator ekran görüntüsü yer tutucu](assets/figure_4_annotator_placeholder.png)
 
-Şekil 4. Nihai teslimden önce bu görsel, çalışan annotator ekranının gerçek ekran görüntüsü ile değiştirilmelidir. Görselde PDF viewer, vurgulanmış nutrient örneği, food item formu ve ilerleme alanı aynı karede görünmelidir.
+Şekil 4. Nihai teslimden önce bu görsel, çalışan annotator ekranının gerçek ekran görüntüsü ile değiştirilmelidir. En pratik yol, `docs/defense/assets/figure_4_annotator_placeholder.png` dosyasını gerçek ekran görüntüsü ile aynı ad altında değiştirip export betiğini yeniden çalıştırmaktır. Görselde PDF viewer, vurgulanmış nutrient örneği, food item formu ve ilerleme alanı aynı karede görünmelidir.
 
 ## 5. Crawler, filtreleme ve edinme yöntemi
 
