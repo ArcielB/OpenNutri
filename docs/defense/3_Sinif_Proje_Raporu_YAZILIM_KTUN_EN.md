@@ -23,9 +23,9 @@ This midterm report summarizes the current state of the first three work items d
 - database and orchestration architecture,
 - expert annotation engine.
 
-By the midterm stage, the team has moved beyond a purely conceptual design and delivered a working system core. At this point OpenNutri already has an infrastructure that can discover candidate papers from scientific sources, filter them through multiple stages, transfer suitable PDF files into the system, let an expert user create structured annotations on those papers, and feed those annotation outcomes back into later crawling decisions.
+By the midterm stage, OpenNutri has a working core system. It discovers candidate papers from scientific sources, filters them through multiple stages, imports suitable PDFs, provides a structured annotation interface to the expert user, and feeds user decisions back into later crawling decisions.
 
-These outputs do not exist as disconnected modules. The core project idea is simple: the system first finds promising papers, the expert user reviews them and enters structured data, and those user decisions then improve the next search cycle. By the midterm stage, the core pieces of that loop are already working together.
+The project flow is straightforward: the system finds papers, the expert user enters structured data on top of the document, and those labels improve later search and ranking. The main parts of that loop are already working together.
 
 Table 1 summarizes how the current system state maps to the first-semester proposal items.
 
@@ -34,11 +34,11 @@ Table 1 summarizes how the current system state maps to the first-semester propo
 | 1. Automated Data Acquisition Pipeline | Substantially progressed | Multi-source search, language-scoped workflows, PDF acquisition, validation, upload to Supabase |
 | 2. Database and Orchestration Architecture | Substantially progressed | Shared schema, RLS policies, storage path, ETL and search-evidence tables |
 | 3. Expert Annotation Engine | Substantially progressed | PDF viewing, nutrient highlighting, dynamic food/nutrient entry, test mode, global skip, event logging |
-| 4. Document Segmentation and Core Extraction Process | Outside the scope of this report | A production-ready extraction pipeline is not claimed as completed yet |
+| 4. Document Segmentation and Core Extraction Process | Next phase | This report focuses on the first three working items |
 
-The system can be explained through four main ideas. First, the crawler should not send random papers into the system; it should choose stronger candidates first. Second, both the UI and the crawler should work on the same backend and data model. Third, the expert user needs an annotation screen that supports real work on top of the PDF itself. Fourth, user decisions should not remain a passive record; they should become feedback for later search and ranking.
+The system is organized around four ideas: a crawler that selects stronger candidates, a shared backend and data model, an annotation screen designed for work on top of the PDF, and a closed loop that turns user decisions into feedback.
 
-For that reason, the report focuses on the working system idea rather than the commit-by-commit sequence. Table 2 is therefore organized around the main system parts instead of dates.
+Table 2 summarizes that structure through the main system parts.
 
 | Layer | Work completed | Technical result |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ Figure 1 shows the end-to-end system state available at the midterm stage.
 
 Figure 1. Closed-loop OpenNutri architecture implemented by the midterm stage.
 
-The key point to emphasize here is that the project has not yet completed every item in the proposal, but the first three goals are no longer only planned. They already exist as working system components. For that reason, the current stage should be evaluated not as a vague middle ground between "design document" and "finished product," but as an early production-stage system whose core infrastructure is already operating in practice.
+At the midterm stage, the first three goals already exist as working system components. The current state is an early production-stage system with an operating core infrastructure.
 
 \newpage
 
@@ -61,37 +61,37 @@ The key point to emphasize here is that the project has not yet completed every 
 
 ## Project Objective
 
-The objective of OpenNutri is to develop a platform that digitizes food-composition data scattered across scientific literature without removing human expertise from the loop; instead, expert feedback is treated as a central component of the system. To achieve that goal, the project aims to establish three capabilities at the same time:
+The objective of OpenNutri is to digitize food-composition data scattered across scientific literature through a platform centered on expert feedback. To achieve that goal, the project establishes three capabilities:
 
 - automatically finding relevant papers and bringing them into the system,
 - allowing experts to annotate those papers in a controlled way,
 - using the resulting labels to improve later retrieval and ranking decisions.
 
-At the midterm stage, the focus is to build the core version of these three capabilities in line with the first-semester goals. Accordingly, the current work does not claim that a full LLM-based extraction system has already been completed. Instead, it focuses on building the data and user infrastructure that such a system could later rely on for training and validation.
+At the midterm stage, the focus is to build the core version of these three capabilities. The current work establishes the data infrastructure, user workflow, and feedback loop.
 
 ## Project Importance
 
 The importance of the project appears at three levels.
 
-The first level is the data-access problem. Food-composition studies are usually published as PDF documents, distributed across different journal infrastructures, and often lack any standard machine-readable output format. In other words, the information exists, but it cannot be used directly as queryable structured data. OpenNutri targets this gap.
+The first level is the data-access problem. Food-composition studies are usually published as PDF documents across different journal infrastructures and rarely provide a standard machine-readable output. OpenNutri targets that gap.
 
-The second level is efficient use of expert time. Expert annotation is expensive and limited. If irrelevant papers reach the annotator queue, expert effort is wasted. For this reason, the project is not only about building a UI; it also tries to improve what reaches the expert by combining the crawler and feedback layers. At the midterm stage, the implemented search gate, metadata filter, PDF validation, and global skip logic directly support this goal.
+The second level is efficient use of expert time. Expert annotation is expensive and limited. The crawler, filtering, and feedback layers are therefore designed to deliver more meaningful candidates to the annotator. At the midterm stage, search gate, metadata filter, PDF validation, and global skip logic already support this goal.
 
-The third level is the visibility of Turkish literature. The proposal explicitly targets PubMed and DergiPark. This choice is deliberate. PubMed Central provides access to international open-access literature, while DergiPark gives access to many studies published in Turkey. The shift toward language-scoped EN/TR workflows is therefore important because Turkish studies are no longer treated as a side effect; they are treated as a distinct target pool.
+The third level is the visibility of Turkish literature. PubMed Central brings international open-access literature into the system, while DergiPark provides access to studies published in Turkey. The EN/TR workflow split establishes Turkish literature as a separate target pool.
 
-From a technical point of view, the project is important not because it uses a single advanced algorithm, but because it combines a normalized data model, multi-source search, layered filtering, PDF validation, user-event logging, and soft feedback learning in one system. This integrated approach goes beyond a conventional CRUD application and creates a strong base for later document segmentation and LLM-based extraction work.
+From a technical point of view, the project combines a normalized data model, multi-source search, layered filtering, PDF validation, user-event logging, and soft feedback learning in one system. This structure creates a strong base for later document segmentation and extraction work.
 
 \newpage
 
 # LITERATURE REVIEW
 
-The project was designed by examining both food-data standards and scientific-document processing tools together. The literature review therefore did not rely only on academic papers; it also considered databases, open-access archives, ontologies, and the software ecosystems used in the implementation.
+The literature review examined both food-data standards and scientific-document processing tools. It covered academic papers, databases, open-access archives, ontologies, and the software ecosystems used in the implementation.
 
 ## 1. Food data and reference vocabularies
 
-OpenNutri’s data model was not built directly on free-text labels. FoodData Central [1] and the FAO/INFOODS matching approach [2] were reviewed, and the concepts of canonical foods and canonical nutrients were modeled as separate tables. As a result, the food and nutrient choices visible in the UI are tied to a shared vocabulary that can later be reused both for crawler term generation and for validating any future LLM extraction outputs.
+OpenNutri’s data model is built around a shared vocabulary. FoodData Central [1] and the FAO/INFOODS matching approach [2] were reviewed, and canonical foods and canonical nutrients were modeled as separate tables. As a result, the food and nutrient choices in the UI and the terms used by the crawler rely on the same vocabulary.
 
-Ontology-centered work such as FoodOn [3] is also relevant, especially for standardizing food names. The current project version does not implement a full ontology integration, but the decision to use `entities` and `entity_aliases` was motivated by the same need for controlled standardization.
+Ontology-centered work such as FoodOn [3] is relevant for standardizing food names. The `entities` and `entity_aliases` structure was chosen for the same standardization need.
 
 ## 2. Scientific literature sources
 
@@ -99,25 +99,25 @@ PubMed Central [4] and Europe PMC [5] were evaluated as core external sources be
 
 ## 3. Human-in-the-loop learning approach
 
-The project intentionally avoids fully automating every decision. Human-in-the-loop methodology [7] argues that experts should remain an active part of scientific extraction and verification workflows. In OpenNutri, this idea becomes concrete through the annotator UI and `paper_label_events`. User actions such as `draft`, `done`, `skipped`, and global `definitely_no_data` are not just interface interactions; they also become feedback signals that influence later crawling.
+Human-in-the-loop methodology [7] keeps the expert user as an active part of extraction and verification. In OpenNutri, this approach is implemented through the annotator UI and `paper_label_events`. User actions such as `draft`, `done`, `skipped`, and global `definitely_no_data` directly become crawler feedback.
 
 ## 4. PDF processing and UI infrastructure
 
-Because article content is usually distributed as PDF, in-browser PDF processing became essential. PDF.js [8] and React [9] were therefore evaluated together. However, the PDF problem is not limited to rendering. Since the PDF text layer is fragmented across spans, the nutrient-highlighting feature required additional scanning, overlap resolution, and click-recovery logic. This highlights an important difference between literature-annotation tools and ordinary web forms.
+Because article content is usually distributed as PDF, in-browser PDF processing became essential. PDF.js [8] and React [9] were evaluated together. The nutrient-highlighting feature required extra scanning logic because the PDF text layer is fragmented across spans.
 
 ## 5. Platform components used in the implementation
 
-Supabase [10] was evaluated not merely as a database, but as a single platform layer providing authentication, row-level access control, file storage, and client access. At the midterm stage both the annotator and the data pipeline already share this backend. This choice was meaningful both for data consistency and for fast prototyping.
+Supabase [10] was selected because it combines authentication, row-level access control, file storage, and client access in one platform. At the midterm stage, both the annotator and the data pipeline already share this backend.
 
 The literature review led to several engineering decisions:
 
-- not combining paper discovery and PDF download into a single step,
-- designing the UI with a dynamic row model instead of fixed nutrient columns,
-- storing labels as event history rather than only a final state,
-- handling Turkish and English sources under the same system but with separate targets,
-- using feedback as a soft score instead of a hard rejection rule.
+- separating paper discovery, pre-filtering, and PDF acquisition,
+- designing the UI with a dynamic row model,
+- storing labels as event history,
+- using separate target pools for Turkish and English sources,
+- using feedback as a soft scoring signal.
 
-All of these decisions are already reflected in the current codebase, which means the project has moved from a theoretical design into an implemented system behavior.
+All of these decisions are already reflected in the current codebase.
 
 \newpage
 
@@ -155,7 +155,7 @@ These components are used across two connected sides of the project: the web app
 
 The main backend decision was to organize the system around one shared data model. That model can be understood through four parts: the shared food/nutrient vocabulary, the papers and search evidence entering the system, the expert annotation records, and the event logs that preserve user decisions as feedback.
 
-The point of this structure is not only storage. It allows the UI, crawler, and feedback logic to stay connected instead of becoming separate tools. For example, the names used in the user interface and the terms reused by the crawler rely on the same reference vocabulary, while the reason a paper entered the system and the later annotation built on top of it are tied to the same paper record.
+This structure keeps the UI, crawler, and feedback logic on the same data model. The names used in the UI and the terms reused by the crawler rely on the same reference vocabulary. The reason a paper entered the system and the later annotation built on top of it are tied to the same paper record.
 
 Figure 3 presents a simplified database summary derived from `apps/expert-annotator/migration.sql`, which is the code-level source of truth for the active Supabase schema.
 
@@ -169,21 +169,21 @@ Row-level security (RLS) is used to protect the backend. Users can manage their 
 
 The annotator interface is designed as a working screen where the expert can read a paper and enter structured data at the same time. The user opens a paper from the system queue, sees any previously saved work, and continues from the last meaningful state.
 
-Two ideas define the interface. First, data entry is not restricted to fixed columns; the user can add as many food items and nutrient values as the paper requires. Second, the PDF and the form are not disconnected; the user can read the document and move more quickly into structured entry when relevant nutrient content is detected.
+The interface follows two principles. The user can add as many food items and nutrient values as the paper requires. The PDF and the form are presented in the same working screen so the user can read the document and move quickly into structured entry.
 
 Three interface behaviors are especially important:
 
 - a test mode that allows safe use of the full UI without writing to the real database,
 - a global "definitely no data" action with a short undo window,
-- counting only valid food items so that empty placeholder cards do not create incorrect `food_item_count` values.
+- counting valid food items to prevent empty placeholder cards from inflating `food_item_count`.
 
-Figure 4 was added to show that the crawler now produces a measurable staged flow.
+Figure 4 shows the numeric summary produced by the crawler's staged flow.
 
 ![Figure 4 - Example crawler stage summary](assets/figure_4_crawler_funnel_example_en.png)
 
-Figure 4. Stage counts derived from the manifest summary of a representative Turkish live run. This figure is not presented as a benchmark; it is included to show that the pipeline already produces measurable staged behavior.
+Figure 4. Stage counts derived from the manifest summary of a representative Turkish live run.
 
-For the real annotator UI screenshot, Figure 5 is intentionally left as a placeholder.
+Figure 5 is the placeholder for the final annotator UI screenshot.
 
 ![Figure 5 - Annotator screenshot placeholder](assets/figure_5_annotator_placeholder_en.png)
 
@@ -191,33 +191,33 @@ Figure 5. Before final submission, this visual should be replaced with a real sc
 
 ## 5. Crawler, filtering, and acquisition method
 
-The crawler was not designed as a one-step search script. Instead, it was built as a staged selection pipeline. The basic approach has three steps:
+The crawler is built as a staged selection pipeline. The basic approach has three steps:
 
 - **Search:** finding metadata-level candidates from sources such as Europe PMC, OpenAlex, Semantic Scholar, and DergiPark
 - **Filter:** applying search-gate and metadata-filter logic to titles and abstracts
 - **Acquisition:** downloading PDFs and validating full text only for sufficiently strong candidates
 
-This separation is an important engineering decision. Downloading every candidate PDF would be both expensive and unnecessary. The pre-filtering step allows fewer but stronger candidates to move into full-text acquisition.
+This separation reduces unnecessary PDF downloads and moves fewer, stronger candidates into full-text acquisition.
 
-The filtering stage does not rely on a single rule. Instead, it combines three broader signal groups: domain-specific keyword and unit clues, semantic suitability based on embeddings, and feedback signals learned from previous user behavior. This makes the system more robust than a simple keyword matcher.
+The filtering stage combines three signal groups: domain-specific keyword and unit clues, semantic suitability based on embeddings, and feedback signals learned from previous user behavior.
 
-Two crawler capabilities are especially important at this stage. First, English and Turkish literature are handled as separate target pools. Second, user feedback is reused not only at the term level but also at the query-batch level.
+Two crawler capabilities are especially important at this stage: separate target pools for English and Turkish literature, and feedback reuse at both term and query-batch level.
 
 For Turkish-language acquisition, the DergiPark integration was also redesigned. Instead of a broad and weakly controlled search approach, the crawler now uses renewable journal- and issue-level local index files. This improves both source quality and traceability for Turkish literature.
 
 ## 6. Feedback and paper-stock refill method
 
-The `feedback/update_terms.py` script reads the user-created event records and turns them into learning signals. The idea is straightforward: if the user found and saved meaningful data, that case is treated as positive; if the paper clearly contains no relevant data or is repeatedly skipped, it is treated as negative; and if the evidence is mixed, it is kept out of training.
+The `feedback/update_terms.py` script reads user-created event records and turns them into learning signals. Cases with meaningful saved data are treated as positive. Papers that clearly contain no relevant data or are repeatedly skipped are treated as negative. Mixed cases are kept out of training.
 
-The resulting feedback is then consumed by the crawler as a soft scoring signal. In other words, the system does not treat feedback as a rigid veto. It converts user experience into a more balanced ranking signal for later retrieval.
+The resulting feedback is then consumed by the crawler as a soft scoring signal.
 
 When the end-user paper pool becomes too small, `ensure_paper_stock.py` takes over. This script checks the current EN/TR paper counts, refreshes feedback when needed, refreshes the DergiPark index, runs the crawler, and uploads the results to Supabase. That creates an operational bridge between the annotation interface and the data-acquisition layer.
 
 ## 7. Current limitations
 
-At the midterm stage, proposal item four, document segmentation and an LLM-based core extraction process, is not presented as a completed production pipeline. The repository contains exploratory and prototype-level files in that direction, but this report is intentionally limited to the first three working semester goals and the data/feedback infrastructure supporting them.
+This report focuses on the first three working semester goals and the data/feedback infrastructure supporting them. Document segmentation and the LLM-based extraction process belong to the next phase.
 
-Similarly, the real annotator screenshot is still left as a placeholder in this report. The reason is practical: it is better to capture the most up-to-date UI state close to final submission.
+The annotator screenshot is still left as a placeholder in this report. It should be replaced with the latest UI state before final submission.
 
 \newpage
 
