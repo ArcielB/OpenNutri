@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Iterable
@@ -15,9 +17,17 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 
 BASE_DIR = Path(__file__).resolve().parent
-MARKDOWN_PATH = BASE_DIR / "3_Sinif_Proje_Raporu_YAZILIM_KTUN_TR.md"
-DOCX_PATH = BASE_DIR / "docx" / "3_Sinif_Proje_Raporu_YAZILIM_KTUN_TR.docx"
 PDF_DIR = BASE_DIR / "pdf"
+REPORTS = [
+    {
+        "markdown": BASE_DIR / "3_Sinif_Proje_Raporu_YAZILIM_KTUN_TR.md",
+        "docx": BASE_DIR / "docx" / "3_Sinif_Proje_Raporu_YAZILIM_KTUN_TR.docx",
+    },
+    {
+        "markdown": BASE_DIR / "3_Sinif_Proje_Raporu_YAZILIM_KTUN_EN.md",
+        "docx": BASE_DIR / "docx" / "3_Sinif_Proje_Raporu_YAZILIM_KTUN_EN.docx",
+    },
+]
 
 
 def ensure_styles(document: Document) -> None:
@@ -211,10 +221,21 @@ def export_docx(markdown_path: Path, output_path: Path) -> None:
 
 def convert_docx_to_pdf(docx_path: Path, pdf_dir: Path) -> None:
     pdf_dir.mkdir(parents=True, exist_ok=True)
+    runtime_dir = Path("/tmp/opennutri-soffice-runtime")
+    profile_dir = Path("/tmp/opennutri-soffice-profile")
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    soffice_bin = shutil.which("soffice") or shutil.which("libreoffice") or "libreoffice"
+    env = os.environ.copy()
+    env["HOME"] = "/tmp"
+    env["XDG_RUNTIME_DIR"] = str(runtime_dir)
+    env["XDG_CONFIG_HOME"] = "/tmp"
+    env["XDG_CACHE_HOME"] = "/tmp"
     subprocess.run(
         [
-            "libreoffice",
+            soffice_bin,
             "--headless",
+            "-env:UserInstallation=file:///tmp/opennutri-soffice-profile",
             "--convert-to",
             "pdf",
             "--outdir",
@@ -222,16 +243,20 @@ def convert_docx_to_pdf(docx_path: Path, pdf_dir: Path) -> None:
             str(docx_path),
         ],
         check=True,
+        env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
 
 
 def main() -> None:
-    export_docx(MARKDOWN_PATH, DOCX_PATH)
-    convert_docx_to_pdf(DOCX_PATH, PDF_DIR)
-    print("Created", DOCX_PATH)
-    print("Created", PDF_DIR / f"{DOCX_PATH.stem}.pdf")
+    for report in REPORTS:
+        markdown_path = report["markdown"]
+        docx_path = report["docx"]
+        export_docx(markdown_path, docx_path)
+        convert_docx_to_pdf(docx_path, PDF_DIR)
+        print("Created", docx_path)
+        print("Created", PDF_DIR / f"{docx_path.stem}.pdf")
 
 
 if __name__ == "__main__":
