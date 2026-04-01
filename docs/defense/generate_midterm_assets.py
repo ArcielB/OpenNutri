@@ -33,7 +33,23 @@ def setup_canvas(figsize: tuple[float, float]):
     return fig, ax
 
 
-def add_box(ax, x, y, w, h, title, body, *, fc, ec="#284b63", title_color="#0f172a"):
+def add_box(
+    ax,
+    x,
+    y,
+    w,
+    h,
+    title,
+    body,
+    *,
+    fc,
+    ec="#284b63",
+    title_color="#0f172a",
+    title_size=10,
+    body_size=8.5,
+    title_y_factor=0.72,
+    body_y_factor=0.35,
+):
     patch = FancyBboxPatch(
         (x, y),
         w,
@@ -44,17 +60,52 @@ def add_box(ax, x, y, w, h, title, body, *, fc, ec="#284b63", title_color="#0f17
         edgecolor=ec,
     )
     ax.add_patch(patch)
-    ax.text(x + w / 2, y + h * 0.72, title, ha="center", va="center", fontsize=10, weight="bold", color=title_color)
-    ax.text(x + w / 2, y + h * 0.35, body, ha="center", va="center", fontsize=8.5, color="#1f2937", wrap=True)
+    ax.text(x + w / 2, y + h * title_y_factor, title, ha="center", va="center", fontsize=title_size, weight="bold", color=title_color)
+    ax.text(x + w / 2, y + h * body_y_factor, body, ha="center", va="center", fontsize=body_size, color="#1f2937", wrap=True)
 
 
-def add_arrow(ax, start, end, *, text=None):
-    arrow = FancyArrowPatch(start, end, arrowstyle="-|>", mutation_scale=14, linewidth=1.5, color="#475569")
+def add_arrow(
+    ax,
+    start,
+    end,
+    *,
+    text=None,
+    color="#475569",
+    linewidth=1.5,
+    linestyle="-",
+    connectionstyle="arc3",
+):
+    arrow = FancyArrowPatch(
+        start,
+        end,
+        arrowstyle="-|>",
+        mutation_scale=14,
+        linewidth=linewidth,
+        color=color,
+        linestyle=linestyle,
+        connectionstyle=connectionstyle,
+    )
     ax.add_patch(arrow)
     if text:
         mid_x = (start[0] + end[0]) / 2
         mid_y = (start[1] + end[1]) / 2
         ax.text(mid_x, mid_y + 0.03, text, ha="center", va="center", fontsize=8, color="#334155")
+
+
+def add_band(ax, x, y, w, h, title, subtitle, *, fc, ec, title_color="#0f172a"):
+    patch = FancyBboxPatch(
+        (x, y),
+        w,
+        h,
+        boxstyle="round,pad=0.01,rounding_size=0.025",
+        linewidth=1.2,
+        facecolor=fc,
+        edgecolor=ec,
+        alpha=0.55,
+    )
+    ax.add_patch(patch)
+    ax.text(x + 0.02, y + h - 0.04, title, ha="left", va="center", fontsize=12, weight="bold", color=title_color)
+    ax.text(x + 0.02, y + h - 0.08, subtitle, ha="left", va="center", fontsize=8.7, color="#334155")
 
 
 def save(fig, name: str):
@@ -218,6 +269,120 @@ def generate_feedback_data_model():
     save(fig, "figure_2_feedback_data_model_en.png")
 
 
+def generate_database_schema():
+    fig, ax = setup_canvas((14, 8.2))
+    ax.text(0.5, 0.965, "OpenNutri Veritabanı Yapısı (Sadeleştirilmiş)", ha="center", va="center", fontsize=18, weight="bold", color="#0f172a")
+    ax.text(0.5, 0.915, "UI ve crawler ayni Supabase semasi uzerinden calisir", ha="center", va="center", fontsize=10, color="#475569")
+    add_box(
+        ax, 0.08, 0.58, 0.33, 0.22,
+        "1. Referans sozluk",
+        "Sistemin ortak gida ve nutrient dili.\nBu katman hem UI hem crawler tarafinda kullanilir.\n\nTablolar:\nentities, entity_aliases,\nmaster_nutrients, sources, claims",
+        fc="#dbeafe",
+        title_size=13,
+        body_size=9.2,
+        body_y_factor=0.29,
+    )
+    add_box(
+        ax, 0.58, 0.58, 0.33, 0.22,
+        "2. Makale havuzu ve arama kaniti",
+        "Sisteme giren makaleler ve onlara nasil\nulasildigini gosteren arama izleri.\n\nTablolar:\npapers, paper_search_hits,\npaper_search_batches, paper_search_batch_hits",
+        fc="#fde68a",
+        title_size=12.3,
+        body_size=9.0,
+        body_y_factor=0.29,
+    )
+    add_box(
+        ax, 0.08, 0.20, 0.33, 0.22,
+        "3. Uzman anotasyon verisi",
+        "Kullanicinin makale uzerinde olusturdugu\nyapilandirilmis veri.\n\nTablolar:\nannotations, food_items,\nannotation_nutrient_values",
+        fc="#dcfce7",
+        title_size=12.5,
+        body_size=9.1,
+        body_y_factor=0.29,
+    )
+    add_box(
+        ax, 0.58, 0.20, 0.33, 0.22,
+        "4. Geri besleme ve izlenebilirlik",
+        "Kullanici kararlarini olay olarak tutan\nve sonraki taramalari besleyen katman.\n\nTablolar:\npaper_label_events,\npaper_global_labels",
+        fc="#fce7f3",
+        title_size=12.1,
+        body_size=9.0,
+        body_y_factor=0.29,
+    )
+
+    add_arrow(ax, (0.41, 0.69), (0.58, 0.69))
+    add_arrow(ax, (0.74, 0.58), (0.29, 0.42), connectionstyle="arc3,rad=0.12")
+    add_arrow(ax, (0.41, 0.31), (0.58, 0.31))
+    add_arrow(ax, (0.74, 0.58), (0.74, 0.42))
+
+    ax.text(
+        0.5,
+        0.08,
+        "Bu sekil tam bir ER diyagrami degil; migration.sql icindeki cekirdek tablolari, projeyi anlamayi kolaylastiracak dort sorumluluk alani altinda toplar.",
+        ha="center",
+        va="center",
+        fontsize=9.2,
+        color="#334155",
+    )
+    save(fig, "figure_3_database_schema.png")
+
+    fig, ax = setup_canvas((14, 8.2))
+    ax.text(0.5, 0.965, "OpenNutri Database Structure (Simplified)", ha="center", va="center", fontsize=18, weight="bold", color="#0f172a")
+    ax.text(0.5, 0.915, "The UI and crawler operate on the same Supabase schema", ha="center", va="center", fontsize=10, color="#475569")
+    add_box(
+        ax, 0.08, 0.58, 0.33, 0.22,
+        "1. Reference vocabulary",
+        "The shared food and nutrient language\nused across the system.\nThis layer serves both the UI and the crawler.\n\nTables:\nentities, entity_aliases,\nmaster_nutrients, sources, claims",
+        fc="#dbeafe",
+        title_size=13,
+        body_size=9.2,
+        body_y_factor=0.29,
+    )
+    add_box(
+        ax, 0.58, 0.58, 0.33, 0.22,
+        "2. Paper pool and search evidence",
+        "The papers entering the system and the\nsearch traces showing how they were found.\n\nTables:\npapers, paper_search_hits,\npaper_search_batches, paper_search_batch_hits",
+        fc="#fde68a",
+        title_size=12.3,
+        body_size=9.0,
+        body_y_factor=0.29,
+    )
+    add_box(
+        ax, 0.08, 0.20, 0.33, 0.22,
+        "3. Expert annotation data",
+        "The structured information entered by\nthe user on top of each paper.\n\nTables:\nannotations, food_items,\nannotation_nutrient_values",
+        fc="#dcfce7",
+        title_size=12.5,
+        body_size=9.1,
+        body_y_factor=0.29,
+    )
+    add_box(
+        ax, 0.58, 0.20, 0.33, 0.22,
+        "4. Feedback and traceability",
+        "The layer that stores user decisions as events\nand feeds later retrieval.\n\nTables:\npaper_label_events,\npaper_global_labels",
+        fc="#fce7f3",
+        title_size=12.1,
+        body_size=9.0,
+        body_y_factor=0.29,
+    )
+
+    add_arrow(ax, (0.41, 0.69), (0.58, 0.69))
+    add_arrow(ax, (0.74, 0.58), (0.29, 0.42), connectionstyle="arc3,rad=0.12")
+    add_arrow(ax, (0.41, 0.31), (0.58, 0.31))
+    add_arrow(ax, (0.74, 0.58), (0.74, 0.42))
+
+    ax.text(
+        0.5,
+        0.08,
+        "This is not a full ER diagram. It groups the core tables defined in migration.sql into four responsibilities so the project is easier to understand at a glance.",
+        ha="center",
+        va="center",
+        fontsize=9.2,
+        color="#334155",
+    )
+    save(fig, "figure_3_database_schema_en.png")
+
+
 def generate_crawler_funnel():
     fig, ax = plt.subplots(figsize=(11, 6), dpi=180)
     ax.set_facecolor("white")
@@ -269,7 +434,7 @@ def generate_crawler_funnel():
 
     fig.text(0.02, 0.02, subtitle, fontsize=8.5, color="#475569")
     fig.tight_layout(rect=(0, 0.05, 1, 1))
-    save(fig, "figure_3_crawler_funnel_example.png")
+    save(fig, "figure_4_crawler_funnel_example.png")
 
     fig, ax = plt.subplots(figsize=(11, 6), dpi=180)
     ax.set_facecolor("white")
@@ -308,7 +473,7 @@ def generate_crawler_funnel():
         ax.text(value + max(values) * 0.015, idx, str(value), va="center", fontsize=9, color="#0f172a")
     fig.text(0.02, 0.02, subtitle, fontsize=8.5, color="#475569")
     fig.tight_layout(rect=(0, 0.05, 1, 1))
-    save(fig, "figure_3_crawler_funnel_example_en.png")
+    save(fig, "figure_4_crawler_funnel_example_en.png")
 
 
 def generate_placeholder():
@@ -328,15 +493,15 @@ def generate_placeholder():
                 "   PDF viewer, vurgulanmış bir nutrient, sağdaki food item formu,",
                 "   üstte ilerleme / durum alanı.",
                 "4. Ekran görüntüsünü bu dosyanın yerine gelecek şekilde",
-                "   docs/defense/assets/figure_4_annotator_placeholder.png",
+                "   docs/defense/assets/figure_5_annotator_placeholder.png",
                 "   adıyla kaydedin ve export betiğini yeniden çalıştırın.",
             ]
         ),
         fc="#f8fafc",
         ec="#64748b",
     )
-    ax.text(0.5, 0.86, "Şekil 4 için Yer Tutucu", ha="center", va="center", fontsize=18, weight="bold", color="#0f172a")
-    save(fig, "figure_4_annotator_placeholder.png")
+    ax.text(0.5, 0.86, "Şekil 5 için Yer Tutucu", ha="center", va="center", fontsize=18, weight="bold", color="#0f172a")
+    save(fig, "figure_5_annotator_placeholder.png")
 
     fig, ax = setup_canvas((11, 6))
     add_box(
@@ -354,20 +519,21 @@ def generate_placeholder():
                 "   PDF viewer, a highlighted nutrient, the right-side food item form,",
                 "   and the progress / status area near the top.",
                 "4. Save the screenshot under the same filename as",
-                "   docs/defense/assets/figure_4_annotator_placeholder_en.png",
+                "   docs/defense/assets/figure_5_annotator_placeholder_en.png",
                 "   and rerun the export script.",
             ]
         ),
         fc="#f8fafc",
         ec="#64748b",
     )
-    ax.text(0.5, 0.86, "Placeholder for Figure 4", ha="center", va="center", fontsize=18, weight="bold", color="#0f172a")
-    save(fig, "figure_4_annotator_placeholder_en.png")
+    ax.text(0.5, 0.86, "Placeholder for Figure 5", ha="center", va="center", fontsize=18, weight="bold", color="#0f172a")
+    save(fig, "figure_5_annotator_placeholder_en.png")
 
 
 def main():
     generate_architecture()
     generate_feedback_data_model()
+    generate_database_schema()
     generate_crawler_funnel()
     generate_placeholder()
     print("Created assets in", ASSET_DIR)

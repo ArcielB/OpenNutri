@@ -25,7 +25,7 @@ This midterm report summarizes the current state of the first three work items d
 
 By the midterm stage, the team has moved beyond a purely conceptual design and delivered a working system core. At this point OpenNutri already has an infrastructure that can discover candidate papers from scientific sources, filter them through multiple stages, transfer suitable PDF files into the system, let an expert user create structured annotations on those papers, and feed those annotation outcomes back into later crawling decisions.
 
-The most important aspect of these outputs is that they do not exist as disconnected modules. They operate as a single flow centered on a shared data model. Papers found on the crawler side are transferred into the Supabase-based storage and database layer, the annotator interface presents these papers to the user, user actions are recorded as label events, and these labels are then converted by `feedback/update_terms.py` into new feedback terms that improve later crawler queries and ranking scores.
+These outputs do not exist as disconnected modules. The core project idea is simple: the system first finds promising papers, the expert user reviews them and enters structured data, and those user decisions then improve the next search cycle. By the midterm stage, the core pieces of that loop are already working together.
 
 Table 1 summarizes how the current system state maps to the first-semester proposal items.
 
@@ -36,27 +36,16 @@ Table 1 summarizes how the current system state maps to the first-semester propo
 | 3. Expert Annotation Engine | Substantially progressed | PDF viewing, nutrient highlighting, dynamic food/nutrient entry, test mode, global skip, event logging |
 | 4. Document Segmentation and Core Extraction Process | Outside the scope of this report | A production-ready extraction pipeline is not claimed as completed yet |
 
-At the system level, the work completed during the term clusters around three main axes.
+The system can be explained through four main ideas. First, the crawler should not send random papers into the system; it should choose stronger candidates first. Second, both the UI and the crawler should work on the same backend and data model. Third, the expert user needs an annotation screen that supports real work on top of the PDF itself. Fourth, user decisions should not remain a passive record; they should become feedback for later search and ranking.
 
-The first axis is data acquisition and candidate-paper stock creation. The crawler initially focused on Europe PMC, but it was later refactored into a source-agnostic `Search -> Filter -> Acquisition` architecture. This means a paper is now evaluated before any PDF download takes place, using signals such as title, abstract, language, source bias, food/nutrient matches, unit patterns, embedding similarity, and learned feedback terms. This approach reduces unnecessary PDF downloads and helps place more relevant candidates into the annotator queue.
+For that reason, the report focuses on the working system idea rather than the commit-by-commit sequence. Table 2 is therefore organized around the main system parts instead of dates.
 
-The second axis is the shared backend and data model. When `papers`, `annotations`, `food_items`, `annotation_nutrient_values`, `paper_label_events`, `paper_global_labels`, `paper_search_hits`, `paper_search_batches`, and `paper_search_batch_hits` are considered together, the system stores not only final user data but also how a paper was discovered and why it was accepted or rejected. This decision makes the system easier to evaluate technically and also creates the infrastructure needed for later experimental comparisons.
-
-The third axis is the expert annotation interface. The React/Vite annotator is no longer just a simple form. It has become a real working environment that includes PDF rendering, nutrient highlighting inside the text layer, quick nutrient insertion from highlights, ranked food and nutrient lookup, test mode, a global "definitely no data" flow, and user-action event logging. The changes in `Annotate.jsx`, `PdfViewer.jsx`, and `PdfTextScanner.js` show that the user-facing side of the project has moved from research prototype level toward a usable tool.
-
-The term also included quality and consistency fixes, not only new features. For example, only valid food items are now counted and saved so that empty placeholder cards do not create incorrect totals. Likewise, the `food_item_count` and `nutrient_value_count` fields stored in `paper_label_events` now reflect actual user output more accurately. On the crawler side, dropping the legacy `seen_ids` logic in favor of `paper_states` also improves reproducibility and control over repeated runs.
-
-Table 2 lists the high-impact developments that were added to the repository after the handoff snapshot.
-
-| Date | High-impact development | Project impact |
+| Layer | Work completed | Technical result |
 | --- | --- | --- |
-| 2026-03-20 | Cumulative and field-aware soft feedback learning | Terms learned from labels started feeding back into crawler scoring |
-| 2026-03-21 | Split English and Turkish workflows | EN/TR sources began to be managed with separate language-specific targets |
-| 2026-03-22 | `Search -> Filter -> Acquisition` refactor and search-evidence tables | Metadata-level filtering and query-evidence storage became possible before PDF download |
-| 2026-03-30 | Annotator count fix and canonical hit deduplication | UI data quality and crawler evidence consistency improved |
-| 2026-03-30 | Turkish crawl quotas, metadata-only hit persistence, DergiPark index refresh | More controlled and traceable Turkish-literature acquisition was established |
-| 2026-03-30 | Query-batch feedback and search-gate batch accounting | It became measurable which query batches yield better results |
-| 2026-03-30 | Removal of hard-negative veto logic | Crawler decisions became more balanced through soft penalties instead of hard vetoes |
+| Crawler and paper acquisition | Multi-source search, multi-stage filtering, EN/TR workflows, DergiPark support, PDF validation | Papers entering the system became more selective and more meaningful |
+| Backend and data model | Shared database schema, search-evidence records, annotation tables, RLS policies | The UI, crawler, and feedback layer now operate on the same data structure |
+| Annotator and user workflow | PDF viewing, highlight-assisted entry, dynamic food/nutrient form, test mode, global skip | Expert users can work on real documents faster and with better control |
+| Learning feedback loop | Storing user decisions as events and reusing them in later retrieval | The system moved toward a real closed loop that learns from user behavior |
 
 Figure 1 shows the end-to-end system state available at the midterm stage.
 
@@ -164,73 +153,63 @@ These components are used across two connected sides of the project: the web app
 
 ## 3. Backend and data-model method
 
-On the backend side, the team first established a normalized reference-data schema. The `entities`, `entity_aliases`, `master_nutrients`, `sources`, and `claims` tables represent the food and nutrient vocabulary. This layer is intentionally separated from user annotations, which allows both the frontend autocomplete components and crawler term-generation logic to reuse the same controlled vocabulary.
+The main backend decision was to organize the system around one shared data model. That model can be understood through four parts: the shared food/nutrient vocabulary, the papers and search evidence entering the system, the expert annotation records, and the event logs that preserve user decisions as feedback.
 
-On top of that, a second relational layer was built for annotation. The `papers` table stores the imported paper records, `annotations` stores per-user paper state, and `food_items` plus `annotation_nutrient_values` store flexible food/nutrient entries. A dynamic row-based structure was preferred over a rigid nutrient panel. As a result, one paper may contain only proximate composition while another may include vitamins or minerals without the model becoming artificially restrictive.
+The point of this structure is not only storage. It allows the UI, crawler, and feedback logic to stay connected instead of becoming separate tools. For example, the names used in the user interface and the terms reused by the crawler rely on the same reference vocabulary, while the reason a paper entered the system and the later annotation built on top of it are tied to the same paper record.
 
-During the midterm period the backend was expanded in two important ways. First, `paper_label_events` and `paper_global_labels` were added so user actions could be stored as learning-oriented event data. Second, `paper_search_hits`, `paper_search_batches`, and `paper_search_batch_hits` were added so the crawler stores not only accepted papers but also the search evidence that led to them. This makes it possible to answer questions such as "which query combinations worked better?" directly from the database.
+Figure 3 presents a simplified database summary derived from `apps/expert-annotator/migration.sql`, which is the code-level source of truth for the active Supabase schema.
+
+![Figure 3 - Database schema summary](assets/figure_3_database_schema_en.png)
+
+Figure 3. Simplified view of the main database structure used in the midterm system, grouped into four responsibilities so the project is easier to understand. The summary is derived from the current `migration.sql` schema definition.
 
 Row-level security (RLS) is used to protect the backend. Users can manage their own annotation data, while the service role remains able to perform crawler uploads, ETL, and maintenance operations. This is the core security mechanism required by the system’s multi-user design.
 
 ## 4. Annotator interface method
 
-The center of the annotator interface is `Annotate.jsx`. When the application loads, this component fetches papers, the current user’s saved annotation states, the nutrient reference list, and the food catalog. When the selected paper changes, any previous annotation for that paper is restored so the user can continue from the last saved point.
+The annotator interface is designed as a working screen where the expert can read a paper and enter structured data at the same time. The user opens a paper from the system queue, sees any previously saved work, and continues from the last meaningful state.
 
-The UI uses a dynamic form model for food and nutrient entry. Each food item can contain an arbitrary number of nutrient rows. `FoodAutocomplete.jsx` and `NutrientAutocomplete.jsx` rank candidates using exact matches, prefix matches, token normalization, and alias handling. This means the user does not need to type the exact canonical database name every time.
+Two ideas define the interface. First, data entry is not restricted to fixed columns; the user can add as many food items and nutrient values as the paper requires. Second, the PDF and the form are not disconnected; the user can read the document and move more quickly into structured entry when relevant nutrient content is detected.
 
-For PDF interaction, `PdfViewer.jsx` and `PdfTextScanner.js` work together. The text-layer spans produced by PDF.js are scanned, nutrient terms are wrapped with `<mark>` where appropriate, and the user can click those highlights to open a quick nutrient-entry popover. This turns the interface from a plain data-entry form into a document-aware annotation tool.
-
-Three interface behaviors were particularly added or improved during the midterm period:
+Three interface behaviors are especially important:
 
 - a test mode that allows safe use of the full UI without writing to the real database,
 - a global "definitely no data" action with a short undo window,
 - counting only valid food items so that empty placeholder cards do not create incorrect `food_item_count` values.
 
-Figure 3 was generated to show that the crawler now produces staged and measurable funnel outputs.
+Figure 4 was added to show that the crawler now produces a measurable staged flow.
 
-![Figure 3 - Example crawler stage summary](assets/figure_3_crawler_funnel_example_en.png)
+![Figure 4 - Example crawler stage summary](assets/figure_4_crawler_funnel_example_en.png)
 
-Figure 3. Stage counts derived from the manifest summary of the example Turkish live run dated `2026-03-30`. This figure is not presented as a full benchmark; it is included to show that the pipeline already produces measurable staged behavior.
+Figure 4. Stage counts derived from the manifest summary of a representative Turkish live run. This figure is not presented as a benchmark; it is included to show that the pipeline already produces measurable staged behavior.
 
-For the real annotator UI screenshot, Figure 4 is intentionally left as a placeholder.
+For the real annotator UI screenshot, Figure 5 is intentionally left as a placeholder.
 
-![Figure 4 - Annotator screenshot placeholder](assets/figure_4_annotator_placeholder_en.png)
+![Figure 5 - Annotator screenshot placeholder](assets/figure_5_annotator_placeholder_en.png)
 
-Figure 4. Before final submission, this visual should be replaced with a real screenshot of the current annotator interface. The simplest approach is to replace `docs/defense/assets/figure_4_annotator_placeholder_en.png` with the screenshot under the same filename and rerun the export script. The image should include the PDF viewer, an example highlighted nutrient, the food-item form, and the progress/status area in the same frame.
+Figure 5. Before final submission, this visual should be replaced with a real screenshot of the current annotator interface. The simplest approach is to replace `docs/defense/assets/figure_5_annotator_placeholder_en.png` with the screenshot under the same filename and rerun the export script. The image should include the PDF viewer, an example highlighted nutrient, the food-item form, and the progress/status area in the same frame.
 
 ## 5. Crawler, filtering, and acquisition method
 
-The crawler was not designed as a one-step search script. By the midterm stage, the implemented approach has three stages:
+The crawler was not designed as a one-step search script. Instead, it was built as a staged selection pipeline. The basic approach has three steps:
 
 - **Search:** finding metadata-level candidates from sources such as Europe PMC, OpenAlex, Semantic Scholar, and DergiPark
 - **Filter:** applying search-gate and metadata-filter logic to titles and abstracts
 - **Acquisition:** downloading PDFs and validating full text only for sufficiently strong candidates
 
-This separation is an important engineering decision. Downloading every candidate PDF would be both expensive and unnecessary. The pre-filtering step allows fewer but stronger candidates to move to full-text acquisition.
+This separation is an important engineering decision. Downloading every candidate PDF would be both expensive and unnecessary. The pre-filtering step allows fewer but stronger candidates to move into full-text acquisition.
 
-The filtering logic combines several signals:
+The filtering stage does not rely on a single rule. Instead, it combines three broader signal groups: domain-specific keyword and unit clues, semantic suitability based on embeddings, and feedback signals learned from previous user behavior. This makes the system more robust than a simple keyword matcher.
 
-- composition- and nutrient-content-oriented lexical patterns,
-- unit signals such as `mg/100g` and `g/100g`,
-- food-term and nutrient-term hits,
-- negative signals related to health outcomes and clinical contexts,
-- English and multilingual embedding similarity,
-- feedback terms derived from user labels,
-- source-level priors and query-batch yield information.
-
-Near the end of the midterm period, the crawler was expanded in two major directions. First, English and Turkish workflows were split so that acceptance targets are managed per language. Second, a `query-batch feedback` mechanism was added, allowing the system to score not only which terms are useful but also which query batches tend to lead to better labeled outcomes.
+Two crawler capabilities are especially important at this stage. First, English and Turkish literature are handled as separate target pools. Second, user feedback is reused not only at the term level but also at the query-batch level.
 
 For Turkish-language acquisition, the DergiPark integration was also redesigned. Instead of a broad and weakly controlled search approach, the crawler now uses renewable journal- and issue-level local index files. This improves both source quality and traceability for Turkish literature.
 
 ## 6. Feedback and paper-stock refill method
 
-The `feedback/update_terms.py` script reads the `paper_label_events` and `paper_global_labels` records created by users and derives training labels. The current logic is:
+The `feedback/update_terms.py` script reads the user-created event records and turns them into learning signals. The idea is straightforward: if the user found and saved meaningful data, that case is treated as positive; if the paper clearly contains no relevant data or is repeatedly skipped, it is treated as negative; and if the evidence is mixed, it is kept out of training.
 
-- `draft` or `done` counts as positive only when `has_data=true`, `food_item_count>0`, and `nutrient_value_count>0`,
-- a global `definitely_no_data` label or skip signals from at least two different users count as negative,
-- conflicting cases are excluded from training.
-
-From these examples, the system extracts n-gram terms at both title-only and title+abstract levels, compares positive and negative distributions, and produces query phrases, anchor phrases, weighted terms, source priors, and batch scores. The crawler then consumes those outputs as soft scores rather than hard veto rules. In other words, feedback is treated as a balanced scoring signal instead of an irreversible rejection.
+The resulting feedback is then consumed by the crawler as a soft scoring signal. In other words, the system does not treat feedback as a rigid veto. It converts user experience into a more balanced ranking signal for later retrieval.
 
 When the end-user paper pool becomes too small, `ensure_paper_stock.py` takes over. This script checks the current EN/TR paper counts, refreshes feedback when needed, refreshes the DergiPark index, runs the crawler, and uploads the results to Supabase. That creates an operational bridge between the annotation interface and the data-acquisition layer.
 

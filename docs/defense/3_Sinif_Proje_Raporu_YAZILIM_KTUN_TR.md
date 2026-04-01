@@ -25,7 +25,7 @@ Bu ara rapor, proje öneri formunda birinci dönem için tanımlanan ilk üç an
 
 Arasınav itibarıyla ekip, projenin yalnızca teorik tasarımını değil, birlikte çalışan gerçek bir sistem çekirdeğini ortaya çıkarmıştır. Mevcut durumda OpenNutri; bilimsel kaynaklardan aday makale bulabilen, bunları çok aşamalı olarak filtreleyebilen, uygun PDF dosyalarını sisteme aktarabilen, uzman kullanıcının bu makaleler üzerinde yapılandırılmış anotasyon yapmasını sağlayan ve oluşan etiketleri daha sonraki tarama kararlarına geri besleme olarak kullanabilen bir altyapıya sahiptir.
 
-Bu çıktıların en önemli özelliği, birbirinden kopuk modüller olarak değil, ortak veri modeli etrafında birleşmiş tek bir akış olarak çalışmasıdır. Crawler tarafında bulunan makaleler Supabase tabanlı depolama ve veritabanı katmanına aktarılmakta, annotator arayüzü bu makaleleri kullanıcıya sunmakta, kullanıcı işlemlerinden oluşan etiket olayları sistemde kayıt altına alınmakta ve bu etiketler daha sonra `feedback/update_terms.py` üzerinden crawler sorgularını ve sıralama puanlarını iyileştiren yeni geri besleme terimlerine dönüştürülmektedir.
+Bu çıktılar birbirinden kopuk modüller değildir. Projenin temel fikri basittir: sistem önce uygun makaleleri bulur, uzman kullanıcı bu makaleleri inceler ve yapılandırılmış veri girer, ardından bu kullanıcı kararları bir sonraki tarama döngüsünü iyileştirir. Arasınav itibarıyla bu döngünün çekirdek parçaları birlikte çalışır hale gelmiştir.
 
 Birinci dönem maddeleri ile mevcut durumun ilişkisi Tablo 1'de özetlenmiştir.
 
@@ -36,27 +36,16 @@ Birinci dönem maddeleri ile mevcut durumun ilişkisi Tablo 1'de özetlenmiştir
 | 3. Uzman Anotasyon Motoru | Büyük ölçüde ilerletildi | PDF görüntüleme, nutrient highlight, dinamik food/nutrient girişi, test mode, global skip, olay kaydı |
 | 4. Belge Segmentasyonu ve Temel Çıkarım Süreci | Bu rapor kapsamı dışında | Üretim düzeyinde tamamlanmış bir çıkarım hattı henüz sunulmamaktadır |
 
-Sistem düzeyinde bakıldığında dönem içinde yapılan çalışmalar üç alt eksende yoğunlaşmıştır.
+Bu sistem dört temel fikir etrafında şekillenmiştir. Birincisi, sisteme rastgele makale sokmak yerine önce güçlü adayları seçen bir crawler hattı kurmaktır. İkincisi, hem arayüzün hem de crawler'ın aynı backend ve veri modeli üzerinde çalışmasını sağlamaktır. Üçüncüsü, uzman kullanıcının PDF üzerinde rahat çalışabileceği bir anotasyon ekranı oluşturmaktır. Dördüncüsü ise kullanıcı kararlarını yalnızca kayıt olarak tutmayıp daha sonraki arama ve sıralama kararlarına geri besleme olarak kullanmaktır.
 
-İlk eksen veri toplama ve aday makale havuzunun kurulmasıdır. Başlangıçta Europe PMC merkezli ilerleyen crawler hattı, daha sonra kaynak bağımsız bir `Search -> Filter -> Acquisition` yapısına dönüştürülmüştür. Böylece bir makale daha PDF indirilmeden önce başlık, özet, dil, kaynak önceliği, besin/nutrient eşleşmeleri, ölçü birimi sinyalleri, embedding benzerliği ve geri besleme terimleri gibi göstergelerle değerlendirilmeye başlanmıştır. Bu yaklaşım, gereksiz PDF indirmelerini azaltmış ve anotatör kuyruğuna daha seçilmiş örneklerin düşmesini sağlamıştır.
+Bu nedenle bu raporda odak nokta tek tek commit adımları değil, dönem sonunda ortaya çıkan çalışan sistem fikridir. Tablo 2 de bu nedenle zaman çizelgesi yerine sistemin ana parçaları üzerinden düzenlenmiştir.
 
-İkinci eksen ortak backend ve veri modelidir. `papers`, `annotations`, `food_items`, `annotation_nutrient_values`, `paper_label_events`, `paper_global_labels`, `paper_search_hits`, `paper_search_batches` ve `paper_search_batch_hits` tabloları birlikte ele alındığında sistem yalnızca son kullanıcı verisini değil, aynı zamanda makaleye nasıl ulaşıldığını ve neden kabul ya da reddedildiğini de izlenebilir biçimde saklamaktadır. Bu karar, hem öğretim elemanının projeyi değerlendirirken sistemin olgunluğunu anlamasını kolaylaştırmakta hem de gelecekte deneysel karşılaştırmaların yapılabilmesi için gerekli altyapıyı oluşturmaktadır.
-
-Üçüncü eksen uzman anotasyon arayüzüdür. React/Vite tabanlı annotator arayüzü artık sadece basit bir form olmaktan çıkmış; PDF görüntüleme, nutrient terimlerini metin katmanında vurgulama, vurgudan hızlı nutrient ekleme, food ve nutrient aramasında sıralamalı eşleştirme, test mode, global "definitely no data" akışı ve kullanıcı işlem olaylarını kaydetme gibi davranışları içeren gerçek bir çalışma alanına dönüşmüştür. Özellikle `Annotate.jsx`, `PdfViewer.jsx` ve `PdfTextScanner.js` dosyalarında yapılan geliştirmeler, projenin kullanıcıya görünen tarafının araştırma prototipi seviyesinden kullanılabilir araç seviyesine taşındığını göstermektedir.
-
-Ayrıca dönem boyunca sadece yeni özellik eklenmemiş, kalite ve tutarlılık düzeltmeleri de yapılmıştır. Örneğin boş food kartlarının sayım bozukluğu üretmemesi için yalnızca geçerli food item'ların kaydedilmesi sağlanmış; `paper_label_events` içindeki `food_item_count` ve `nutrient_value_count` alanları gerçek kullanıcı çıktısını daha doğru yansıtacak hale getirilmiştir. Benzer şekilde crawler tarafında eski `seen_ids` mantığı bırakılarak kararların `paper_states` üzerinden yönetilmesi, denemelerin daha kontrol edilebilir ve tekrarlanabilir olmasına katkı vermiştir.
-
-Handoff sonrasında depoya yansıyan yüksek etkili gelişmeler Tablo 2'de verilmiştir.
-
-| Tarih | Yüksek etkili gelişme | Projeye etkisi |
+| Katman | Gerçekleştirilen işler | Teknik sonucu |
 | --- | --- | --- |
-| 20.03.2026 | Kümülatif ve alan-duyarlı soft feedback öğrenmesi | Etiketlerden üretilen terimlerin crawler puanlarına geri dönmesi sağlandı |
-| 21.03.2026 | İngilizce ve Türkçe iş akışlarının ayrılması | EN/TR kaynaklar aynı havuzda karışmak yerine dil bazlı ayrı hedeflerle yönetilmeye başlandı |
-| 22.03.2026 | `Search -> Filter -> Acquisition` refaktörü ve arama kanıtı tabloları | PDF edinmeden önce metadata bazlı eleme ve sorgu kanıtı saklama mümkün oldu |
-| 30.03.2026 | Annotator sayım düzeltmesi ve canonical hit deduplikasyonu | UI kayıt kalitesi ve crawler kanıt tablolarının bütünlüğü arttı |
-| 30.03.2026 | Türkçe crawl kotaları, metadata-only hit saklama, DergiPark indeks yenileme | Özellikle Türkçe literatür için kontrollü ve izlenebilir veri toplama akışı kuruldu |
-| 30.03.2026 | Query-batch feedback ve search-gate batch accounting | Hangi sorgu partilerinin daha verimli olduğu ölçülebilir hale geldi |
-| 30.03.2026 | Hard-negative veto mantığının kaldırılması | Crawler kararları sert veto yerine yumuşak ceza mantığıyla daha dengeli hale getirildi |
+| Crawler ve makale edinimi | Çok kaynaklı arama, çok aşamalı eleme, EN/TR iş akışları, DergiPark desteği, PDF doğrulama | Sisteme gelen makaleler daha seçilmiş ve daha anlamlı hale geldi |
+| Backend ve veri modeli | Ortak veritabanı şeması, arama kanıtı kayıtları, anotasyon tabloları, RLS politikaları | UI, crawler ve geri besleme katmanı aynı veri yapısı üzerinde birleşti |
+| Annotator ve kullanıcı iş akışı | PDF görüntüleme, highlight destekli veri girişi, dinamik food/nutrient formu, test mode, global skip | Uzman kullanıcı gerçek belge üzerinde daha hızlı ve kontrollü çalışabilir hale geldi |
+| Öğrenen geri besleme döngüsü | Kullanıcı kararlarının event olarak saklanması ve sonraki taramayı beslemesi | Sistem kullanıcı davranışından öğrenen kapalı döngü yapısına yaklaştı |
 
 Şekil 1, arasınav itibarıyla oluşan uçtan uca sistemi göstermektedir.
 
@@ -164,43 +153,45 @@ Bu bileşenler, gereksinimlere göre iki tarafta kullanılmıştır: kullanıcı
 
 ## 3. Backend ve veri modeli yöntemi
 
-Backend tarafında önce normalize edilmiş bir referans veri şeması kurulmuştur. `entities`, `entity_aliases`, `master_nutrients`, `sources` ve `claims` tabloları gıda ve nutrient sözlüğünü temsil etmektedir. Bu yapı, doğrudan kullanıcı anotasyonundan bağımsız tutulmuştur. Böylece hem frontend autocomplete bileşenleri hem de crawler terim üretimi aynı sözlüğü kullanabilmektedir.
+Backend tarafındaki temel karar, tüm sistemi tek bir ortak veri modeli etrafında toplamak olmuştur. Bu model dört ana parçadan oluşur: ortak gıda ve nutrient sözlüğü, sisteme alınan makaleler ve arama kanıtları, uzman anotasyon verisi ve kullanıcı kararlarını geri besleme olarak saklayan olay kayıtları.
 
-Anotasyon tarafında ikinci bir ilişkisel katman kurulmuştur. `papers` tablosu sisteme aktarılmış makaleleri; `annotations` tablosu kullanıcı başına makale durumunu; `food_items` ve `annotation_nutrient_values` tabloları ise esnek gıda ve nutrient girişini tutmaktadır. Bu tasarımda özellikle sabit kolonlu besin paneli yerine dinamik satır yaklaşımı benimsenmiştir. Böylece bir makalede yalnızca proximate composition varken başka bir makalede vitamin veya mineral yoğunlukları da bulunabilmektedir.
+Bu yaklaşımın amacı yalnızca veri saklamak değildir. Aynı yapı sayesinde arayüz, crawler ve geri besleme mantığı birbirinden kopmadan çalışabilmektedir. Örneğin kullanıcı arayüzünde seçilen gıda ve nutrient adları ile crawler tarafında kullanılan terim mantığı aynı referans sözlüğe dayanır; aynı şekilde bir makalenin neden sisteme girdiği ile kullanıcı üzerinde yapılan anotasyonlar da aynı makale kaydı etrafında birleşir.
 
-Arasınav döneminde backend tarafında iki önemli genişleme yapılmıştır. Birincisi, `paper_label_events` ve `paper_global_labels` ile kullanıcı davranışının öğrenme amaçlı olay verisi olarak saklanmasıdır. İkincisi, `paper_search_hits`, `paper_search_batches` ve `paper_search_batch_hits` tabloları ile crawler'ın sadece kabul edilen makaleleri değil, makaleye giden arama kanıtını da saklamasıdır. Böylece gelecekte "hangi sorgu kombinasyonları daha verimli çalıştı?" sorusu veri tabanı üzerinden yanıtlanabilir hale gelmiştir.
+Şekil 3, canlı Supabase yapısının kod içindeki kaynak karşılığı olan `apps/expert-annotator/migration.sql` temel alınarak hazırlanmış, sadeleştirilmiş bir veritabanı özeti sunmaktadır.
+
+![Şekil 3 - Veritabanı şema özeti](assets/figure_3_database_schema.png)
+
+Şekil 3. Arasınav sürümündeki temel veritabanı yapısının, projeyi anlamayı kolaylaştıracak dört sorumluluk alanı altında özetlenmiş görünümü. Şema, `migration.sql` üzerinden sadeleştirilerek hazırlanmıştır.
 
 Backend güvenliği için satır düzeyi güvenlik (RLS) kullanılmıştır. Kullanıcılar kendi anotasyonlarını yönetebilirken sistem servis rolü crawler yüklemeleri, ETL ve bakım işlemleri için geniş yetkiye sahiptir. Bu, çok kullanıcılı yapı için gerekli temel güvenlik önlemidir.
 
 ## 4. Annotator arayüzü yöntemi
 
-Annotator arayüzünün merkezinde `Annotate.jsx` bulunmaktadır. Bu bileşen uygulama açıldığında makaleleri, kullanıcının önceki anotasyon durumlarını, nutrient referans listesini ve food kataloğunu yüklemektedir. Seçili makale değiştiğinde o makaleye ait önceki anotasyon geri çağrılmakta ve kullanıcı kaldığı yerden devam edebilmektedir.
+Annotator arayüzü, uzman kullanıcının bir makaleyi okuyup aynı anda yapılandırılmış veri girebildiği çalışma ekranı olarak tasarlanmıştır. Kullanıcı sisteme alınmış makaleyi açar, varsa önceki kaydını görür ve çalışmasına kaldığı yerden devam eder.
 
-Arayüzde gıda ve nutrient girişi için dinamik form yapısı kullanılmıştır. Her bir food item altında istenen sayıda nutrient satırı açılabilmektedir. `FoodAutocomplete.jsx` ve `NutrientAutocomplete.jsx` bileşenleri tam eşleşme, prefix eşleşmesi, token normalizasyonu ve alias değerlendirmesi ile sonuçları sıralamaktadır. Böylece kullanıcı yalnızca birebir veri tabanı adını bilmek zorunda kalmamaktadır.
+Arayüzün merkezinde iki fikir vardır. Birincisi, veri girişinin sabit kolonlara bağlı olmamasıdır; kullanıcı gerektiği kadar food item ve her food item altında gerektiği kadar nutrient değeri ekleyebilir. İkincisi, PDF ile formun birbirinden kopuk olmamasıdır; kullanıcı belgeyi okurken ilgili nutrient ifadelerini görüp daha hızlı veri girişi yapabilir.
 
-PDF etkileşimi için `PdfViewer.jsx` ve `PdfTextScanner.js` birlikte çalışmaktadır. PDF.js tarafından üretilen text layer span'ları taranmakta, nutrient terimleri uygun yerlerde `<mark>` ile vurgulanmakta ve kullanıcı bu vurgulara tıklayarak hızlı nutrient ekleme popover'ını açabilmektedir. Bu özellik, arayüzün düz bir veri giriş formu olmaktan çıkıp belge üzerinde çalışan bir anotasyon aracı haline gelmesini sağlamaktadır.
-
-Arasınav sürecinde arayüz tarafında üç önemli davranış eklenmiş veya iyileştirilmiştir:
+Bu bölümde özellikle üç davranış önemlidir:
 
 - test mode ile gerçek veritabanına yazmadan güvenli deneme yapılabilmesi,
 - global "definitely no data" işaretleme ve kısa süreli geri alma akışı,
 - boş placeholder kartların yanlış `food_item_count` üretmemesi için yalnızca geçerli food item'ların sayılması.
 
-Şekil 3, crawler hattının artık aşamalı ölçüm üretebildiğini göstermek amacıyla yerel bir örnek çalıştırmadan üretilmiştir.
+Şekil 4, crawler hattının ölçülebilir bir aşamalı akış ürettiğini göstermek için eklenmiştir.
 
-![Şekil 3 - Örnek crawler aşama özeti](assets/figure_3_crawler_funnel_example.png)
+![Şekil 4 - Örnek crawler aşama özeti](assets/figure_4_crawler_funnel_example.png)
 
-Şekil 3. `2026-03-30` tarihli örnek Türkçe canlı koşunun manifest özetinden türetilen aşama sayıları. Bu şekil bir genel başarı benchmarkı değil, ölçülebilir pipeline davranışının oluştuğunu göstermek için eklenmiştir.
+Şekil 4. Temsili bir Türkçe canlı koşunun manifest özetinden türetilen aşama sayıları. Bu şekil, sistemin ölçülebilir bir pipeline davranışı ürettiğini göstermek için eklenmiştir.
 
-Arayüz ekranı için Şekil 4'te bir yer tutucu bırakılmıştır.
+Arayüz ekranı için Şekil 5'te bir yer tutucu bırakılmıştır.
 
-![Şekil 4 - Annotator ekran görüntüsü yer tutucu](assets/figure_4_annotator_placeholder.png)
+![Şekil 5 - Annotator ekran görüntüsü yer tutucu](assets/figure_5_annotator_placeholder.png)
 
-Şekil 4. Nihai teslimden önce bu görsel, çalışan annotator ekranının gerçek ekran görüntüsü ile değiştirilmelidir. En pratik yol, `docs/defense/assets/figure_4_annotator_placeholder.png` dosyasını gerçek ekran görüntüsü ile aynı ad altında değiştirip export betiğini yeniden çalıştırmaktır. Görselde PDF viewer, vurgulanmış nutrient örneği, food item formu ve ilerleme alanı aynı karede görünmelidir.
+Şekil 5. Nihai teslimden önce bu görsel, çalışan annotator ekranının gerçek ekran görüntüsü ile değiştirilmelidir. En pratik yol, `docs/defense/assets/figure_5_annotator_placeholder.png` dosyasını gerçek ekran görüntüsü ile aynı ad altında değiştirip export betiğini yeniden çalıştırmaktır. Görselde PDF viewer, vurgulanmış nutrient örneği, food item formu ve ilerleme alanı aynı karede görünmelidir.
 
 ## 5. Crawler, filtreleme ve edinme yöntemi
 
-Crawler tarafı tek adımlı bir arama betiği olarak tasarlanmamıştır. Arasınav itibarıyla kullanılan yaklaşım üç aşamalıdır:
+Crawler tarafı tek adımlı bir arama betiği olarak değil, kademeli seçim yapan bir boru hattı olarak tasarlanmıştır. Temel yaklaşım üç aşamalıdır:
 
 - **Search:** Europe PMC, OpenAlex, Semantic Scholar ve DergiPark gibi kaynaklardan metadata düzeyinde aday bulma
 - **Filter:** Başlık ve özet üzerinde search gate ve metadata filter uygulama
@@ -208,29 +199,17 @@ Crawler tarafı tek adımlı bir arama betiği olarak tasarlanmamıştır. Aras�
 
 Bu ayrım önemli bir mühendislik kararıdır. Çünkü tüm adayların PDF'ini indirmek hem pahalı hem de gereksizdir. Ön eleme sayesinde daha az sayıda ama daha güçlü aday tam metin aşamasına geçmektedir.
 
-Filtreleme mantığında şu sinyaller birlikte kullanılmaktadır:
+Filtreleme aşamasında ayrıntılı kuralların hepsi tek tek kullanıcıya gösterilmemektedir; ancak mantık üç ana sinyal grubuna dayanır: konu ile doğrudan ilişkili kelime ve birim ipuçları, semantik benzerlik/embedding tabanlı uygunluk ve önceki kullanıcı etiketlerinden öğrenilen geri besleme sinyalleri. Böylece sistem tek bir kelime eşleşmesine değil, birden fazla işaretin birlikte değerlendirilmesine dayanır.
 
-- food composition ve nutrient content odaklı ifade kalıpları,
-- `mg/100g`, `g/100g` gibi birim sinyalleri,
-- food ve nutrient terim vuruşları,
-- sağlık sonucu ve klinik çalışma temalı negatif sinyaller,
-- İngilizce ve çok dilli embedding benzerliği,
-- kullanıcı etiketlerinden türetilen geri besleme terimleri,
-- kaynak bazlı öncelikler ve sorgu partisi verimi.
-
-Arasınav sürecinin sonuna doğru crawler iki önemli yönde genişletilmiştir. İlk olarak İngilizce ve Türkçe iş akışları ayrılmış, hedef kabul sayıları dil başına bağımsız yönetilmeye başlanmıştır. İkinci olarak `query-batch feedback` yaklaşımı eklenmiş, böylece yalnızca hangi kelimelerin faydalı olduğu değil, hangi sorgu partilerinin daha iyi etiket getirisi ürettiği de puanlanabilir hale gelmiştir.
+Crawler tarafında özellikle iki yetenek belirleyici hale gelmiştir. Birincisi, İngilizce ve Türkçe literatürün ayrı hedef havuzlar olarak yönetilmesidir. İkincisi, kullanıcıdan gelen geri beslemenin yalnızca kelime düzeyinde değil, sorgu partileri düzeyinde de değerlendirilmesidir.
 
 Türkçe kaynaklar için DergiPark entegrasyonu yeniden ele alınmıştır. Eski geniş ve kontrolsüz tarama mantığı yerine dergi ve sayı bazında yenilenebilir yerel indeks dosyaları kullanılmaya başlanmıştır. Bu yöntem, özellikle Türkçe literatürde kaynak kalitesini ve izlenebilirliği artırmaktadır.
 
 ## 6. Feedback ve paper-stock yenileme yöntemi
 
-`feedback/update_terms.py` betiği, kullanıcıların kaydettiği `paper_label_events` ve `paper_global_labels` verilerini okuyarak eğitim etiketleri üretmektedir. Mevcut mantık şu şekildedir:
+`feedback/update_terms.py` betiği, kullanıcıların kaydettiği olayları okuyarak sistem için öğretici sinyaller üretmektedir. Basit fikir şudur: kullanıcı gerçekten veri bulmuş ve anlamlı içerik kaydetmişse bu olumlu örnek sayılır; makale açık biçimde veri içermiyorsa ya da tekrarlı biçimde atlanıyorsa bu olumsuz örnek sayılır; çelişkili durumlar ise öğrenme dışında bırakılır.
 
-- `draft` veya `done` durumunda, `has_data=true`, `food_item_count>0` ve `nutrient_value_count>0` ise olumlu örnek sayılır,
-- global `definitely_no_data` ya da iki farklı kullanıcıdan gelen skip sinyali olumsuz örnek sayılır,
-- çelişkili durumlar eğitimden hariç tutulur.
-
-Bu örneklerden başlık ve başlık+özet düzeyinde n-gram terimleri çıkarılmakta, iyi/kötü dağılımları karşılaştırılarak sorgu ifadeleri, anchor ifadeler, ağırlıklı terimler, kaynak öncelikleri ve batch skorları üretilmektedir. Bu çıktı daha sonra crawler tarafından soft score olarak kullanılmaktadır. Yani sistem geri beslemeyi sert veto olarak değil, daha dengeli bir puanlama unsuru olarak ele almaktadır.
+Bu örneklerden üretilen geri besleme daha sonra crawler tarafından yumuşak puanlama sinyali olarak kullanılır. Yani sistem "bu makale kesinlikle yasak" gibi sert kararlar vermek yerine, kullanıcı deneyiminden öğrendiği işaretleri daha dengeli bir sıralama mantığına dönüştürür.
 
 Son kullanıcıya yeterli makale kalmadığında `ensure_paper_stock.py` devreye girmektedir. Bu betik mevcut EN/TR makale sayılarını kontrol etmekte, gerekiyorsa geri beslemeyi güncellemekte, DergiPark indeksini yenilemekte, crawler'ı çalıştırmakta ve sonuçları Supabase'e yüklemektedir. Böylece anotasyon arayüzü ile veri toplama hattı arasında operasyonel bir bağ kurulmuştur.
 
