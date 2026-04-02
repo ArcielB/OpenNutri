@@ -23,7 +23,7 @@ Bu ara rapor, proje öneri formunda birinci dönem için tanımlanan ilk üç an
 - veritabanı ve orkestrasyon mimarisi,
 - uzman anotasyon motoru.
 
-Arasınav itibarıyla OpenNutri'nin çalışan çekirdeği kurulmuştur. Crawler, Europe PMC, OpenAlex, Semantic Scholar ve DergiPark kaynaklarından metadata toplar; search gate ve metadata filter ile adayları eler; uygun PDF dosyalarını Supabase katmanına aktarır. Annotator arayüzü bu makaleleri PDF üzerinde açar, food ve nutrient girdilerini kaydeder, kullanıcı kararlarını event ve global label kayıtları üzerinden geri beslemeye dönüştürür.
+Arasınav itibarıyla OpenNutri'nin çalışan çekirdeği kurulmuştur. Crawler, Europe PMC, OpenAlex, Semantic Scholar ve DergiPark kaynaklarından metadata toplar; adayları aşamalı uygunluk kontrolünden geçirir; yeterli bulunan PDF dosyalarını Supabase katmanına aktarır. Annotator arayüzü bu makaleleri PDF üzerinde açar, food item ve nutrient girdilerini kaydeder ve kullanıcı kararlarını sonraki taramaları etkileyen geri besleme sinyallerine dönüştürür.
 
 Bu akışta üç teknik karar öne çıkmaktadır. İlk karar, PDF indirmeden önce güçlü ön eleme yapmaktır; böylece uzman önüne daha seçilmiş makaleler gelir. İkinci karar, Türkçe ve İngilizce literatürü ayrı hedef havuzlar olarak yönetmektir; bu sayede Türkçe çalışmalar sistemin doğrudan kapsama alanına girer. Üçüncü karar, uzman anotasyonunu sonraki crawler koşularını iyileştiren bir sinyale dönüştürmektir.
 
@@ -45,7 +45,7 @@ Tablo 2, çalışan sistemin ana parçalarını ve her parçanın projedeki rol�
 | Annotator ve kullanıcı iş akışı | PDF görüntüleme, highlight destekli veri girişi, dinamik food/nutrient formu, test mode, global skip | Uzman kullanıcının belge üzerinde kontrollü ve hızlı çalışmasını sağlar |
 | Öğrenen geri besleme döngüsü | Event kaydı, global label kayıtları, geri besleme terimleri, query-batch sinyalleri | Kullanıcı kararlarını daha sonraki arama ve sıralamayı iyileştiren sinyallere dönüştürür |
 
-Şekil 1, arasınav itibarıyla oluşan uçtan uca sistemi göstermektedir.
+Şekil 1'in temel mesajı, sistemin birbirinden kopuk araçlardan değil, kapalı döngü halinde çalışan tek bir veri akışından oluştuğunu göstermesidir.
 
 ![Şekil 1 - OpenNutri arasınav sistem mimarisi](assets/figure_1_system_architecture.png)
 
@@ -55,7 +55,7 @@ Arasınav çıktısı çalışan bir temel veri akışıdır. Makale edinimi, an
 
 \newpage
 
-# PROJENİN AMACI VE ÖNEMİ
+# PROJENİN AMACI ve ÖNEMİ
 
 ## Projenin Amacı
 
@@ -119,9 +119,9 @@ OpenNutri'nin arasınav sürümü üç ana katmandan oluşmaktadır:
 - ortak backend/veri modeli,
 - çok kaynaklı crawler ve geri besleme katmanı.
 
-Arasınav sürümünde sistemi belirleyen dört mühendislik tercihi vardır: makale bulma ile PDF edinimini ayırmak, ortak sözlük ve ortak veritabanı kullanmak, anotasyonu dinamik satır modeliyle kurmak ve kullanıcı kararlarını event tabanlı geri besleme olarak saklamak. Aşağıdaki alt bölümler bu tercihlerin nasıl uygulandığını özetlemektedir.
+Arasınav sürümünde sistemi belirleyen dört mühendislik tercihi vardır: makale bulma ile PDF edinimini ayırmak, ortak sözlük ve ortak veritabanı kullanmak, anotasyonu dinamik satır modeliyle kurmak ve kullanıcı kararlarını olay tabanlı geri besleme olarak saklamak. Aşağıdaki alt bölümler araç listesinden çok bu yapının nasıl çalıştığını açıklamaktadır.
 
-Bu katmanların etkileşimi Şekil 1'de gösterilmişti. Şekil 2 ise bu akışın veri modeli ve geri besleme ilişkilerini daha ayrıntılı göstermektedir.
+Bu katmanların etkileşimi Şekil 1'de gösterilmişti. Şekil 2'nin amacı ise anotasyon verisinin geri besleme mantığından ayrı bir yan çıktı değil, aynı veri modelinin parçası olduğunu görünür kılmaktır.
 
 ![Şekil 2 - Veri modeli ve feedback ilişkisi](assets/figure_2_feedback_data_model.png)
 
@@ -129,17 +129,9 @@ Bu katmanların etkileşimi Şekil 1'de gösterilmişti. Şekil 2 ise bu akış�
 
 ## 2. Kullanılan materyaller
 
-Projede kullanılan temel materyaller aşağıdaki gibidir:
+Bu sürüm iki bağlı teknik küme üzerine kuruludur. Kullanıcı tarafında React 19 + Vite tabanlı web arayüzü, PDF.js ve react-pdf ile birlikte kullanılmış; böylece PDF görüntüleme, highlight ve form temelli anotasyon aynı çalışma ekranında toplanmıştır. Backend tarafında Supabase'in kimlik doğrulama, PostgreSQL ve dosya depolama bileşenleri birlikte değerlendirilmiştir.
 
-- **Frontend çerçevesi:** React 19 + Vite
-- **Backend ve depolama:** Supabase Auth, PostgreSQL, Storage
-- **PDF işleme:** `react-pdf` ve PDF.js
-- **Veri boru hattı dili:** Python
-- **Referans veri kaynağı:** USDA FoodData Central [1]
-- **Makale kaynakları:** Europe PMC [5], PubMed Central [4], OpenAlex, Semantic Scholar, DergiPark [6]
-- **Embedding katmanı:** `sentence-transformers` tabanlı İngilizce + çok dilli ikili gömme yapısı
-
-Bu bileşenler, gereksinimlere göre iki tarafta kullanılmıştır: kullanıcı iş akışını yöneten web uygulaması ve makale havuzunu besleyen veri boru hattı.
+Veri edinme ve geri besleme katmanı Python ile yürütülmektedir. Makale kaynakları olarak Europe PMC, PubMed Central, OpenAlex, Semantic Scholar ve DergiPark kullanılmış; referans veri kaynağı olarak USDA FoodData Central [1] seçilmiştir. Metadata düzeyindeki anlamsal uygunluk için sentence-transformers tabanlı İngilizce + çok dilli embedding yapısı tercih edilmiştir.
 
 ## 3. Backend ve veri modeli yöntemi
 
@@ -147,11 +139,11 @@ Backend tarafındaki temel karar, tüm sistemi tek bir ortak veri modeli etrafı
 
 Bu yapı arayüzü, crawler'ı ve geri besleme mantığını aynı veri modeli üzerinde birleştirir. Kullanıcı arayüzünde seçilen gıda ve nutrient adları ile crawler tarafında kullanılan terimler aynı referans sözlüğe dayanır. Bir makalenin sisteme giriş kaydı ile kullanıcı anotasyonları da aynı makale kaydı etrafında tutulur.
 
-Şekil 3, aktif veritabanı şemasını tanımlayan migration betiği temel alınarak hazırlanmış, sadeleştirilmiş bir veritabanı özeti sunmaktadır.
+Şekil 3'ün gösterdiği nokta, veritabanının yalnızca depolama alanı değil, sistem katmanlarını birbirine bağlayan ortak sözleşme olduğudur.
 
 ![Şekil 3 - Veritabanı şema özeti](assets/figure_3_database_schema.png)
 
-Şekil 3. Arasınav sürümündeki temel veritabanı yapısının, projeyi anlamayı kolaylaştıracak dört sorumluluk alanı altında özetlenmiş görünümü. Şema, veritabanı migration betiği üzerinden sadeleştirilerek hazırlanmıştır.
+Şekil 3. Arasınav sürümündeki temel veritabanı yapısının, projeyi anlamayı kolaylaştıracak dört sorumluluk alanı altında özetlenmiş görünümü. Şema, aktif Supabase şemasından sadeleştirilerek hazırlanmıştır.
 
 Backend güvenliği için satır düzeyi güvenlik (RLS) kullanılmıştır. Kullanıcılar kendi anotasyonlarını yönetebilirken sistem servis rolü crawler yüklemeleri, ETL ve bakım işlemleri için geniş yetkiye sahiptir. Bu, çok kullanıcılı yapı için gerekli temel güvenlik önlemidir.
 
@@ -163,47 +155,47 @@ Arayüz iki ana prensiple tasarlanmıştır. Kullanıcı gerektiği kadar food i
 
 Bu bölümde özellikle üç davranış önemlidir:
 
-- test mode ile gerçek veritabanına yazmadan güvenli deneme yapılabilmesi,
-- global "definitely no data" işaretleme ve kısa süreli geri alma akışı,
+- `test mode` ile gerçek veritabanına yazmadan tam iş akışının güvenli biçimde denenebilmesi,
+- `global skip` ile bir makalenin tüm kullanıcılar için veri içermediğinin işaretlenmesi ve kısa süreli geri alma akışı,
 - boş placeholder kartların kaydedilen toplamları etkilemesini önlemek için yalnızca geçerli food item'ların sayılması.
 
-Şekil 4, crawler hattının aşamalı akışından üretilen sayısal özeti göstermektedir.
+Şekil 4'ün amacı, uzmanın PDF okuma ve yapılandırılmış veri girişini aynı ekran üzerinde yürüttüğü çalışma mantığını somutlaştırmaktır.
 
-![Şekil 4 - Örnek crawler aşama özeti](assets/figure_4_crawler_funnel_example.png)
+![Şekil 4 - Annotator ekran görüntüsü yer tutucu](assets/figure_4_annotator_placeholder.png)
 
-Şekil 4. Temsili bir Türkçe canlı koşunun manifest özetinden türetilen aşama sayıları.
-
-Şekil 5, annotator ekran görüntüsü için yer tutucudur.
-
-![Şekil 5 - Annotator ekran görüntüsü yer tutucu](assets/figure_5_annotator_placeholder.png)
-
-Şekil 5. Nihai teslimden önce bu görsel, çalışan annotator ekranının gerçek ekran görüntüsü ile değiştirilmelidir. Görselde PDF viewer, vurgulanmış nutrient örneği, food item formu ve ilerleme alanı aynı karede görünmelidir.
+Şekil 4. Nihai teslimden önce bu görsel, çalışan annotator ekranının gerçek ekran görüntüsü ile değiştirilmelidir. Görselde PDF viewer, vurgulanmış nutrient örneği, food item formu ve ilerleme alanı aynı karede görünmelidir.
 
 ## 5. Crawler, filtreleme ve edinme yöntemi
 
 Crawler tarafı kademeli seçim yapan bir boru hattı olarak tasarlanmıştır. Temel yaklaşım üç aşamadan oluşur:
 
 - **Search:** Europe PMC, OpenAlex, Semantic Scholar ve DergiPark gibi kaynaklardan metadata düzeyinde aday bulma
-- **Filter:** Başlık ve özet üzerinde search gate ve metadata filter uygulama
+- **Filter:** Başlık ve özet üzerinde `search gate` olarak adlandırılan ilk uygunluk eşiğini ve `metadata filter` olarak adlandırılan ayrıntılı uygunluk süzgecini uygulama
 - **Acquisition:** Ancak yeterince iyi bulunan adaylar için PDF indirme ve tam metin doğrulama
 
 Bu ayrım, crawler tarafındaki en kritik verimlilik kararlarından biridir. Tüm adayların PDF'ini indirmek yerine önce metadata düzeyinde ön eleme yapılır. Böylece tam metin aşamasına daha az sayıda ama daha güçlü aday geçer.
 
 Filtreleme mantığı üç ana sinyal grubuna dayanır: konu ile ilişkili kelime ve birim ipuçları, semantik benzerlik/embedding uygunluğu ve önceki kullanıcı etiketlerinden öğrenilen geri besleme sinyalleri.
 
-Crawler tarafında iki yetenek belirleyicidir: İngilizce ve Türkçe literatür için ayrı hedef havuzların yönetilmesi ve geri beslemenin sorgu partileri düzeyinde de değerlendirilmesi.
+Crawler tarafında iki yetenek belirleyicidir: İngilizce ve Türkçe literatür için ayrı hedef havuzların yönetilmesi ve geri beslemenin `query batch`, yani aynı sorgu bileşimiyle yürütülen sınırlı arama partileri düzeyinde de değerlendirilmesi.
+
+Şekil 5, çok aşamalı seçimin yalnızca kavramsal bir karar olmadığını, koşu çıktılarında sayısal olarak da izlenebildiğini göstermektedir.
+
+![Şekil 5 - Örnek crawler aşama özeti](assets/figure_4_crawler_funnel_example.png)
+
+Şekil 5. Temsili bir Türkçe canlı koşunun manifest özetinden türetilen aşama sayıları.
 
 Türkçe kaynaklar için DergiPark entegrasyonu yeniden ele alınmıştır. Eski geniş ve kontrolsüz tarama mantığı yerine dergi ve sayı bazında yenilenebilir yerel indeks dosyaları kullanılmaya başlanmıştır. Bu yöntem, özellikle Türkçe literatürde kaynak kalitesini ve izlenebilirliği artırmaktadır.
 
 ## 6. Feedback ve paper-stock yenileme yöntemi
 
-Geri besleme güncelleme betiği, kullanıcı olaylarından öğretici sinyaller üretir. Anlamlı veri kaydedilen makaleler olumlu örnek, açık biçimde veri içermeyen veya tekrarlı biçimde atlanan makaleler olumsuz örnek olarak değerlendirilir. Çelişkili durumlar öğrenme dışında bırakılır.
+Geri besleme güncelleme betiği, kullanıcı kararlarını zaman sıralı tutan `event log` kayıtlarından öğretici sinyaller üretir. Anlamlı veri kaydedilen makaleler olumlu örnek, açık biçimde veri içermeyen veya tekrarlı biçimde atlanan makaleler olumsuz örnek olarak değerlendirilir. Çelişkili durumlar öğrenme dışında bırakılır.
 
 Kullanıcı kararı, sonraki crawler koşularında kullanılan yumuşak puanlama sinyalidir.
 
 Son kullanıcıya yeterli makale kalmadığında makale stoğunu yenileyen betik devreye girmektedir. Bu betik mevcut EN/TR makale sayılarını kontrol etmekte, gerekiyorsa geri beslemeyi güncellemekte, DergiPark indeksini yenilemekte, crawler'ı çalıştırmakta ve sonuçları Supabase'e yüklemektedir. Böylece anotasyon arayüzü ile veri toplama hattı arasında operasyonel bir bağ kurulmuştur.
 
-## 7. Mevcut sınırlar
+## 7. Arasınav kapsam sınırı
 
 Bu rapor, çalışan ilk üç dönem hedefi ile onları destekleyen veri ve geri besleme altyapısına odaklanmaktadır. Belge segmentasyonu ve LLM tabanlı çıkarım süreci ikinci döneme bırakılmıştır.
 

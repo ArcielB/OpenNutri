@@ -23,7 +23,7 @@ This midterm report summarizes the current state of the first three work items d
 - database and orchestration architecture,
 - expert annotation engine.
 
-By the midterm stage, OpenNutri has a working core system. The crawler collects metadata from Europe PMC, OpenAlex, Semantic Scholar, and DergiPark; applies search gate and metadata filter steps; imports suitable PDFs into the Supabase layer; and hands those papers to the annotator interface. The annotator opens the paper on top of the PDF, stores food and nutrient entries, and turns user decisions into feedback through event and global-label records.
+By the midterm stage, OpenNutri has a working core system. The crawler collects metadata from Europe PMC, OpenAlex, Semantic Scholar, and DergiPark; passes candidates through staged relevance checks; imports suitable PDFs into the Supabase layer; and hands those papers to the annotator interface. The annotator opens the paper on top of the PDF, stores food-item and nutrient entries, and turns user decisions into feedback signals for later runs.
 
 Three technical decisions define this stage. First, the system performs strong pre-filtering before PDF download, so expert time is spent on stronger candidates. Second, English and Turkish literature are managed as separate target pools, which places Turkish studies inside the direct target scope. Third, expert annotation is part of a closed loop: user decisions become signals that improve later crawler runs.
 
@@ -45,7 +45,7 @@ Table 2 summarizes the main parts of the running system and the role of each par
 | Annotator and user workflow | PDF viewing, highlight-assisted entry, dynamic food/nutrient form, test mode, global skip | Lets the expert user work directly on the document in a controlled way |
 | Learning feedback loop | Event logging, global labels, feedback terms, query-batch signals | Converts user decisions into later search and ranking signals |
 
-Figure 1 shows the end-to-end system state available at the midterm stage.
+The main purpose of Figure 1 is to show that the midterm system is not a loose set of tools, but a closed operational loop.
 
 ![Figure 1 - OpenNutri midterm system architecture](assets/figure_1_system_architecture_en.png)
 
@@ -119,9 +119,9 @@ The midterm version of OpenNutri consists of three major layers:
 - the shared backend and data model,
 - the multi-source crawler and feedback layer.
 
-Four engineering choices define the current implementation: separating paper discovery from PDF acquisition, using a shared vocabulary and shared database, building annotation around a dynamic row model, and storing user decisions as event-based feedback. The following subsections describe how those choices are implemented.
+Four engineering choices define the current implementation: separating paper discovery from PDF acquisition, using a shared vocabulary and shared database, building annotation around a dynamic row model, and storing user decisions as event-based feedback. The following subsections focus on how that structure works rather than listing tools in isolation.
 
-The interaction of these layers was shown in Figure 1. Figure 2 expands that view by focusing on the internal data-model and feedback relationships.
+The interaction of these layers was shown in Figure 1. Figure 2 makes one point more explicit: annotation data is not a side product that sits apart from feedback, but part of the same internal data model.
 
 ![Figure 2 - Data model and feedback relations](assets/figure_2_feedback_data_model_en.png)
 
@@ -129,17 +129,9 @@ Figure 2. Data-model relationships linking annotation, event logging, and crawle
 
 ## 2. Materials used
 
-The main technical materials used in the project are:
+This version is built around two connected technical clusters. On the user side, a React 19 + Vite web interface works together with PDF.js and react-pdf so that PDF viewing, highlighting, and structured entry happen on the same screen. On the backend side, Supabase brings authentication, PostgreSQL, and file storage into the same application layer.
 
-- **Frontend framework:** React 19 + Vite
-- **Backend and storage:** Supabase Auth, PostgreSQL, Storage
-- **PDF handling:** `react-pdf` and PDF.js
-- **Data-pipeline language:** Python
-- **Reference data source:** USDA FoodData Central [1]
-- **Paper sources:** Europe PMC [5], PubMed Central [4], OpenAlex, Semantic Scholar, DergiPark [6]
-- **Embedding layer:** a dual English + multilingual setup based on `sentence-transformers`
-
-These components are used across two connected sides of the project: the web application that manages expert workflow and the data pipeline that feeds the paper queue.
+The acquisition and feedback pipeline is implemented in Python. Europe PMC, PubMed Central, OpenAlex, Semantic Scholar, and DergiPark are used as paper sources, while USDA FoodData Central [1] is used as the reference data source. Metadata-level semantic suitability is supported by a dual English + multilingual embedding setup based on sentence-transformers.
 
 ## 3. Backend and data-model method
 
@@ -147,11 +139,11 @@ The main backend decision was to organize the system around one shared data mode
 
 This structure keeps the UI, crawler, and feedback logic on the same data model. The names used in the UI and the terms reused by the crawler rely on the same reference vocabulary. The reason a paper entered the system and the later annotation built on top of it are tied to the same paper record.
 
-Figure 3 presents a simplified database summary derived from the database migration script that defines the active Supabase schema.
+Figure 3 highlights that the database is not only a storage layer, but the shared contract that links the main system components.
 
 ![Figure 3 - Database schema summary](assets/figure_3_database_schema_en.png)
 
-Figure 3. Simplified view of the main database structure used in the midterm system, grouped into four responsibilities so the project is easier to understand. The summary is derived from the database migration script.
+Figure 3. Simplified view of the main database structure used in the midterm system, grouped into four responsibilities so the project is easier to understand. The summary is derived from the active Supabase schema.
 
 Row-level security (RLS) is used to protect the backend. Users can manage their own annotation data, while the service role remains able to perform crawler uploads, ETL, and maintenance operations. This is the core security mechanism required by the system’s multi-user design.
 
@@ -163,47 +155,47 @@ The interface follows two principles. The user can add as many food items and nu
 
 Three interface behaviors are especially important:
 
-- a test mode that allows safe use of the full UI without writing to the real database,
-- a global "definitely no data" action with a short undo window,
+- a `test mode` that allows safe use of the full UI without writing to the real database,
+- a `global skip` action that marks a paper as containing no relevant data for all users, with a short undo window,
 - counting only valid food items so empty placeholder cards do not affect saved totals.
 
-Figure 4 shows the numeric summary produced by the crawler's staged flow.
+The point of Figure 4 is to make the annotator work pattern concrete: document reading and structured entry happen in the same interface.
 
-![Figure 4 - Example crawler stage summary](assets/figure_4_crawler_funnel_example_en.png)
+![Figure 4 - Annotator screenshot placeholder](assets/figure_4_annotator_placeholder_en.png)
 
-Figure 4. Stage counts derived from the manifest summary of a representative Turkish live run.
-
-Figure 5 is the placeholder for the final annotator UI screenshot.
-
-![Figure 5 - Annotator screenshot placeholder](assets/figure_5_annotator_placeholder_en.png)
-
-Figure 5. Before final submission, this visual should be replaced with a real screenshot of the current annotator interface. The image should include the PDF viewer, an example highlighted nutrient, the food-item form, and the progress/status area in the same frame.
+Figure 4. Before final submission, this visual should be replaced with a real screenshot of the current annotator interface. The image should include the PDF viewer, an example highlighted nutrient, the food-item form, and the progress/status area in the same frame.
 
 ## 5. Crawler, filtering, and acquisition method
 
 The crawler is built as a staged selection pipeline. The basic approach has three steps:
 
 - **Search:** finding metadata-level candidates from sources such as Europe PMC, OpenAlex, Semantic Scholar, and DergiPark
-- **Filter:** applying search-gate and metadata-filter logic to titles and abstracts
+- **Filter:** applying a `search gate`, meaning the first eligibility threshold, and a `metadata filter`, meaning the more detailed relevance screen over titles and abstracts
 - **Acquisition:** downloading PDFs and validating full text only for sufficiently strong candidates
 
 This separation is the main efficiency decision on the crawler side. It reduces unnecessary PDF downloads and moves fewer, stronger candidates into full-text acquisition.
 
 The filtering stage combines three signal groups: domain-specific keyword and unit clues, semantic suitability based on embeddings, and feedback signals learned from previous user behavior.
 
-Two crawler capabilities are especially important at this stage: separate target pools for English and Turkish literature, and feedback reuse at both term and query-batch level.
+Two crawler capabilities are especially important at this stage: separate target pools for English and Turkish literature, and feedback reuse at both term and `query batch` level, where a query batch is a bounded search run executed under the same query composition.
+
+Figure 5 shows that the staged crawler design is not only conceptual; its effect can also be tracked numerically in run summaries.
+
+![Figure 5 - Example crawler stage summary](assets/figure_4_crawler_funnel_example_en.png)
+
+Figure 5. Stage counts derived from the manifest summary of a representative Turkish live run.
 
 For Turkish-language acquisition, the DergiPark integration was also redesigned. Instead of a broad and weakly controlled search approach, the crawler now uses renewable journal- and issue-level local index files. This improves both source quality and traceability for Turkish literature.
 
 ## 6. Feedback and paper-stock refill method
 
-The feedback update script reads user-created event records and turns them into learning signals. Cases with meaningful saved data are treated as positive. Papers that clearly contain no relevant data or are repeatedly skipped are treated as negative. Mixed cases are kept out of training.
+The feedback update script reads the `event log`, the chronological record of save and skip decisions, and turns it into learning signals. Cases with meaningful saved data are treated as positive. Papers that clearly contain no relevant data or are repeatedly skipped are treated as negative. Mixed cases are kept out of training.
 
 User decisions are reused as soft scoring signals in later crawler runs.
 
 When the end-user paper pool becomes too small, the paper-stock refill script takes over. This script checks the current EN/TR paper counts, refreshes feedback when needed, refreshes the DergiPark index, runs the crawler, and uploads the results to Supabase. That creates an operational bridge between the annotation interface and the data-acquisition layer.
 
-## 7. Current limitations
+## 7. Midterm scope boundary
 
 This report focuses on the first three working semester goals and the data/feedback infrastructure supporting them. Document segmentation and the LLM-based extraction process are deferred to the second semester.
 
