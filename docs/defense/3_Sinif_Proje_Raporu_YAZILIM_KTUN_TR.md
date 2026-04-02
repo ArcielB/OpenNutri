@@ -71,7 +71,7 @@ Arasınav aşamasındaki odak, bu yapının çekirdek sürümünü ayağa kaldı
 
 Bu projenin önemi, gıda bileşimi bilgisinin binlerce PDF içinde dağınık halde kalmasından doğar. Bilimsel veri vardır; fakat doğrudan sorgulanabilir, karşılaştırılabilir ve yeniden kullanılabilir kayıtlar halinde değildir. OpenNutri bu boşluğu, kaynak bağlantısını koruyan yapısal kayıtlar üreterek hedeflemektedir.
 
-Bu ihtiyaç Türkçe literatürde daha belirgindir. Türkiye'de yayımlanan birçok çalışma DergiPark ve benzeri arşivlerde bulunur; ancak bu çalışmaların verileri uluslararası standart veri tabanlarına düzenli biçimde girmez. Sonuç olarak yerel ürünler, yerel çeşitler ve Türkçe yayınlar dijital görünürlük kaybeder. EN/TR iş akışlarının ayrılması bu nedenle doğrudan kapsam belirleyen bir karardır.
+Bu ihtiyaç Türkçe literatürde özellikle görünürdür. Türkiye'de yayımlanan birçok çalışma DergiPark ve benzeri arşivlerde bulunur; ancak bu çalışmaların verileri uluslararası standart veri tabanlarına düzenli biçimde girmez. Sonuç olarak yerel ürünler, yerel çeşitler ve Türkçe yayınlar dijital gıda veri altyapılarında yeterince temsil edilmez. EN/TR iş akışlarının ayrılması bu nedenle doğrudan kapsam belirleyen bir karardır.
 
 Projenin ikinci önemli yönü uzman zamanını korumasıdır. Uzman anotasyonu pahalı ve sınırlı bir kaynaktır. Bu nedenle OpenNutri makale bulma, ön eleme, PDF doğrulama ve kullanıcı geri beslemesini aynı zincirde birleştirir. Uzman kullanıcıya daha güçlü adaylar gelir; kullanıcı kararları da bir sonraki koşulda makale seçimini iyileştirir.
 
@@ -165,7 +165,7 @@ Bu bölümde özellikle üç davranış önemlidir:
 
 - test mode ile gerçek veritabanına yazmadan güvenli deneme yapılabilmesi,
 - global "definitely no data" işaretleme ve kısa süreli geri alma akışı,
-- boş placeholder kartların `food_item_count` değerini şişirmesini önlemek için geçerli food item'ların sayılması.
+- boş placeholder kartların kaydedilen toplamları etkilemesini önlemek için yalnızca geçerli food item'ların sayılması.
 
 Şekil 4, crawler hattının aşamalı akışından üretilen sayısal özeti göstermektedir.
 
@@ -205,7 +205,7 @@ Son kullanıcıya yeterli makale kalmadığında makale stoğunu yenileyen betik
 
 ## 7. Mevcut sınırlar
 
-Bu rapor, çalışan ilk üç dönem hedefi ile onları destekleyen veri ve geri besleme altyapısına odaklanmaktadır. Belge segmentasyonu ve LLM tabanlı çıkarım süreci sonraki aşamanın konusudur.
+Bu rapor, çalışan ilk üç dönem hedefi ile onları destekleyen veri ve geri besleme altyapısına odaklanmaktadır. Belge segmentasyonu ve LLM tabanlı çıkarım süreci ikinci döneme bırakılmıştır.
 
 Annotator ekran görüntüsü bu raporda yer tutucu olarak bırakılmıştır. Nihai teslimden önce en güncel arayüz görüntüsü eklenmelidir.
 

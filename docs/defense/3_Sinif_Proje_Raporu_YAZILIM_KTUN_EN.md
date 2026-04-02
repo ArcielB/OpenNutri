@@ -71,7 +71,7 @@ At the midterm stage, the focus is to make the core version of this structure ru
 
 The importance of the project starts with the data-access problem. Food-composition knowledge is published in thousands of PDFs, but it rarely exists as structured, queryable, source-linked data. OpenNutri targets that gap directly.
 
-This need is sharper for Turkish literature. Many studies published in Turkey remain inside DergiPark and similar archives without becoming part of standard international food-data infrastructure. As a result, local foods, local varieties, and Turkish-language studies lose digital visibility. The EN/TR workflow split is therefore a scope decision with direct technical consequences.
+This need is especially visible in Turkish literature. Many studies published in Turkey remain inside DergiPark and similar archives without becoming part of standard international food-data infrastructure. As a result, local foods, local varieties, and Turkish-language studies remain underrepresented in digital food-data infrastructure. The EN/TR workflow split is therefore a scope decision with direct technical consequences.
 
 The second major point is expert efficiency. Expert annotation is expensive and limited. OpenNutri combines retrieval, pre-filtering, PDF validation, and feedback so stronger candidates reach the expert user, and expert decisions improve the next run.
 
@@ -165,7 +165,7 @@ Three interface behaviors are especially important:
 
 - a test mode that allows safe use of the full UI without writing to the real database,
 - a global "definitely no data" action with a short undo window,
-- counting valid food items to prevent empty placeholder cards from inflating `food_item_count`.
+- counting only valid food items so empty placeholder cards do not affect saved totals.
 
 Figure 4 shows the numeric summary produced by the crawler's staged flow.
 
@@ -205,7 +205,7 @@ When the end-user paper pool becomes too small, the paper-stock refill script ta
 
 ## 7. Current limitations
 
-This report focuses on the first three working semester goals and the data/feedback infrastructure supporting them. Document segmentation and the LLM-based extraction process belong to the next phase.
+This report focuses on the first three working semester goals and the data/feedback infrastructure supporting them. Document segmentation and the LLM-based extraction process are deferred to the second semester.
 
 The annotator screenshot is still left as a placeholder in this report. It should be replaced with the latest UI state before final submission.
 
