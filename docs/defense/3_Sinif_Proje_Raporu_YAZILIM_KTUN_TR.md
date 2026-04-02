@@ -119,7 +119,7 @@ OpenNutri'nin arasınav sürümü üç ana katmandan oluşmaktadır:
 - ortak backend/veri modeli,
 - çok kaynaklı crawler ve geri besleme katmanı.
 
-Arasınav sürümünde sistemi belirleyen dört mühendislik tercihi vardır: makale bulma ile PDF edinimini ayırmak, ortak sözlük ve ortak veritabanı kullanmak, anotasyonu dinamik satır modeliyle kurmak ve kullanıcı kararlarını olay tabanlı geri besleme olarak saklamak. Aşağıdaki alt bölümler araç listesinden çok bu yapının nasıl çalıştığını açıklamaktadır.
+Arasınav sürümünde sistemi belirleyen dört mühendislik tercihi vardır: makale bulma ile PDF edinimini ayırmak, ortak sözlük ve ortak veritabanı kullanmak, anotasyonu dinamik satır modeliyle kurmak ve kullanıcı kararlarını olay tabanlı geri besleme olarak saklamak. Aşağıdaki alt bölümler bu tercihlerin nasıl uygulandığını açıklamaktadır.
 
 Bu katmanların etkileşimi Şekil 1'de gösterilmişti. Şekil 2 ise bu akışın veri modeli ve geri besleme ilişkilerini daha ayrıntılı göstermektedir.
 
@@ -129,7 +129,7 @@ Bu katmanların etkileşimi Şekil 1'de gösterilmişti. Şekil 2 ise bu akış�
 
 ## 2. Kullanılan materyaller
 
-Bu sürüm iki bağlı teknik küme üzerine kuruludur. Kullanıcı tarafında React 19 + Vite tabanlı web arayüzü, PDF.js ve react-pdf ile birlikte kullanılmış; böylece PDF görüntüleme, highlight ve form temelli anotasyon aynı çalışma ekranında toplanmıştır. Backend tarafında Supabase'in kimlik doğrulama, PostgreSQL ve dosya depolama bileşenleri birlikte değerlendirilmiştir.
+Arasınav sistemi iki bağlı teknik küme üzerine kuruludur. Kullanıcı tarafında React 19 + Vite tabanlı web arayüzü, PDF.js ve react-pdf ile birlikte kullanılmış; böylece PDF görüntüleme, highlight ve form temelli anotasyon aynı çalışma ekranında toplanmıştır. Backend tarafında Supabase'in kimlik doğrulama, PostgreSQL ve dosya depolama bileşenleri birlikte değerlendirilmiştir.
 
 Veri edinme ve geri besleme katmanı Python ile yürütülmektedir. Makale kaynakları olarak Europe PMC, PubMed Central, OpenAlex, Semantic Scholar ve DergiPark kullanılmış; referans veri kaynağı olarak USDA FoodData Central [1] seçilmiştir. Metadata düzeyindeki anlamsal uygunluk için sentence-transformers tabanlı İngilizce + çok dilli embedding yapısı tercih edilmiştir.
 

@@ -119,7 +119,7 @@ The midterm version of OpenNutri consists of three major layers:
 - the shared backend and data model,
 - the multi-source crawler and feedback layer.
 
-Four engineering choices define the current implementation: separating paper discovery from PDF acquisition, using a shared vocabulary and shared database, building annotation around a dynamic row model, and storing user decisions as event-based feedback. The following subsections focus on how that structure works rather than listing tools in isolation.
+Four engineering choices define the current implementation: separating paper discovery from PDF acquisition, using a shared vocabulary and shared database, building annotation around a dynamic row model, and storing user decisions as event-based feedback. The following subsections describe how those choices are implemented.
 
 The interaction of these layers was shown in Figure 1. Figure 2 expands that view by focusing on the internal data-model and feedback relationships.
 
@@ -129,7 +129,7 @@ Figure 2. Data-model relationships linking annotation, event logging, and crawle
 
 ## 2. Materials used
 
-This version is built around two connected technical clusters. On the user side, a React 19 + Vite web interface works together with PDF.js and react-pdf so that PDF viewing, highlighting, and structured entry happen on the same screen. On the backend side, Supabase brings authentication, PostgreSQL, and file storage into the same application layer.
+The midterm system is built around two connected technical clusters. On the user side, a React 19 + Vite web interface works together with PDF.js and react-pdf so that PDF viewing, highlighting, and structured entry happen on the same screen. On the backend side, Supabase brings authentication, PostgreSQL, and file storage into the same application layer.
 
 The acquisition and feedback pipeline is implemented in Python. Europe PMC, PubMed Central, OpenAlex, Semantic Scholar, and DergiPark are used as paper sources, while USDA FoodData Central [1] is used as the reference data source. Metadata-level semantic suitability is supported by a dual English + multilingual embedding setup based on sentence-transformers.
 
