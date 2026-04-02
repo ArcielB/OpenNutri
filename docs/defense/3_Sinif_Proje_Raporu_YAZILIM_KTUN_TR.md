@@ -147,11 +147,11 @@ Backend tarafındaki temel karar, tüm sistemi tek bir ortak veri modeli etrafı
 
 Bu yapı arayüzü, crawler'ı ve geri besleme mantığını aynı veri modeli üzerinde birleştirir. Kullanıcı arayüzünde seçilen gıda ve nutrient adları ile crawler tarafında kullanılan terimler aynı referans sözlüğe dayanır. Bir makalenin sisteme giriş kaydı ile kullanıcı anotasyonları da aynı makale kaydı etrafında tutulur.
 
-Şekil 3, canlı Supabase yapısının kod içindeki kaynak karşılığı olan `apps/expert-annotator/migration.sql` temel alınarak hazırlanmış, sadeleştirilmiş bir veritabanı özeti sunmaktadır.
+Şekil 3, aktif veritabanı şemasını tanımlayan migration betiği temel alınarak hazırlanmış, sadeleştirilmiş bir veritabanı özeti sunmaktadır.
 
 ![Şekil 3 - Veritabanı şema özeti](assets/figure_3_database_schema.png)
 
-Şekil 3. Arasınav sürümündeki temel veritabanı yapısının, projeyi anlamayı kolaylaştıracak dört sorumluluk alanı altında özetlenmiş görünümü. Şema, `migration.sql` üzerinden sadeleştirilerek hazırlanmıştır.
+Şekil 3. Arasınav sürümündeki temel veritabanı yapısının, projeyi anlamayı kolaylaştıracak dört sorumluluk alanı altında özetlenmiş görünümü. Şema, veritabanı migration betiği üzerinden sadeleştirilerek hazırlanmıştır.
 
 Backend güvenliği için satır düzeyi güvenlik (RLS) kullanılmıştır. Kullanıcılar kendi anotasyonlarını yönetebilirken sistem servis rolü crawler yüklemeleri, ETL ve bakım işlemleri için geniş yetkiye sahiptir. Bu, çok kullanıcılı yapı için gerekli temel güvenlik önlemidir.
 
@@ -199,7 +199,7 @@ Türkçe kaynaklar için DergiPark entegrasyonu yeniden ele alınmıştır. Eski
 
 `feedback/update_terms.py` betiği, kullanıcı olaylarından öğretici sinyaller üretir. Anlamlı veri kaydedilen makaleler olumlu örnek, açık biçimde veri içermeyen veya tekrarlı biçimde atlanan makaleler olumsuz örnek olarak değerlendirilir. Çelişkili durumlar öğrenme dışında bırakılır.
 
-Sistemin ayırt edici mimari fikri burada ortaya çıkar. Kullanıcı kararı yalnızca saklanan bir sonuç değildir; sonraki crawler koşularında kullanılan yumuşak puanlama sinyalidir.
+Kullanıcı kararı, sonraki crawler koşularında kullanılan yumuşak puanlama sinyalidir.
 
 Son kullanıcıya yeterli makale kalmadığında `ensure_paper_stock.py` devreye girmektedir. Bu betik mevcut EN/TR makale sayılarını kontrol etmekte, gerekiyorsa geri beslemeyi güncellemekte, DergiPark indeksini yenilemekte, crawler'ı çalıştırmakta ve sonuçları Supabase'e yüklemektedir. Böylece anotasyon arayüzü ile veri toplama hattı arasında operasyonel bir bağ kurulmuştur.
 
@@ -213,13 +213,13 @@ Annotator ekran görüntüsü bu raporda yer tutucu olarak bırakılmıştır. N
 
 # KAYNAKLAR
 
-1. U.S. Department of Agriculture. FoodData Central. https://fdc.nal.usda.gov/
-2. FAO/INFOODS. Guidelines for Food Matching. Rome: Food and Agriculture Organization of the United Nations, 2012.
+1. U.S. Department of Agriculture. *FoodData Central*. Erişim adresi: https://fdc.nal.usda.gov/ (Erişim tarihi: 02.04.2026).
+2. FAO/INFOODS. *Guidelines for Food Matching*. Rome: Food and Agriculture Organization of the United Nations; 2012.
 3. Dooley DM, Griffiths EJ, Gosal GS, et al. FoodOn: a harmonized food ontology to increase global food traceability, quality control and data integration. *npj Science of Food*. 2018;2(1):23.
-4. National Center for Biotechnology Information. PubMed Central (PMC). https://pmc.ncbi.nlm.nih.gov/
-5. Europe PMC. https://europepmc.org/
-6. DergiPark Akademik. https://dergipark.org.tr/
+4. National Center for Biotechnology Information. *PubMed Central (PMC)*. Erişim adresi: https://pmc.ncbi.nlm.nih.gov/ (Erişim tarihi: 02.04.2026).
+5. Europe PMC. *Europe PMC*. Erişim adresi: https://europepmc.org/ (Erişim tarihi: 02.04.2026).
+6. DergiPark Akademik. *DergiPark Akademik*. Erişim adresi: https://dergipark.org.tr/ (Erişim tarihi: 02.04.2026).
 7. Monarch RM. *Human-in-the-Loop Machine Learning*. Manning Publications; 2021.
-8. Mozilla. PDF.js. https://mozilla.github.io/pdf.js/
-9. React Documentation. https://react.dev/
-10. Supabase Documentation. https://supabase.com/docs
+8. Mozilla. *PDF.js*. Erişim adresi: https://mozilla.github.io/pdf.js/ (Erişim tarihi: 02.04.2026).
+9. React. *React Documentation*. Erişim adresi: https://react.dev/ (Erişim tarihi: 02.04.2026).
+10. Supabase. *Supabase Documentation*. Erişim adresi: https://supabase.com/docs (Erişim tarihi: 02.04.2026).

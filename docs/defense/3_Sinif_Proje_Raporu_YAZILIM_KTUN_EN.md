@@ -147,11 +147,11 @@ The main backend decision was to organize the system around one shared data mode
 
 This structure keeps the UI, crawler, and feedback logic on the same data model. The names used in the UI and the terms reused by the crawler rely on the same reference vocabulary. The reason a paper entered the system and the later annotation built on top of it are tied to the same paper record.
 
-Figure 3 presents a simplified database summary derived from `apps/expert-annotator/migration.sql`, which is the code-level source of truth for the active Supabase schema.
+Figure 3 presents a simplified database summary derived from the database migration script that defines the active Supabase schema.
 
 ![Figure 3 - Database schema summary](assets/figure_3_database_schema_en.png)
 
-Figure 3. Simplified view of the main database structure used in the midterm system, grouped into four responsibilities so the project is easier to understand. The summary is derived from the current `migration.sql` schema definition.
+Figure 3. Simplified view of the main database structure used in the midterm system, grouped into four responsibilities so the project is easier to understand. The summary is derived from the database migration script.
 
 Row-level security (RLS) is used to protect the backend. Users can manage their own annotation data, while the service role remains able to perform crawler uploads, ETL, and maintenance operations. This is the core security mechanism required by the system’s multi-user design.
 
@@ -199,7 +199,7 @@ For Turkish-language acquisition, the DergiPark integration was also redesigned.
 
 The `feedback/update_terms.py` script reads user-created event records and turns them into learning signals. Cases with meaningful saved data are treated as positive. Papers that clearly contain no relevant data or are repeatedly skipped are treated as negative. Mixed cases are kept out of training.
 
-This is the clearest architectural idea in the midterm system. User decisions are reused as soft scoring signals in later crawler runs.
+User decisions are reused as soft scoring signals in later crawler runs.
 
 When the end-user paper pool becomes too small, `ensure_paper_stock.py` takes over. This script checks the current EN/TR paper counts, refreshes feedback when needed, refreshes the DergiPark index, runs the crawler, and uploads the results to Supabase. That creates an operational bridge between the annotation interface and the data-acquisition layer.
 
@@ -213,13 +213,13 @@ The annotator screenshot is still left as a placeholder in this report. It shoul
 
 # REFERENCES
 
-1. U.S. Department of Agriculture. FoodData Central. https://fdc.nal.usda.gov/
-2. FAO/INFOODS. Guidelines for Food Matching. Rome: Food and Agriculture Organization of the United Nations, 2012.
+1. U.S. Department of Agriculture. *FoodData Central*. Available at: https://fdc.nal.usda.gov/ (Accessed: April 2, 2026).
+2. FAO/INFOODS. *Guidelines for Food Matching*. Rome: Food and Agriculture Organization of the United Nations; 2012.
 3. Dooley DM, Griffiths EJ, Gosal GS, et al. FoodOn: a harmonized food ontology to increase global food traceability, quality control and data integration. *npj Science of Food*. 2018;2(1):23.
-4. National Center for Biotechnology Information. PubMed Central (PMC). https://pmc.ncbi.nlm.nih.gov/
-5. Europe PMC. https://europepmc.org/
-6. DergiPark Akademik. https://dergipark.org.tr/
+4. National Center for Biotechnology Information. *PubMed Central (PMC)*. Available at: https://pmc.ncbi.nlm.nih.gov/ (Accessed: April 2, 2026).
+5. Europe PMC. *Europe PMC*. Available at: https://europepmc.org/ (Accessed: April 2, 2026).
+6. DergiPark Akademik. *DergiPark Akademik*. Available at: https://dergipark.org.tr/ (Accessed: April 2, 2026).
 7. Monarch RM. *Human-in-the-Loop Machine Learning*. Manning Publications; 2021.
-8. Mozilla. PDF.js. https://mozilla.github.io/pdf.js/
-9. React Documentation. https://react.dev/
-10. Supabase Documentation. https://supabase.com/docs
+8. Mozilla. *PDF.js*. Available at: https://mozilla.github.io/pdf.js/ (Accessed: April 2, 2026).
+9. React. *React Documentation*. Available at: https://react.dev/ (Accessed: April 2, 2026).
+10. Supabase. *Supabase Documentation*. Available at: https://supabase.com/docs (Accessed: April 2, 2026).
