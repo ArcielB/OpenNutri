@@ -45,7 +45,7 @@ Tablo 2, çalışan sistemin ana parçalarını ve her parçanın projedeki rol�
 | Annotator ve kullanıcı iş akışı | PDF görüntüleme, highlight destekli veri girişi, dinamik food/nutrient formu, test mode, global skip | Uzman kullanıcının belge üzerinde kontrollü ve hızlı çalışmasını sağlar |
 | Öğrenen geri besleme döngüsü | Event kaydı, global label kayıtları, geri besleme terimleri, query-batch sinyalleri | Kullanıcı kararlarını daha sonraki arama ve sıralamayı iyileştiren sinyallere dönüştürür |
 
-Şekil 1'in temel mesajı, sistemin birbirinden kopuk araçlardan değil, kapalı döngü halinde çalışan tek bir veri akışından oluştuğunu göstermesidir.
+Şekil 1, arasınav itibarıyla oluşan uçtan uca sistemi göstermektedir.
 
 ![Şekil 1 - OpenNutri arasınav sistem mimarisi](assets/figure_1_system_architecture.png)
 
@@ -121,7 +121,7 @@ OpenNutri'nin arasınav sürümü üç ana katmandan oluşmaktadır:
 
 Arasınav sürümünde sistemi belirleyen dört mühendislik tercihi vardır: makale bulma ile PDF edinimini ayırmak, ortak sözlük ve ortak veritabanı kullanmak, anotasyonu dinamik satır modeliyle kurmak ve kullanıcı kararlarını olay tabanlı geri besleme olarak saklamak. Aşağıdaki alt bölümler araç listesinden çok bu yapının nasıl çalıştığını açıklamaktadır.
 
-Bu katmanların etkileşimi Şekil 1'de gösterilmişti. Şekil 2'nin amacı ise anotasyon verisinin geri besleme mantığından ayrı bir yan çıktı değil, aynı veri modelinin parçası olduğunu görünür kılmaktır.
+Bu katmanların etkileşimi Şekil 1'de gösterilmişti. Şekil 2 ise bu akışın veri modeli ve geri besleme ilişkilerini daha ayrıntılı göstermektedir.
 
 ![Şekil 2 - Veri modeli ve feedback ilişkisi](assets/figure_2_feedback_data_model.png)
 
@@ -139,7 +139,7 @@ Backend tarafındaki temel karar, tüm sistemi tek bir ortak veri modeli etrafı
 
 Bu yapı arayüzü, crawler'ı ve geri besleme mantığını aynı veri modeli üzerinde birleştirir. Kullanıcı arayüzünde seçilen gıda ve nutrient adları ile crawler tarafında kullanılan terimler aynı referans sözlüğe dayanır. Bir makalenin sisteme giriş kaydı ile kullanıcı anotasyonları da aynı makale kaydı etrafında tutulur.
 
-Şekil 3'ün gösterdiği nokta, veritabanının yalnızca depolama alanı değil, sistem katmanlarını birbirine bağlayan ortak sözleşme olduğudur.
+Şekil 3, aktif Supabase şemasından türetilmiş, sadeleştirilmiş bir veritabanı özeti sunmaktadır.
 
 ![Şekil 3 - Veritabanı şema özeti](assets/figure_3_database_schema.png)
 
@@ -159,7 +159,7 @@ Bu bölümde özellikle üç davranış önemlidir:
 - `global skip` ile bir makalenin tüm kullanıcılar için veri içermediğinin işaretlenmesi ve kısa süreli geri alma akışı,
 - boş placeholder kartların kaydedilen toplamları etkilemesini önlemek için yalnızca geçerli food item'ların sayılması.
 
-Şekil 4'ün amacı, uzmanın PDF okuma ve yapılandırılmış veri girişini aynı ekran üzerinde yürüttüğü çalışma mantığını somutlaştırmaktır.
+Şekil 4, annotator arayüzünün nihai ekran görüntüsü için yer tutucudur.
 
 ![Şekil 4 - Annotator ekran görüntüsü yer tutucu](assets/figure_4_annotator_placeholder.png)
 
@@ -179,7 +179,7 @@ Filtreleme mantığı üç ana sinyal grubuna dayanır: konu ile ilişkili kelim
 
 Crawler tarafında iki yetenek belirleyicidir: İngilizce ve Türkçe literatür için ayrı hedef havuzların yönetilmesi ve geri beslemenin `query batch`, yani aynı sorgu bileşimiyle yürütülen sınırlı arama partileri düzeyinde de değerlendirilmesi.
 
-Şekil 5, çok aşamalı seçimin yalnızca kavramsal bir karar olmadığını, koşu çıktılarında sayısal olarak da izlenebildiğini göstermektedir.
+Şekil 5, crawler hattının aşamalı akışından üretilen sayısal özeti göstermektedir.
 
 ![Şekil 5 - Örnek crawler aşama özeti](assets/figure_4_crawler_funnel_example.png)
 

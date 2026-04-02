@@ -45,7 +45,7 @@ Table 2 summarizes the main parts of the running system and the role of each par
 | Annotator and user workflow | PDF viewing, highlight-assisted entry, dynamic food/nutrient form, test mode, global skip | Lets the expert user work directly on the document in a controlled way |
 | Learning feedback loop | Event logging, global labels, feedback terms, query-batch signals | Converts user decisions into later search and ranking signals |
 
-The main purpose of Figure 1 is to show that the midterm system is not a loose set of tools, but a closed operational loop.
+Figure 1 shows the end-to-end system state available at the midterm stage.
 
 ![Figure 1 - OpenNutri midterm system architecture](assets/figure_1_system_architecture_en.png)
 
@@ -121,7 +121,7 @@ The midterm version of OpenNutri consists of three major layers:
 
 Four engineering choices define the current implementation: separating paper discovery from PDF acquisition, using a shared vocabulary and shared database, building annotation around a dynamic row model, and storing user decisions as event-based feedback. The following subsections focus on how that structure works rather than listing tools in isolation.
 
-The interaction of these layers was shown in Figure 1. Figure 2 makes one point more explicit: annotation data is not a side product that sits apart from feedback, but part of the same internal data model.
+The interaction of these layers was shown in Figure 1. Figure 2 expands that view by focusing on the internal data-model and feedback relationships.
 
 ![Figure 2 - Data model and feedback relations](assets/figure_2_feedback_data_model_en.png)
 
@@ -139,7 +139,7 @@ The main backend decision was to organize the system around one shared data mode
 
 This structure keeps the UI, crawler, and feedback logic on the same data model. The names used in the UI and the terms reused by the crawler rely on the same reference vocabulary. The reason a paper entered the system and the later annotation built on top of it are tied to the same paper record.
 
-Figure 3 highlights that the database is not only a storage layer, but the shared contract that links the main system components.
+Figure 3 presents a simplified database summary derived from the active Supabase schema.
 
 ![Figure 3 - Database schema summary](assets/figure_3_database_schema_en.png)
 
@@ -159,7 +159,7 @@ Three interface behaviors are especially important:
 - a `global skip` action that marks a paper as containing no relevant data for all users, with a short undo window,
 - counting only valid food items so empty placeholder cards do not affect saved totals.
 
-The point of Figure 4 is to make the annotator work pattern concrete: document reading and structured entry happen in the same interface.
+Figure 4 is the placeholder for the final annotator UI screenshot.
 
 ![Figure 4 - Annotator screenshot placeholder](assets/figure_4_annotator_placeholder_en.png)
 
@@ -179,7 +179,7 @@ The filtering stage combines three signal groups: domain-specific keyword and un
 
 Two crawler capabilities are especially important at this stage: separate target pools for English and Turkish literature, and feedback reuse at both term and `query batch` level, where a query batch is a bounded search run executed under the same query composition.
 
-Figure 5 shows that the staged crawler design is not only conceptual; its effect can also be tracked numerically in run summaries.
+Figure 5 shows the numeric summary produced by the crawler's staged flow.
 
 ![Figure 5 - Example crawler stage summary](assets/figure_4_crawler_funnel_example_en.png)
 
