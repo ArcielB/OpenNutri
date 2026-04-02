@@ -71,7 +71,7 @@ Arasınav aşamasındaki odak, bu yapının çekirdek sürümünü ayağa kaldı
 
 Bu projenin önemi, gıda bileşimi bilgisinin binlerce PDF içinde dağınık halde kalmasından doğar. Bilimsel veri vardır; fakat doğrudan sorgulanabilir, karşılaştırılabilir ve yeniden kullanılabilir kayıtlar halinde değildir. OpenNutri bu boşluğu, kaynak bağlantısını koruyan yapısal kayıtlar üreterek hedeflemektedir.
 
-Bu ihtiyaç Türkçe literatürde özellikle görünürdür. Türkiye'de yayımlanan birçok çalışma DergiPark ve benzeri arşivlerde bulunur; ancak bu çalışmaların verileri uluslararası standart veri tabanlarına düzenli biçimde girmez. Sonuç olarak yerel ürünler, yerel çeşitler ve Türkçe yayınlar dijital gıda veri altyapılarında yeterince temsil edilmez. EN/TR iş akışlarının ayrılması bu nedenle doğrudan kapsam belirleyen bir karardır.
+Bu ihtiyaç Türkçe literatürde özellikle görünürdür. Türkiye'de yayımlanan birçok çalışma DergiPark ve benzeri arşivlerde bulunur; ancak bu çalışmaların verileri uluslararası standart veri tabanlarına düzenli biçimde girmez. Sonuç olarak yerel ürünler, yerel çeşitler ve Türkçe yayınlar bu sistemlerde yeterince temsil edilmez. EN/TR iş akışlarının ayrılması bu nedenle doğrudan kapsam belirleyen bir karardır.
 
 Projenin ikinci önemli yönü uzman zamanını korumasıdır. Uzman anotasyonu pahalı ve sınırlı bir kaynaktır. Bu nedenle OpenNutri makale bulma, ön eleme, PDF doğrulama ve kullanıcı geri beslemesini aynı zincirde birleştirir. Uzman kullanıcıya daha güçlü adaylar gelir; kullanıcı kararları da bir sonraki koşulda makale seçimini iyileştirir.
 
@@ -189,9 +189,7 @@ Türkçe kaynaklar için DergiPark entegrasyonu yeniden ele alınmıştır. Eski
 
 ## 6. Feedback ve paper-stock yenileme yöntemi
 
-Geri besleme güncelleme betiği, kullanıcı kararlarını zaman sıralı tutan `event log` kayıtlarından öğretici sinyaller üretir. Anlamlı veri kaydedilen makaleler olumlu örnek, açık biçimde veri içermeyen veya tekrarlı biçimde atlanan makaleler olumsuz örnek olarak değerlendirilir. Çelişkili durumlar öğrenme dışında bırakılır.
-
-Kullanıcı kararı, sonraki crawler koşularında kullanılan yumuşak puanlama sinyalidir.
+Geri besleme güncelleme betiği, kullanıcı kararlarını zaman sıralı tutan `event log` kayıtlarından öğretici sinyaller üretir. Anlamlı veri kaydedilen makaleler olumlu örnek, açık biçimde veri içermeyen veya tekrarlı biçimde atlanan makaleler olumsuz örnek olarak değerlendirilir. Çelişkili durumlar öğrenme dışında bırakılır. Kullanıcı kararı, sonraki crawler koşularında kullanılan yumuşak puanlama sinyalidir.
 
 Son kullanıcıya yeterli makale kalmadığında makale stoğunu yenileyen betik devreye girmektedir. Bu betik mevcut EN/TR makale sayılarını kontrol etmekte, gerekiyorsa geri beslemeyi güncellemekte, DergiPark indeksini yenilemekte, crawler'ı çalıştırmakta ve sonuçları Supabase'e yüklemektedir. Böylece anotasyon arayüzü ile veri toplama hattı arasında operasyonel bir bağ kurulmuştur.
 

@@ -71,7 +71,7 @@ At the midterm stage, the focus is to make the core version of this structure ru
 
 The importance of the project starts with the data-access problem. Food-composition knowledge is published in thousands of PDFs, but it rarely exists as structured, queryable, source-linked data. OpenNutri targets that gap directly.
 
-This need is especially visible in Turkish literature. Many studies published in Turkey remain inside DergiPark and similar archives without becoming part of standard international food-data infrastructure. As a result, local foods, local varieties, and Turkish-language studies remain underrepresented in digital food-data infrastructure. The EN/TR workflow split is therefore a scope decision with direct technical consequences.
+This need is especially visible in Turkish literature. Many studies published in Turkey remain inside DergiPark and similar archives without becoming part of standard international food-data infrastructure. As a result, local foods, local varieties, and Turkish-language studies remain underrepresented in those systems. The EN/TR workflow split is therefore a scope decision with direct technical consequences.
 
 The second major point is expert efficiency. Expert annotation is expensive and limited. OpenNutri combines retrieval, pre-filtering, PDF validation, and feedback so stronger candidates reach the expert user, and expert decisions improve the next run.
 
@@ -189,9 +189,7 @@ For Turkish-language acquisition, the DergiPark integration was also redesigned.
 
 ## 6. Feedback and paper-stock refill method
 
-The feedback update script reads the `event log`, the chronological record of save and skip decisions, and turns it into learning signals. Cases with meaningful saved data are treated as positive. Papers that clearly contain no relevant data or are repeatedly skipped are treated as negative. Mixed cases are kept out of training.
-
-User decisions are reused as soft scoring signals in later crawler runs.
+The feedback update script reads the `event log`, the chronological record of save and skip decisions, and turns it into learning signals. Cases with meaningful saved data are treated as positive. Papers that clearly contain no relevant data or are repeatedly skipped are treated as negative. Mixed cases are kept out of training. User decisions are reused as soft scoring signals in later crawler runs.
 
 When the end-user paper pool becomes too small, the paper-stock refill script takes over. This script checks the current EN/TR paper counts, refreshes feedback when needed, refreshes the DergiPark index, runs the crawler, and uploads the results to Supabase. That creates an operational bridge between the annotation interface and the data-acquisition layer.
 
