@@ -23,7 +23,7 @@ This midterm report summarizes the current state of the first three work items d
 - database and orchestration architecture,
 - expert annotation engine.
 
-By the midterm stage, OpenNutri has a working core system. The crawler collects metadata from Europe PMC, OpenAlex, Semantic Scholar, and DergiPark; applies search gate and metadata filter steps; imports suitable PDFs into the Supabase layer; and hands those papers to the annotator interface. The annotator opens the paper on top of the PDF, stores food and nutrient entries, and turns user decisions into feedback through `paper_label_events` and `paper_global_labels`.
+By the midterm stage, OpenNutri has a working core system. The crawler collects metadata from Europe PMC, OpenAlex, Semantic Scholar, and DergiPark; applies search gate and metadata filter steps; imports suitable PDFs into the Supabase layer; and hands those papers to the annotator interface. The annotator opens the paper on top of the PDF, stores food and nutrient entries, and turns user decisions into feedback through event and global-label records.
 
 Three technical decisions define this stage. First, the system performs strong pre-filtering before PDF download, so expert time is spent on stronger candidates. Second, English and Turkish literature are managed as separate target pools, which places Turkish studies inside the direct target scope. Third, expert annotation is part of a closed loop: user decisions become signals that improve later crawler runs.
 
@@ -55,7 +55,7 @@ The midterm output is a working core data flow. Paper acquisition, annotation st
 
 \newpage
 
-# PROJECT OBJECTIVE and IMPORTANCE
+# PROJECT OBJECTIVE AND IMPORTANCE
 
 ## Project Objective
 
@@ -85,27 +85,27 @@ The literature review examined both food-data standards and scientific-document 
 
 ## 1. Food data and reference vocabularies
 
-OpenNutri’s data model is built around a shared vocabulary. FoodData Central [1] and the FAO/INFOODS matching approach [2] were reviewed, and canonical foods and canonical nutrients were modeled as separate tables. As a result, the food and nutrient choices in the UI and the terms used by the crawler rely on the same vocabulary.
+OpenNutri’s data model is built around a shared vocabulary. FoodData Central [1] and the FAO/INFOODS matching approach [2] were reviewed, and canonical foods and canonical nutrients were treated as separate concepts. This supports the use of the same vocabulary across annotation and retrieval tasks.
 
-Ontology-centered work such as FoodOn [3] is relevant for standardizing food names. The `entities` and `entity_aliases` structure was chosen for the same standardization need.
+Ontology-centered work such as FoodOn [3] is relevant for standardizing food names. Such ontologies make clear why different names from different sources must be mapped onto shared concepts.
 
 ## 2. Scientific literature sources
 
-PubMed Central [4] and Europe PMC [5] were evaluated as core external sources because they provide structured access to open-access biomedical and life-science literature. DergiPark [6] was included specifically to reach Turkish-language studies. During the midterm period, the DergiPark path was redesigned from a simple broad search approach into a renewable local journal/issue/article index. That change made Turkish-language crawling more controlled and auditable.
+PubMed Central [4] and Europe PMC [5] were evaluated as core external sources because they provide structured access to open-access biomedical and life-science literature. DergiPark [6] is especially important for reaching Turkish-language studies. Taken together, these sources show the need to handle international and local literature in the same system while respecting different language and source characteristics.
 
 ## 3. Human-in-the-loop learning approach
 
-Human-in-the-loop methodology [7] keeps the expert user as an active part of extraction and verification. In OpenNutri, this approach is implemented through the annotator UI and `paper_label_events`. User actions such as `draft`, `done`, `skipped`, and global `definitely_no_data` directly become crawler feedback.
+Human-in-the-loop methodology [7] keeps the expert user as an active part of extraction and verification. It supports treating expert decisions not only as final labels but also as feedback signals that can be reused later.
 
 ## 4. PDF processing and UI infrastructure
 
-Because article content is usually distributed as PDF, in-browser PDF processing became essential. PDF.js [8] and React [9] were evaluated together. The nutrient-highlighting feature required extra scanning logic because the PDF text layer is fragmented across spans.
+Because article content is usually distributed as PDF, in-browser PDF processing became essential. PDF.js [8] and React [9] were evaluated together. In literature-annotation settings, the fragmented PDF text layer makes highlighting, selection, and text matching important problems in addition to basic rendering.
 
 ## 5. Platform components used in the implementation
 
-Supabase [10] was selected because it combines authentication, row-level access control, file storage, and client access in one platform. At the midterm stage, both the annotator and the data pipeline already share this backend.
+Supabase [10] was evaluated because it combines authentication, row-level access control, file storage, and client access in one platform. Platforms of this kind are suitable for systems where the user interface and the data pipeline share the same backend.
 
-Taken together, this literature and platform review explains why the project uses a shared vocabulary, multi-source access, expert annotation on top of PDFs, and a human-in-the-loop verification model.
+Taken together, this literature and platform review explains why the problem domain calls for a shared vocabulary, multi-source access, expert annotation on top of PDFs, and a human-in-the-loop verification model.
 
 \newpage
 
@@ -177,7 +177,7 @@ Figure 5 is the placeholder for the final annotator UI screenshot.
 
 ![Figure 5 - Annotator screenshot placeholder](assets/figure_5_annotator_placeholder_en.png)
 
-Figure 5. Before final submission, this visual should be replaced with a real screenshot of the current annotator interface. The simplest approach is to replace `docs/defense/assets/figure_5_annotator_placeholder_en.png` with the screenshot under the same filename and rerun the export script. The image should include the PDF viewer, an example highlighted nutrient, the food-item form, and the progress/status area in the same frame.
+Figure 5. Before final submission, this visual should be replaced with a real screenshot of the current annotator interface. The image should include the PDF viewer, an example highlighted nutrient, the food-item form, and the progress/status area in the same frame.
 
 ## 5. Crawler, filtering, and acquisition method
 

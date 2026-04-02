@@ -23,7 +23,7 @@ Bu ara rapor, proje öneri formunda birinci dönem için tanımlanan ilk üç an
 - veritabanı ve orkestrasyon mimarisi,
 - uzman anotasyon motoru.
 
-Arasınav itibarıyla OpenNutri'nin çalışan çekirdeği kurulmuştur. Crawler, Europe PMC, OpenAlex, Semantic Scholar ve DergiPark kaynaklarından metadata toplar; search gate ve metadata filter ile adayları eler; uygun PDF dosyalarını Supabase katmanına aktarır. Annotator arayüzü bu makaleleri PDF üzerinde açar, food ve nutrient girdilerini kaydeder, kullanıcı kararlarını `paper_label_events` ve `paper_global_labels` üzerinden geri beslemeye dönüştürür.
+Arasınav itibarıyla OpenNutri'nin çalışan çekirdeği kurulmuştur. Crawler, Europe PMC, OpenAlex, Semantic Scholar ve DergiPark kaynaklarından metadata toplar; search gate ve metadata filter ile adayları eler; uygun PDF dosyalarını Supabase katmanına aktarır. Annotator arayüzü bu makaleleri PDF üzerinde açar, food ve nutrient girdilerini kaydeder, kullanıcı kararlarını event ve global label kayıtları üzerinden geri beslemeye dönüştürür.
 
 Bu akışta üç teknik karar öne çıkmaktadır. İlk karar, PDF indirmeden önce güçlü ön eleme yapmaktır; böylece uzman önüne daha seçilmiş makaleler gelir. İkinci karar, Türkçe ve İngilizce literatürü ayrı hedef havuzlar olarak yönetmektir; bu sayede Türkçe çalışmalar sistemin doğrudan kapsama alanına girer. Üçüncü karar, uzman anotasyonunu sonraki crawler koşularını iyileştiren bir sinyale dönüştürmektir.
 
@@ -55,7 +55,7 @@ Arasınav çıktısı çalışan bir temel veri akışıdır. Makale edinimi, an
 
 \newpage
 
-# PROJENİN AMACI ve ÖNEMİ
+# PROJENİN AMACI VE ÖNEMİ
 
 ## Projenin Amacı
 
@@ -85,27 +85,27 @@ Kaynak araştırmasında hem gıda verisi standartları hem de bilimsel makale i
 
 ## 1. Gıda verisi ve referans sözlükleri
 
-OpenNutri'nin veri modeli serbest metin etiketleri yerine ortak sözlük mantığı üzerine kurulmuştur. FoodData Central [1] ve FAO/INFOODS eşleme yaklaşımı [2] incelenerek canonical food ve canonical nutrient kavramları ayrı tablolar halinde modellenmiştir. Böylece kullanıcı arayüzündeki seçimler ve crawler terim üretimi aynı sözlüğe bağlanmıştır.
+OpenNutri'nin veri modeli serbest metin etiketleri yerine ortak sözlük mantığı üzerine kurulmuştur. FoodData Central [1] ve FAO/INFOODS eşleme yaklaşımı [2] incelenerek canonical food ve canonical nutrient kavramları ayrı tablolarda ele alınmıştır. Bu yaklaşım, anotasyon ve literatür tarama süreçlerinde ortak bir sözlük kullanımını desteklemektedir.
 
-FoodOn [3] gibi ontoloji tabanlı çalışmalar gıda adlarının standartlaştırılması açısından önemlidir. `entities` ve `entity_aliases` yapısı da aynı standardizasyon ihtiyacına göre seçilmiştir.
+FoodOn [3] gibi ontoloji tabanlı çalışmalar gıda adlarının standartlaştırılması açısından önemlidir. Bu tür ontolojiler, farklı kaynaklarda geçen gıda adlarını ortak kavramlar altında toplama ihtiyacını açık biçimde göstermektedir.
 
 ## 2. Bilimsel literatür kaynakları
 
-PubMed Central [4] ve Europe PMC [5], açık erişimli biyomedikal ve yaşam bilimleri literatürüne düzenli erişim sağladıkları için crawler hattının temel dış kaynakları olarak değerlendirilmiştir. DergiPark [6] ise özellikle Türkçe çalışmalara ulaşmak amacıyla projeye dahil edilmiştir. Arasınav döneminde DergiPark entegrasyonu basit bir genel arama mantığından çıkarılıp dergi-sayı-makale düzeyinde yenilenebilir yerel indeks mantığına taşınmıştır. Bu değişiklik, Türkçe kaynakların daha kontrollü taranmasını sağlamıştır.
+PubMed Central [4] ve Europe PMC [5], açık erişimli biyomedikal ve yaşam bilimleri literatürüne düzenli erişim sağladıkları için temel dış kaynaklar olarak değerlendirilmiştir. DergiPark [6] ise özellikle Türkçe çalışmalara ulaşmak açısından önemlidir. Bu kaynakların birlikte değerlendirilmesi, uluslararası ve yerel literatürün aynı sistem içinde ama farklı sinyallerle ele alınması gereğini göstermektedir.
 
 ## 3. İnsan-döngülü öğrenme yaklaşımı
 
-Human-in-the-loop yaklaşımı [7], bilimsel verilerin çıkarımı ve doğrulanmasında uzman kullanıcıyı sistemin aktif parçası olarak konumlandırır. OpenNutri'de bu yaklaşım annotator arayüzü ve `paper_label_events` üzerinden uygulanmıştır. Kullanıcıların `draft`, `done`, `skipped` ve global `definitely_no_data` işlemleri doğrudan crawler geri beslemesine dönüşmektedir.
+Human-in-the-loop yaklaşımı [7], bilimsel verilerin çıkarımı ve doğrulanmasında uzman kullanıcıyı sistemin aktif parçası olarak konumlandırır. Bu yaklaşım, uzman kararlarının yalnızca son etiket olarak değil, daha sonra yeniden kullanılabilecek geri besleme sinyalleri olarak ele alınmasını desteklemektedir.
 
 ## 4. PDF işleme ve kullanıcı arayüzü altyapısı
 
-Makale içerikleri çoğunlukla PDF olarak dağıtıldığı için tarayıcı içinde PDF işleme kritik hale gelmiştir. PDF.js [8] tabanlı görüntüleme ve React [9] tabanlı kullanıcı arayüzü birlikte değerlendirilmiştir. Nutrient highlight özelliği için PDF metin katmanındaki parçalanmış span yapısını tarayan ek mantık geliştirilmiştir.
+Makale içerikleri çoğunlukla PDF olarak dağıtıldığı için tarayıcı içinde PDF işleme kritik hale gelmiştir. PDF.js [8] tabanlı görüntüleme ve React [9] tabanlı kullanıcı arayüzü birlikte değerlendirilmiştir. Literatür anotasyonu bağlamında, PDF metin katmanındaki parçalanmış span yapısı nedeniyle yalnızca görüntüleme değil; seçim, vurgulama ve metin eşleme davranışları da önem kazanmaktadır.
 
 ## 5. Kullanılan platform bileşenleri
 
-Supabase [10], kimlik doğrulama, satır düzeyi erişim kontrolü, dosya depolama ve istemci erişimini tek altyapıda birleştirdiği için seçilmiştir. Arasınav itibarıyla annotator ve veri boru hattı aynı backend katmanını paylaşmaktadır.
+Supabase [10], kimlik doğrulama, satır düzeyi erişim kontrolü, dosya depolama ve istemci erişimini tek altyapıda birleştirdiği için değerlendirilmiştir. Bu tür platformlar, arayüz ve veri boru hattının aynı backend üzerinde çalıştığı sistemler için uygun temel sağlar.
 
-Bu literatür ve platform incelemesi, projede ortak sözlük kullanımı, çok kaynaklı erişim, PDF üzerinde uzman anotasyonu ve insan-döngülü doğrulama yaklaşımının neden gerekli olduğunu göstermektedir.
+Bu literatür ve platform incelemesi, ortak sözlük kullanımı, çok kaynaklı erişim, PDF üzerinde uzman anotasyonu ve insan-döngülü doğrulama yaklaşımının problem alanı için neden gerekli olduğunu göstermektedir.
 
 \newpage
 
@@ -177,7 +177,7 @@ Bu bölümde özellikle üç davranış önemlidir:
 
 ![Şekil 5 - Annotator ekran görüntüsü yer tutucu](assets/figure_5_annotator_placeholder.png)
 
-Şekil 5. Nihai teslimden önce bu görsel, çalışan annotator ekranının gerçek ekran görüntüsü ile değiştirilmelidir. En pratik yol, `docs/defense/assets/figure_5_annotator_placeholder.png` dosyasını gerçek ekran görüntüsü ile aynı ad altında değiştirip export betiğini yeniden çalıştırmaktır. Görselde PDF viewer, vurgulanmış nutrient örneği, food item formu ve ilerleme alanı aynı karede görünmelidir.
+Şekil 5. Nihai teslimden önce bu görsel, çalışan annotator ekranının gerçek ekran görüntüsü ile değiştirilmelidir. Görselde PDF viewer, vurgulanmış nutrient örneği, food item formu ve ilerleme alanı aynı karede görünmelidir.
 
 ## 5. Crawler, filtreleme ve edinme yöntemi
 
