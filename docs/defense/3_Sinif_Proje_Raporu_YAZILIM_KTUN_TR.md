@@ -23,9 +23,9 @@ Bu ara rapor, proje öneri formunda birinci dönem için tanımlanan ilk üç an
 - veritabanı ve orkestrasyon mimarisi,
 - uzman anotasyon motoru.
 
-Arasınav itibarıyla OpenNutri'nin çalışan çekirdeği kurulmuştur. Sistem bilimsel kaynaklardan aday makale bulur, bu adayları çok aşamalı olarak filtreler, uygun PDF dosyalarını sisteme alır, uzman kullanıcıya yapılandırılmış anotasyon ekranı sunar ve kullanıcı kararlarını sonraki tarama döngülerinde geri besleme olarak kullanır.
+Arasınav itibarıyla OpenNutri'nin çalışan çekirdeği kurulmuştur. Crawler, Europe PMC, OpenAlex, Semantic Scholar ve DergiPark kaynaklarından metadata toplar; search gate ve metadata filter ile adayları eler; uygun PDF dosyalarını Supabase katmanına aktarır. Annotator arayüzü bu makaleleri PDF üzerinde açar, food ve nutrient girdilerini kaydeder, kullanıcı kararlarını `paper_label_events` ve `paper_global_labels` üzerinden geri beslemeye dönüştürür.
 
-Projenin temel akışı nettir: makale bulunur, uzman kullanıcı belge üzerinde veri girer, oluşan etiketler daha sonraki arama ve sıralamayı iyileştirir. Bu akışın ana bileşenleri arasınav aşamasında birlikte çalışmaktadır.
+Bu akışta üç teknik karar öne çıkmaktadır. İlk karar, PDF indirmeden önce güçlü ön eleme yapmaktır; böylece uzman önüne daha seçilmiş makaleler gelir. İkinci karar, Türkçe ve İngilizce literatürü ayrı hedef havuzlar olarak yönetmektir; bu sayede Türkçe çalışmalar sistemin doğrudan kapsama alanına girer. Üçüncü karar, uzman anotasyonunu sonraki crawler koşularını iyileştiren bir sinyale dönüştürmektir.
 
 Birinci dönem maddeleri ile mevcut durumun ilişkisi Tablo 1'de özetlenmiştir.
 
@@ -36,16 +36,14 @@ Birinci dönem maddeleri ile mevcut durumun ilişkisi Tablo 1'de özetlenmiştir
 | 3. Uzman Anotasyon Motoru | Büyük ölçüde ilerletildi | PDF görüntüleme, nutrient highlight, dinamik food/nutrient girişi, test mode, global skip, olay kaydı |
 | 4. Belge Segmentasyonu ve Temel Çıkarım Süreci | Sonraki aşama | Bu raporun odağı çalışan ilk üç başlıktır |
 
-Sistem dört ana fikir etrafında kurulmuştur: güçlü adayları seçen bir crawler hattı, ortak backend ve veri modeli, PDF üzerinde çalışmaya uygun anotasyon ekranı ve kullanıcı kararlarını geri beslemeye dönüştüren kapalı döngü yapı.
+Tablo 2, çalışan sistemin ana parçalarını ve her parçanın projedeki rolünü özetlemektedir.
 
-Tablo 2, bu yapıyı sistemin ana parçaları üzerinden özetlemektedir.
-
-| Katman | Gerçekleştirilen işler | Teknik sonucu |
+| Katman | Bu aşamada çalışan yetenekler | Projedeki rolü |
 | --- | --- | --- |
-| Crawler ve makale edinimi | Çok kaynaklı arama, çok aşamalı eleme, EN/TR iş akışları, DergiPark desteği, PDF doğrulama | Sisteme gelen makaleler daha seçilmiş ve daha anlamlı hale geldi |
-| Backend ve veri modeli | Ortak veritabanı şeması, arama kanıtı kayıtları, anotasyon tabloları, RLS politikaları | UI, crawler ve geri besleme katmanı aynı veri yapısı üzerinde birleşti |
-| Annotator ve kullanıcı iş akışı | PDF görüntüleme, highlight destekli veri girişi, dinamik food/nutrient formu, test mode, global skip | Uzman kullanıcı gerçek belge üzerinde daha hızlı ve kontrollü çalışabilir hale geldi |
-| Öğrenen geri besleme döngüsü | Kullanıcı kararlarının event olarak saklanması ve sonraki taramayı beslemesi | Sistem kullanıcı davranışından öğrenen kapalı döngü yapısına yaklaştı |
+| Crawler ve makale edinimi | Çok kaynaklı arama, çok aşamalı eleme, EN/TR iş akışları, DergiPark desteği, PDF doğrulama | Annotator kuyruğuna daha seçilmiş ve izlenebilir makaleler taşır |
+| Backend ve veri modeli | Ortak veritabanı şeması, arama kanıtı kayıtları, anotasyon tabloları, RLS politikaları | UI, crawler ve geri besleme katmanını aynı veri sözleşmesi üzerinde birleştirir |
+| Annotator ve kullanıcı iş akışı | PDF görüntüleme, highlight destekli veri girişi, dinamik food/nutrient formu, test mode, global skip | Uzman kullanıcının belge üzerinde kontrollü ve hızlı çalışmasını sağlar |
+| Öğrenen geri besleme döngüsü | Event kaydı, global label kayıtları, geri besleme terimleri, query-batch sinyalleri | Kullanıcı kararlarını daha sonraki arama ve sıralamayı iyileştiren sinyallere dönüştürür |
 
 Şekil 1, arasınav itibarıyla oluşan uçtan uca sistemi göstermektedir.
 
@@ -53,7 +51,7 @@ Tablo 2, bu yapıyı sistemin ana parçaları üzerinden özetlemektedir.
 
 Şekil 1. OpenNutri'nin arasınav itibarıyla çalışan kapalı döngü mimarisi.
 
-Arasınav aşamasında ilk üç hedef için çalışan bileşenler geliştirilmiştir. Mevcut durum, sistemin çekirdek altyapısının çalıştığı erken üretim aşamasını temsil etmektedir.
+Arasınav çıktısı çalışan bir temel veri akışıdır. Makale edinimi, anotasyon kaydı ve geri besleme zinciri aynı altyapıda birleşmiştir.
 
 \newpage
 
@@ -61,25 +59,23 @@ Arasınav aşamasında ilk üç hedef için çalışan bileşenler geliştirilmi
 
 ## Projenin Amacı
 
-OpenNutri'nin amacı, bilimsel literatürde dağınık halde bulunan gıda bileşimi verilerini uzman geri bildirimini merkeze alan bir platform ile dijitalleştirmektir. Proje bu amaç için üç temel yetenek kurmaktadır:
+OpenNutri'nin amacı, bilimsel literatürde dağınık halde bulunan gıda bileşimi verilerini kaynak bağlantısını koruyarak yapısal veriye dönüştüren bir platform kurmaktır. Bu amaç için proje üç temel yetenek kurmaktadır:
 
 - uygun makaleleri otomatik olarak bulmak ve sisteme taşımak,
 - bu makaleleri uzmanların denetimli biçimde etiketlemesini sağlamak,
 - oluşan etiketlerden yararlanarak sonraki tarama kararlarını daha isabetli hale getirmek.
 
-Arasınav aşamasındaki odak, bu üç yeteneğin çekirdek sürümünü kurmaktır. Mevcut çalışma, veri altyapısını, kullanıcı iş akışını ve geri besleme döngüsünü üretim mantığıyla ayağa kaldırmaktadır.
+Arasınav aşamasındaki odak, bu yapının çekirdek sürümünü ayağa kaldırmaktır. Mevcut çalışma; literatür tarama, uzman anotasyon, ortak veri modeli ve geri besleme zincirini aynı sistem içinde çalışır hale getirmektedir.
 
 ## Projenin Önemi
 
-Projenin önemi üç düzeyde ortaya çıkmaktadır.
+Bu projenin önemi, gıda bileşimi bilgisinin binlerce PDF içinde dağınık halde kalmasından doğar. Bilimsel veri vardır; fakat doğrudan sorgulanabilir, karşılaştırılabilir ve yeniden kullanılabilir kayıtlar halinde değildir. OpenNutri bu boşluğu, kaynak bağlantısını koruyan yapısal kayıtlar üreterek hedeflemektedir.
 
-Birinci düzey veri erişimi problemidir. Gıda bileşimi çalışmaları çoğunlukla PDF biçiminde ve standart veri çıkışı olmadan yayımlanmaktadır. OpenNutri bu bilgiyi sorgulanabilir yapısal veriye dönüştürmeyi hedeflemektedir.
+Bu ihtiyaç Türkçe literatürde daha belirgindir. Türkiye'de yayımlanan birçok çalışma DergiPark ve benzeri arşivlerde bulunur; ancak bu çalışmaların verileri uluslararası standart veri tabanlarına düzenli biçimde girmez. Sonuç olarak yerel ürünler, yerel çeşitler ve Türkçe yayınlar dijital görünürlük kaybeder. EN/TR iş akışlarının ayrılması bu nedenle doğrudan kapsam belirleyen bir karardır.
 
-İkinci düzey insan emeğinin verimli kullanılmasıdır. Uzman anotasyonu pahalı ve sınırlı bir kaynaktır. Bu nedenle crawler, filtreleme ve geri besleme katmanı uzman önüne daha anlamlı adaylar getirecek şekilde tasarlanmıştır. Arasınav itibarıyla search gate, metadata filter, PDF doğrulama ve global skip mantığı bu ihtiyacı karşılamaktadır.
+Projenin ikinci önemli yönü uzman zamanını korumasıdır. Uzman anotasyonu pahalı ve sınırlı bir kaynaktır. Bu nedenle OpenNutri makale bulma, ön eleme, PDF doğrulama ve kullanıcı geri beslemesini aynı zincirde birleştirir. Uzman kullanıcıya daha güçlü adaylar gelir; kullanıcı kararları da bir sonraki koşulda makale seçimini iyileştirir.
 
-Üçüncü düzey Türkçe literatürün görünürlüğüdür. PubMed Central uluslararası açık erişim literatürü, DergiPark ise Türkiye'de yayımlanan çalışmaları sisteme taşımaktadır. EN/TR iş akışlarının ayrılması, Türkçe literatür için ayrı bir hedef havuz kurulmasını sağlamıştır.
-
-Teknik açıdan proje; normalize veri modeli, çok kaynaklı tarama, katmanlı filtreleme, PDF doğrulama, kullanıcı olay kaydı ve soft feedback öğrenmesini tek sistemde birleştirmektedir. Bu yapı, sonraki aşamalarda eklenecek belge segmentasyonu ve çıkarım katmanı için sağlam temel oluşturmaktadır.
+Uzun vadede bu yaklaşım araştırmacılar, sağlık teknolojileri, kamu kurumları ve ihracat odaklı üreticiler için yerli veri altyapısı oluşturabilir. Arasınav itibarıyla bu hedefin teknik zemini kurulmuştur.
 
 \newpage
 
@@ -109,15 +105,7 @@ Makale içerikleri çoğunlukla PDF olarak dağıtıldığı için tarayıcı i�
 
 Supabase [10], kimlik doğrulama, satır düzeyi erişim kontrolü, dosya depolama ve istemci erişimini tek altyapıda birleştirdiği için seçilmiştir. Arasınav itibarıyla annotator ve veri boru hattı aynı backend katmanını paylaşmaktadır.
 
-Kaynak araştırmasının çıktısı olarak şu mühendislik kararları alınmıştır:
-
-- makale bulma, ön eleme ve PDF edinmeyi ayrı aşamalar halinde kurmak,
-- kullanıcı arayüzünü dinamik satır modeliyle tasarlamak,
-- etiketleri olay geçmişi olarak saklamak,
-- Türkçe ve İngilizce kaynaklar için ayrı hedef havuzlar kullanmak,
-- feedback bilgisini yumuşak puanlama sinyali olarak kullanmak.
-
-Bu kararların tamamı mevcut kod tabanında uygulanmıştır.
+Bu literatür ve platform incelemesi, projede ortak sözlük kullanımı, çok kaynaklı erişim, PDF üzerinde uzman anotasyonu ve insan-döngülü doğrulama yaklaşımının neden gerekli olduğunu göstermektedir.
 
 \newpage
 
@@ -130,6 +118,8 @@ OpenNutri'nin arasınav sürümü üç ana katmandan oluşmaktadır:
 - kullanıcıya görünen annotator arayüzü,
 - ortak backend/veri modeli,
 - çok kaynaklı crawler ve geri besleme katmanı.
+
+Arasınav sürümünde sistemi belirleyen dört mühendislik tercihi vardır: makale bulma ile PDF edinimini ayırmak, ortak sözlük ve ortak veritabanı kullanmak, anotasyonu dinamik satır modeliyle kurmak ve kullanıcı kararlarını event tabanlı geri besleme olarak saklamak. Aşağıdaki alt bölümler bu tercihlerin nasıl uygulandığını özetlemektedir.
 
 Bu katmanların etkileşimi Şekil 1'de gösterilmişti. Şekil 2 ise bu akışın veri modeli ve geri besleme ilişkilerini daha ayrıntılı göstermektedir.
 
@@ -169,7 +159,7 @@ Backend güvenliği için satır düzeyi güvenlik (RLS) kullanılmıştır. Kul
 
 Annotator arayüzü, uzman kullanıcının bir makaleyi okuyup aynı anda yapılandırılmış veri girebildiği çalışma ekranı olarak tasarlanmıştır. Kullanıcı sisteme alınmış makaleyi açar, varsa önceki kaydını görür ve çalışmasına kaldığı yerden devam eder.
 
-Arayüz iki ana prensiple tasarlanmıştır. Kullanıcı gerektiği kadar food item ve her food item altında gerektiği kadar nutrient değeri ekleyebilir. PDF görüntüleme ile form aynı çalışma ekranında birleşir; kullanıcı belgeyi okurken ilgili nutrient ifadelerini görüp daha hızlı veri girişi yapabilir.
+Arayüz iki ana prensiple tasarlanmıştır. Kullanıcı gerektiği kadar food item ve her food item altında gerektiği kadar nutrient değeri ekleyebilir. PDF görüntüleme ile form aynı çalışma ekranında birleşir; kullanıcı belgeyi okurken ilgili nutrient ifadelerini görüp daha hızlı veri girişi yapabilir. Bu yapı uzman kullanıcıya belge üzerinden doğrulama yapan aktif bir rol verir.
 
 Bu bölümde özellikle üç davranış önemlidir:
 
@@ -197,7 +187,7 @@ Crawler tarafı kademeli seçim yapan bir boru hattı olarak tasarlanmıştır. 
 - **Filter:** Başlık ve özet üzerinde search gate ve metadata filter uygulama
 - **Acquisition:** Ancak yeterince iyi bulunan adaylar için PDF indirme ve tam metin doğrulama
 
-Bu ayrım önemli bir mühendislik kararıdır. Çünkü tüm adayların PDF'ini indirmek hem pahalı hem de gereksizdir. Ön eleme sayesinde daha az sayıda ama daha güçlü aday tam metin aşamasına geçmektedir.
+Bu ayrım, crawler tarafındaki en kritik verimlilik kararlarından biridir. Tüm adayların PDF'ini indirmek yerine önce metadata düzeyinde ön eleme yapılır. Böylece tam metin aşamasına daha az sayıda ama daha güçlü aday geçer.
 
 Filtreleme mantığı üç ana sinyal grubuna dayanır: konu ile ilişkili kelime ve birim ipuçları, semantik benzerlik/embedding uygunluğu ve önceki kullanıcı etiketlerinden öğrenilen geri besleme sinyalleri.
 
@@ -209,7 +199,7 @@ Türkçe kaynaklar için DergiPark entegrasyonu yeniden ele alınmıştır. Eski
 
 `feedback/update_terms.py` betiği, kullanıcı olaylarından öğretici sinyaller üretir. Anlamlı veri kaydedilen makaleler olumlu örnek, açık biçimde veri içermeyen veya tekrarlı biçimde atlanan makaleler olumsuz örnek olarak değerlendirilir. Çelişkili durumlar öğrenme dışında bırakılır.
 
-Bu geri besleme daha sonra crawler tarafından yumuşak puanlama sinyali olarak kullanılır.
+Sistemin ayırt edici mimari fikri burada ortaya çıkar. Kullanıcı kararı yalnızca saklanan bir sonuç değildir; sonraki crawler koşularında kullanılan yumuşak puanlama sinyalidir.
 
 Son kullanıcıya yeterli makale kalmadığında `ensure_paper_stock.py` devreye girmektedir. Bu betik mevcut EN/TR makale sayılarını kontrol etmekte, gerekiyorsa geri beslemeyi güncellemekte, DergiPark indeksini yenilemekte, crawler'ı çalıştırmakta ve sonuçları Supabase'e yüklemektedir. Böylece anotasyon arayüzü ile veri toplama hattı arasında operasyonel bir bağ kurulmuştur.
 
