@@ -8,21 +8,28 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
-## 2. Conflict resolution workflow for labels
+## 2. Add reviewer admin configuration
 
 ### Problem
-Conflicting labels (positive vs. negative across labelers) are excluded from training but have no dedicated resolution workflow.
+The assignment-driven workflow now exists, but reviewer membership is still configured directly in the database. That is fragile for operational changes such as adding Daine to the Arciel lane once her real email is known.
 
 ### Goal
-Provide a way to list, review, and resolve conflicts so they can be turned into a final label later.
+Provide a cockpit-friendly way to manage:
+- reviewer profiles
+- slot membership
+- language permissions
+- cockpit access
+- active/inactive status
 
 ### Likely technical area
-- Supabase queries over `paper_label_events` and `paper_global_labels`
-- UI (admin or reviewer view)
+- `reviewer_profiles`
+- `reviewer_slot_members`
+- cockpit UI in `apps/expert-annotator/src/pages/Annotate.jsx`
 
 ### Done when
-- conflicts are discoverable and reviewable
-- a reviewer can resolve a conflict into a final label
+- a new reviewer can be activated without direct SQL edits
+- Arciel can add or remove shadow reviewers from the cockpit
+- language permissions can be changed safely
 
 
 

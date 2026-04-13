@@ -383,6 +383,1253 @@ BEGIN
     END IF;
 END $$;
 
+-- =============================================
+-- Assignment-driven reviewer workflow
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS reviewer_slots (
+    slot_key TEXT PRIMARY KEY
+        CHECK (slot_key IN ('arciel', 'peri', 'aleyna')),
+    display_name TEXT NOT NULL,
+    is_official BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS reviewer_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT UNIQUE,
+    auth_user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL,
+    display_name TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    can_review_en BOOLEAN NOT NULL DEFAULT TRUE,
+    can_review_tr BOOLEAN NOT NULL DEFAULT TRUE,
+    official_slot TEXT REFERENCES reviewer_slots(slot_key) ON DELETE SET NULL,
+    cockpit_access BOOLEAN NOT NULL DEFAULT FALSE,
+    priority_weight_en REAL NOT NULL DEFAULT 1.0,
+    priority_weight_tr REAL NOT NULL DEFAULT 1.0,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS reviewer_slot_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slot_key TEXT NOT NULL REFERENCES reviewer_slots(slot_key) ON DELETE CASCADE,
+    reviewer_profile_id UUID NOT NULL REFERENCES reviewer_profiles(id) ON DELETE CASCADE,
+    member_role TEXT NOT NULL
+        CHECK (member_role IN ('primary', 'shadow')),
+    can_review_en BOOLEAN NOT NULL DEFAULT TRUE,
+    can_review_tr BOOLEAN NOT NULL DEFAULT TRUE,
+    counts_toward_official BOOLEAN NOT NULL DEFAULT FALSE,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (slot_key, reviewer_profile_id)
+);
+
+CREATE TABLE IF NOT EXISTS paper_slot_assignments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    slot_key TEXT NOT NULL REFERENCES reviewer_slots(slot_key) ON DELETE RESTRICT,
+    workflow_language TEXT NOT NULL
+        CHECK (workflow_language IN ('en', 'tr')),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'submitted', 'conflict', 'resolved', 'cancelled')),
+    official_submission_id UUID,
+    assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    submitted_at TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (paper_id, slot_key)
+);
+
+CREATE TABLE IF NOT EXISTS paper_user_assignments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_slot_assignment_id UUID NOT NULL REFERENCES paper_slot_assignments(id) ON DELETE CASCADE,
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    reviewer_profile_id UUID NOT NULL REFERENCES reviewer_profiles(id) ON DELETE RESTRICT,
+    auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    workflow_language TEXT NOT NULL
+        CHECK (workflow_language IN ('en', 'tr')),
+    status TEXT NOT NULL DEFAULT 'assigned'
+        CHECK (status IN ('assigned', 'draft', 'submitted', 'conflict', 'resolved', 'cancelled')),
+    last_annotation_id INTEGER,
+    latest_submission_id UUID,
+    assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_saved_at TIMESTAMPTZ,
+    submitted_at TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (paper_slot_assignment_id, reviewer_profile_id)
+);
+
+CREATE TABLE IF NOT EXISTS paper_assignment_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_user_assignment_id UUID NOT NULL REFERENCES paper_user_assignments(id) ON DELETE CASCADE,
+    paper_slot_assignment_id UUID NOT NULL REFERENCES paper_slot_assignments(id) ON DELETE CASCADE,
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    reviewer_profile_id UUID NOT NULL REFERENCES reviewer_profiles(id) ON DELETE RESTRICT,
+    auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    annotation_id INTEGER REFERENCES annotations(id) ON DELETE SET NULL,
+    decision_kind TEXT NOT NULL
+        CHECK (decision_kind IN ('has_data', 'no_usable_data')),
+    payload_json JSONB NOT NULL,
+    payload_text TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    submission_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS paper_conflicts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    conflict_type TEXT NOT NULL
+        CHECK (conflict_type IN ('internal_slot_conflict', 'external_slot_conflict')),
+    slot_key TEXT REFERENCES reviewer_slots(slot_key) ON DELETE SET NULL,
+    left_submission_id UUID NOT NULL REFERENCES paper_assignment_submissions(id) ON DELETE CASCADE,
+    right_submission_id UUID NOT NULL REFERENCES paper_assignment_submissions(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'resolved', 'cancelled')),
+    resolved_submission_id UUID REFERENCES paper_assignment_submissions(id) ON DELETE SET NULL,
+    resolution_note TEXT,
+    resolved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS paper_review_outcomes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_id INTEGER NOT NULL UNIQUE REFERENCES papers(id) ON DELETE CASCADE,
+    decision_kind TEXT NOT NULL
+        CHECK (decision_kind IN ('has_data', 'no_usable_data')),
+    resolution_source TEXT NOT NULL
+        CHECK (resolution_source IN ('slot_agreement', 'conflict_resolution')),
+    payload_json JSONB NOT NULL,
+    payload_text TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    slot_submission_a_id UUID REFERENCES paper_assignment_submissions(id) ON DELETE SET NULL,
+    slot_submission_b_id UUID REFERENCES paper_assignment_submissions(id) ON DELETE SET NULL,
+    resolved_submission_id UUID REFERENCES paper_assignment_submissions(id) ON DELETE SET NULL,
+    conflict_id UUID REFERENCES paper_conflicts(id) ON DELETE SET NULL,
+    resolved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    resolved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'paper_slot_assignments'
+          AND constraint_name = 'paper_slot_assignments_official_submission_id_fkey'
+    ) THEN
+        ALTER TABLE paper_slot_assignments
+            ADD CONSTRAINT paper_slot_assignments_official_submission_id_fkey
+            FOREIGN KEY (official_submission_id) REFERENCES paper_assignment_submissions(id) ON DELETE SET NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'paper_user_assignments'
+          AND constraint_name = 'paper_user_assignments_last_annotation_id_fkey'
+    ) THEN
+        ALTER TABLE paper_user_assignments
+            ADD CONSTRAINT paper_user_assignments_last_annotation_id_fkey
+            FOREIGN KEY (last_annotation_id) REFERENCES annotations(id) ON DELETE SET NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'paper_user_assignments'
+          AND constraint_name = 'paper_user_assignments_latest_submission_id_fkey'
+    ) THEN
+        ALTER TABLE paper_user_assignments
+            ADD CONSTRAINT paper_user_assignments_latest_submission_id_fkey
+            FOREIGN KEY (latest_submission_id) REFERENCES paper_assignment_submissions(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
+ALTER TABLE annotations
+    ADD COLUMN IF NOT EXISTS paper_user_assignment_id UUID REFERENCES paper_user_assignments(id) ON DELETE SET NULL;
+
+ALTER TABLE paper_label_events
+    ADD COLUMN IF NOT EXISTS paper_user_assignment_id UUID REFERENCES paper_user_assignments(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS paper_slot_assignment_id UUID REFERENCES paper_slot_assignments(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS decision_kind TEXT
+        CHECK (decision_kind IN ('has_data', 'no_usable_data'));
+
+INSERT INTO reviewer_slots (slot_key, display_name, is_official)
+VALUES
+    ('arciel', 'Arciel Lane', TRUE),
+    ('peri', 'Peri', TRUE),
+    ('aleyna', 'Aleyna', TRUE)
+ON CONFLICT (slot_key) DO UPDATE
+SET
+    display_name = EXCLUDED.display_name,
+    is_official = EXCLUDED.is_official;
+
+INSERT INTO reviewer_profiles (
+    email,
+    display_name,
+    active,
+    can_review_en,
+    can_review_tr,
+    official_slot,
+    cockpit_access,
+    priority_weight_en,
+    priority_weight_tr
+)
+SELECT
+    lower(trim(email)),
+    CASE lower(trim(email))
+        WHEN 'baezarciel@gmail.com' THEN 'Arciel'
+        WHEN 'periacikgoz22@gmail.com' THEN 'Peri'
+        WHEN 'ozcnaleyna2@gmail.com' THEN 'Aleyna'
+        ELSE split_part(lower(trim(email)), '@', 1)
+    END,
+    TRUE,
+    TRUE,
+    TRUE,
+    CASE lower(trim(email))
+        WHEN 'baezarciel@gmail.com' THEN 'arciel'
+        WHEN 'periacikgoz22@gmail.com' THEN 'peri'
+        WHEN 'ozcnaleyna2@gmail.com' THEN 'aleyna'
+        ELSE NULL
+    END,
+    CASE lower(trim(email))
+        WHEN 'baezarciel@gmail.com' THEN TRUE
+        ELSE FALSE
+    END,
+    CASE lower(trim(email))
+        WHEN 'baezarciel@gmail.com' THEN 1.35
+        ELSE 1.0
+    END,
+    CASE lower(trim(email))
+        WHEN 'periacikgoz22@gmail.com' THEN 1.3
+        WHEN 'ozcnaleyna2@gmail.com' THEN 1.3
+        ELSE 1.0
+    END
+FROM allowed_auth_emails
+ON CONFLICT (email) DO UPDATE
+SET
+    display_name = COALESCE(EXCLUDED.display_name, reviewer_profiles.display_name),
+    active = EXCLUDED.active,
+    can_review_en = EXCLUDED.can_review_en,
+    can_review_tr = EXCLUDED.can_review_tr,
+    official_slot = COALESCE(EXCLUDED.official_slot, reviewer_profiles.official_slot),
+    cockpit_access = reviewer_profiles.cockpit_access OR EXCLUDED.cockpit_access,
+    priority_weight_en = EXCLUDED.priority_weight_en,
+    priority_weight_tr = EXCLUDED.priority_weight_tr,
+    updated_at = NOW();
+
+INSERT INTO reviewer_slot_members (
+    slot_key,
+    reviewer_profile_id,
+    member_role,
+    can_review_en,
+    can_review_tr,
+    counts_toward_official,
+    active
+)
+SELECT
+    reviewer_profiles.official_slot,
+    reviewer_profiles.id,
+    'primary',
+    reviewer_profiles.can_review_en,
+    reviewer_profiles.can_review_tr,
+    TRUE,
+    reviewer_profiles.active
+FROM reviewer_profiles
+WHERE reviewer_profiles.official_slot IS NOT NULL
+ON CONFLICT (slot_key, reviewer_profile_id) DO UPDATE
+SET
+    member_role = EXCLUDED.member_role,
+    can_review_en = EXCLUDED.can_review_en,
+    can_review_tr = EXCLUDED.can_review_tr,
+    counts_toward_official = EXCLUDED.counts_toward_official,
+    active = EXCLUDED.active;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewer_profiles_email_unique
+    ON reviewer_profiles(email)
+    WHERE email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reviewer_profiles_auth_user ON reviewer_profiles(auth_user_id);
+CREATE INDEX IF NOT EXISTS idx_reviewer_profiles_slot ON reviewer_profiles(official_slot);
+CREATE INDEX IF NOT EXISTS idx_reviewer_slot_members_slot ON reviewer_slot_members(slot_key, active);
+CREATE INDEX IF NOT EXISTS idx_paper_slot_assignments_paper ON paper_slot_assignments(paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_slot_assignments_status ON paper_slot_assignments(status, workflow_language);
+CREATE INDEX IF NOT EXISTS idx_paper_user_assignments_auth_status ON paper_user_assignments(auth_user_id, status, workflow_language);
+CREATE INDEX IF NOT EXISTS idx_paper_user_assignments_profile_status ON paper_user_assignments(reviewer_profile_id, status);
+CREATE INDEX IF NOT EXISTS idx_paper_user_assignments_paper ON paper_user_assignments(paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_assignment_submissions_assignment ON paper_assignment_submissions(paper_user_assignment_id, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_paper_assignment_submissions_paper ON paper_assignment_submissions(paper_id, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_paper_assignment_submissions_hash ON paper_assignment_submissions(payload_hash);
+CREATE INDEX IF NOT EXISTS idx_paper_conflicts_paper_status ON paper_conflicts(paper_id, status, conflict_type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_open_internal_slot_conflicts_unique
+    ON paper_conflicts(paper_id, slot_key)
+    WHERE conflict_type = 'internal_slot_conflict' AND status = 'open';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_open_external_slot_conflicts_unique
+    ON paper_conflicts(paper_id)
+    WHERE conflict_type = 'external_slot_conflict' AND status = 'open';
+CREATE INDEX IF NOT EXISTS idx_paper_review_outcomes_decision ON paper_review_outcomes(decision_kind, resolved_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_annotations_assignment_unique
+    ON annotations(paper_user_assignment_id)
+    WHERE paper_user_assignment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_paper_label_events_assignment ON paper_label_events(paper_user_assignment_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION public.normalize_submission_text(input_text TEXT)
+RETURNS TEXT
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT regexp_replace(trim(coalesce(input_text, '')), '\s+', ' ', 'g');
+$$;
+
+CREATE OR REPLACE FUNCTION public.current_auth_email()
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT lower(trim(coalesce(auth.jwt() ->> 'email', '')));
+$$;
+
+CREATE OR REPLACE FUNCTION public.current_user_has_cockpit_access()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM reviewer_profiles
+        WHERE cockpit_access IS TRUE
+          AND (
+              auth_user_id = auth.uid()
+              OR (
+                  email IS NOT NULL
+                  AND email = public.current_auth_email()
+              )
+          )
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.build_annotation_submission_payload(
+    p_annotation_id INTEGER,
+    p_decision_kind TEXT
+)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+WITH ordered_foods AS (
+    SELECT
+        fi.id,
+        public.normalize_submission_text(fi.food_name) AS food_name_sort,
+        coalesce(fi.food_fdc_id::text, '') AS food_id_sort,
+        fi.is_custom_food AS custom_sort,
+        jsonb_build_object(
+            'food_name', public.normalize_submission_text(fi.food_name),
+            'food_fdc_id', fi.food_fdc_id,
+            'is_custom_food', fi.is_custom_food,
+            'nutrients', COALESCE((
+                SELECT jsonb_agg(
+                    jsonb_build_object(
+                        'nutrient_id', anv.nutrient_id,
+                        'nutrient_name', public.normalize_submission_text(anv.nutrient_name),
+                        'value', CASE
+                            WHEN anv.value IS NULL THEN NULL
+                            ELSE round(anv.value::numeric, 6)
+                        END,
+                        'unit', public.normalize_submission_text(anv.unit)
+                    )
+                    ORDER BY
+                        coalesce(anv.nutrient_id::text, ''),
+                        public.normalize_submission_text(anv.nutrient_name),
+                        public.normalize_submission_text(anv.unit),
+                        CASE
+                            WHEN anv.value IS NULL THEN NULL
+                            ELSE round(anv.value::numeric, 6)
+                        END,
+                        anv.id
+                )
+                FROM annotation_nutrient_values anv
+                WHERE anv.food_item_id = fi.id
+            ), '[]'::jsonb)
+        ) AS payload
+    FROM food_items fi
+    WHERE fi.annotation_id = p_annotation_id
+)
+SELECT jsonb_build_object(
+    'decision_kind', p_decision_kind,
+    'food_items', COALESCE((
+        SELECT jsonb_agg(payload ORDER BY food_name_sort, food_id_sort, custom_sort, id)
+        FROM ordered_foods
+    ), '[]'::jsonb)
+);
+$$;
+
+CREATE OR REPLACE FUNCTION public.sync_reviewer_profile()
+RETURNS reviewer_profiles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_email TEXT := public.current_auth_email();
+    v_profile reviewer_profiles;
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'Authentication required';
+    END IF;
+
+    IF v_email IS NULL OR v_email = '' THEN
+        RAISE EXCEPTION 'Authenticated user is missing an email address';
+    END IF;
+
+    INSERT INTO reviewer_profiles (
+        email,
+        auth_user_id,
+        display_name,
+        active,
+        can_review_en,
+        can_review_tr
+    )
+    VALUES (
+        v_email,
+        auth.uid(),
+        split_part(v_email, '@', 1),
+        TRUE,
+        TRUE,
+        TRUE
+    )
+    ON CONFLICT (email) DO UPDATE
+    SET
+        auth_user_id = EXCLUDED.auth_user_id,
+        updated_at = NOW()
+    RETURNING * INTO v_profile;
+
+    UPDATE paper_user_assignments
+    SET auth_user_id = auth.uid()
+    WHERE reviewer_profile_id = v_profile.id
+      AND (auth_user_id IS NULL OR auth_user_id <> auth.uid());
+
+    RETURN v_profile;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.touch_assignment_workspace(
+    p_paper_user_assignment_id UUID,
+    p_annotation_id INTEGER,
+    p_status TEXT DEFAULT 'draft'
+)
+RETURNS paper_user_assignments
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_assignment paper_user_assignments;
+BEGIN
+    IF p_status NOT IN ('assigned', 'draft') THEN
+        RAISE EXCEPTION 'Unsupported workspace status: %', p_status;
+    END IF;
+
+    UPDATE paper_user_assignments
+    SET
+        last_annotation_id = COALESCE(p_annotation_id, last_annotation_id),
+        last_saved_at = NOW(),
+        status = CASE
+            WHEN status IN ('submitted', 'resolved', 'conflict', 'cancelled') THEN status
+            ELSE p_status
+        END
+    WHERE id = p_paper_user_assignment_id
+      AND auth_user_id = auth.uid()
+    RETURNING * INTO v_assignment;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Assignment not found or not owned by current user';
+    END IF;
+
+    RETURN v_assignment;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.refresh_paper_resolution_state(
+    p_paper_id INTEGER
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_slot paper_slot_assignments;
+    v_slot_submission_count INTEGER;
+    v_slot_assignment_count INTEGER;
+    v_distinct_hash_count INTEGER;
+    v_official_submission_id UUID;
+    v_manual_submission_id UUID;
+    v_first_submission_id UUID;
+    v_second_submission_id UUID;
+    v_open_conflict_id UUID;
+    v_open_external_conflict_id UUID;
+    v_resolved_external_conflict_id UUID;
+    v_slot_one paper_slot_assignments;
+    v_slot_two paper_slot_assignments;
+    v_slot_one_submission paper_assignment_submissions;
+    v_slot_two_submission paper_assignment_submissions;
+BEGIN
+    FOR v_slot IN
+        SELECT *
+        FROM paper_slot_assignments
+        WHERE paper_id = p_paper_id
+        ORDER BY slot_key
+    LOOP
+        SELECT COUNT(*)
+        INTO v_slot_assignment_count
+        FROM paper_user_assignments
+        WHERE paper_slot_assignment_id = v_slot.id
+          AND status <> 'cancelled';
+
+        SELECT COUNT(*)
+        INTO v_slot_submission_count
+        FROM paper_user_assignments
+        WHERE paper_slot_assignment_id = v_slot.id
+          AND status <> 'cancelled'
+          AND latest_submission_id IS NOT NULL;
+
+        IF v_slot_assignment_count = 0 OR v_slot_submission_count < v_slot_assignment_count THEN
+            UPDATE paper_slot_assignments
+            SET
+                status = 'pending',
+                official_submission_id = NULL,
+                submitted_at = CASE
+                    WHEN v_slot_submission_count > 0 THEN submitted_at
+                    ELSE NULL
+                END,
+                resolved_at = NULL
+            WHERE id = v_slot.id;
+            CONTINUE;
+        END IF;
+
+        SELECT COUNT(DISTINCT pas.payload_hash)
+        INTO v_distinct_hash_count
+        FROM paper_user_assignments pua
+        JOIN paper_assignment_submissions pas
+            ON pas.id = pua.latest_submission_id
+        WHERE pua.paper_slot_assignment_id = v_slot.id
+          AND pua.status <> 'cancelled';
+
+        IF v_distinct_hash_count = 1 THEN
+            SELECT COALESCE(
+                (
+                    SELECT pas.id
+                    FROM paper_user_assignments pua
+                    JOIN reviewer_slot_members rsm
+                        ON rsm.reviewer_profile_id = pua.reviewer_profile_id
+                       AND rsm.slot_key = v_slot.slot_key
+                    JOIN paper_assignment_submissions pas
+                        ON pas.id = pua.latest_submission_id
+                    WHERE pua.paper_slot_assignment_id = v_slot.id
+                      AND pua.status <> 'cancelled'
+                      AND rsm.member_role = 'primary'
+                    ORDER BY pas.submitted_at DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT latest_submission_id
+                    FROM paper_user_assignments
+                    WHERE paper_slot_assignment_id = v_slot.id
+                      AND status <> 'cancelled'
+                    ORDER BY submitted_at DESC NULLS LAST, created_at DESC
+                    LIMIT 1
+                )
+            )
+            INTO v_official_submission_id;
+
+            UPDATE paper_slot_assignments
+            SET
+                status = 'submitted',
+                official_submission_id = v_official_submission_id,
+                submitted_at = COALESCE(submitted_at, NOW()),
+                resolved_at = NULL
+            WHERE id = v_slot.id;
+
+            UPDATE paper_user_assignments
+            SET status = CASE
+                    WHEN status = 'resolved' THEN 'resolved'
+                    ELSE 'submitted'
+                END
+            WHERE paper_slot_assignment_id = v_slot.id
+              AND latest_submission_id IS NOT NULL
+              AND status <> 'cancelled';
+            CONTINUE;
+        END IF;
+
+        SELECT latest_submission_id
+        INTO v_first_submission_id
+        FROM paper_user_assignments
+        WHERE paper_slot_assignment_id = v_slot.id
+          AND status <> 'cancelled'
+        ORDER BY reviewer_profile_id, created_at
+        LIMIT 1;
+
+        SELECT latest_submission_id
+        INTO v_second_submission_id
+        FROM paper_user_assignments
+        WHERE paper_slot_assignment_id = v_slot.id
+          AND status <> 'cancelled'
+        ORDER BY reviewer_profile_id DESC, created_at DESC
+        LIMIT 1;
+
+        SELECT resolved_submission_id
+        INTO v_manual_submission_id
+        FROM paper_conflicts
+        WHERE paper_id = p_paper_id
+          AND conflict_type = 'internal_slot_conflict'
+          AND slot_key = v_slot.slot_key
+          AND status = 'resolved'
+          AND (
+              (left_submission_id = v_first_submission_id AND right_submission_id = v_second_submission_id)
+              OR (left_submission_id = v_second_submission_id AND right_submission_id = v_first_submission_id)
+          )
+        ORDER BY resolved_at DESC NULLS LAST, created_at DESC
+        LIMIT 1;
+
+        IF v_manual_submission_id IS NOT NULL THEN
+            UPDATE paper_slot_assignments
+            SET
+                status = 'submitted',
+                official_submission_id = v_manual_submission_id,
+                submitted_at = COALESCE(submitted_at, NOW()),
+                resolved_at = NULL
+            WHERE id = v_slot.id;
+
+            UPDATE paper_user_assignments
+            SET status = CASE
+                    WHEN status = 'resolved' THEN 'resolved'
+                    ELSE 'submitted'
+                END
+            WHERE paper_slot_assignment_id = v_slot.id
+              AND latest_submission_id IS NOT NULL
+              AND status <> 'cancelled';
+            CONTINUE;
+        END IF;
+
+        UPDATE paper_slot_assignments
+        SET
+            status = 'conflict',
+            official_submission_id = NULL,
+            resolved_at = NULL
+        WHERE id = v_slot.id;
+
+        UPDATE paper_user_assignments
+        SET status = CASE
+                WHEN latest_submission_id IS NOT NULL THEN 'conflict'
+                ELSE status
+            END
+        WHERE paper_slot_assignment_id = v_slot.id
+          AND status <> 'cancelled';
+
+        SELECT id
+        INTO v_open_conflict_id
+        FROM paper_conflicts
+        WHERE paper_id = p_paper_id
+          AND conflict_type = 'internal_slot_conflict'
+          AND slot_key = v_slot.slot_key
+          AND status = 'open'
+        LIMIT 1;
+
+        IF v_open_conflict_id IS NULL THEN
+            INSERT INTO paper_conflicts (
+                paper_id,
+                conflict_type,
+                slot_key,
+                left_submission_id,
+                right_submission_id
+            )
+            VALUES (
+                p_paper_id,
+                'internal_slot_conflict',
+                v_slot.slot_key,
+                v_first_submission_id,
+                v_second_submission_id
+            );
+        ELSE
+            UPDATE paper_conflicts
+            SET
+                left_submission_id = v_first_submission_id,
+                right_submission_id = v_second_submission_id,
+                created_at = NOW()
+            WHERE id = v_open_conflict_id;
+        END IF;
+    END LOOP;
+
+    SELECT *
+    INTO v_slot_one
+    FROM paper_slot_assignments
+    WHERE paper_id = p_paper_id
+    ORDER BY slot_key
+    LIMIT 1;
+
+    SELECT *
+    INTO v_slot_two
+    FROM paper_slot_assignments
+    WHERE paper_id = p_paper_id
+    ORDER BY slot_key
+    OFFSET 1
+    LIMIT 1;
+
+    IF v_slot_one.id IS NULL OR v_slot_two.id IS NULL THEN
+        RETURN;
+    END IF;
+
+    IF v_slot_one.official_submission_id IS NULL
+       OR v_slot_two.official_submission_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    SELECT *
+    INTO v_slot_one_submission
+    FROM paper_assignment_submissions
+    WHERE id = v_slot_one.official_submission_id;
+
+    SELECT *
+    INTO v_slot_two_submission
+    FROM paper_assignment_submissions
+    WHERE id = v_slot_two.official_submission_id;
+
+    IF v_slot_one_submission.payload_hash = v_slot_two_submission.payload_hash THEN
+        INSERT INTO paper_review_outcomes (
+            paper_id,
+            decision_kind,
+            resolution_source,
+            payload_json,
+            payload_text,
+            payload_hash,
+            slot_submission_a_id,
+            slot_submission_b_id,
+            resolved_submission_id,
+            conflict_id,
+            resolved_by,
+            resolved_at,
+            updated_at
+        )
+        VALUES (
+            p_paper_id,
+            v_slot_one_submission.decision_kind,
+            'slot_agreement',
+            v_slot_one_submission.payload_json,
+            v_slot_one_submission.payload_text,
+            v_slot_one_submission.payload_hash,
+            v_slot_one_submission.id,
+            v_slot_two_submission.id,
+            v_slot_one_submission.id,
+            NULL,
+            NULL,
+            NOW(),
+            NOW()
+        )
+        ON CONFLICT (paper_id) DO UPDATE
+        SET
+            decision_kind = EXCLUDED.decision_kind,
+            resolution_source = EXCLUDED.resolution_source,
+            payload_json = EXCLUDED.payload_json,
+            payload_text = EXCLUDED.payload_text,
+            payload_hash = EXCLUDED.payload_hash,
+            slot_submission_a_id = EXCLUDED.slot_submission_a_id,
+            slot_submission_b_id = EXCLUDED.slot_submission_b_id,
+            resolved_submission_id = EXCLUDED.resolved_submission_id,
+            conflict_id = EXCLUDED.conflict_id,
+            resolved_by = EXCLUDED.resolved_by,
+            resolved_at = EXCLUDED.resolved_at,
+            updated_at = NOW();
+
+        UPDATE paper_slot_assignments
+        SET
+            status = 'resolved',
+            resolved_at = NOW()
+        WHERE paper_id = p_paper_id;
+
+        UPDATE paper_user_assignments
+        SET
+            status = 'resolved',
+            resolved_at = NOW()
+        WHERE paper_id = p_paper_id
+          AND status <> 'cancelled';
+
+        UPDATE paper_conflicts
+        SET
+            status = 'resolved',
+            resolved_at = COALESCE(resolved_at, NOW())
+        WHERE paper_id = p_paper_id
+          AND conflict_type = 'external_slot_conflict'
+          AND status = 'open';
+        RETURN;
+    END IF;
+
+    SELECT resolved_submission_id, id
+    INTO v_manual_submission_id, v_resolved_external_conflict_id
+    FROM paper_conflicts
+    WHERE paper_id = p_paper_id
+      AND conflict_type = 'external_slot_conflict'
+      AND status = 'resolved'
+      AND (
+          (left_submission_id = v_slot_one_submission.id AND right_submission_id = v_slot_two_submission.id)
+          OR (left_submission_id = v_slot_two_submission.id AND right_submission_id = v_slot_one_submission.id)
+      )
+    ORDER BY resolved_at DESC NULLS LAST, created_at DESC
+    LIMIT 1;
+
+    IF v_manual_submission_id IS NOT NULL THEN
+        INSERT INTO paper_review_outcomes (
+            paper_id,
+            decision_kind,
+            resolution_source,
+            payload_json,
+            payload_text,
+            payload_hash,
+            slot_submission_a_id,
+            slot_submission_b_id,
+            resolved_submission_id,
+            conflict_id,
+            resolved_by,
+            resolved_at,
+            updated_at
+        )
+        SELECT
+            p_paper_id,
+            chosen.decision_kind,
+            'conflict_resolution',
+            chosen.payload_json,
+            chosen.payload_text,
+            chosen.payload_hash,
+            v_slot_one_submission.id,
+            v_slot_two_submission.id,
+            chosen.id,
+            v_resolved_external_conflict_id,
+            chosen.auth_user_id,
+            NOW(),
+            NOW()
+        FROM paper_assignment_submissions chosen
+        WHERE chosen.id = v_manual_submission_id
+        ON CONFLICT (paper_id) DO UPDATE
+        SET
+            decision_kind = EXCLUDED.decision_kind,
+            resolution_source = EXCLUDED.resolution_source,
+            payload_json = EXCLUDED.payload_json,
+            payload_text = EXCLUDED.payload_text,
+            payload_hash = EXCLUDED.payload_hash,
+            slot_submission_a_id = EXCLUDED.slot_submission_a_id,
+            slot_submission_b_id = EXCLUDED.slot_submission_b_id,
+            resolved_submission_id = EXCLUDED.resolved_submission_id,
+            conflict_id = EXCLUDED.conflict_id,
+            resolved_by = EXCLUDED.resolved_by,
+            resolved_at = EXCLUDED.resolved_at,
+            updated_at = NOW();
+
+        UPDATE paper_slot_assignments
+        SET
+            status = 'resolved',
+            resolved_at = NOW()
+        WHERE paper_id = p_paper_id;
+
+        UPDATE paper_user_assignments
+        SET
+            status = 'resolved',
+            resolved_at = NOW()
+        WHERE paper_id = p_paper_id
+          AND status <> 'cancelled';
+        RETURN;
+    END IF;
+
+    UPDATE paper_slot_assignments
+    SET status = 'conflict'
+    WHERE paper_id = p_paper_id
+      AND status <> 'cancelled';
+
+    SELECT id
+    INTO v_open_external_conflict_id
+    FROM paper_conflicts
+    WHERE paper_id = p_paper_id
+      AND conflict_type = 'external_slot_conflict'
+      AND status = 'open'
+    LIMIT 1;
+
+    IF v_open_external_conflict_id IS NULL THEN
+        INSERT INTO paper_conflicts (
+            paper_id,
+            conflict_type,
+            slot_key,
+            left_submission_id,
+            right_submission_id
+        )
+        VALUES (
+            p_paper_id,
+            'external_slot_conflict',
+            NULL,
+            v_slot_one_submission.id,
+            v_slot_two_submission.id
+        );
+    ELSE
+        UPDATE paper_conflicts
+        SET
+            left_submission_id = v_slot_one_submission.id,
+            right_submission_id = v_slot_two_submission.id,
+            created_at = NOW()
+        WHERE id = v_open_external_conflict_id;
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.submit_assignment_review(
+    p_paper_user_assignment_id UUID,
+    p_annotation_id INTEGER,
+    p_decision_kind TEXT,
+    p_submission_metadata JSONB DEFAULT '{}'::jsonb
+)
+RETURNS paper_assignment_submissions
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_assignment paper_user_assignments;
+    v_annotation annotations;
+    v_payload_json JSONB;
+    v_payload_text TEXT;
+    v_payload_hash TEXT;
+    v_submission paper_assignment_submissions;
+    v_food_count INTEGER;
+BEGIN
+    IF p_decision_kind NOT IN ('has_data', 'no_usable_data') THEN
+        RAISE EXCEPTION 'Unsupported decision kind: %', p_decision_kind;
+    END IF;
+
+    SELECT *
+    INTO v_assignment
+    FROM paper_user_assignments
+    WHERE id = p_paper_user_assignment_id
+      AND auth_user_id = auth.uid()
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Assignment not found or not owned by current user';
+    END IF;
+
+    IF v_assignment.status IN ('resolved', 'cancelled') THEN
+        RAISE EXCEPTION 'Assignment is no longer editable';
+    END IF;
+
+    IF p_annotation_id IS NOT NULL THEN
+        SELECT *
+        INTO v_annotation
+        FROM annotations
+        WHERE id = p_annotation_id
+          AND user_id = auth.uid()
+          AND paper_id = v_assignment.paper_id;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Annotation not found for assignment';
+        END IF;
+    END IF;
+
+    IF p_decision_kind = 'has_data' THEN
+        IF v_annotation.id IS NULL THEN
+            RAISE EXCEPTION 'A completed extraction requires an annotation';
+        END IF;
+
+        SELECT COUNT(*)
+        INTO v_food_count
+        FROM food_items
+        WHERE annotation_id = v_annotation.id;
+
+        IF v_food_count <= 0 THEN
+            RAISE EXCEPTION 'Cannot submit has_data without at least one food item';
+        END IF;
+
+        v_payload_json := public.build_annotation_submission_payload(v_annotation.id, p_decision_kind);
+    ELSE
+        v_payload_json := jsonb_build_object(
+            'decision_kind', 'no_usable_data',
+            'food_items', '[]'::jsonb
+        );
+    END IF;
+
+    v_payload_text := v_payload_json::text;
+    v_payload_hash := encode(digest(v_payload_text, 'sha256'), 'hex');
+
+    INSERT INTO paper_assignment_submissions (
+        paper_user_assignment_id,
+        paper_slot_assignment_id,
+        paper_id,
+        reviewer_profile_id,
+        auth_user_id,
+        annotation_id,
+        decision_kind,
+        payload_json,
+        payload_text,
+        payload_hash,
+        submission_metadata
+    )
+    VALUES (
+        v_assignment.id,
+        v_assignment.paper_slot_assignment_id,
+        v_assignment.paper_id,
+        v_assignment.reviewer_profile_id,
+        auth.uid(),
+        v_annotation.id,
+        p_decision_kind,
+        v_payload_json,
+        v_payload_text,
+        v_payload_hash,
+        COALESCE(p_submission_metadata, '{}'::jsonb)
+    )
+    RETURNING * INTO v_submission;
+
+    UPDATE paper_user_assignments
+    SET
+        last_annotation_id = COALESCE(v_annotation.id, last_annotation_id),
+        latest_submission_id = v_submission.id,
+        status = 'submitted',
+        submitted_at = NOW(),
+        last_saved_at = NOW()
+    WHERE id = v_assignment.id;
+
+    IF v_annotation.id IS NOT NULL THEN
+        UPDATE annotations
+        SET
+            paper_user_assignment_id = v_assignment.id,
+            has_data = (p_decision_kind = 'has_data'),
+            status = CASE
+                WHEN p_decision_kind = 'has_data' THEN 'done'
+                ELSE 'skipped'
+            END,
+            updated_at = NOW()
+        WHERE id = v_annotation.id;
+    END IF;
+
+    PERFORM public.refresh_paper_resolution_state(v_assignment.paper_id);
+    RETURN v_submission;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.resolve_paper_conflict(
+    p_conflict_id UUID,
+    p_winning_submission_id UUID,
+    p_resolution_note TEXT DEFAULT NULL
+)
+RETURNS paper_conflicts
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_conflict paper_conflicts;
+BEGIN
+    IF NOT public.current_user_has_cockpit_access() THEN
+        RAISE EXCEPTION 'Cockpit access required';
+    END IF;
+
+    SELECT *
+    INTO v_conflict
+    FROM paper_conflicts
+    WHERE id = p_conflict_id
+      AND status = 'open'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Open conflict not found';
+    END IF;
+
+    IF p_winning_submission_id NOT IN (v_conflict.left_submission_id, v_conflict.right_submission_id) THEN
+        RAISE EXCEPTION 'Winning submission must match one side of the conflict';
+    END IF;
+
+    UPDATE paper_conflicts
+    SET
+        status = 'resolved',
+        resolved_submission_id = p_winning_submission_id,
+        resolution_note = p_resolution_note,
+        resolved_by = auth.uid(),
+        resolved_at = NOW()
+    WHERE id = p_conflict_id
+    RETURNING * INTO v_conflict;
+
+    PERFORM public.refresh_paper_resolution_state(v_conflict.paper_id);
+    RETURN v_conflict;
+END;
+$$;
+
+ALTER TABLE reviewer_slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reviewer_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reviewer_slot_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_slot_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_user_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_assignment_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_conflicts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_review_outcomes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_label_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can read paper search hits" ON paper_search_hits;
+DROP POLICY IF EXISTS "Authenticated users can read paper label events" ON paper_label_events;
+DROP POLICY IF EXISTS "Users can insert their own paper label events" ON paper_label_events;
+DROP POLICY IF EXISTS "Users can view reviewer profiles" ON reviewer_profiles;
+DROP POLICY IF EXISTS "Authenticated users can read reviewer slots" ON reviewer_slots;
+DROP POLICY IF EXISTS "Authenticated users can read reviewer slot members" ON reviewer_slot_members;
+DROP POLICY IF EXISTS "Users can view their own paper slot assignments" ON paper_slot_assignments;
+DROP POLICY IF EXISTS "Users can view their own paper user assignments" ON paper_user_assignments;
+DROP POLICY IF EXISTS "Users can view their own assignment submissions" ON paper_assignment_submissions;
+DROP POLICY IF EXISTS "Cockpit users can read conflicts" ON paper_conflicts;
+DROP POLICY IF EXISTS "Users can view accessible review outcomes" ON paper_review_outcomes;
+DROP POLICY IF EXISTS "Service role full access reviewer slots" ON reviewer_slots;
+DROP POLICY IF EXISTS "Service role full access reviewer profiles" ON reviewer_profiles;
+DROP POLICY IF EXISTS "Service role full access reviewer slot members" ON reviewer_slot_members;
+DROP POLICY IF EXISTS "Service role full access paper slot assignments" ON paper_slot_assignments;
+DROP POLICY IF EXISTS "Service role full access paper user assignments" ON paper_user_assignments;
+DROP POLICY IF EXISTS "Service role full access paper assignment submissions" ON paper_assignment_submissions;
+DROP POLICY IF EXISTS "Service role full access paper conflicts" ON paper_conflicts;
+DROP POLICY IF EXISTS "Service role full access paper review outcomes" ON paper_review_outcomes;
+DROP POLICY IF EXISTS "Service role full access paper label events" ON paper_label_events;
+
+CREATE POLICY "Authenticated users can read reviewer slots"
+    ON reviewer_slots FOR SELECT TO authenticated
+    USING (true);
+
+CREATE POLICY "Users can view reviewer profiles"
+    ON reviewer_profiles FOR SELECT TO authenticated
+    USING (true);
+
+CREATE POLICY "Authenticated users can read reviewer slot members"
+    ON reviewer_slot_members FOR SELECT TO authenticated
+    USING (true);
+
+CREATE POLICY "Users can view their own paper slot assignments"
+    ON paper_slot_assignments FOR SELECT TO authenticated
+    USING (
+        public.current_user_has_cockpit_access()
+        OR EXISTS (
+            SELECT 1
+            FROM paper_user_assignments pua
+            WHERE pua.paper_slot_assignment_id = paper_slot_assignments.id
+              AND pua.auth_user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Users can view their own paper user assignments"
+    ON paper_user_assignments FOR SELECT TO authenticated
+    USING (
+        public.current_user_has_cockpit_access()
+        OR auth_user_id = auth.uid()
+    );
+
+CREATE POLICY "Users can view their own assignment submissions"
+    ON paper_assignment_submissions FOR SELECT TO authenticated
+    USING (
+        public.current_user_has_cockpit_access()
+        OR EXISTS (
+            SELECT 1
+            FROM paper_user_assignments pua
+            WHERE pua.id = paper_assignment_submissions.paper_user_assignment_id
+              AND pua.auth_user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Cockpit users can read conflicts"
+    ON paper_conflicts FOR SELECT TO authenticated
+    USING (public.current_user_has_cockpit_access());
+
+CREATE POLICY "Users can view accessible review outcomes"
+    ON paper_review_outcomes FOR SELECT TO authenticated
+    USING (
+        public.current_user_has_cockpit_access()
+        OR EXISTS (
+            SELECT 1
+            FROM paper_user_assignments pua
+            WHERE pua.paper_id = paper_review_outcomes.paper_id
+              AND pua.auth_user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Authenticated users can read paper label events"
+    ON paper_label_events FOR SELECT TO authenticated
+    USING (
+        public.current_user_has_cockpit_access()
+        OR user_id = auth.uid()
+    );
+
+CREATE POLICY "Users can insert their own paper label events"
+    ON paper_label_events FOR INSERT TO authenticated
+    WITH CHECK (
+        user_id = auth.uid()
+        AND (
+            paper_user_assignment_id IS NULL
+            OR EXISTS (
+                SELECT 1
+                FROM paper_user_assignments pua
+                WHERE pua.id = paper_user_assignment_id
+                  AND pua.auth_user_id = auth.uid()
+            )
+        )
+    );
+
+CREATE POLICY "Authenticated users can read paper search hits"
+    ON paper_search_hits FOR SELECT TO authenticated
+    USING (public.current_user_has_cockpit_access());
+
+CREATE POLICY "Service role full access reviewer slots"
+    ON reviewer_slots FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access reviewer profiles"
+    ON reviewer_profiles FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access reviewer slot members"
+    ON reviewer_slot_members FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access paper slot assignments"
+    ON paper_slot_assignments FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access paper user assignments"
+    ON paper_user_assignments FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access paper assignment submissions"
+    ON paper_assignment_submissions FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access paper conflicts"
+    ON paper_conflicts FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access paper review outcomes"
+    ON paper_review_outcomes FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access paper label events"
+    ON paper_label_events FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
 ALTER TABLE food_items
     ADD COLUMN IF NOT EXISTS food_fdc_id UUID REFERENCES entities(id),
     ADD COLUMN IF NOT EXISTS is_custom_food BOOLEAN NOT NULL DEFAULT FALSE,

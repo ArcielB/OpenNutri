@@ -1,78 +1,86 @@
-# OpenNutri Handoff — 2026-03-20 (Europe/Istanbul)
+# OpenNutri Handoff — 2026-04-13 (Europe/Istanbul)
 
-This is a snapshot of the current state so work can continue elsewhere without losing context.
+This is the current high-signal project state after the assignment-driven annotator workflow landed.
 
-**Project Direction (Current)**
-OpenNutri is building a paper-to-food-composition pipeline with a human labeling UI. The loop is:
-1. Scrape + store candidate papers.
-2. Apply L2 relevance filtering (rules + dual embeddings + anchors).
-3. Collect human labels in the UI.
-4. Feed labels back into query terms, filters, and embeddings. (Classifier training later.)
+**Primary Goal**
+- Finish Preliminary Study 3 as fast as possible so the benchmark-quality dataset supports both the TÜBİTAK application and the paper draft.
+- Paper stock is intentionally kept low. Refill happens as labeling progresses so each crawl benefits from newer feedback.
 
-**Key Decisions / Policies**
-- Repo stays private.
-- L2 uses dual embeddings: English + multilingual; anchors are EN+TR only.
-- Label events are recorded on every UI save (draft/done/skipped).
-- Positive labels are optimistic: `has_data=true` draft or done counts as good immediately.
-- Negatives require global skip or >=2 unique skips; conflicts are excluded from both sides.
-- Global “definitely no data” is instant with a short undo window.
-- Test mode disables all DB writes (local-only events).
+**Research / Team Operating Model**
+- Arciel: developer, official reviewer slot, project manager, cockpit/conflict resolver.
+- Peri: official reviewer slot.
+- Aleyna: official reviewer slot.
+- Daine: English-only shadow helper inside the Arciel lane; cheap ops help, not a standalone official slot.
+- Important implementation caveat:
+  Daine only starts receiving queue items once her real reviewer profile is configured in `reviewer_profiles` + `reviewer_slot_members`.
 
-**Recent Code Changes (High Signal)**
-- UI test mode (no DB writes) with banner + toast.
-- Global skip is instant (no prompt) + undo banner (10s window); reason stored as `quick_skip`.
-- `paper_label_events` logging on every save (status, has_data, counts, source).
-- New feedback term system (`feedback/update_terms.py`) that:
-  - uses latest label per user,
-  - treats draft/done as positive,
-  - treats global skip or 2+ unique skips as negative,
-  - excludes conflicts from training,
-  - writes `feedback/latest.json`.
-- Crawler consumes feedback terms to adjust queries/filters and embedding anchors.
-- Auto-crawl script: `services/data-pipeline/scripts/ensure_paper_stock.py` (threshold-based).
+**Workflow Now**
+- The shared paper list is gone.
+- Every paper is assigned to exactly 2 official reviewer slots:
+  `arciel`, `peri`, `aleyna`.
+- Users only see their own `paper_user_assignments`.
+- Final submissions are frozen as canonical payload snapshots in `paper_assignment_submissions`.
+- Exact raw match is based on deterministic payload serialization + `payload_hash`.
+- Internal mismatch inside the Arciel lane creates `internal_slot_conflict`.
+- Official-slot mismatch creates `external_slot_conflict`.
+- Arciel resolves conflicts in the cockpit.
+- Only final resolved paper truth in `paper_review_outcomes` feeds crawler feedback.
 
-**Data Model Notes**
-- `paper_label_events`: per-save event log (paper_id, user_id, status, has_data, counts, source, created_at).
-- `paper_global_labels`: global no-data labels with reason + user.
-- Conflicts are **not** stored separately; they’re inferred from label events + global labels.
+**Live Schema Status**
+- `apps/expert-annotator/migration.sql` was applied successfully to the live Supabase DB on April 13, 2026.
+- Live verification confirmed these tables exist:
+  - `reviewer_profiles`
+  - `reviewer_slot_members`
+  - `paper_slot_assignments`
+  - `paper_user_assignments`
+  - `paper_assignment_submissions`
+  - `paper_conflicts`
+  - `paper_review_outcomes`
+- Live verification also confirmed these workflow RPCs exist:
+  - `sync_reviewer_profile`
+  - `touch_assignment_workspace`
+  - `submit_assignment_review`
+  - `resolve_paper_conflict`
+  - `refresh_paper_resolution_state`
 
-**Migration Status**
-- `apps/expert-annotator/migration.sql` executed successfully against Supabase.
-- Includes RLS policy to allow users to delete their own global labels (undo).
+**Frontend Status**
+- `apps/expert-annotator/src/pages/Annotate.jsx` is now role-aware:
+  - `My Queue`
+  - `Cockpit`
+  - `Conflicts`
+- Queue saves drafts to the workspace tables, then uses RPC submission for final snapshots.
+- Cockpit shows reviewer queue/accuracy summaries and resolved source-yield breakdowns.
+- Conflicts view compares frozen payload snapshots side by side and lets Arciel choose the winning submission.
+- Frontend build currently passes.
 
-**DB Sanity Checks (as of 2026-03-20 11:23 UTC)**
-- 3 “done” labels saved with annotations + food items + nutrient values.
-- 3 global skips saved in `paper_global_labels` + `paper_label_events`.
-- No conflicts detected yet.
-- Found a count mismatch on paper 2: label event `food_item_count=0` but 1 food item exists.
+**Crawler / Feedback Status**
+- `update_terms.py` now prefers resolved `paper_review_outcomes`, with legacy label events as fallback only for older papers that have no resolved outcome yet.
+- `ensure_paper_stock.py` now treats already-assigned or already-resolved papers as unavailable stock.
+- New protected queue job:
+  - `services/data-pipeline/scripts/refill_assignment_queue.py`
+  - keeps each active reviewer’s personal open backlog at the target level
+  - creates slot assignments + user assignments
+  - triggers stock refill when the unassigned queue is exhausted
+- Dry-run check works after a one-pass preview fix.
 
-**Known Issues / Risks**
-- Label event counts can mismatch if a food item is empty (no name/FDC id).
-- Git push is blocked on this machine (missing GitHub credentials).
-- `sentence-transformers` must be installed for embeddings; no fallback desired.
-- `feedback/latest.json` is generated locally and is untracked.
+**What Still Needs Attention**
+- Daine’s real email/profile still needs to be configured if she should receive English queue items.
+- The queue refill job has only been dry-run validated so far; it has not yet been executed live to write assignments.
+- The current UI still carries existing PDF-highlighting limitations.
+- L2 classifier training is still deferred until more resolved labels exist.
 
-**How to Run Key Pieces**
-- Feedback update:
+**Useful Commands**
+- Apply schema migration:
+  - `cd apps/expert-annotator && DATABASE_URL=... node run-migration.js`
+- Verify live workflow schema:
+  - `cd apps/expert-annotator && DATABASE_URL=... node check-workflow-schema.mjs`
+- Refresh feedback terms:
   - `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
-  - Requires `SUPABASE_URL` (or `VITE_SUPABASE_URL`) + `SUPABASE_SERVICE_ROLE_KEY`.
-- Auto-crawl when UI runs low on papers:
+- Refill crawler stock:
   - `python3 services/data-pipeline/scripts/ensure_paper_stock.py --threshold 0`
+- Top up reviewer queues:
+  - `python3 services/data-pipeline/scripts/refill_assignment_queue.py`
 
-**Where Secrets Live**
-- `Keys and links` contains Supabase URLs, anon/service keys, and DB strings.
-- File is gitignored and must stay private.
-
-**Untracked / Local Data**
-- Multiple `services/data-pipeline/data/` run folders exist and are untracked.
-- Local `__pycache__` and feedback outputs are untracked.
-
-**Current Backlog Top Items**
-1. Fix label event counts / prevent empty food items.
-2. Conflict resolution workflow for labels.
-3. Train and integrate L2 classifier.
-
-**Open Questions**
-- What is the conflict resolution workflow (review UI, admin queue, or batch rules)?
-- How frequently should feedback updates run (after N labels vs scheduled)?
-- Should we enforce a minimum valid food item before allowing “done”? 
+**Immediate Next Step**
+- Configure Daine’s reviewer profile if her email is known.
+- Then run the queue top-up job live so Peri, Aleyna, and Arciel start from personal assigned backlogs instead of the old shared-paper assumption.

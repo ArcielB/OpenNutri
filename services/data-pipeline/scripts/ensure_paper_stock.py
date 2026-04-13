@@ -62,17 +62,40 @@ def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, in
         "paper_id,label",
         filters={"label": "eq.definitely_no_data"},
     )
+    review_outcomes = fetch_rows(
+        supabase_url,
+        supabase_key,
+        "paper_review_outcomes",
+        "paper_id",
+    )
+    slot_assignments = fetch_rows(
+        supabase_url,
+        supabase_key,
+        "paper_slot_assignments",
+        "paper_id,status",
+    )
     skipped_ids = {
         row.get("paper_id")
         for row in global_labels
         if row.get("paper_id") is not None
+    }
+    resolved_ids = {
+        row.get("paper_id")
+        for row in review_outcomes
+        if row.get("paper_id") is not None
+    }
+    assigned_ids = {
+        row.get("paper_id")
+        for row in slot_assignments
+        if row.get("paper_id") is not None
+        and str(row.get("status") or "").strip().lower() != "cancelled"
     }
 
     counts = {language: 0 for language in SUPPORTED_LANGUAGES}
     counts["unscoped"] = 0
     for row in papers:
         paper_id = row.get("id")
-        if paper_id in skipped_ids:
+        if paper_id in skipped_ids or paper_id in resolved_ids or paper_id in assigned_ids:
             continue
         workflow_language = str(row.get("workflow_language") or "").strip().lower()
         if workflow_language in SUPPORTED_LANGUAGES:
@@ -81,6 +104,8 @@ def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, in
             counts["unscoped"] += 1
 
     counts["global_skips"] = len(skipped_ids)
+    counts["resolved"] = len(resolved_ids)
+    counts["assigned"] = len(assigned_ids)
     counts["papers_total"] = len(papers)
     counts["total"] = counts["en"] + counts["tr"] + counts["unscoped"]
     return counts
@@ -130,6 +155,8 @@ def print_counts(prefix: str, counts: Dict[str, int], targets: Dict[str, int]) -
     print(prefix)
     print(f"  Papers total: {counts['papers_total']}")
     print(f"  Global no-data labels: {counts['global_skips']}")
+    print(f"  Resolved review outcomes: {counts['resolved']}")
+    print(f"  Already assigned papers: {counts['assigned']}")
     print(f"  Available total: {counts['total']}")
     print(f"  Available EN: {counts['en']} / target {targets['en']}")
     print(f"  Available TR: {counts['tr']} / target {targets['tr']}")

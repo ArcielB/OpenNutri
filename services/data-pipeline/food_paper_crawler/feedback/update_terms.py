@@ -154,7 +154,7 @@ def latest_events_by_user(label_events: List[dict]) -> List[dict]:
     return [event for _, event in latest.values()]
 
 
-def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[set[int], set[int], set[int]]:
+def build_legacy_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[set[int], set[int], set[int]]:
     # Training labels are derived from each annotator's latest visible state,
     # not raw event totals. That makes the feedback loop mirror the UI's final
     # judgment instead of over-counting old intermediate saves.
@@ -196,6 +196,53 @@ def build_labels(label_events: List[dict], global_labels: List[dict]) -> Tuple[s
     good_ids = {pid for pid in positive_users if pid not in conflict_ids}
     bad_ids = {pid for pid, users in negative_users.items() if len(users) >= 2}
     bad_ids |= global_bad
+    bad_ids.difference_update(conflict_ids)
+    return good_ids, bad_ids, conflict_ids
+
+
+def build_labels(
+    review_outcomes: List[dict],
+    open_conflicts: List[dict],
+    label_events: List[dict],
+    global_labels: List[dict],
+) -> Tuple[set[int], set[int], set[int]]:
+    resolved_paper_ids: set[int] = set()
+    good_ids: set[int] = set()
+    bad_ids: set[int] = set()
+
+    for outcome in review_outcomes:
+        paper_id = outcome.get("paper_id")
+        if not isinstance(paper_id, int):
+            continue
+        decision_kind = str(outcome.get("decision_kind") or "").strip().lower()
+        resolved_paper_ids.add(paper_id)
+        if decision_kind == "has_data":
+            good_ids.add(paper_id)
+        elif decision_kind == "no_usable_data":
+            bad_ids.add(paper_id)
+
+    conflict_ids: set[int] = {
+        row["paper_id"]
+        for row in open_conflicts
+        if isinstance(row.get("paper_id"), int)
+    }
+
+    legacy_events = [
+        row
+        for row in label_events
+        if row.get("paper_id") not in resolved_paper_ids
+    ]
+    legacy_globals = [
+        row
+        for row in global_labels
+        if row.get("paper_id") not in resolved_paper_ids
+    ]
+    legacy_good_ids, legacy_bad_ids, legacy_conflict_ids = build_legacy_labels(legacy_events, legacy_globals)
+
+    good_ids |= legacy_good_ids
+    bad_ids |= legacy_bad_ids
+    conflict_ids |= legacy_conflict_ids
+    good_ids.difference_update(conflict_ids)
     bad_ids.difference_update(conflict_ids)
     return good_ids, bad_ids, conflict_ids
 
@@ -955,6 +1002,21 @@ def main() -> None:
         "paper_id,user_id,label,reason,created_at",
         batch_size=1000,
     )
+    review_outcomes = fetch_rows(
+        args.supabase_url,
+        args.supabase_key,
+        "paper_review_outcomes",
+        "paper_id,decision_kind,resolution_source,resolved_at",
+        batch_size=1000,
+    )
+    open_conflicts = fetch_rows(
+        args.supabase_url,
+        args.supabase_key,
+        "paper_conflicts",
+        "paper_id,status,conflict_type",
+        filters={"status": "eq.open"},
+        batch_size=1000,
+    )
     search_hits = fetch_rows(
         args.supabase_url,
         args.supabase_key,
@@ -978,7 +1040,12 @@ def main() -> None:
         batch_size=1000,
     )
 
-    good_ids, bad_ids, conflict_ids = build_labels(label_events, global_labels)
+    good_ids, bad_ids, conflict_ids = build_labels(
+        review_outcomes,
+        open_conflicts,
+        label_events,
+        global_labels,
+    )
     paper_ids_by_language = classify_papers_by_language(papers)
 
     language_payloads: Dict[str, Dict[str, object]] = {}

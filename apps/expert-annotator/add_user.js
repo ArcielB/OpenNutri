@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import process from 'node:process';
 
 // Load directly to avoid dotenv dependency issues
 const supabaseUrl = 'https://mlirsjgolmryywlfahuf.supabase.co';

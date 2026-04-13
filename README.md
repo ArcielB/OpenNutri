@@ -21,13 +21,15 @@ Location: `apps/expert-annotator/`
 
 Features:
 - Supabase auth (email/password + Google).
-- Paper list navigation with status badges.
+- Assignment-driven labeling queue with per-user paper lists instead of one global shared list.
 - PDF viewer with nutrient-name highlighting and click-to-add popover.
 - Food and nutrient autocomplete with ranking and search logging.
-- Save draft, mark done, or skip papers.
+- Save draft, submit usable-data extraction, or submit no-usable-data.
 - `done` / `draft` with `has_data=true` now requires at least one valid food item.
+- Exact-match submission snapshots are stored in `paper_assignment_submissions`.
+- Arciel-only cockpit shows queue health, reviewer agreement/accuracy, source yield, and conflict queues.
+- Arciel-only conflicts screen resolves internal Arciel-lane disagreements and cross-slot disagreements.
 - Test mode toggle to disable DB writes and store actions locally.
-- Global “definitely no data” button to remove a paper for all annotators.
 - Suggestions modal stored in Supabase.
 
 Run locally:
@@ -47,6 +49,7 @@ Supabase schema and migrations:
 - `apps/expert-annotator/migration.sql`: Current schema (entities, nutrients, papers, annotations, etc.).
 - `apps/expert-annotator/supabase_schema.sql`: Older simplified schema.
 - `apps/expert-annotator/run-migration.js`: Applies `migration.sql` (requires `DATABASE_URL`).
+- `apps/expert-annotator/check-workflow-schema.mjs`: Verifies the live assignment-workflow tables/functions after migration.
 - `apps/expert-annotator/create_bucket.js`: Creates the `papers` storage bucket and policies.
 - `apps/expert-annotator/auth_allowlist.sql`: Allowlist + auth hook for restricted signup.
 - `apps/expert-annotator/add_user.js`: Scripted Supabase sign-up for a test user.
@@ -65,6 +68,9 @@ Supabase tables used by the UI:
 - `papers`, `annotations`, `food_items`, `annotation_nutrient_values`
 - `entities`, `master_nutrients`, `search_sessions`, `suggestions`
 - `paper_label_events`, `paper_global_labels`
+- `reviewer_profiles`, `reviewer_slot_members`
+- `paper_slot_assignments`, `paper_user_assignments`
+- `paper_assignment_submissions`, `paper_conflicts`, `paper_review_outcomes`
 
 **Data Pipeline**
 Location: `services/data-pipeline/`
@@ -101,6 +107,7 @@ Key modules:
 
 **Label Feedback Loop (L2)**
 - Generates cumulative field-aware n-gram stats from labeled papers to update crawler query phrases and soft metadata scoring.
+- Resolved truth now comes from `paper_review_outcomes` first; legacy `paper_label_events` / `paper_global_labels` are fallback only for older papers that do not yet have resolved assignment outcomes.
 - Uses the latest label per user; a paper only counts as positive when the latest visible `draft`/`done` state also has `has_data=true`, `food_item_count > 0`, and `nutrient_value_count > 0`. Papers turn negative on global skip or 2+ unique skips. Mixed signals across labelers are treated as conflicts and excluded from both sides.
 - Feedback export now classifies papers into English vs Turkish buckets and writes separate phrase / anchor / weighted-term pools for each workflow.
 - Script: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
@@ -122,7 +129,8 @@ Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/config_targets.py`: Shared query configuration for script-based harvesters.
 - `services/data-pipeline/scripts/refresh_dergipark_index.py`: Refresh the local DergiPark journal/article index from archive and article pages. Outputs `dergipark_journals.json`, `dergipark_articles.jsonl`, `dergipark_refresh_state.json`, and `dergipark_refresh_report.json` under the chosen `--data-dir`.
 - `services/data-pipeline/scripts/upload_to_supabase.py`: Upload accepted PDFs to Supabase Storage, update `papers` by canonical identity, upsert metadata-stage discovery hits into `paper_search_hits` via deterministic `hit_key` values, and persist per-query batch history into `paper_search_batches` plus `paper_search_batch_hits`. Metadata-stage runs with zero accepted PDFs are now valid as long as search hits exist, and hits keep `paper_id` nullable until a paper row exists. Pass `--data-dir` or `--manifest`; the script now requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
-- `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, refresh the DergiPark journal/article index, then crawl + upload until per-language targets are met. Supports `--target-en`, `--target-tr`, `--max-effort-tr`, `--quota-fallback`, `--dergipark-journal-limit`, and `--dergipark-max-issues-per-journal`, and prints both the crawler funnel summary and DergiPark index coverage after each cycle.
+- `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, refresh the DergiPark journal/article index, then crawl + upload until per-language targets are met. It now treats already-assigned or already-resolved papers as unavailable queue stock. Supports `--target-en`, `--target-tr`, `--max-effort-tr`, `--quota-fallback`, `--dergipark-journal-limit`, and `--dergipark-max-issues-per-journal`, and prints both the crawler funnel summary and DergiPark index coverage after each cycle.
+- `services/data-pipeline/scripts/refill_assignment_queue.py`: Protected ops job that tops reviewer queues back up to a target open backlog, creates slot/user assignments, and triggers crawler refill when the unassigned pool is exhausted.
 - `services/data-pipeline/scripts/check_db.py`, `check_db.js`, `test_frontend_fetch.js`: DB and frontend connectivity checks.
 - `services/data-pipeline/scripts/check_rls.py`: Placeholder for RLS checks.
 
@@ -171,6 +179,9 @@ Data pipeline and ETL:
 **Development Notes**
 - The annotator app is deployed on Vercel.
 - Supabase is used for auth and application data.
+- Reviewer workflow is now slot-based:
+  `arciel`, `peri`, and `aleyna` are the official reviewer slots.
+  Daine should be configured as an English-only shadow member inside the Arciel slot when her actual reviewer profile is available.
 - PDF highlighting is tricky because PDF.js text layers may split visible words into multiple spans.
 
 **Contributing**
