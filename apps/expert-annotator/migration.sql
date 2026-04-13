@@ -661,6 +661,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewer_profiles_email_unique
 CREATE INDEX IF NOT EXISTS idx_reviewer_profiles_auth_user ON reviewer_profiles(auth_user_id);
 CREATE INDEX IF NOT EXISTS idx_reviewer_profiles_slot ON reviewer_profiles(official_slot);
 CREATE INDEX IF NOT EXISTS idx_reviewer_slot_members_slot ON reviewer_slot_members(slot_key, active);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewer_slot_members_active_primary_per_slot
+    ON reviewer_slot_members(slot_key)
+    WHERE member_role = 'primary' AND active IS TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewer_slot_members_active_primary_per_profile
+    ON reviewer_slot_members(reviewer_profile_id)
+    WHERE member_role = 'primary' AND active IS TRUE;
 CREATE INDEX IF NOT EXISTS idx_paper_slot_assignments_paper ON paper_slot_assignments(paper_id);
 CREATE INDEX IF NOT EXISTS idx_paper_slot_assignments_status ON paper_slot_assignments(status, workflow_language);
 CREATE INDEX IF NOT EXISTS idx_paper_user_assignments_auth_status ON paper_user_assignments(auth_user_id, status, workflow_language);
@@ -717,6 +723,198 @@ AS $$
               )
           )
     );
+$$;
+
+CREATE OR REPLACE FUNCTION public.upsert_reviewer_admin_config(
+    p_email TEXT,
+    p_display_name TEXT,
+    p_active BOOLEAN DEFAULT TRUE,
+    p_can_review_en BOOLEAN DEFAULT TRUE,
+    p_can_review_tr BOOLEAN DEFAULT TRUE,
+    p_official_slot TEXT DEFAULT NULL,
+    p_shadow_slots TEXT[] DEFAULT ARRAY[]::TEXT[],
+    p_cockpit_access BOOLEAN DEFAULT FALSE,
+    p_priority_weight_en REAL DEFAULT 1.0,
+    p_priority_weight_tr REAL DEFAULT 1.0,
+    p_notes TEXT DEFAULT NULL
+)
+RETURNS reviewer_profiles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_email TEXT := lower(trim(coalesce(p_email, '')));
+    v_display_name TEXT := trim(coalesce(p_display_name, ''));
+    v_official_slot TEXT := nullif(lower(trim(coalesce(p_official_slot, ''))), '');
+    v_shadow_slot TEXT;
+    v_shadow_slots TEXT[] := ARRAY(
+        SELECT DISTINCT lower(trim(slot_key))
+        FROM unnest(coalesce(p_shadow_slots, ARRAY[]::TEXT[])) AS slot_key
+        WHERE trim(coalesce(slot_key, '')) <> ''
+        ORDER BY lower(trim(slot_key))
+    );
+    v_profile reviewer_profiles;
+    v_active_cockpit_count INTEGER;
+BEGIN
+    IF NOT public.current_user_has_cockpit_access() THEN
+        RAISE EXCEPTION 'Cockpit access required';
+    END IF;
+
+    IF v_email = '' THEN
+        RAISE EXCEPTION 'Reviewer email is required';
+    END IF;
+
+    IF v_display_name = '' THEN
+        RAISE EXCEPTION 'Reviewer display name is required';
+    END IF;
+
+    IF v_official_slot IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM reviewer_slots
+        WHERE slot_key = v_official_slot
+    ) THEN
+        RAISE EXCEPTION 'Unknown official slot: %', v_official_slot;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM unnest(v_shadow_slots) AS shadow_slot(slot_key)
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM reviewer_slots
+            WHERE reviewer_slots.slot_key = shadow_slot.slot_key
+        )
+    ) THEN
+        RAISE EXCEPTION 'All shadow slots must exist in reviewer_slots';
+    END IF;
+
+    IF v_official_slot IS NOT NULL AND v_official_slot = ANY(v_shadow_slots) THEN
+        RAISE EXCEPTION 'A reviewer cannot be both the official and shadow member of the same slot';
+    END IF;
+
+    INSERT INTO allowed_auth_emails (email)
+    VALUES (v_email)
+    ON CONFLICT (email) DO NOTHING;
+
+    INSERT INTO reviewer_profiles (
+        email,
+        display_name,
+        active,
+        can_review_en,
+        can_review_tr,
+        official_slot,
+        cockpit_access,
+        priority_weight_en,
+        priority_weight_tr,
+        notes,
+        updated_at
+    )
+    VALUES (
+        v_email,
+        v_display_name,
+        coalesce(p_active, TRUE),
+        coalesce(p_can_review_en, TRUE),
+        coalesce(p_can_review_tr, TRUE),
+        v_official_slot,
+        coalesce(p_cockpit_access, FALSE),
+        coalesce(p_priority_weight_en, 1.0),
+        coalesce(p_priority_weight_tr, 1.0),
+        nullif(trim(coalesce(p_notes, '')), ''),
+        NOW()
+    )
+    ON CONFLICT (email) DO UPDATE
+    SET
+        display_name = EXCLUDED.display_name,
+        active = EXCLUDED.active,
+        can_review_en = EXCLUDED.can_review_en,
+        can_review_tr = EXCLUDED.can_review_tr,
+        official_slot = EXCLUDED.official_slot,
+        cockpit_access = EXCLUDED.cockpit_access,
+        priority_weight_en = EXCLUDED.priority_weight_en,
+        priority_weight_tr = EXCLUDED.priority_weight_tr,
+        notes = EXCLUDED.notes,
+        updated_at = NOW()
+    RETURNING * INTO v_profile;
+
+    UPDATE reviewer_slot_members
+    SET active = FALSE
+    WHERE reviewer_profile_id = v_profile.id;
+
+    IF v_official_slot IS NOT NULL THEN
+        INSERT INTO reviewer_slot_members (
+            slot_key,
+            reviewer_profile_id,
+            member_role,
+            can_review_en,
+            can_review_tr,
+            counts_toward_official,
+            active
+        )
+        VALUES (
+            v_official_slot,
+            v_profile.id,
+            'primary',
+            v_profile.can_review_en,
+            v_profile.can_review_tr,
+            TRUE,
+            v_profile.active
+        )
+        ON CONFLICT (slot_key, reviewer_profile_id) DO UPDATE
+        SET
+            member_role = 'primary',
+            can_review_en = EXCLUDED.can_review_en,
+            can_review_tr = EXCLUDED.can_review_tr,
+            counts_toward_official = TRUE,
+            active = EXCLUDED.active;
+    END IF;
+
+    FOREACH v_shadow_slot IN ARRAY v_shadow_slots
+    LOOP
+        INSERT INTO reviewer_slot_members (
+            slot_key,
+            reviewer_profile_id,
+            member_role,
+            can_review_en,
+            can_review_tr,
+            counts_toward_official,
+            active
+        )
+        VALUES (
+            v_shadow_slot,
+            v_profile.id,
+            'shadow',
+            v_profile.can_review_en,
+            v_profile.can_review_tr,
+            FALSE,
+            v_profile.active
+        )
+        ON CONFLICT (slot_key, reviewer_profile_id) DO UPDATE
+        SET
+            member_role = 'shadow',
+            can_review_en = EXCLUDED.can_review_en,
+            can_review_tr = EXCLUDED.can_review_tr,
+            counts_toward_official = FALSE,
+            active = EXCLUDED.active;
+    END LOOP;
+
+    SELECT COUNT(*)
+    INTO v_active_cockpit_count
+    FROM reviewer_profiles
+    WHERE cockpit_access IS TRUE
+      AND active IS TRUE;
+
+    IF v_active_cockpit_count <= 0 THEN
+        RAISE EXCEPTION 'At least one active cockpit reviewer is required';
+    END IF;
+
+    SELECT *
+    INTO v_profile
+    FROM reviewer_profiles
+    WHERE id = v_profile.id;
+
+    RETURN v_profile;
+END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.build_annotation_submission_payload(

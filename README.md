@@ -68,7 +68,7 @@ Supabase tables used by the UI:
 - `papers`, `annotations`, `food_items`, `annotation_nutrient_values`
 - `entities`, `master_nutrients`, `search_sessions`, `suggestions`
 - `paper_label_events`, `paper_global_labels`
-- `reviewer_profiles`, `reviewer_slot_members`
+- `reviewer_slots`, `reviewer_profiles`, `reviewer_slot_members`
 - `paper_slot_assignments`, `paper_user_assignments`
 - `paper_assignment_submissions`, `paper_conflicts`, `paper_review_outcomes`
 
@@ -181,7 +181,8 @@ Data pipeline and ETL:
 - Supabase is used for auth and application data.
 - Reviewer workflow is now slot-based:
   `arciel`, `peri`, and `aleyna` are the official reviewer slots.
-  Daine should be configured as an English-only shadow member inside the Arciel slot when her actual reviewer profile is available.
+  The cockpit can now create reviewer profiles, assign official slots, and add/remove shadow slot memberships without direct SQL edits.
+  Daine should be configured there as an English-only shadow member inside the Arciel slot when her actual reviewer profile is available.
 - PDF highlighting is tricky because PDF.js text layers may split visible words into multiple spans.
 
 **Contributing**

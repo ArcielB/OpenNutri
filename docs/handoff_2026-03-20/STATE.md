@@ -1,6 +1,6 @@
-# OpenNutri Handoff — 2026-04-13 (Europe/Istanbul)
+# OpenNutri Handoff — 2026-04-14 (Europe/Istanbul)
 
-This is the current high-signal project state after the assignment-driven annotator workflow landed.
+This is the current high-signal project state after the assignment-driven annotator workflow and reviewer-admin cockpit landed.
 
 **Primary Goal**
 - Finish Preliminary Study 3 as fast as possible so the benchmark-quality dataset supports both the TÜBİTAK application and the paper draft.
@@ -27,7 +27,7 @@ This is the current high-signal project state after the assignment-driven annota
 - Only final resolved paper truth in `paper_review_outcomes` feeds crawler feedback.
 
 **Live Schema Status**
-- `apps/expert-annotator/migration.sql` was applied successfully to the live Supabase DB on April 13, 2026.
+- `apps/expert-annotator/migration.sql` was applied successfully to the live Supabase DB again on April 14, 2026 for reviewer-admin support.
 - Live verification confirmed these tables exist:
   - `reviewer_profiles`
   - `reviewer_slot_members`
@@ -42,6 +42,7 @@ This is the current high-signal project state after the assignment-driven annota
   - `submit_assignment_review`
   - `resolve_paper_conflict`
   - `refresh_paper_resolution_state`
+  - `upsert_reviewer_admin_config`
 
 **Frontend Status**
 - `apps/expert-annotator/src/pages/Annotate.jsx` is now role-aware:
@@ -49,7 +50,13 @@ This is the current high-signal project state after the assignment-driven annota
   - `Cockpit`
   - `Conflicts`
 - Queue saves drafts to the workspace tables, then uses RPC submission for final snapshots.
-- Cockpit shows reviewer queue/accuracy summaries and resolved source-yield breakdowns.
+- Cockpit shows reviewer queue/accuracy summaries, resolved source-yield breakdowns, and reviewer-admin controls.
+- Reviewer-admin controls can:
+  - create a reviewer profile by email
+  - allowlist the reviewer for auth
+  - assign or remove an official slot
+  - add or remove shadow slot memberships
+  - change language permissions, active state, and cockpit access
 - Conflicts view compares frozen payload snapshots side by side and lets Arciel choose the winning submission.
 - Frontend build currently passes.
 
@@ -64,7 +71,7 @@ This is the current high-signal project state after the assignment-driven annota
 - Dry-run check works after a one-pass preview fix.
 
 **What Still Needs Attention**
-- Daine’s real email/profile still needs to be configured if she should receive English queue items.
+- Daine’s real email/profile still needs to be entered through the cockpit if she should receive English queue items.
 - The queue refill job has only been dry-run validated so far; it has not yet been executed live to write assignments.
 - The current UI still carries existing PDF-highlighting limitations.
 - L2 classifier training is still deferred until more resolved labels exist.
@@ -82,5 +89,5 @@ This is the current high-signal project state after the assignment-driven annota
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py`
 
 **Immediate Next Step**
-- Configure Daine’s reviewer profile if her email is known.
+- Open the cockpit reviewer-admin section and configure Daine’s reviewer profile if her email is known.
 - Then run the queue top-up job live so Peri, Aleyna, and Arciel start from personal assigned backlogs instead of the old shared-paper assumption.

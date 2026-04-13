@@ -57,6 +57,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - The annotator is now assignment-driven:
   every paper gets exactly 2 official reviewer slots and reviewers only see their own queue.
 - Official reviewer slots are `arciel`, `peri`, and `aleyna`.
+- The cockpit now includes reviewer-admin controls for creating allowlisted reviewer profiles and managing official/shadow slot membership without SQL.
 - `Daine` belongs inside the Arciel lane for English-only shadow review when her reviewer profile is configured; she does not count as an independent official slot.
 - Resolved crawler truth now comes from `paper_review_outcomes`; unresolved disagreements must not feed feedback learning.
 - Exact raw-match comparison uses deterministic submission payload snapshots stored in `paper_assignment_submissions`.

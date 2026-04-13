@@ -32,6 +32,7 @@ async function main() {
       where proname in (
         'sync_reviewer_profile',
         'touch_assignment_workspace',
+        'upsert_reviewer_admin_config',
         'submit_assignment_review',
         'resolve_paper_conflict',
         'refresh_paper_resolution_state'

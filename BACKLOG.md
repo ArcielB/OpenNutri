@@ -8,32 +8,6 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
-## 2. Add reviewer admin configuration
-
-### Problem
-The assignment-driven workflow now exists, but reviewer membership is still configured directly in the database. That is fragile for operational changes such as adding Daine to the Arciel lane once her real email is known.
-
-### Goal
-Provide a cockpit-friendly way to manage:
-- reviewer profiles
-- slot membership
-- language permissions
-- cockpit access
-- active/inactive status
-
-### Likely technical area
-- `reviewer_profiles`
-- `reviewer_slot_members`
-- cockpit UI in `apps/expert-annotator/src/pages/Annotate.jsx`
-
-### Done when
-- a new reviewer can be activated without direct SQL edits
-- Arciel can add or remove shadow reviewers from the cockpit
-- language permissions can be changed safely
-
-
-
-
 ## 3. Train and integrate the L2 classifier (depends on label volume)
 
 ### Problem

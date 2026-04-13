@@ -35,12 +35,93 @@ const OPEN_STATUSES = new Set(['assigned', 'draft'])
 const FINAL_STATUSES = new Set(['submitted', 'conflict', 'resolved'])
 const EMPTY_COCKPIT_DATA = {
   reviewerProfiles: [],
+  reviewerSlots: [],
+  slotMembers: [],
   userAssignments: [],
   submissions: [],
   outcomes: [],
   conflicts: [],
   papers: [],
   searchHits: [],
+}
+
+function buildSlotMembersByProfile(rows) {
+  return (rows || []).reduce((accumulator, row) => {
+    if (!row?.reviewer_profile_id) return accumulator
+    if (!accumulator[row.reviewer_profile_id]) {
+      accumulator[row.reviewer_profile_id] = []
+    }
+    accumulator[row.reviewer_profile_id].push(row)
+    return accumulator
+  }, {})
+}
+
+function createReviewerDraft(profile = null, slotMembers = []) {
+  const shadowSlots = (slotMembers || [])
+    .filter((row) => row?.member_role === 'shadow' && row?.active !== false)
+    .map((row) => row.slot_key)
+    .filter(Boolean)
+    .sort()
+
+  return {
+    email: profile?.email || '',
+    display_name: profile?.display_name || '',
+    active: profile?.active ?? true,
+    can_review_en: profile?.can_review_en ?? true,
+    can_review_tr: profile?.can_review_tr ?? true,
+    official_slot: profile?.official_slot || '',
+    shadow_slots: shadowSlots,
+    cockpit_access: profile?.cockpit_access ?? false,
+    priority_weight_en: profile?.priority_weight_en ?? 1,
+    priority_weight_tr: profile?.priority_weight_tr ?? 1,
+    notes: profile?.notes || '',
+  }
+}
+
+function createEmptyReviewerDraft() {
+  return createReviewerDraft()
+}
+
+function toggleShadowSlot(shadowSlots, slotKey) {
+  if (!slotKey) return shadowSlots || []
+  if ((shadowSlots || []).includes(slotKey)) {
+    return shadowSlots.filter((value) => value !== slotKey)
+  }
+  return [...(shadowSlots || []), slotKey].sort()
+}
+
+function buildReviewerAdminPayload(draft) {
+  return {
+    p_email: (draft?.email || '').trim().toLowerCase(),
+    p_display_name: (draft?.display_name || '').trim(),
+    p_active: Boolean(draft?.active),
+    p_can_review_en: Boolean(draft?.can_review_en),
+    p_can_review_tr: Boolean(draft?.can_review_tr),
+    p_official_slot: draft?.official_slot || null,
+    p_shadow_slots: [...new Set((draft?.shadow_slots || []).filter(Boolean))].sort(),
+    p_cockpit_access: Boolean(draft?.cockpit_access),
+    p_priority_weight_en: Number(draft?.priority_weight_en ?? 1) || 1,
+    p_priority_weight_tr: Number(draft?.priority_weight_tr ?? 1) || 1,
+    p_notes: (draft?.notes || '').trim() || null,
+  }
+}
+
+function describeMemberships(draft, reviewerSlots) {
+  const labels = []
+  if (draft?.official_slot) {
+    labels.push(`official:${draft.official_slot}`)
+  }
+  for (const slotKey of draft?.shadow_slots || []) {
+    labels.push(`shadow:${slotKey}`)
+  }
+  if (!labels.length) return 'No active slot membership.'
+  const slotLabelByKey = Object.fromEntries((reviewerSlots || []).map((slot) => [slot.slot_key, slot.display_name || slot.slot_key]))
+  return labels
+    .map((value) => {
+      const [kind, slotKey] = value.split(':')
+      return `${kind === 'official' ? 'Official' : 'Shadow'} ${slotLabelByKey[slotKey] || slotKey}`
+    })
+    .join(' · ')
 }
 
 function sortAssignments(assignments) {
@@ -243,7 +324,237 @@ function PayloadSummary({ submission, reviewer, highlighted, onResolve }) {
   )
 }
 
-function CockpitView({ cockpitData, onRefresh }) {
+function ReviewerEditor({
+  title,
+  subtitle,
+  draft,
+  reviewerSlots,
+  authLinked,
+  saving,
+  isNew,
+  onChange,
+  onToggleShadowSlot,
+  onSave,
+  onReset,
+}) {
+  return (
+    <div className={`reviewer-admin-card ${isNew ? 'reviewer-admin-card-new' : ''}`}>
+      <div className="reviewer-admin-header">
+        <div>
+          <h3>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+        <div className="reviewer-admin-badges">
+          <span className={`status-badge ${draft.active ? 'status-done' : 'status-skipped'}`}>
+            {draft.active ? 'Active' : 'Inactive'}
+          </span>
+          {!isNew && (
+            <span className={`status-badge ${authLinked ? 'status-pending' : 'status-draft'}`}>
+              {authLinked ? 'Auth linked' : 'Awaiting first login'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="reviewer-admin-grid">
+        <label className="form-group">
+          <span>Email</span>
+          <input
+            value={draft.email}
+            onChange={(event) => onChange('email', event.target.value)}
+            placeholder="reviewer@example.com"
+            readOnly={!isNew}
+          />
+        </label>
+
+        <label className="form-group">
+          <span>Display name</span>
+          <input
+            value={draft.display_name}
+            onChange={(event) => onChange('display_name', event.target.value)}
+            placeholder="Reviewer name"
+          />
+        </label>
+
+        <label className="form-group">
+          <span>Official slot</span>
+          <select
+            value={draft.official_slot}
+            onChange={(event) => onChange('official_slot', event.target.value)}
+          >
+            <option value="">No official slot</option>
+            {(reviewerSlots || []).map((slot) => (
+              <option key={slot.slot_key} value={slot.slot_key}>
+                {slot.display_name || slot.slot_key}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="form-group">
+          <span>Notes</span>
+          <textarea
+            value={draft.notes}
+            onChange={(event) => onChange('notes', event.target.value)}
+            placeholder="Optional reviewer note"
+            rows={2}
+          />
+        </label>
+      </div>
+
+      <div className="reviewer-toggle-row">
+        <label className="reviewer-toggle">
+          <input
+            type="checkbox"
+            checked={draft.active}
+            onChange={(event) => onChange('active', event.target.checked)}
+          />
+          <span>Active</span>
+        </label>
+        <label className="reviewer-toggle">
+          <input
+            type="checkbox"
+            checked={draft.can_review_en}
+            onChange={(event) => onChange('can_review_en', event.target.checked)}
+          />
+          <span>English</span>
+        </label>
+        <label className="reviewer-toggle">
+          <input
+            type="checkbox"
+            checked={draft.can_review_tr}
+            onChange={(event) => onChange('can_review_tr', event.target.checked)}
+          />
+          <span>Turkish</span>
+        </label>
+        <label className="reviewer-toggle">
+          <input
+            type="checkbox"
+            checked={draft.cockpit_access}
+            onChange={(event) => onChange('cockpit_access', event.target.checked)}
+          />
+          <span>Cockpit</span>
+        </label>
+      </div>
+
+      <div className="reviewer-shadow-block">
+        <div className="reviewer-shadow-header">
+          <strong>Shadow memberships</strong>
+          <span>{describeMemberships(draft, reviewerSlots)}</span>
+        </div>
+        <div className="reviewer-shadow-slots">
+          {(reviewerSlots || []).map((slot) => {
+            const disabled = draft.official_slot === slot.slot_key
+            const selected = !disabled && draft.shadow_slots.includes(slot.slot_key)
+            return (
+              <button
+                key={slot.slot_key}
+                type="button"
+                className={`slot-chip ${selected ? 'slot-chip-active' : ''}`}
+                onClick={() => onToggleShadowSlot(slot.slot_key)}
+                disabled={disabled}
+              >
+                {slot.display_name || slot.slot_key}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="reviewer-admin-actions">
+        <button className="btn btn-outline" onClick={onReset} disabled={saving}>
+          {isNew ? 'Clear' : 'Reset'}
+        </button>
+        <button className="btn btn-primary reviewer-save-btn" onClick={onSave} disabled={saving}>
+          {saving ? 'Saving...' : isNew ? 'Add reviewer' : 'Save reviewer'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ReviewerAdminPanel({
+  cockpitData,
+  reviewerDrafts,
+  newReviewerDraft,
+  savingReviewerTarget,
+  onChangeDraft,
+  onToggleDraftShadowSlot,
+  onSaveDraft,
+  onResetDraft,
+  onChangeNewDraft,
+  onToggleNewShadowSlot,
+  onCreateReviewer,
+  onResetNewReviewer,
+}) {
+  const slotMembersByProfile = buildSlotMembersByProfile(cockpitData.slotMembers)
+  const reviewerSlots = cockpitData.reviewerSlots || []
+  const reviewerProfiles = cockpitData.reviewerProfiles || []
+
+  return (
+    <div className="dashboard-card reviewer-admin-shell">
+      <div className="reviewer-admin-shell-header">
+        <div>
+          <div className="dashboard-card-title">Reviewer Admin</div>
+          <p>Create reviewers, assign official slots, and manage shadow members without direct SQL edits.</p>
+        </div>
+        <span className="status-badge status-pending">{reviewerProfiles.length} profiles</span>
+      </div>
+
+      <div className="reviewer-admin-stack">
+        <ReviewerEditor
+          title="Add Reviewer"
+          subtitle="New reviewers are allowlisted automatically and can be wired into a slot before first login."
+          draft={newReviewerDraft}
+          reviewerSlots={reviewerSlots}
+          authLinked={false}
+          saving={savingReviewerTarget === '__new__'}
+          isNew
+          onChange={onChangeNewDraft}
+          onToggleShadowSlot={onToggleNewShadowSlot}
+          onSave={onCreateReviewer}
+          onReset={onResetNewReviewer}
+        />
+
+        {reviewerProfiles.map((profile) => {
+          const draft = reviewerDrafts[profile.id] || createReviewerDraft(profile, slotMembersByProfile[profile.id] || [])
+          return (
+            <ReviewerEditor
+              key={profile.id}
+              title={profile.display_name || profile.email || profile.id}
+              subtitle={profile.email || 'No email yet'}
+              draft={draft}
+              reviewerSlots={reviewerSlots}
+              authLinked={Boolean(profile.auth_user_id)}
+              saving={savingReviewerTarget === profile.id}
+              isNew={false}
+              onChange={(field, value) => onChangeDraft(profile.id, field, value)}
+              onToggleShadowSlot={(slotKey) => onToggleDraftShadowSlot(profile.id, slotKey)}
+              onSave={() => onSaveDraft(profile.id)}
+              onReset={() => onResetDraft(profile.id)}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function CockpitView({
+  cockpitData,
+  onRefresh,
+  reviewerDrafts,
+  newReviewerDraft,
+  savingReviewerTarget,
+  onChangeDraft,
+  onToggleDraftShadowSlot,
+  onSaveDraft,
+  onResetDraft,
+  onChangeNewDraft,
+  onToggleNewShadowSlot,
+  onCreateReviewer,
+  onResetNewReviewer,
+}) {
   const reviewerMetrics = computeReviewerMetrics(cockpitData)
   const sourceBreakdown = computeSourceBreakdown(cockpitData)
   const openConflicts = (cockpitData.conflicts || []).filter((row) => row.status === 'open')
@@ -371,6 +682,21 @@ function CockpitView({ cockpitData, onRefresh }) {
           </table>
         </div>
       </div>
+
+      <ReviewerAdminPanel
+        cockpitData={cockpitData}
+        reviewerDrafts={reviewerDrafts}
+        newReviewerDraft={newReviewerDraft}
+        savingReviewerTarget={savingReviewerTarget}
+        onChangeDraft={onChangeDraft}
+        onToggleDraftShadowSlot={onToggleDraftShadowSlot}
+        onSaveDraft={onSaveDraft}
+        onResetDraft={onResetDraft}
+        onChangeNewDraft={onChangeNewDraft}
+        onToggleNewShadowSlot={onToggleNewShadowSlot}
+        onCreateReviewer={onCreateReviewer}
+        onResetNewReviewer={onResetNewReviewer}
+      />
     </div>
   )
 }
@@ -494,6 +820,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [foodsLoaded, setFoodsLoaded] = useState(false)
   const [testMode, setTestMode] = useState(() => isTestModeEnabled())
   const [cockpitData, setCockpitData] = useState(EMPTY_COCKPIT_DATA)
+  const [reviewerDrafts, setReviewerDrafts] = useState({})
+  const [newReviewerDraft, setNewReviewerDraft] = useState(() => createEmptyReviewerDraft())
+  const [savingReviewerTarget, setSavingReviewerTarget] = useState(null)
   const [selectedConflictId, setSelectedConflictId] = useState(null)
   const [resolutionNote, setResolutionNote] = useState('')
   const undoTimerRef = useRef(null)
@@ -574,7 +903,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     setLoadingCockpit(true)
     try {
       const [
+        reviewerSlotsResponse,
         reviewerProfilesResponse,
+        slotMembersResponse,
         userAssignmentsResponse,
         submissionsResponse,
         outcomesResponse,
@@ -582,7 +913,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         papersResponse,
         searchHitsResponse,
       ] = await Promise.all([
+        supabase.from('reviewer_slots').select('*').order('slot_key', { ascending: true }),
         supabase.from('reviewer_profiles').select('*').order('display_name', { ascending: true }),
+        supabase.from('reviewer_slot_members').select('*').order('slot_key', { ascending: true }),
         supabase.from('paper_user_assignments').select('*').order('assigned_at', { ascending: true }),
         supabase.from('paper_assignment_submissions').select('*').order('submitted_at', { ascending: false }),
         supabase.from('paper_review_outcomes').select('*').order('resolved_at', { ascending: false }),
@@ -591,7 +924,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         supabase.from('paper_search_hits').select('paper_id,source,template_id,source_term,query_phrase,workflow_language'),
       ])
 
+      if (reviewerSlotsResponse.error) throw reviewerSlotsResponse.error
       if (reviewerProfilesResponse.error) throw reviewerProfilesResponse.error
+      if (slotMembersResponse.error) throw slotMembersResponse.error
       if (userAssignmentsResponse.error) throw userAssignmentsResponse.error
       if (submissionsResponse.error) throw submissionsResponse.error
       if (outcomesResponse.error) throw outcomesResponse.error
@@ -600,7 +935,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       if (searchHitsResponse.error) throw searchHitsResponse.error
 
       setCockpitData({
+        reviewerSlots: reviewerSlotsResponse.data || [],
         reviewerProfiles: reviewerProfilesResponse.data || [],
+        slotMembers: slotMembersResponse.data || [],
         userAssignments: userAssignmentsResponse.data || [],
         submissions: submissionsResponse.data || [],
         outcomes: outcomesResponse.data || [],
@@ -660,6 +997,25 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       refreshCockpit()
     }
   }, [refreshCockpit, refreshQueue, reviewerProfile])
+
+  useEffect(() => {
+    if (reviewerProfile && !reviewerProfile.cockpit_access && activeView !== 'queue') {
+      setActiveView('queue')
+    }
+  }, [activeView, reviewerProfile])
+
+  useEffect(() => {
+    if (!reviewerProfile?.cockpit_access) return
+    const slotMembersByProfile = buildSlotMembersByProfile(cockpitData.slotMembers)
+    const nextDrafts = Object.fromEntries(
+      (cockpitData.reviewerProfiles || []).map((profile) => [
+        profile.id,
+        createReviewerDraft(profile, slotMembersByProfile[profile.id] || []),
+      ])
+    )
+    setReviewerDrafts(nextDrafts)
+    setNewReviewerDraft(createEmptyReviewerDraft())
+  }, [cockpitData.reviewerProfiles, cockpitData.slotMembers, reviewerProfile?.cockpit_access])
 
   useEffect(() => {
     async function fetchNutrients() {
@@ -823,6 +1179,133 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     setTestModeEnabled(next)
     showToast(next ? 'Test mode enabled — no DB writes.' : 'Test mode disabled.')
   }, [showToast, testMode])
+
+  const updateReviewerDraft = useCallback((profileId, field, value) => {
+    setReviewerDrafts((previous) => {
+      const existing = previous[profileId]
+      if (!existing) return previous
+      const next = {
+        ...existing,
+        [field]: value,
+      }
+      if (field === 'official_slot' && value) {
+        next.shadow_slots = (next.shadow_slots || []).filter((slotKey) => slotKey !== value)
+      }
+      return {
+        ...previous,
+        [profileId]: next,
+      }
+    })
+  }, [])
+
+  const toggleReviewerDraftShadowSlot = useCallback((profileId, slotKey) => {
+    setReviewerDrafts((previous) => {
+      const existing = previous[profileId]
+      if (!existing || existing.official_slot === slotKey) return previous
+      return {
+        ...previous,
+        [profileId]: {
+          ...existing,
+          shadow_slots: toggleShadowSlot(existing.shadow_slots, slotKey),
+        },
+      }
+    })
+  }, [])
+
+  const resetReviewerDraft = useCallback((profileId) => {
+    const slotMembersByProfile = buildSlotMembersByProfile(cockpitData.slotMembers)
+    const profile = (cockpitData.reviewerProfiles || []).find((row) => row.id === profileId)
+    if (!profile) return
+    setReviewerDrafts((previous) => ({
+      ...previous,
+      [profileId]: createReviewerDraft(profile, slotMembersByProfile[profile.id] || []),
+    }))
+  }, [cockpitData.reviewerProfiles, cockpitData.slotMembers])
+
+  const updateNewReviewerDraft = useCallback((field, value) => {
+    setNewReviewerDraft((previous) => {
+      const next = {
+        ...previous,
+        [field]: value,
+      }
+      if (field === 'official_slot' && value) {
+        next.shadow_slots = (next.shadow_slots || []).filter((slotKey) => slotKey !== value)
+      }
+      return next
+    })
+  }, [])
+
+  const toggleNewReviewerShadowSlot = useCallback((slotKey) => {
+    setNewReviewerDraft((previous) => {
+      if (previous.official_slot === slotKey) return previous
+      return {
+        ...previous,
+        shadow_slots: toggleShadowSlot(previous.shadow_slots, slotKey),
+      }
+    })
+  }, [])
+
+  const resetNewReviewerDraft = useCallback(() => {
+    setNewReviewerDraft(createEmptyReviewerDraft())
+  }, [])
+
+  const persistReviewerDraft = useCallback(async (draft, targetKey) => {
+    const payload = buildReviewerAdminPayload(draft)
+    if (!payload.p_email) {
+      showToast('Reviewer email is required.', 'error')
+      return
+    }
+    if (!payload.p_display_name) {
+      showToast('Reviewer display name is required.', 'error')
+      return
+    }
+
+    if (testMode) {
+      appendTestEvent({
+        type: 'reviewer_admin_save',
+        target: targetKey,
+        payload,
+      })
+      if (targetKey === '__new__') {
+        setNewReviewerDraft(createEmptyReviewerDraft())
+      }
+      showToast('Reviewer config stored locally (test mode).')
+      return
+    }
+
+    setSavingReviewerTarget(targetKey)
+    try {
+      const { data, error } = await supabase.rpc('upsert_reviewer_admin_config', payload)
+      if (error) throw error
+      const nextProfile = Array.isArray(data) ? data[0] : data
+      if (nextProfile?.id && nextProfile.id === reviewerProfile?.id) {
+        setReviewerProfile(nextProfile)
+      }
+      if (targetKey === '__new__') {
+        setNewReviewerDraft(createEmptyReviewerDraft())
+      }
+      await refreshQueue()
+      if (!nextProfile || nextProfile.id !== reviewerProfile?.id || nextProfile.cockpit_access) {
+        await refreshCockpit()
+      }
+      showToast(targetKey === '__new__' ? 'Reviewer created.' : 'Reviewer settings saved.')
+    } catch (error) {
+      console.error('Reviewer config save failed:', error)
+      showToast(`Failed to save reviewer: ${error.message}`, 'error')
+    } finally {
+      setSavingReviewerTarget(null)
+    }
+  }, [refreshCockpit, refreshQueue, reviewerProfile?.id, showToast, testMode])
+
+  const saveReviewerDraft = useCallback(async (profileId) => {
+    const draft = reviewerDrafts[profileId]
+    if (!draft) return
+    await persistReviewerDraft(draft, profileId)
+  }, [persistReviewerDraft, reviewerDrafts])
+
+  const createReviewer = useCallback(async () => {
+    await persistReviewerDraft(newReviewerDraft, '__new__')
+  }, [newReviewerDraft, persistReviewerDraft])
 
   const saveAnnotation = useCallback(async (hasData, status) => {
     if (!currentAssignment || !currentPaper) return
@@ -1269,6 +1752,17 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         <CockpitView
           cockpitData={cockpitData}
           onRefresh={refreshCockpit}
+          reviewerDrafts={reviewerDrafts}
+          newReviewerDraft={newReviewerDraft}
+          savingReviewerTarget={savingReviewerTarget}
+          onChangeDraft={updateReviewerDraft}
+          onToggleDraftShadowSlot={toggleReviewerDraftShadowSlot}
+          onSaveDraft={saveReviewerDraft}
+          onResetDraft={resetReviewerDraft}
+          onChangeNewDraft={updateNewReviewerDraft}
+          onToggleNewShadowSlot={toggleNewReviewerShadowSlot}
+          onCreateReviewer={createReviewer}
+          onResetNewReviewer={resetNewReviewerDraft}
         />
       )}
 
