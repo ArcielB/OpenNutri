@@ -33,6 +33,7 @@ async function main() {
         'sync_reviewer_profile',
         'touch_assignment_workspace',
         'upsert_reviewer_admin_config',
+        'mark_assignment_global_no_data',
         'submit_assignment_review',
         'resolve_paper_conflict',
         'refresh_paper_resolution_state'

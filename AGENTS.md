@@ -41,6 +41,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Edit source files, not generated artifacts.
 - Prefer small, testable changes.
 - Commit every change you make once it is in a known working state.
+- Push every working commit soon after it is validated; do not leave validated local-only commits sitting around.
 - Do not use hard-negative veto logic in crawler/ranking relevance decisions. Prefer additive scoring and soft penalties. If a true hard reject seems necessary, stop and discuss it first.
 - When a task changes `apps/expert-annotator/migration.sql` or otherwise changes the live schema, apply that migration to the target database in the same task unless the user explicitly says not to or there is a concrete blocker. Do not stop at the file edit without calling out the DB state.
 - Update `BACKLOG.md` when backlog scope changes; delete completed items instead of leaving status notes.
@@ -59,6 +60,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Official reviewer slots are `arciel`, `peri`, and `aleyna`.
 - The cockpit now includes reviewer-admin controls for creating allowlisted reviewer profiles and managing official/shadow slot membership without SQL.
 - `Daine` belongs inside the Arciel lane for English-only shadow review when her reviewer profile is configured; she does not count as an independent official slot.
+- `Definitely No Data` is now a slot-level global skip: one reviewer lane can mark the paper globally unusable, which cancels the other assignments and records final negative truth immediately.
 - Resolved crawler truth now comes from `paper_review_outcomes`; unresolved disagreements must not feed feedback learning.
 - Exact raw-match comparison uses deterministic submission payload snapshots stored in `paper_assignment_submissions`.
 - UI test mode disables DB writes and stores actions locally.

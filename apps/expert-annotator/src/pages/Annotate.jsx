@@ -32,7 +32,7 @@ function normalizeFoodItem(item) {
 }
 
 const OPEN_STATUSES = new Set(['assigned', 'draft'])
-const FINAL_STATUSES = new Set(['submitted', 'conflict', 'resolved'])
+const FINAL_STATUSES = new Set(['submitted', 'conflict', 'resolved', 'cancelled'])
 const EMPTY_COCKPIT_DATA = {
   reviewerProfiles: [],
   reviewerSlots: [],
@@ -836,6 +836,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     final: assignments.filter((assignment) => FINAL_STATUSES.has(assignment.status)).length,
     conflict: assignments.filter((assignment) => assignment.status === 'conflict').length,
     resolved: assignments.filter((assignment) => assignment.status === 'resolved').length,
+    cancelled: assignments.filter((assignment) => assignment.status === 'cancelled').length,
   }
   const isEditable = currentAssignment ? OPEN_STATUSES.has(currentAssignment.status) : false
 
@@ -1307,6 +1308,23 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     await persistReviewerDraft(newReviewerDraft, '__new__')
   }, [newReviewerDraft, persistReviewerDraft])
 
+  const ensureAssignmentStillEditable = useCallback(async () => {
+    if (!currentAssignment) return false
+    const { data, error } = await supabase
+      .from('paper_user_assignments')
+      .select('status')
+      .eq('id', currentAssignment.id)
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data || !OPEN_STATUSES.has(data.status)) {
+      await refreshQueue()
+      showToast('This assignment changed on the server. The queue has been refreshed.', 'error')
+      return false
+    }
+    return true
+  }, [currentAssignment, refreshQueue, showToast])
+
   const saveAnnotation = useCallback(async (hasData, status) => {
     if (!currentAssignment || !currentPaper) return
     const validFoodItems = hasData
@@ -1344,6 +1362,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         showToast(`${label} (test mode).`)
         return
       }
+
+      const stillEditable = await ensureAssignmentStillEditable()
+      if (!stillEditable) return
 
       const { data: annotation, error: annotationError } = await supabase
         .from('annotations')
@@ -1458,6 +1479,86 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     currentAssignment,
     currentPaper,
     foodItems,
+    refreshCockpit,
+    refreshQueue,
+    reviewerProfile?.cockpit_access,
+    showToast,
+    testMode,
+    user.id,
+    ensureAssignmentStillEditable,
+  ])
+
+  const handleGlobalNoData = useCallback(async () => {
+    if (!currentAssignment || !currentPaper || !isEditable) return
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm('Mark this paper as definitely no data for everyone? This will cancel the other assignments for this paper.')
+      : false
+    if (!confirmed) return
+
+    const reason = typeof window !== 'undefined'
+      ? window.prompt('Reason for definitely no data (required):', '')
+      : ''
+    if (!reason || !reason.trim()) {
+      showToast('Definitely-no-data cancelled: reason required.', 'error')
+      return
+    }
+
+    setSaving(true)
+    try {
+      if (testMode) {
+        appendTestEvent({
+          type: 'global_no_data',
+          assignment_id: currentAssignment.id,
+          paper_id: currentPaper.id,
+          user_id: user.id,
+          reason: reason.trim(),
+        })
+        setAssignments((previous) => previous.map((assignment) => (
+          assignment.paper_id === currentPaper.id
+            ? {
+                ...assignment,
+                status: 'cancelled',
+                outcome: {
+                  ...(assignment.outcome || {}),
+                  paper_id: assignment.paper_id,
+                  decision_kind: 'no_usable_data',
+                  resolution_source: 'global_skip',
+                },
+              }
+            : assignment
+        )))
+        setSelectedAssignmentId((previousId) => nextOpenAssignmentId(sortAssignments(assignments), previousId))
+        showToast('Definitely-no-data recorded locally (test mode).')
+        return
+      }
+
+      const stillEditable = await ensureAssignmentStillEditable()
+      if (!stillEditable) return
+
+      const { error } = await supabase.rpc('mark_assignment_global_no_data', {
+        p_paper_user_assignment_id: currentAssignment.id,
+        p_reason: reason.trim(),
+      })
+      if (error) throw error
+
+      await refreshQueue()
+      if (reviewerProfile?.cockpit_access) {
+        await refreshCockpit()
+      }
+      setSelectedAssignmentId((previousId) => nextOpenAssignmentId(sortAssignments(assignments), previousId))
+      showToast('Paper marked as definitely no data.')
+    } catch (error) {
+      console.error('Global no-data failed:', error)
+      showToast(`Failed to mark definitely no data: ${error.message}`, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [
+    assignments,
+    currentAssignment,
+    currentPaper,
+    ensureAssignmentStillEditable,
+    isEditable,
     refreshCockpit,
     refreshQueue,
     reviewerProfile?.cockpit_access,
@@ -1633,6 +1734,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
                 <span className="status-badge status-pending">{queueStats.open} open</span>
                 <span className="status-badge status-draft">{queueStats.conflict} conflict</span>
                 <span className="status-badge status-done">{queueStats.resolved} resolved</span>
+                {!!queueStats.cancelled && <span className="status-badge status-skipped">{queueStats.cancelled} cancelled</span>}
               </div>
               <div className="queue-nav-buttons">
                 <button
@@ -1719,6 +1821,15 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
             </div>
 
             <div className="annotation-actions">
+              <div className="action-row">
+                <button
+                  className="btn btn-danger btn-global-skip"
+                  onClick={handleGlobalNoData}
+                  disabled={saving || !isEditable}
+                >
+                  🛑 Definitely No Data
+                </button>
+              </div>
               <div className="action-row">
                 <button
                   className="btn btn-skip"

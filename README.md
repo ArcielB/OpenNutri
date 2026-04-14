@@ -109,6 +109,7 @@ Key modules:
 - Generates cumulative field-aware n-gram stats from labeled papers to update crawler query phrases and soft metadata scoring.
 - Resolved truth now comes from `paper_review_outcomes` first; legacy `paper_label_events` / `paper_global_labels` are fallback only for older papers that do not yet have resolved assignment outcomes.
 - Uses the latest label per user; a paper only counts as positive when the latest visible `draft`/`done` state also has `has_data=true`, `food_item_count > 0`, and `nutrient_value_count > 0`. Papers turn negative on global skip or 2+ unique skips. Mixed signals across labelers are treated as conflicts and excluded from both sides.
+- In the assignment workflow, `Definitely No Data` is a slot-level global skip: one reviewer lane can mark the paper globally unusable, which cancels the remaining assignments and writes final `global_skip` truth immediately.
 - Feedback export now classifies papers into English vs Turkish buckets and writes separate phrase / anchor / weighted-term pools for each workflow.
 - Script: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
   - Requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
@@ -183,6 +184,7 @@ Data pipeline and ETL:
   `arciel`, `peri`, and `aleyna` are the official reviewer slots.
   The cockpit can now create reviewer profiles, assign official slots, and add/remove shadow slot memberships without direct SQL edits.
   Daine should be configured there as an English-only shadow member inside the Arciel slot when her actual reviewer profile is available.
+  Peri and Aleyna can be assigned papers before their first login because `paper_user_assignments.auth_user_id` is backfilled later by `sync_reviewer_profile`.
 - PDF highlighting is tricky because PDF.js text layers may split visible words into multiple spans.
 
 **Contributing**

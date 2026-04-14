@@ -24,6 +24,8 @@ This is the current high-signal project state after the assignment-driven annota
 - Internal mismatch inside the Arciel lane creates `internal_slot_conflict`.
 - Official-slot mismatch creates `external_slot_conflict`.
 - Arciel resolves conflicts in the cockpit.
+- `Definitely No Data` is now a slot-level global skip:
+  one reviewer lane can mark the paper globally unusable, which cancels the other assignments and writes final negative truth immediately.
 - Only final resolved paper truth in `paper_review_outcomes` feeds crawler feedback.
 
 **Live Schema Status**
@@ -40,6 +42,7 @@ This is the current high-signal project state after the assignment-driven annota
   - `sync_reviewer_profile`
   - `touch_assignment_workspace`
   - `submit_assignment_review`
+  - `mark_assignment_global_no_data`
   - `resolve_paper_conflict`
   - `refresh_paper_resolution_state`
   - `upsert_reviewer_admin_config`
@@ -57,6 +60,7 @@ This is the current high-signal project state after the assignment-driven annota
   - assign or remove an official slot
   - add or remove shadow slot memberships
   - change language permissions, active state, and cockpit access
+- Queue view again exposes `Definitely No Data`, now routed through the assignment-safe global-skip RPC.
 - Conflicts view compares frozen payload snapshots side by side and lets Arciel choose the winning submission.
 - Frontend build currently passes.
 
@@ -72,6 +76,7 @@ This is the current high-signal project state after the assignment-driven annota
 
 **What Still Needs Attention**
 - Daine’s real email/profile still needs to be entered through the cockpit if she should receive English queue items.
+- Peri and Aleyna do not need to log in before the first refill; assignments can be created now and linked to their auth users when they log in later.
 - The queue refill job has only been dry-run validated so far; it has not yet been executed live to write assignments.
 - The current UI still carries existing PDF-highlighting limitations.
 - L2 classifier training is still deferred until more resolved labels exist.

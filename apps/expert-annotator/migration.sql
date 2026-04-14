@@ -502,7 +502,7 @@ CREATE TABLE IF NOT EXISTS paper_review_outcomes (
     decision_kind TEXT NOT NULL
         CHECK (decision_kind IN ('has_data', 'no_usable_data')),
     resolution_source TEXT NOT NULL
-        CHECK (resolution_source IN ('slot_agreement', 'conflict_resolution')),
+        CHECK (resolution_source IN ('slot_agreement', 'conflict_resolution', 'global_skip')),
     payload_json JSONB NOT NULL,
     payload_text TEXT NOT NULL,
     payload_hash TEXT NOT NULL,
@@ -558,11 +558,35 @@ END $$;
 ALTER TABLE annotations
     ADD COLUMN IF NOT EXISTS paper_user_assignment_id UUID REFERENCES paper_user_assignments(id) ON DELETE SET NULL;
 
+ALTER TABLE paper_global_labels
+    ADD COLUMN IF NOT EXISTS paper_user_assignment_id UUID REFERENCES paper_user_assignments(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS paper_slot_assignment_id UUID REFERENCES paper_slot_assignments(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS reviewer_profile_id UUID REFERENCES reviewer_profiles(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS slot_key TEXT REFERENCES reviewer_slots(slot_key) ON DELETE SET NULL;
+
 ALTER TABLE paper_label_events
     ADD COLUMN IF NOT EXISTS paper_user_assignment_id UUID REFERENCES paper_user_assignments(id) ON DELETE SET NULL,
     ADD COLUMN IF NOT EXISTS paper_slot_assignment_id UUID REFERENCES paper_slot_assignments(id) ON DELETE SET NULL,
     ADD COLUMN IF NOT EXISTS decision_kind TEXT
         CHECK (decision_kind IN ('has_data', 'no_usable_data'));
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'paper_review_outcomes'
+          AND constraint_name = 'paper_review_outcomes_resolution_source_check'
+    ) THEN
+        ALTER TABLE paper_review_outcomes
+            DROP CONSTRAINT paper_review_outcomes_resolution_source_check;
+    END IF;
+END $$;
+
+ALTER TABLE paper_review_outcomes
+    ADD CONSTRAINT paper_review_outcomes_resolution_source_check
+    CHECK (resolution_source IN ('slot_agreement', 'conflict_resolution', 'global_skip'));
 
 INSERT INTO reviewer_slots (slot_key, display_name, is_official)
 VALUES
@@ -1617,6 +1641,203 @@ BEGIN
 
     PERFORM public.refresh_paper_resolution_state(v_assignment.paper_id);
     RETURN v_submission;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.mark_assignment_global_no_data(
+    p_paper_user_assignment_id UUID,
+    p_reason TEXT
+)
+RETURNS paper_global_labels
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_assignment paper_user_assignments;
+    v_existing_outcome paper_review_outcomes;
+    v_existing_label paper_global_labels;
+    v_global_label paper_global_labels;
+    v_payload_json JSONB := jsonb_build_object(
+        'decision_kind', 'no_usable_data',
+        'food_items', '[]'::jsonb
+    );
+    v_payload_text TEXT := v_payload_json::text;
+    v_payload_hash TEXT := encode(digest(v_payload_text, 'sha256'), 'hex');
+    v_reason TEXT := trim(coalesce(p_reason, ''));
+BEGIN
+    IF v_reason = '' THEN
+        RAISE EXCEPTION 'Reason required for definitely-no-data';
+    END IF;
+
+    SELECT *
+    INTO v_assignment
+    FROM paper_user_assignments
+    WHERE id = p_paper_user_assignment_id
+      AND auth_user_id = auth.uid()
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Assignment not found or not owned by current user';
+    END IF;
+
+    SELECT *
+    INTO v_existing_label
+    FROM paper_global_labels
+    WHERE paper_id = v_assignment.paper_id
+      AND label = 'definitely_no_data'
+    LIMIT 1;
+
+    IF v_existing_label.id IS NOT NULL THEN
+        RETURN v_existing_label;
+    END IF;
+
+    IF v_assignment.status IN ('resolved', 'cancelled') THEN
+        RAISE EXCEPTION 'Assignment is no longer editable';
+    END IF;
+
+    SELECT *
+    INTO v_existing_outcome
+    FROM paper_review_outcomes
+    WHERE paper_id = v_assignment.paper_id
+    LIMIT 1;
+
+    IF v_existing_outcome.id IS NOT NULL THEN
+        RAISE EXCEPTION 'Paper already has a resolved outcome';
+    END IF;
+
+    INSERT INTO paper_global_labels (
+        paper_id,
+        user_id,
+        label,
+        reason,
+        paper_user_assignment_id,
+        paper_slot_assignment_id,
+        reviewer_profile_id,
+        slot_key
+    )
+    VALUES (
+        v_assignment.paper_id,
+        auth.uid(),
+        'definitely_no_data',
+        v_reason,
+        v_assignment.id,
+        v_assignment.paper_slot_assignment_id,
+        v_assignment.reviewer_profile_id,
+        (
+            SELECT slot_key
+            FROM paper_slot_assignments
+            WHERE id = v_assignment.paper_slot_assignment_id
+        )
+    )
+    ON CONFLICT (paper_id, label) DO NOTHING
+    RETURNING * INTO v_global_label;
+
+    IF v_global_label.id IS NULL THEN
+        SELECT *
+        INTO v_global_label
+        FROM paper_global_labels
+        WHERE paper_id = v_assignment.paper_id
+          AND label = 'definitely_no_data'
+        LIMIT 1;
+        RETURN v_global_label;
+    END IF;
+
+    INSERT INTO paper_label_events (
+        paper_id,
+        annotation_id,
+        paper_user_assignment_id,
+        paper_slot_assignment_id,
+        user_id,
+        has_data,
+        status,
+        decision_kind,
+        food_item_count,
+        nutrient_value_count,
+        source
+    )
+    VALUES (
+        v_assignment.paper_id,
+        NULL,
+        v_assignment.id,
+        v_assignment.paper_slot_assignment_id,
+        auth.uid(),
+        FALSE,
+        'skipped',
+        'no_usable_data',
+        0,
+        0,
+        'global_no_data'
+    );
+
+    UPDATE paper_conflicts
+    SET
+        status = 'cancelled',
+        resolved_at = COALESCE(resolved_at, NOW())
+    WHERE paper_id = v_assignment.paper_id
+      AND status = 'open';
+
+    UPDATE paper_slot_assignments
+    SET
+        status = 'cancelled',
+        official_submission_id = NULL,
+        resolved_at = NOW()
+    WHERE paper_id = v_assignment.paper_id
+      AND status <> 'cancelled';
+
+    UPDATE paper_user_assignments
+    SET
+        status = 'cancelled',
+        resolved_at = NOW()
+    WHERE paper_id = v_assignment.paper_id
+      AND status <> 'cancelled';
+
+    INSERT INTO paper_review_outcomes (
+        paper_id,
+        decision_kind,
+        resolution_source,
+        payload_json,
+        payload_text,
+        payload_hash,
+        slot_submission_a_id,
+        slot_submission_b_id,
+        resolved_submission_id,
+        conflict_id,
+        resolved_by,
+        resolved_at,
+        updated_at
+    )
+    VALUES (
+        v_assignment.paper_id,
+        'no_usable_data',
+        'global_skip',
+        v_payload_json,
+        v_payload_text,
+        v_payload_hash,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        auth.uid(),
+        NOW(),
+        NOW()
+    )
+    ON CONFLICT (paper_id) DO UPDATE
+    SET
+        decision_kind = EXCLUDED.decision_kind,
+        resolution_source = EXCLUDED.resolution_source,
+        payload_json = EXCLUDED.payload_json,
+        payload_text = EXCLUDED.payload_text,
+        payload_hash = EXCLUDED.payload_hash,
+        slot_submission_a_id = NULL,
+        slot_submission_b_id = NULL,
+        resolved_submission_id = NULL,
+        conflict_id = NULL,
+        resolved_by = EXCLUDED.resolved_by,
+        resolved_at = EXCLUDED.resolved_at,
+        updated_at = NOW();
+
+    RETURN v_global_label;
 END;
 $$;
 
