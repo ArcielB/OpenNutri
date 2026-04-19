@@ -900,8 +900,11 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         outcome: outcomeMap[assignment.paper_id] || null,
       }))
 
-      setAssignments(mergedAssignments)
-      setSelectedAssignmentId((previousId) => pickDefaultAssignment(mergedAssignments, previousId))
+      // Filter to only show assignments for the current reviewer in the labeling queue
+      const myAssignments = mergedAssignments.filter(a => a.reviewer_profile_id === reviewerProfile.id)
+
+      setAssignments(myAssignments)
+      setSelectedAssignmentId((previousId) => pickDefaultAssignment(myAssignments, previousId))
     } catch (error) {
       console.error('Queue refresh failed:', error)
       showToast(`Failed to load queue: ${error.message}`, 'error')
