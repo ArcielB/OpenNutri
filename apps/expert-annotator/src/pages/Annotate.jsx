@@ -864,7 +864,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     try {
       const { data: assignmentRows, error: assignmentError } = await supabase
         .from('paper_user_assignments')
-        .select('*')
+        .select('*, reviewer_profiles(email)')
         .order('assigned_at', { ascending: true })
 
       if (assignmentError) throw assignmentError
@@ -901,7 +901,10 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       }))
 
       // Filter to only show assignments for the current reviewer in the labeling queue
-      const myAssignments = mergedAssignments.filter(a => a.reviewer_profile_id === reviewerProfile.id)
+      const myAssignments = mergedAssignments.filter(a => 
+        a.reviewer_profile_id === reviewerProfile?.id || 
+        (a.reviewer_profiles?.email === user.email)
+      )
 
       setAssignments(myAssignments)
       setSelectedAssignmentId((previousId) => pickDefaultAssignment(myAssignments, previousId))
@@ -1721,7 +1724,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           <div className="pdf-panel">
             <div className="pdf-top-strip">
               <div className="paper-list-toggle" ref={paperListRef}>
-                <button className="nav-btn" onClick={() => setShowPaperList((open) => !open)}>                  {currentPaperIndex >= 0 ? `Assignment ${currentPaperIndex + 1}/${assignments.length}` : 'Queue'} ▾
+                <button className="nav-btn" onClick={() => setShowPaperList((open) => !open)}>
+                  {currentPaperIndex >= 0 ? `Assignment ${currentPaperIndex + 1}/${assignments.length}` : 'Queue'} ▾
                 </button>
                 {showPaperList && (
                   <div className="paper-list-dropdown">
