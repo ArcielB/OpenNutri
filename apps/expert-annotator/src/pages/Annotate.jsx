@@ -826,6 +826,17 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [selectedConflictId, setSelectedConflictId] = useState(null)
   const [resolutionNote, setResolutionNote] = useState('')
   const undoTimerRef = useRef(null)
+  const paperListRef = useRef(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (paperListRef.current && !paperListRef.current.contains(e.target)) {
+        setShowPaperList(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const currentAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) || null
   const currentPaper = currentAssignment?.paper || null
@@ -1584,7 +1595,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     if (!isEditable) return
     setFoodItems((items) => [...items, createEmptyFoodItem()])
   }
-
   const handlePdfNutrientAdd = (nutrientEntry) => {
     if (!isEditable) return
     setFoodItems((items) => {
@@ -1707,9 +1717,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         <div className="workspace">
           <div className="pdf-panel">
             <div className="pdf-top-strip">
-              <div className="paper-list-toggle">
-                <button className="nav-btn" onClick={() => setShowPaperList((open) => !open)}>
-                  {currentPaperIndex >= 0 ? `Assignment ${currentPaperIndex + 1}/${assignments.length}` : 'Queue'} ▾
+              <div className="paper-list-toggle" ref={paperListRef}>
+                <button className="nav-btn" onClick={() => setShowPaperList((open) => !open)}>                  {currentPaperIndex >= 0 ? `Assignment ${currentPaperIndex + 1}/${assignments.length}` : 'Queue'} ▾
                 </button>
                 {showPaperList && (
                   <div className="paper-list-dropdown">

@@ -23,7 +23,10 @@ class NutrientRecord:
     nutrient_name: str
     amount: float
     unit: str
-    confidence: float  # 0.0-1.0 confidence score
+    basis: str  # e.g., "100g", "dry weight basis"
+    preparation_state: str  # e.g., "raw", "cooked", "boiled"
+    sample_size: Optional[int]
+    confidence: float  # 0.0-1.0 confidence score for THIS specific record
     source_citation: str  # "Table 2, Row 3" or "Page 5, Results section"
     metadata: Dict[str, any]
     flags: List[str] = None  # Plausibility warnings
@@ -37,8 +40,9 @@ class NutrientRecord:
 class ExtractionResult:
     """Result of evaluating and extracting from a paper"""
     pmc_id: str
-    verdict: str  # "PASS" or "FAIL"
-    reason: str
+    is_useful: bool
+    reasoning: str
+    overall_confidence: float  # 0.0-1.0 confidence for the entire paper
     data: List[NutrientRecord]
     source_term: str = ""
 
@@ -52,46 +56,40 @@ class UnifiedEvaluator:
 
 **Task**: Determine if this paper contains usable food composition data, and if so, extract it.
 
-**PASS Criteria** (extract data):
-- Contains tables with specific foods and their nutrient values
-- Quantitative data: mg/100g, g/100g, percentages, etc.
-- Clear food-nutrient mappings
-
-**FAIL Criteria** (skip):
-- Clinical trials (effects on health, not composition)
-- Review papers without original data
-- Methodology papers
-- Supplement/pill studies (not whole foods)
-- Comparative studies without absolute values
+**USEFULNESS Criteria**:
+- is_useful = true if: Contains tables with specific foods and their nutrient values (e.g., "Apple: 52 kcal, 0.3g fat, 14g carbs"). Quantitative data: mg/100g, g/100g, percentages, etc. Clear food-nutrient mappings.
+- is_useful = false if: Clinical trials about health effects, review papers without original data, methodology papers, supplement/pill studies, or papers about non-food items.
 
 **Instructions**:
-1. Read the paper carefully
-2. Decide: PASS or FAIL
-3. If PASS: Extract ALL food-nutrient data from tables
-4. For each data point, extract metadata when available
+1. Read the paper carefully.
+2. Provide a detailed reasoning for your decision (why it is or isn't useful).
+3. Determine if it is useful (is_useful: true/false).
+4. Assign an overall_confidence score (0.0-1.0) for the paper.
+5. If is_useful is true: Extract ALL food-nutrient data from tables.
+6. For each data point, ensure the structure matches our database requirements.
 
-**Output Format** (JSON):
+**Output Format** (Strict JSON only):
 ```json
 {{
-  "verdict": "PASS" | "FAIL",
-  "reason": "One sentence explanation",
+  "reasoning": "Detailed explanation of why this paper is or is not useful for food composition data",
+  "is_useful": true | false,
+  "overall_confidence": 0.95,
   "data": [
     {{
       "food_name": "Apple, raw, with skin",
       "nutrient_name": "Vitamin C",
       "amount": 4.6,
-      "unit": "mg/100g",
-      "confidence": 0.95,
+      "unit": "mg",
+      "basis": "100g",
+      "preparation_state": "raw",
+      "sample_size": 50,
+      "confidence": 0.98,
       "source_citation": "Table 2, row 3",
       "metadata": {{
-        "preparation": "raw",
-        "state": "wet weight",
         "cultivar": "Fuji",
         "location": "Japan",
         "harvest_date": "2024-09",
-        "sample_size": 50,
         "analysis_method": "HPLC",
-        "source_table": "Table 2",
         "storage": "fresh",
         "edible_portion": "with skin"
       }}
@@ -100,42 +98,23 @@ class UnifiedEvaluator:
 }}
 ```
 
+**Field Guidance**:
+- food_name: Specific food name as mentioned in the paper.
+- nutrient_name: Standard nutrient name (e.g., Protein, Iron, Vitamin C).
+- amount: Numeric value (float).
+- unit: Measurement unit (g, mg, kcal, etc.).
+- basis: Reference basis (e.g., "100g", "dry weight basis", "per serving").
+- preparation_state: State of the food (raw, cooked, boiled, dried, etc.).
+- sample_size: Number of samples (n=) as an integer, or null if not stated.
+- confidence: 0.0-1.0 score for THIS specific data point.
+- source_citation: SPECIFIC location (e.g., "Table 1, Row 2").
 
-**Metadata Fields** (use null if not stated):
-- preparation: raw, cooked, boiled, fried, dried, etc.
-- state: wet weight, dry weight, as consumed
-- cultivar: variety/breed
-- location: country/region of origin
-- harvest_date: when harvested/produced
-- sample_size: number of samples analyzed (n=)
-- analysis_method: HPLC, spectroscopy, etc.
-- source_table: which table in the paper
-- storage: fresh, frozen, canned, etc.
-- edible_portion: with/without skin, seeds, etc.
-
-**Critical Verification Requirements**:
-1. **confidence**: Rate 0.0-1.0 based on:
-   - 1.0 = Clear table with unambiguous values
-   - 0.7-0.9 = Data present but some interpretation needed
-   - 0.5-0.7 = Ambiguous or estimated values
-   - <0.5 = Uncertain, should be manually reviewed
-
-2. **source_citation**: ALWAYS cite where you found this value:
-   - "Table 2, row 5, column 3"
-   - "Results section, paragraph 2"
-   - "Supplementary Table S1"
-   - Be SPECIFIC. This is critical for verification.
-
-3. **Do NOT hallucinate**:
-   - If you cannot find a value, DO NOT include it
-   - If metadata is unclear, use null
-   - If units are ambiguous, note in source_citation
-
-4. **Extract ALL nutrients from tables**, not just a sample.
-
-5. **Standardize units** (convert % to g/100g if needed).
-
-6. If FAIL, return empty data array.
+**Critical Rules**:
+1. Return ONLY valid JSON.
+2. Do NOT hallucinate values.
+3. If is_useful is false, return an empty "data" array.
+4. Extract ALL nutrients from tables, not just a sample.
+5. Standardize units where possible (e.g., convert % to g/100g if basis is clear).
 
 **Paper Content**:
 Title: {title}
@@ -163,7 +142,7 @@ Full Text:
             genai.configure(api_key=self.api_key)
             # Use JSON mode for structured output
             self.model = genai.GenerativeModel(
-                'gemini-3-flash-preview',  # Correct model name
+                'gemini-3-flash-preview',  # Gemini 3 Flash
                 generation_config={
                     "response_mime_type": "application/json"
                 }
@@ -181,13 +160,14 @@ Full Text:
             paper: Dict with 'pmc_id', 'title', 'raw_xml', etc.
             
         Returns:
-            ExtractionResult with verdict and extracted data
+            ExtractionResult with reasoning, usefulness, and extracted data
         """
         if not self.model:
             return ExtractionResult(
                 pmc_id=paper.get("pmc_id", ""),
-                verdict="FAIL",
-                reason="No LLM available",
+                is_useful=False,
+                reasoning="No LLM available",
+                overall_confidence=0.0,
                 data=[],
                 source_term=paper.get("source_term", "")
             )
@@ -197,12 +177,12 @@ Full Text:
             from crawler.processing.content import extract_full_text
             full_text = extract_full_text(paper.get("raw_xml", ""))
             
-            # Truncate if too long (safety limit: ~1M tokens = ~750k words = ~4M chars)
+            # Truncate if too long (safety limit: ~1M tokens = ~4M chars)
             if len(full_text) > 4_000_000:
                 full_text = full_text[:4_000_000] + "\n\n[TRUNCATED - Paper exceeded token limit]"
             
             prompt = self.EXTRACTION_PROMPT.format(
-                title=paper.get("metadata", {}).get("title", ""),
+                title=paper.get("metadata", {}).get("title", paper.get("title", "Unknown Title")),
                 full_text=full_text
             )
             
@@ -210,12 +190,14 @@ Full Text:
             
             # Clean up response (sometimes LLM adds markdown code blocks)
             response_text = response.text.strip()
+            
             if response_text.startswith("```"):
                 # Remove code block markers
                 lines = response_text.split("\n")
-                response_text = "\n".join(lines[1:-1])  # Skip first and last lines
-            if response_text.startswith("json"):
-                response_text = response_text[4:].strip()  # Remove "json" language tag
+                if lines[0].startswith("```json"):
+                    response_text = "\n".join(lines[1:-1])
+                else:
+                    response_text = "\n".join(lines[1:-1])
             
             result_json = json.loads(response_text)
             
@@ -227,6 +209,9 @@ Full Text:
                     nutrient_name=item["nutrient_name"],
                     amount=float(item["amount"]),
                     unit=item["unit"],
+                    basis=item.get("basis", "100g"),
+                    preparation_state=item.get("preparation_state", "raw"),
+                    sample_size=item.get("sample_size"),
                     confidence=float(item.get("confidence", 0.5)),
                     source_citation=item.get("source_citation", "Not specified"),
                     metadata=item.get("metadata", {})
@@ -238,8 +223,9 @@ Full Text:
             
             return ExtractionResult(
                 pmc_id=paper.get("pmc_id", ""),
-                verdict=result_json["verdict"],
-                reason=result_json["reason"],
+                is_useful=bool(result_json.get("is_useful", False)),
+                reasoning=result_json.get("reasoning", "No reasoning provided"),
+                overall_confidence=float(result_json.get("overall_confidence", 0.0)),
                 data=records,
                 source_term=paper.get("source_term", "")
             )
@@ -248,11 +234,13 @@ Full Text:
             print(f"   ⚠️ Extraction error for {paper.get('pmc_id')}: {e}")
             return ExtractionResult(
                 pmc_id=paper.get("pmc_id", ""),
-                verdict="FAIL",
-                reason=f"Extraction error: {str(e)}",
+                is_useful=False,
+                reasoning=f"Extraction error: {str(e)}",
+                overall_confidence=0.0,
                 data=[],
                 source_term=paper.get("source_term", "")
             )
+
     
     def _check_plausibility(self, record: NutrientRecord) -> List[str]:
         """Run sanity checks on extracted values"""
@@ -301,8 +289,9 @@ Full Text:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump({
                 "pmc_id": result.pmc_id,
-                "verdict": result.verdict,
-                "reason": result.reason,
+                "is_useful": result.is_useful,
+                "reasoning": result.reasoning,
+                "overall_confidence": result.overall_confidence,
                 "source_term": result.source_term,
                 "records_count": len(result.data),
                 "data": [asdict(r) for r in result.data]

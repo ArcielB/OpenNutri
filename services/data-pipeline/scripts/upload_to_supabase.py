@@ -14,6 +14,7 @@ if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
 from food_paper_crawler.models import build_search_batch_key, build_search_hit_key
+from evaluator.unified_evaluator import UnifiedEvaluator
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -391,6 +392,9 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
     paper_id_by_key: dict[str, int] = {}
     upload_errors: list[str] = []
     uploaded_count = 0
+    
+    # Initialize UnifiedEvaluator for AI Triage
+    evaluator = UnifiedEvaluator()
 
     for record in upload_candidates:
         file_path = _resolve_crawl_path(manifest_path, str(record.get("file") or ""))
@@ -430,6 +434,65 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
             if canonical_key:
                 paper_id_by_key[canonical_key] = paper_id
             uploaded_count += 1
+
+            # --- AI EXTRACTION / TRIAGE ---
+            if evaluator.model:
+                pmc_id = record.get("pmc_id") or record.get("pmcid")
+                print(f"  🤖 Running AI extraction for {pmc_id}...")
+                try:
+                    # Try to provide the PDF text if XML is missing
+                    pdf_text = ""
+                    try:
+                        import subprocess
+                        pdf_text = subprocess.check_output(["pdftotext", str(file_path), "-"], text=True)
+                    except:
+                        pass
+                    
+                    # Mock the paper for the evaluator
+                    paper_mock = {
+                        "pmc_id": pmc_id,
+                        "title": record.get("title", ""),
+                        "raw_xml": pdf_text # Bypass XML parsing with raw text
+                    }
+                    
+                    # We need to monkeypatch processing.content.extract_full_text to return the text as-is
+                    import crawler.processing.content as content
+                    original_extract = content.extract_full_text
+                    content.extract_full_text = lambda x: x
+                    
+                    try:
+                        ai_result = evaluator.evaluate_and_extract(paper_mock)
+                    finally:
+                        content.extract_full_text = original_extract
+                    
+                    # Save to database
+                    from dataclasses import asdict
+                    extract_payload = {
+                        "paper_id": paper_id,
+                        "model_name": "gemini-3-flash-preview",
+                        "is_useful": ai_result.is_useful,
+                        "reasoning": ai_result.reasoning,
+                        "overall_confidence": ai_result.overall_confidence,
+                        "raw_data": {
+                            "reasoning": ai_result.reasoning,
+                            "is_useful": ai_result.is_useful,
+                            "overall_confidence": ai_result.overall_confidence,
+                            "data": [asdict(r) for r in ai_result.data]
+                        },
+                        "status": "pending"
+                    }
+                    
+                    # Upsert
+                    existing_ai = supabase.table("ai_extractions").select("id").eq("paper_id", paper_id).eq("model_name", "gemini-3-flash-preview").execute()
+                    if existing_ai.data:
+                        supabase.table("ai_extractions").update(extract_payload).eq("id", existing_ai.data[0]["id"]).execute()
+                    else:
+                        supabase.table("ai_extractions").insert(extract_payload).execute()
+                    print(f"  ✅ AI extraction stored (is_useful={ai_result.is_useful})")
+                except Exception as ai_err:
+                    print(f"  ⚠️ AI extraction failed: {ai_err}")
+                    import traceback
+                    traceback.print_exc()
         except Exception as exc:
             upload_errors.append(f"{filename}: {exc}")
 

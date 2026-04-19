@@ -59,27 +59,28 @@ def main():
         results.append(result)
         
         # Print summary
-        print(f"   Verdict: {result.verdict}")
-        print(f"   Reason: {result.reason}")
+        print(f"   Is Useful: {result.is_useful}")
+        print(f"   Reasoning: {result.reasoning}")
+        print(f"   Overall Confidence: {result.overall_confidence}")
         if result.data:
             print(f"   Records: {len(result.data)}")
             # Show first record
             first = result.data[0]
-            print(f"   Sample: {first.food_name} - {first.nutrient_name}: {first.amount} {first.unit}")
+            print(f"   Sample: {first.food_name} - {first.nutrient_name}: {first.amount} {first.unit} ({first.basis}, {first.preparation_state})")
         print()
         
         # Save result
         evaluator.save_result(result, args.output_dir)
     
     # Summary
-    pass_count = sum(1 for r in results if r.verdict == "PASS")
+    pass_count = sum(1 for r in results if r.is_useful)
     total_records = sum(len(r.data) for r in results)
     
     print("\n" + "="*60)
     print(f"📊 Test Summary:")
     print(f"   Papers Tested: {len(results)}")
-    print(f"   PASS: {pass_count}")
-    print(f"   FAIL: {len(results) - pass_count}")
+    print(f"   Useful: {pass_count}")
+    print(f"   Not Useful: {len(results) - pass_count}")
     print(f"   Total Records Extracted: {total_records}")
     if pass_count > 0:
         print(f"   Avg Records/Paper: {total_records / pass_count:.1f}")
