@@ -21,7 +21,7 @@ Location: `apps/expert-annotator/`
 
 Features:
 - Supabase auth (email/password + Google).
-- Assignment-driven labeling queue with per-user paper lists instead of one global shared list.
+- Assignment-driven labeling queue with a strict personal `My Queue`; cockpit users now inspect the global paper/assignment state from a separate `All Papers` admin screen instead of mixing it into the labeling view.
 - PDF viewer with nutrient-name highlighting and click-to-add popover.
 - Food and nutrient autocomplete with ranking and search logging.
 - Save draft, submit usable-data extraction, or submit no-usable-data.

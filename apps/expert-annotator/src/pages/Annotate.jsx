@@ -37,6 +37,7 @@ const EMPTY_COCKPIT_DATA = {
   reviewerProfiles: [],
   reviewerSlots: [],
   slotMembers: [],
+  slotAssignments: [],
   userAssignments: [],
   submissions: [],
   outcomes: [],
@@ -271,6 +272,209 @@ function computeSourceBreakdown(cockpitData) {
   return [...aggregate.values()]
     .sort((a, b) => (b.positive - a.positive) || (a.negative - b.negative) || a.source.localeCompare(b.source))
     .slice(0, 10)
+}
+
+function groupRowsByPaperId(rows) {
+  return (rows || []).reduce((accumulator, row) => {
+    if (!row?.paper_id) return accumulator
+    if (!accumulator[row.paper_id]) {
+      accumulator[row.paper_id] = []
+    }
+    accumulator[row.paper_id].push(row)
+    return accumulator
+  }, {})
+}
+
+function QueueView({
+  assignments,
+  currentAssignment,
+  currentPaper,
+  currentPaperIndex,
+  reviewerProfile,
+  pdfUrl,
+  theme,
+  allNutrients,
+  foodItems,
+  allFoods,
+  foodsLoaded,
+  user,
+  queueStats,
+  isEditable,
+  saving,
+  showPaperList,
+  setShowPaperList,
+  paperListRef,
+  setSelectedAssignmentId,
+  addFoodItem,
+  removeFoodItem,
+  updateFoodItem,
+  handlePdfNutrientAdd,
+  handleGlobalNoData,
+  saveAnnotation,
+  getStatusBadgeClass,
+  formatStatusLabel,
+  formatDecisionLabel,
+}) {
+  return (
+    <div className="workspace">
+      <PdfViewer
+        pdfUrl={pdfUrl}
+        allNutrients={allNutrients}
+        onAddNutrient={handlePdfNutrientAdd}
+        theme={theme}
+      />
+
+      <div className="annotation-panel">
+        <div className="queue-assignment-header">
+          {currentAssignment ? (
+            <>
+              <div className="queue-assignment-title-row">
+                <div>
+                  <h2>{currentPaper?.title || currentPaper?.filename || `Paper ${currentAssignment.paper_id}`}</h2>
+                  <p>
+                    {(currentAssignment.workflow_language || currentPaper?.workflow_language || 'unknown').toUpperCase()} · {currentAssignment.slot_assignment?.slot_key || reviewerProfile?.official_slot || 'slot pending'}
+                    {currentPaper?.doi && ` · DOI: ${currentPaper.doi}`}
+                  </p>
+                </div>
+                <div className={`status-badge ${getStatusBadgeClass(currentAssignment.status)}`}>
+                  {formatStatusLabel(currentAssignment.status)}
+                </div>
+              </div>
+
+              <div className="queue-assignment-toolbar">
+                <div className="queue-toolbar-group">
+                  <div className="paper-list-toggle" ref={paperListRef}>
+                    <button className="nav-btn" onClick={() => setShowPaperList((open) => !open)}>
+                      {currentPaperIndex >= 0 ? `Assignment ${currentPaperIndex + 1}/${assignments.length}` : 'Queue'} ▾
+                    </button>
+                    {showPaperList && (
+                      <div className="paper-list-dropdown">
+                        {assignments.map((assignment, index) => (
+                          <div
+                            key={assignment.id}
+                            className={`paper-list-item ${assignment.id === currentAssignment.id ? 'active' : ''}`}
+                            onClick={() => {
+                              setSelectedAssignmentId(assignment.id)
+                              setShowPaperList(false)
+                            }}
+                          >
+                            <span className="paper-id">{index + 1}</span>
+                            <span className="paper-title">{assignment.paper?.title || assignment.paper?.filename || `Paper ${assignment.paper_id}`}</span>
+                            <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="queue-mini-stats">
+                    <span className="status-badge status-pending">{queueStats.open} open</span>
+                    <span className="status-badge status-draft">{queueStats.conflict} conflict</span>
+                    <span className="status-badge status-done">{queueStats.resolved} resolved</span>
+                    {!!queueStats.cancelled && <span className="status-badge status-skipped">{queueStats.cancelled} cancelled</span>}
+                  </div>
+                </div>
+
+                <div className="queue-nav-buttons">
+                  <button
+                    className="nav-btn"
+                    disabled={currentPaperIndex <= 0}
+                    onClick={() => setSelectedAssignmentId(assignments[Math.max(currentPaperIndex - 1, 0)]?.id || null)}
+                  >
+                    ← Prev
+                  </button>
+                  <button
+                    className="nav-btn"
+                    disabled={currentPaperIndex < 0 || currentPaperIndex >= assignments.length - 1}
+                    onClick={() => setSelectedAssignmentId(assignments[Math.min(currentPaperIndex + 1, assignments.length - 1)]?.id || null)}
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="empty-panel">No assigned papers yet. Run the refill job to top the queue back up.</div>
+          )}
+        </div>
+
+        <div className="annotation-scroll">
+          {!currentAssignment ? (
+            <div className="empty-panel">Your queue is empty.</div>
+          ) : (
+            <>
+              {!isEditable && (
+                <div className="review-lock-banner">
+                  This assignment is finalized. You can inspect it here, but new edits will not be saved.
+                </div>
+              )}
+              {currentAssignment.outcome && (
+                <div className="outcome-banner">
+                  Final paper outcome: {formatDecisionLabel(currentAssignment.outcome.decision_kind)}
+                </div>
+              )}
+
+              {foodItems.map((item, index) => (
+                <FoodItemForm
+                  key={`${currentAssignment.id}-${index}`}
+                  index={index}
+                  data={item}
+                  onChange={(updated) => updateFoodItem(index, updated)}
+                  onDelete={() => removeFoodItem(index)}
+                  allNutrients={allNutrients}
+                  allFoods={allFoods}
+                  foodsLoaded={foodsLoaded}
+                  userId={user.id}
+                />
+              ))}
+
+              {isEditable && (
+                <button className="add-food-btn" onClick={addFoodItem}>
+                  + Add Another Food Item
+                </button>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="annotation-actions">
+          <div className="action-row">
+            <button
+              className="btn btn-danger btn-global-skip"
+              onClick={handleGlobalNoData}
+              disabled={saving || !isEditable}
+            >
+              🛑 Definitely No Data
+            </button>
+          </div>
+          <div className="action-row">
+            <button
+              className="btn btn-skip"
+              onClick={() => saveAnnotation(false, 'skipped')}
+              disabled={saving || !isEditable}
+            >
+              ⊘ No Usable Data
+            </button>
+            <button
+              className="btn btn-outline"
+              onClick={() => saveAnnotation(true, 'draft')}
+              disabled={saving || !isEditable}
+            >
+              Save Draft
+            </button>
+          </div>
+          <button
+            className="btn btn-success"
+            onClick={() => saveAnnotation(true, 'done')}
+            disabled={saving || !isEditable}
+            style={{ width: '100%' }}
+          >
+            {saving ? 'Saving...' : 'Submit Final Extraction'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function PayloadSummary({ submission, reviewer, highlighted, onResolve }) {
@@ -701,6 +905,130 @@ function CockpitView({
   )
 }
 
+function AllPapersView({ cockpitData, onRefresh }) {
+  const reviewerById = buildReviewerMap(cockpitData.reviewerProfiles)
+  const slotAssignmentsByPaperId = groupRowsByPaperId(cockpitData.slotAssignments)
+  const userAssignmentsByPaperId = groupRowsByPaperId(cockpitData.userAssignments)
+  const outcomeByPaperId = Object.fromEntries((cockpitData.outcomes || []).map((row) => [row.paper_id, row]))
+  const rows = (cockpitData.papers || []).map((paper) => ({
+    paper,
+    slotAssignments: (slotAssignmentsByPaperId[paper.id] || []).slice().sort((left, right) => left.slot_key.localeCompare(right.slot_key)),
+    userAssignments: (userAssignmentsByPaperId[paper.id] || []).slice().sort((left, right) => {
+      const leftName = reviewerById[left.reviewer_profile_id]?.display_name || reviewerById[left.reviewer_profile_id]?.email || ''
+      const rightName = reviewerById[right.reviewer_profile_id]?.display_name || reviewerById[right.reviewer_profile_id]?.email || ''
+      return leftName.localeCompare(rightName)
+    }),
+    outcome: outcomeByPaperId[paper.id] || null,
+  }))
+  const unresolvedCount = rows.filter((row) => !row.outcome).length
+  const openAssignmentCount = (cockpitData.userAssignments || []).filter((row) => OPEN_STATUSES.has(row.status)).length
+
+  return (
+    <div className="dashboard-page">
+      <div className="dashboard-header">
+        <div>
+          <h2>All Papers</h2>
+          <p>Global paper and assignment overview. This is the admin screen for project-wide visibility.</p>
+        </div>
+        <button className="btn btn-outline" onClick={onRefresh}>Refresh</button>
+      </div>
+
+      <div className="dashboard-grid dashboard-grid-summary">
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Tracked Papers</div>
+          <div className="dashboard-card-value">{rows.length}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Resolved Papers</div>
+          <div className="dashboard-card-value">{cockpitData.outcomes.length}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Without Final Outcome</div>
+          <div className="dashboard-card-value">{unresolvedCount}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Open User Assignments</div>
+          <div className="dashboard-card-value">{openAssignmentCount}</div>
+        </div>
+      </div>
+
+      <div className="dashboard-card dashboard-card-table">
+        <div className="dashboard-card-title">Paper Workflow Overview</div>
+        <div className="table-scroll">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Paper</th>
+                <th>Official Slots</th>
+                <th>Reviewer Tasks</th>
+                <th>Final Outcome</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan="4">No papers found.</td>
+                </tr>
+              ) : rows.map(({ paper, slotAssignments, userAssignments, outcome }) => (
+                <tr key={paper.id}>
+                  <td className="table-title-cell">
+                    <div className="table-primary-line">{paper.title || paper.filename || `Paper ${paper.id}`}</div>
+                    <div className="table-secondary-line">
+                      Paper {paper.id}
+                      {paper.workflow_language && ` · ${paper.workflow_language.toUpperCase()}`}
+                      {paper.doi && ` · DOI: ${paper.doi}`}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="table-cell-stack">
+                      {slotAssignments.length === 0 ? (
+                        <span className="table-secondary-line">No slot assignments.</span>
+                      ) : slotAssignments.map((assignment) => (
+                        <div key={assignment.id} className="table-detail-line">
+                          <span>{assignment.slot_key}</span>
+                          <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="table-cell-stack">
+                      {userAssignments.length === 0 ? (
+                        <span className="table-secondary-line">No user assignments.</span>
+                      ) : userAssignments.map((assignment) => {
+                        const reviewer = reviewerById[assignment.reviewer_profile_id]
+                        return (
+                          <div key={assignment.id} className="table-detail-line">
+                            <span>{reviewer?.display_name || reviewer?.email || assignment.reviewer_profile_id}</span>
+                            <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </td>
+                  <td>
+                    {outcome ? (
+                      <div className="table-cell-stack">
+                        <div className="table-detail-line">
+                          <span>{formatDecisionLabel(outcome.decision_kind)}</span>
+                          <span className="status-badge status-done">{outcome.resolution_source || 'resolved'}</span>
+                        </div>
+                        <span className="table-secondary-line">{outcome.resolved_at ? new Date(outcome.resolved_at).toLocaleString() : 'No timestamp'}</span>
+                      </div>
+                    ) : (
+                      <span className="status-badge status-pending">Pending</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ConflictsView({
   conflicts,
   selectedConflictId,
@@ -746,14 +1074,12 @@ function ConflictsView({
         </div>
       </div>
 
-      <div className="pdf-panel">
-        <PdfViewer
-          pdfUrl={pdfUrl}
-          allNutrients={allNutrients}
-          onAddNutrient={() => {}}
-          theme={theme}
-        />
-      </div>
+      <PdfViewer
+        pdfUrl={pdfUrl}
+        allNutrients={allNutrients}
+        onAddNutrient={() => {}}
+        theme={theme}
+      />
 
       <div className="annotation-panel conflict-panel">
         {!selectedConflict ? (
@@ -860,11 +1186,19 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   }, [])
 
   const refreshQueue = useCallback(async () => {
+    if (!reviewerProfile?.id) {
+      setAssignments([])
+      setSelectedAssignmentId(null)
+      setLoadingQueue(false)
+      return []
+    }
+
     setLoadingQueue(true)
     try {
       const { data: assignmentRows, error: assignmentError } = await supabase
         .from('paper_user_assignments')
-        .select('*, reviewer_profiles(email)')
+        .select('*')
+        .eq('reviewer_profile_id', reviewerProfile.id)
         .order('assigned_at', { ascending: true })
 
       if (assignmentError) throw assignmentError
@@ -899,22 +1233,17 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         slot_assignment: slotMap[assignment.paper_slot_assignment_id] || null,
         outcome: outcomeMap[assignment.paper_id] || null,
       }))
-
-      // Filter to only show assignments for the current reviewer in the labeling queue
-      const myAssignments = mergedAssignments.filter(a => 
-        a.reviewer_profile_id === reviewerProfile?.id || 
-        (a.reviewer_profiles?.email === user.email)
-      )
-
-      setAssignments(myAssignments)
-      setSelectedAssignmentId((previousId) => pickDefaultAssignment(myAssignments, previousId))
+      setAssignments(mergedAssignments)
+      setSelectedAssignmentId((previousId) => pickDefaultAssignment(mergedAssignments, previousId))
+      return mergedAssignments
     } catch (error) {
       console.error('Queue refresh failed:', error)
       showToast(`Failed to load queue: ${error.message}`, 'error')
+      return []
     } finally {
       setLoadingQueue(false)
     }
-  }, [showToast])
+  }, [reviewerProfile?.id, showToast])
 
   const refreshCockpit = useCallback(async () => {
     if (!reviewerProfile?.cockpit_access) return
@@ -924,6 +1253,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         reviewerSlotsResponse,
         reviewerProfilesResponse,
         slotMembersResponse,
+        slotAssignmentsResponse,
         userAssignmentsResponse,
         submissionsResponse,
         outcomesResponse,
@@ -934,6 +1264,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         supabase.from('reviewer_slots').select('*').order('slot_key', { ascending: true }),
         supabase.from('reviewer_profiles').select('*').order('display_name', { ascending: true }),
         supabase.from('reviewer_slot_members').select('*').order('slot_key', { ascending: true }),
+        supabase.from('paper_slot_assignments').select('*').order('assigned_at', { ascending: true }),
         supabase.from('paper_user_assignments').select('*').order('assigned_at', { ascending: true }),
         supabase.from('paper_assignment_submissions').select('*').order('submitted_at', { ascending: false }),
         supabase.from('paper_review_outcomes').select('*').order('resolved_at', { ascending: false }),
@@ -945,6 +1276,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       if (reviewerSlotsResponse.error) throw reviewerSlotsResponse.error
       if (reviewerProfilesResponse.error) throw reviewerProfilesResponse.error
       if (slotMembersResponse.error) throw slotMembersResponse.error
+      if (slotAssignmentsResponse.error) throw slotAssignmentsResponse.error
       if (userAssignmentsResponse.error) throw userAssignmentsResponse.error
       if (submissionsResponse.error) throw submissionsResponse.error
       if (outcomesResponse.error) throw outcomesResponse.error
@@ -956,6 +1288,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         reviewerSlots: reviewerSlotsResponse.data || [],
         reviewerProfiles: reviewerProfilesResponse.data || [],
         slotMembers: slotMembersResponse.data || [],
+        slotAssignments: slotAssignmentsResponse.data || [],
         userAssignments: userAssignmentsResponse.data || [],
         submissions: submissionsResponse.data || [],
         outcomes: outcomesResponse.data || [],
@@ -1679,6 +2012,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           </button>
           {reviewerProfile?.cockpit_access && (
             <>
+              <button className={`nav-btn ${activeView === 'all-papers' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('all-papers')}>
+                All Papers
+              </button>
               <button className={`nav-btn ${activeView === 'cockpit' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('cockpit')}>
                 Cockpit
               </button>
@@ -1720,159 +2056,43 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       )}
 
       {activeView === 'queue' && (
-        <div className="workspace">
-          <div className="pdf-panel">
-            <div className="pdf-top-strip">
-              <div className="paper-list-toggle" ref={paperListRef}>
-                <button className="nav-btn" onClick={() => setShowPaperList((open) => !open)}>
-                  {currentPaperIndex >= 0 ? `Assignment ${currentPaperIndex + 1}/${assignments.length}` : 'Queue'} ▾
-                </button>
-                {showPaperList && (
-                  <div className="paper-list-dropdown">
-                    {assignments.map((assignment, index) => (
-                      <div
-                        key={assignment.id}
-                        className={`paper-list-item ${assignment.id === selectedAssignmentId ? 'active' : ''}`}
-                        onClick={() => {
-                          setSelectedAssignmentId(assignment.id)
-                          setShowPaperList(false)
-                        }}
-                      >
-                        <span className="paper-id">{index + 1}</span>
-                        <span className="paper-title">{assignment.paper?.title || assignment.paper?.filename || `Paper ${assignment.paper_id}`}</span>
-                        <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="queue-mini-stats">
-                <span className="status-badge status-pending">{queueStats.open} open</span>
-                <span className="status-badge status-draft">{queueStats.conflict} conflict</span>
-                <span className="status-badge status-done">{queueStats.resolved} resolved</span>
-                {!!queueStats.cancelled && <span className="status-badge status-skipped">{queueStats.cancelled} cancelled</span>}
-              </div>
-              <div className="queue-nav-buttons">
-                <button
-                  className="nav-btn"
-                  disabled={currentPaperIndex <= 0}
-                  onClick={() => setSelectedAssignmentId(assignments[Math.max(currentPaperIndex - 1, 0)]?.id || null)}
-                >
-                  ← Prev
-                </button>
-                <button
-                  className="nav-btn"
-                  disabled={currentPaperIndex < 0 || currentPaperIndex >= assignments.length - 1}
-                  onClick={() => setSelectedAssignmentId(assignments[Math.min(currentPaperIndex + 1, assignments.length - 1)]?.id || null)}
-                >
-                  Next →
-                </button>
-              </div>
-            </div>
-            <PdfViewer
-              pdfUrl={pdfUrl}
-              allNutrients={allNutrients}
-              onAddNutrient={handlePdfNutrientAdd}
-              theme={theme}
-            />
-          </div>
+        <QueueView
+          assignments={assignments}
+          currentAssignment={currentAssignment}
+          currentPaper={currentPaper}
+          currentPaperIndex={currentPaperIndex}
+          reviewerProfile={reviewerProfile}
+          pdfUrl={pdfUrl}
+          theme={theme}
+          allNutrients={allNutrients}
+          foodItems={foodItems}
+          allFoods={allFoods}
+          foodsLoaded={foodsLoaded}
+          user={user}
+          queueStats={queueStats}
+          isEditable={isEditable}
+          saving={saving}
+          showPaperList={showPaperList}
+          setShowPaperList={setShowPaperList}
+          paperListRef={paperListRef}
+          setSelectedAssignmentId={setSelectedAssignmentId}
+          addFoodItem={addFoodItem}
+          removeFoodItem={removeFoodItem}
+          updateFoodItem={updateFoodItem}
+          handlePdfNutrientAdd={handlePdfNutrientAdd}
+          handleGlobalNoData={handleGlobalNoData}
+          saveAnnotation={saveAnnotation}
+          getStatusBadgeClass={getStatusBadgeClass}
+          formatStatusLabel={formatStatusLabel}
+          formatDecisionLabel={formatDecisionLabel}
+        />
+      )}
 
-          <div className="annotation-panel">
-            <div className="queue-assignment-header">
-              {currentAssignment ? (
-                <>
-                  <div>
-                    <h2>{currentPaper?.title || currentPaper?.filename || `Paper ${currentAssignment.paper_id}`}</h2>
-                    <p>
-                      {currentAssignment.workflow_language?.toUpperCase()} · {currentAssignment.slot_assignment?.slot_key || reviewerProfile?.official_slot || 'slot pending'}
-                      {currentPaper?.doi && ` · DOI: ${currentPaper.doi}`}
-                    </p>
-                  </div>
-                  <div className={`status-badge ${getStatusBadgeClass(currentAssignment.status)}`}>
-                    {formatStatusLabel(currentAssignment.status)}
-                  </div>
-                </>
-              ) : (
-                <div className="empty-panel">No assigned papers yet. Run the refill job to top the queue back up.</div>
-              )}
-            </div>
-
-            <div className="annotation-scroll">
-              {!currentAssignment ? (
-                <div className="empty-panel">Your queue is empty.</div>
-              ) : (
-                <>
-                  {!isEditable && (
-                    <div className="review-lock-banner">
-                      This assignment is finalized. You can inspect it here, but new edits will not be saved.
-                    </div>
-                  )}
-                  {currentAssignment.outcome && (
-                    <div className="outcome-banner">
-                      Final paper outcome: {formatDecisionLabel(currentAssignment.outcome.decision_kind)}
-                    </div>
-                  )}
-
-                  {foodItems.map((item, index) => (
-                    <FoodItemForm
-                      key={`${currentAssignment.id}-${index}`}
-                      index={index}
-                      data={item}
-                      onChange={(updated) => updateFoodItem(index, updated)}
-                      onDelete={() => removeFoodItem(index)}
-                      allNutrients={allNutrients}
-                      allFoods={allFoods}
-                      foodsLoaded={foodsLoaded}
-                      userId={user.id}
-                    />
-                  ))}
-
-                  {isEditable && (
-                    <button className="add-food-btn" onClick={addFoodItem}>
-                      + Add Another Food Item
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="annotation-actions">
-              <div className="action-row">
-                <button
-                  className="btn btn-danger btn-global-skip"
-                  onClick={handleGlobalNoData}
-                  disabled={saving || !isEditable}
-                >
-                  🛑 Definitely No Data
-                </button>
-              </div>
-              <div className="action-row">
-                <button
-                  className="btn btn-skip"
-                  onClick={() => saveAnnotation(false, 'skipped')}
-                  disabled={saving || !isEditable}
-                >
-                  ⊘ No Usable Data
-                </button>
-                <button
-                  className="btn btn-outline"
-                  onClick={() => saveAnnotation(true, 'draft')}
-                  disabled={saving || !isEditable}
-                >
-                  Save Draft
-                </button>
-              </div>
-              <button
-                className="btn btn-success"
-                onClick={() => saveAnnotation(true, 'done')}
-                disabled={saving || !isEditable}
-                style={{ width: '100%' }}
-              >
-                {saving ? 'Saving...' : 'Submit Final Extraction'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {activeView === 'all-papers' && (
+        <AllPapersView
+          cockpitData={cockpitData}
+          onRefresh={refreshCockpit}
+        />
       )}
 
       {activeView === 'cockpit' && (
