@@ -33,6 +33,7 @@ function normalizeFoodItem(item) {
 
 const OPEN_STATUSES = new Set(['assigned', 'draft'])
 const FINAL_STATUSES = new Set(['submitted', 'conflict', 'resolved', 'cancelled'])
+const SUGGESTION_REVIEW_STATUSES = ['new', 'triaged', 'planned', 'dismissed', 'done']
 const EMPTY_COCKPIT_DATA = {
   reviewerProfiles: [],
   reviewerSlots: [],
@@ -44,6 +45,7 @@ const EMPTY_COCKPIT_DATA = {
   conflicts: [],
   papers: [],
   searchHits: [],
+  suggestionReviewItems: [],
 }
 
 function buildSlotMembersByProfile(rows) {
@@ -170,6 +172,23 @@ function formatStatusLabel(status) {
 
 function formatDecisionLabel(decisionKind) {
   return decisionKind === 'has_data' ? 'Usable Data' : 'No Usable Data'
+}
+
+function formatSuggestionReviewStatus(status) {
+  switch (status) {
+    case 'new':
+      return 'New'
+    case 'triaged':
+      return 'Triaged'
+    case 'planned':
+      return 'Planned'
+    case 'dismissed':
+      return 'Dismissed'
+    case 'done':
+      return 'Done'
+    default:
+      return status || 'Unknown'
+  }
 }
 
 function getPublicPdfUrl(filename) {
@@ -905,6 +924,121 @@ function CockpitView({
   )
 }
 
+function SuggestionsReviewView({
+  suggestionItems = [],
+  onRefresh,
+  onSaveReview,
+  savingSuggestionId,
+}) {
+  const [drafts, setDrafts] = useState({})
+
+  const updateDraft = useCallback((itemId, field, value) => {
+    setDrafts((previous) => ({
+      ...previous,
+      [itemId]: {
+        ...(previous[itemId] || {}),
+        [field]: value,
+      },
+    }))
+  }, [])
+
+  return (
+    <div className="dashboard-page">
+      <div className="dashboard-header">
+        <div>
+          <h2>Suggestion Review Queue</h2>
+          <p>Incoming user suggestions are captured here as unapproved backlog review items.</p>
+        </div>
+        <button className="btn btn-outline" onClick={onRefresh}>Refresh</button>
+      </div>
+
+      <div className="dashboard-card">
+        <div className="dashboard-card-title">Review Items</div>
+        <div className="suggestion-review-list">
+          {!suggestionItems.length ? (
+            <div className="empty-panel">No suggestion review items yet.</div>
+          ) : suggestionItems.map((item) => {
+            const draft = drafts[item.id] || {
+              status: item.status || 'new',
+              follow_up_required: Boolean(item.follow_up_required),
+              follow_up_note: item.follow_up_note || '',
+              review_note: item.review_note || '',
+            }
+
+            return (
+              <div key={item.id} className="suggestion-review-item">
+                <div className="suggestion-review-header">
+                  <div className="suggestion-review-meta">
+                    <span className="status-badge status-pending">{item.item_kind || 'suggestion_review'}</span>
+                    <span className="status-badge status-draft">{formatSuggestionReviewStatus(item.status)}</span>
+                    <span>{item.created_at ? new Date(item.created_at).toLocaleString() : '-'}</span>
+                  </div>
+                  <div className="suggestion-review-author">
+                    {(item.submitted_by_name || '').trim() || item.submitted_by_email || item.submitted_by_auth_user_id || 'Unknown submitter'}
+                  </div>
+                </div>
+
+                <div className="suggestion-review-body">{item.suggestion_text}</div>
+
+                <div className="suggestion-review-controls">
+                  <label className="form-group">
+                    <span>Status</span>
+                    <select
+                      value={draft.status}
+                      onChange={(event) => updateDraft(item.id, 'status', event.target.value)}
+                    >
+                      {SUGGESTION_REVIEW_STATUSES.map((status) => (
+                        <option key={status} value={status}>{formatSuggestionReviewStatus(status)}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="reviewer-toggle">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(draft.follow_up_required)}
+                      onChange={(event) => updateDraft(item.id, 'follow_up_required', event.target.checked)}
+                    />
+                    Follow-up needed
+                  </label>
+                </div>
+
+                <label className="form-group">
+                  <span>Follow-up note</span>
+                  <input
+                    value={draft.follow_up_note}
+                    onChange={(event) => updateDraft(item.id, 'follow_up_note', event.target.value)}
+                    placeholder="Optional follow-up plan"
+                  />
+                </label>
+
+                <label className="form-group">
+                  <span>Review note</span>
+                  <textarea
+                    value={draft.review_note}
+                    onChange={(event) => updateDraft(item.id, 'review_note', event.target.value)}
+                    placeholder="Optional triage context"
+                  />
+                </label>
+
+                <div className="suggestion-review-actions">
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => onSaveReview(item.id, draft)}
+                    disabled={savingSuggestionId === item.id}
+                  >
+                    {savingSuggestionId === item.id ? 'Saving...' : 'Save Review Status'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AllPapersView({ cockpitData, onRefresh }) {
   const reviewerById = buildReviewerMap(cockpitData.reviewerProfiles)
   const slotAssignmentsByPaperId = groupRowsByPaperId(cockpitData.slotAssignments)
@@ -1149,6 +1283,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [reviewerDrafts, setReviewerDrafts] = useState({})
   const [newReviewerDraft, setNewReviewerDraft] = useState(() => createEmptyReviewerDraft())
   const [savingReviewerTarget, setSavingReviewerTarget] = useState(null)
+  const [savingSuggestionId, setSavingSuggestionId] = useState(null)
   const [selectedConflictId, setSelectedConflictId] = useState(null)
   const [resolutionNote, setResolutionNote] = useState('')
   const undoTimerRef = useRef(null)
@@ -1260,6 +1395,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         conflictsResponse,
         papersResponse,
         searchHitsResponse,
+        suggestionReviewItemsResponse,
       ] = await Promise.all([
         supabase.from('reviewer_slots').select('*').order('slot_key', { ascending: true }),
         supabase.from('reviewer_profiles').select('*').order('display_name', { ascending: true }),
@@ -1271,6 +1407,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         supabase.from('paper_conflicts').select('*').order('created_at', { ascending: false }),
         supabase.from('papers').select('id,title,doi,filename,workflow_language').order('id', { ascending: false }),
         supabase.from('paper_search_hits').select('paper_id,source,template_id,source_term,query_phrase,workflow_language'),
+        supabase.from('backlog_review_items').select('*').order('created_at', { ascending: false }),
       ])
 
       if (reviewerSlotsResponse.error) throw reviewerSlotsResponse.error
@@ -1283,6 +1420,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       if (conflictsResponse.error) throw conflictsResponse.error
       if (papersResponse.error) throw papersResponse.error
       if (searchHitsResponse.error) throw searchHitsResponse.error
+      if (suggestionReviewItemsResponse.error) throw suggestionReviewItemsResponse.error
 
       setCockpitData({
         reviewerSlots: reviewerSlotsResponse.data || [],
@@ -1295,6 +1433,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         conflicts: conflictsResponse.data || [],
         papers: papersResponse.data || [],
         searchHits: searchHitsResponse.data || [],
+        suggestionReviewItems: suggestionReviewItemsResponse.data || [],
       })
 
       setSelectedConflictId((previousId) => {
@@ -1657,6 +1796,52 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const createReviewer = useCallback(async () => {
     await persistReviewerDraft(newReviewerDraft, '__new__')
   }, [newReviewerDraft, persistReviewerDraft])
+
+  const saveSuggestionReview = useCallback(async (itemId, draft) => {
+    if (!itemId || !draft) return
+    const nowIso = new Date().toISOString()
+    const payload = {
+      status: draft.status || 'new',
+      follow_up_required: Boolean(draft.follow_up_required),
+      follow_up_note: (draft.follow_up_note || '').trim() || null,
+      review_note: (draft.review_note || '').trim() || null,
+      reviewed_by_auth_user_id: user?.id || null,
+      reviewed_at: nowIso,
+      updated_at: nowIso,
+    }
+
+    if (testMode) {
+      appendTestEvent({
+        type: 'suggestion_review_status_update',
+        suggestion_review_item_id: itemId,
+        ...payload,
+      })
+      setCockpitData((previous) => ({
+        ...previous,
+        suggestionReviewItems: (previous.suggestionReviewItems || []).map((item) =>
+          item.id === itemId ? { ...item, ...payload } : item
+        ),
+      }))
+      showToast('Suggestion review status stored locally (test mode).')
+      return
+    }
+
+    setSavingSuggestionId(itemId)
+    try {
+      const { error } = await supabase
+        .from('backlog_review_items')
+        .update(payload)
+        .eq('id', itemId)
+      if (error) throw error
+      await refreshCockpit()
+      showToast('Suggestion review status saved.')
+    } catch (error) {
+      console.error('Suggestion review update failed:', error)
+      showToast(`Failed to save suggestion review: ${error.message}`, 'error')
+    } finally {
+      setSavingSuggestionId(null)
+    }
+  }, [refreshCockpit, showToast, testMode, user?.id])
 
   const ensureAssignmentStillEditable = useCallback(async () => {
     if (!currentAssignment) return false
@@ -2021,6 +2206,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
               <button className={`nav-btn ${activeView === 'conflicts' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('conflicts')}>
                 Conflicts
               </button>
+              <button className={`nav-btn ${activeView === 'suggestions' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('suggestions')}>
+                Suggestions
+              </button>
             </>
           )}
         </div>
@@ -2129,6 +2317,15 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         />
       )}
 
+      {activeView === 'suggestions' && reviewerProfile?.cockpit_access && (
+        <SuggestionsReviewView
+          suggestionItems={cockpitData.suggestionReviewItems || []}
+          onRefresh={refreshCockpit}
+          onSaveReview={saveSuggestionReview}
+          savingSuggestionId={savingSuggestionId}
+        />
+      )}
+
       {loadingCockpit && reviewerProfile?.cockpit_access && (
         <div className="floating-loading">Refreshing cockpit…</div>
       )}
@@ -2138,6 +2335,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       {showSuggestion && (
         <SuggestionModal
           user={user}
+          reviewerProfile={reviewerProfile}
           onClose={() => setShowSuggestion(false)}
           testMode={testMode}
         />

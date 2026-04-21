@@ -1709,6 +1709,60 @@ body {
   z-index: 900;
 }
 
+.suggestion-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.suggestion-review-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 14px;
+}
+
+.suggestion-review-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.suggestion-review-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.suggestion-review-author {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.suggestion-review-body {
+  white-space: pre-wrap;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.suggestion-review-controls {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.suggestion-review-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1024px) {
   .workspace {
