@@ -30,7 +30,7 @@ Features:
 - Arciel-only cockpit shows queue health, reviewer agreement/accuracy, source yield, and conflict queues.
 - Arciel-only conflicts screen resolves internal Arciel-lane disagreements and cross-slot disagreements.
 - Test mode toggle to disable DB writes and store actions locally.
-- Suggestions modal stored in Supabase.
+- Suggestions modal now writes `suggestion_review` records into `backlog_review_items`, and cockpit reviewers triage them in the Suggestions tab.
 
 Run locally:
 ```bash
@@ -66,7 +66,7 @@ Frontend config and templates:
 
 Supabase tables used by the UI:
 - `papers`, `annotations`, `food_items`, `annotation_nutrient_values`
-- `entities`, `master_nutrients`, `search_sessions`, `suggestions`
+- `entities`, `master_nutrients`, `search_sessions`, `backlog_review_items`
 - `paper_label_events`, `paper_global_labels`
 - `reviewer_slots`, `reviewer_profiles`, `reviewer_slot_members`
 - `paper_slot_assignments`, `paper_user_assignments`
