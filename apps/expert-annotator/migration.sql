@@ -359,6 +359,27 @@ CREATE TABLE IF NOT EXISTS search_sessions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS backlog_review_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    item_kind TEXT NOT NULL DEFAULT 'suggestion_review'
+        CHECK (item_kind IN ('suggestion_review')),
+    status TEXT NOT NULL DEFAULT 'new'
+        CHECK (status IN ('new', 'triaged', 'planned', 'dismissed', 'done')),
+    submitted_by_auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    submitted_by_email TEXT,
+    submitted_by_name TEXT,
+    suggestion_text TEXT NOT NULL,
+    context JSONB NOT NULL DEFAULT '{}'::jsonb,
+    attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+    follow_up_required BOOLEAN NOT NULL DEFAULT FALSE,
+    follow_up_note TEXT,
+    review_note TEXT,
+    reviewed_by_auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Bring forward legacy `food_items` tables if they already exist with the wrong type/columns.
 DO $$
 BEGIN
@@ -1897,6 +1918,7 @@ ALTER TABLE paper_assignment_submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_conflicts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_review_outcomes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_label_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE backlog_review_items ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Authenticated users can read paper search hits" ON paper_search_hits;
 DROP POLICY IF EXISTS "Authenticated users can read paper label events" ON paper_label_events;
@@ -1909,6 +1931,9 @@ DROP POLICY IF EXISTS "Users can view their own paper user assignments" ON paper
 DROP POLICY IF EXISTS "Users can view their own assignment submissions" ON paper_assignment_submissions;
 DROP POLICY IF EXISTS "Cockpit users can read conflicts" ON paper_conflicts;
 DROP POLICY IF EXISTS "Users can view accessible review outcomes" ON paper_review_outcomes;
+DROP POLICY IF EXISTS "Users can view accessible backlog review items" ON backlog_review_items;
+DROP POLICY IF EXISTS "Users can insert suggestion review items" ON backlog_review_items;
+DROP POLICY IF EXISTS "Cockpit users can update backlog review items" ON backlog_review_items;
 DROP POLICY IF EXISTS "Service role full access reviewer slots" ON reviewer_slots;
 DROP POLICY IF EXISTS "Service role full access reviewer profiles" ON reviewer_profiles;
 DROP POLICY IF EXISTS "Service role full access reviewer slot members" ON reviewer_slot_members;
@@ -1918,6 +1943,7 @@ DROP POLICY IF EXISTS "Service role full access paper assignment submissions" ON
 DROP POLICY IF EXISTS "Service role full access paper conflicts" ON paper_conflicts;
 DROP POLICY IF EXISTS "Service role full access paper review outcomes" ON paper_review_outcomes;
 DROP POLICY IF EXISTS "Service role full access paper label events" ON paper_label_events;
+DROP POLICY IF EXISTS "Service role full access backlog review items" ON backlog_review_items;
 
 CREATE POLICY "Authenticated users can read reviewer slots"
     ON reviewer_slots FOR SELECT TO authenticated
@@ -2000,6 +2026,25 @@ CREATE POLICY "Users can insert their own paper label events"
         )
     );
 
+CREATE POLICY "Users can view accessible backlog review items"
+    ON backlog_review_items FOR SELECT TO authenticated
+    USING (
+        public.current_user_has_cockpit_access()
+        OR submitted_by_auth_user_id = auth.uid()
+    );
+
+CREATE POLICY "Users can insert suggestion review items"
+    ON backlog_review_items FOR INSERT TO authenticated
+    WITH CHECK (
+        item_kind = 'suggestion_review'
+        AND submitted_by_auth_user_id = auth.uid()
+    );
+
+CREATE POLICY "Cockpit users can update backlog review items"
+    ON backlog_review_items FOR UPDATE TO authenticated
+    USING (public.current_user_has_cockpit_access())
+    WITH CHECK (public.current_user_has_cockpit_access());
+
 CREATE POLICY "Authenticated users can read paper search hits"
     ON paper_search_hits FOR SELECT TO authenticated
     USING (public.current_user_has_cockpit_access());
@@ -2046,6 +2091,11 @@ CREATE POLICY "Service role full access paper review outcomes"
 
 CREATE POLICY "Service role full access paper label events"
     ON paper_label_events FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access backlog review items"
+    ON backlog_review_items FOR ALL TO service_role
     USING (true)
     WITH CHECK (true);
 
@@ -2103,6 +2153,8 @@ CREATE INDEX IF NOT EXISTS idx_food_items_annotation ON food_items(annotation_id
 CREATE INDEX IF NOT EXISTS idx_nutrient_values_food_item ON annotation_nutrient_values(food_item_id);
 CREATE INDEX IF NOT EXISTS idx_search_sessions_user_created ON search_sessions(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_search_sessions_type_created ON search_sessions(search_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_backlog_review_items_status_created ON backlog_review_items(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_backlog_review_items_submitter ON backlog_review_items(submitted_by_auth_user_id, created_at DESC);
 
 -- =============================================
 -- Row Level Security
