@@ -30,6 +30,7 @@ class ReviewerProfile:
     active: bool
     can_review_en: bool
     can_review_tr: bool
+    tester_access: bool
     official_slot: str | None
     auth_user_id: str | None
 
@@ -74,6 +75,8 @@ def unresolved_slot_status(status: str) -> bool:
 
 
 def profile_can_review_language(profile: ReviewerProfile, language: str) -> bool:
+    if profile.tester_access:
+        return False
     return profile.can_review_en if language == "en" else profile.can_review_tr
 
 
@@ -100,7 +103,7 @@ def targetable_profiles(slot_members: Iterable[dict], profiles: dict[str, Review
     return {
         profile_id: profiles[profile_id]
         for profile_id in ids
-        if profiles[profile_id].active
+        if profiles[profile_id].active and not profiles[profile_id].tester_access
     }
 
 
@@ -288,7 +291,7 @@ def fetch_state(client: Client) -> dict[str, list[dict]]:
         "reviewer_profiles": fetch_all(
             client,
             "reviewer_profiles",
-            "id,email,auth_user_id,display_name,active,can_review_en,can_review_tr,official_slot",
+            "id,email,auth_user_id,display_name,active,can_review_en,can_review_tr,tester_access,official_slot",
         ),
         "slot_members": fetch_all(
             client,
@@ -362,6 +365,7 @@ def main() -> None:
                 active=bool(row.get("active", True)),
                 can_review_en=bool(row.get("can_review_en", True)),
                 can_review_tr=bool(row.get("can_review_tr", True)),
+                tester_access=bool(row.get("tester_access", False)),
                 official_slot=row.get("official_slot"),
                 auth_user_id=row.get("auth_user_id"),
             )

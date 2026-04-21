@@ -1249,6 +1249,60 @@ body {
   color: var(--text-primary);
 }
 
+.ai-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 16px;
+  background: var(--bg-card);
+}
+
+.ai-card-useful {
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.ai-card-not-useful {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.ai-card-header,
+.ai-card-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-card-header {
+  margin-bottom: 10px;
+}
+
+.ai-card-header h3 {
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+
+.ai-card-header p,
+.ai-card-reasoning {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ai-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ai-card-reasoning {
+  margin-bottom: 12px;
+  line-height: 1.45;
+}
+
 .dashboard-page {
   flex: 1;
   overflow-y: auto;
@@ -1799,6 +1853,8 @@ body {
   .pdf-top-strip,
   .queue-assignment-toolbar,
   .queue-assignment-title-row,
+  .ai-card-header,
+  .ai-card-footer,
   .dashboard-header {
     flex-direction: column;
     align-items: flex-start;

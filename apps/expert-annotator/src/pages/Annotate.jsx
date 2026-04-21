@@ -72,6 +72,7 @@ function createReviewerDraft(profile = null, slotMembers = []) {
     active: profile?.active ?? true,
     can_review_en: profile?.can_review_en ?? true,
     can_review_tr: profile?.can_review_tr ?? true,
+    tester_access: profile?.tester_access ?? false,
     official_slot: profile?.official_slot || '',
     shadow_slots: shadowSlots,
     cockpit_access: profile?.cockpit_access ?? false,
@@ -100,6 +101,7 @@ function buildReviewerAdminPayload(draft) {
     p_active: Boolean(draft?.active),
     p_can_review_en: Boolean(draft?.can_review_en),
     p_can_review_tr: Boolean(draft?.can_review_tr),
+    p_tester_access: Boolean(draft?.tester_access),
     p_official_slot: draft?.official_slot || null,
     p_shadow_slots: [...new Set((draft?.shadow_slots || []).filter(Boolean))].sort(),
     p_cockpit_access: Boolean(draft?.cockpit_access),
@@ -310,6 +312,7 @@ function QueueView({
   currentPaper,
   currentPaperIndex,
   reviewerProfile,
+  aiExtractions,
   pdfUrl,
   theme,
   allNutrients,
@@ -430,6 +433,46 @@ function QueueView({
               {currentAssignment.outcome && (
                 <div className="outcome-banner">
                   Final paper outcome: {formatDecisionLabel(currentAssignment.outcome.decision_kind)}
+                </div>
+              )}
+
+              {aiExtractions.length > 0 && (
+                <div
+                  className={`ai-card ${aiExtractions[0]?.is_useful ? 'ai-card-useful' : 'ai-card-not-useful'}`}
+                >
+                  <div className="ai-card-header">
+                    <div>
+                      <h3>AI extraction</h3>
+                      <p>
+                        {aiExtractions[0]?.model_name || 'unknown model'}
+                        {aiExtractions[0]?.overall_confidence != null
+                          ? ` · confidence ${Math.round(aiExtractions[0].overall_confidence * 100)}%`
+                          : ''}
+                      </p>
+                    </div>
+                    <div className="ai-card-badges">
+                      <span className={`status-badge ${aiExtractions[0]?.is_useful ? 'status-done' : 'status-draft'}`}>
+                        {aiExtractions[0]?.is_useful ? 'Useful' : 'Not useful'}
+                      </span>
+                      <span className="status-badge status-pending">
+                        {aiExtractions[0]?.status || 'pending'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {aiExtractions[0]?.reasoning && <div className="ai-card-reasoning">{aiExtractions[0].reasoning}</div>}
+
+                  <div className="ai-card-footer">
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                      {aiExtractions[0]?.created_at ? new Date(aiExtractions[0].created_at).toLocaleString() : 'No timestamp'}
+                    </div>
+                    <details>
+                      <summary style={{ cursor: 'pointer' }}>Raw JSON</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', marginTop: 10 }}>
+                        {JSON.stringify(aiExtractions[0]?.raw_data || {}, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
                 </div>
               )}
 
@@ -649,6 +692,14 @@ function ReviewerEditor({
             onChange={(event) => onChange('can_review_tr', event.target.checked)}
           />
           <span>Turkish</span>
+        </label>
+        <label className="reviewer-toggle">
+          <input
+            type="checkbox"
+            checked={draft.tester_access}
+            onChange={(event) => onChange('tester_access', event.target.checked)}
+          />
+          <span>Tester (read-only)</span>
         </label>
         <label className="reviewer-toggle">
           <input
@@ -1269,6 +1320,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [assignments, setAssignments] = useState([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null)
   const [foodItems, setFoodItems] = useState([createEmptyFoodItem()])
+  const [aiExtractions, setAiExtractions] = useState([])
   const [saving, setSaving] = useState(false)
   const [loadingQueue, setLoadingQueue] = useState(true)
   const [loadingCockpit, setLoadingCockpit] = useState(false)
@@ -1330,6 +1382,42 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
     setLoadingQueue(true)
     try {
+      if (reviewerProfile?.tester_access) {
+        const { data: paperRows, error: paperError } = await supabase
+          .from('papers')
+          .select('*')
+          .order('id', { ascending: false })
+          .limit(250)
+
+        if (paperError) throw paperError
+
+        const orderedPapers = [...(paperRows || [])].sort((a, b) => {
+          const aEn = (a?.workflow_language || '').toLowerCase() === 'en'
+          const bEn = (b?.workflow_language || '').toLowerCase() === 'en'
+          if (aEn !== bEn) return aEn ? -1 : 1
+          return (b?.id || 0) - (a?.id || 0)
+        })
+
+        const virtualAssignments = orderedPapers.map((paper) => ({
+          id: `tester:${paper.id}`,
+          paper_id: paper.id,
+          reviewer_profile_id: reviewerProfile.id,
+          workflow_language: paper.workflow_language || null,
+          status: 'assigned',
+          assigned_at: paper.created_at || null,
+          paper_slot_assignment_id: null,
+          latest_submission_id: null,
+          is_virtual: true,
+          paper,
+          slot_assignment: null,
+          outcome: null,
+        }))
+
+        setAssignments(virtualAssignments)
+        setSelectedAssignmentId((previousId) => pickDefaultAssignment(virtualAssignments, previousId))
+        return virtualAssignments
+      }
+
       const { data: assignmentRows, error: assignmentError } = await supabase
         .from('paper_user_assignments')
         .select('*')
@@ -1378,7 +1466,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     } finally {
       setLoadingQueue(false)
     }
-  }, [reviewerProfile?.id, showToast])
+  }, [reviewerProfile?.id, reviewerProfile?.tester_access, showToast])
 
   const refreshCockpit = useCallback(async () => {
     if (!reviewerProfile?.cockpit_access) return
@@ -1461,6 +1549,10 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         if (!cancelled) {
           setReviewerProfile(nextProfile || null)
           setProfileError(null)
+          if (nextProfile?.tester_access) {
+            setTestMode(true)
+            setTestModeEnabled(true)
+          }
           if (!(nextProfile?.cockpit_access)) {
             setActiveView('queue')
           }
@@ -1579,6 +1671,13 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   useEffect(() => {
     if (!currentAssignment) {
       setFoodItems([createEmptyFoodItem()])
+      setAiExtractions([])
+      return
+    }
+
+    if (currentAssignment.is_virtual) {
+      setFoodItems([createEmptyFoodItem()])
+      setAiExtractions([])
       return
     }
 
@@ -1659,7 +1758,44 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     }
   }, [currentAssignment, user.id])
 
+  useEffect(() => {
+    if (!currentPaper?.id) {
+      setAiExtractions([])
+      return
+    }
+
+    let cancelled = false
+
+    async function loadAiExtractions() {
+      const { data, error } = await supabase
+        .from('ai_extractions')
+        .select('*')
+        .eq('paper_id', currentPaper.id)
+        .order('created_at', { ascending: false })
+        .limit(3)
+
+      if (cancelled) return
+      if (error) {
+        console.error('AI extraction load failed:', error)
+        setAiExtractions([])
+        return
+      }
+      setAiExtractions(data || [])
+    }
+
+    loadAiExtractions()
+    return () => {
+      cancelled = true
+    }
+  }, [currentPaper?.id])
+
   const handleToggleTestMode = useCallback(() => {
+    if (reviewerProfile?.tester_access) {
+      setTestMode(true)
+      setTestModeEnabled(true)
+      showToast('Tester accounts are always in test mode.', 'error')
+      return
+    }
     const next = !testMode
     const message = next
       ? 'Enable test mode? This will disable all database writes and store actions locally.'
@@ -1668,7 +1804,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     setTestMode(next)
     setTestModeEnabled(next)
     showToast(next ? 'Test mode enabled — no DB writes.' : 'Test mode disabled.')
-  }, [showToast, testMode])
+  }, [reviewerProfile?.tester_access, showToast, testMode])
 
   const updateReviewerDraft = useCallback((profileId, field, value) => {
     setReviewerDrafts((previous) => {
@@ -2250,6 +2386,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           currentPaper={currentPaper}
           currentPaperIndex={currentPaperIndex}
           reviewerProfile={reviewerProfile}
+          aiExtractions={aiExtractions}
           pdfUrl={pdfUrl}
           theme={theme}
           allNutrients={allNutrients}

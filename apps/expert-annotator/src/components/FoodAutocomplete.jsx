@@ -592,7 +592,7 @@ export default function FoodAutocomplete({ value, foodFdcId, onChange, allFoods 
             <input
                 className={`food-name-input ${!foodFdcId && query ? 'custom-food-input' : ''}`}
                 type="text"
-                placeholder="Search food name (e.g., Trabzon ekmeği)..."
+                placeholder="Search food name..."
                 value={query}
                 onChange={handleInputChange}
                 onFocus={() => {

@@ -23,7 +23,8 @@ async function main() {
         to_regclass('public.paper_user_assignments') as paper_user_assignments,
         to_regclass('public.paper_assignment_submissions') as paper_assignment_submissions,
         to_regclass('public.paper_conflicts') as paper_conflicts,
-        to_regclass('public.paper_review_outcomes') as paper_review_outcomes
+        to_regclass('public.paper_review_outcomes') as paper_review_outcomes,
+        to_regclass('public.ai_extractions') as ai_extractions
     `)
 
     const { rows: functions } = await client.query(`
@@ -41,6 +42,15 @@ async function main() {
       order by proname
     `)
 
+    const { rows: reviewerColumns } = await client.query(`
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'reviewer_profiles'
+        and column_name in ('tester_access')
+      order by column_name
+    `)
+
     const { rows: slots } = await client.query(`
       select slot_key, display_name
       from reviewer_slots
@@ -51,6 +61,8 @@ async function main() {
     console.log(JSON.stringify(tables[0], null, 2))
     console.log('\nWorkflow functions:')
     console.log(JSON.stringify(functions, null, 2))
+    console.log('\nReviewer profile access columns:')
+    console.log(JSON.stringify(reviewerColumns, null, 2))
     console.log('\nReviewer slots:')
     console.log(JSON.stringify(slots, null, 2))
   } finally {

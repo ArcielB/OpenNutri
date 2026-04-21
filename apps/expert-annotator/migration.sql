@@ -424,6 +424,7 @@ CREATE TABLE IF NOT EXISTS reviewer_profiles (
     active BOOLEAN NOT NULL DEFAULT TRUE,
     can_review_en BOOLEAN NOT NULL DEFAULT TRUE,
     can_review_tr BOOLEAN NOT NULL DEFAULT TRUE,
+    tester_access BOOLEAN NOT NULL DEFAULT FALSE,
     official_slot TEXT REFERENCES reviewer_slots(slot_key) ON DELETE SET NULL,
     cockpit_access BOOLEAN NOT NULL DEFAULT FALSE,
     priority_weight_en REAL NOT NULL DEFAULT 1.0,
@@ -432,6 +433,9 @@ CREATE TABLE IF NOT EXISTS reviewer_profiles (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE reviewer_profiles
+    ADD COLUMN IF NOT EXISTS tester_access BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS reviewer_slot_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -536,6 +540,27 @@ CREATE TABLE IF NOT EXISTS paper_review_outcomes (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- =============================================
+-- AI extraction storage (Gemini blind-study path)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS ai_extractions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    model_name TEXT NOT NULL DEFAULT 'gemini-3-flash-preview',
+    is_useful BOOLEAN NOT NULL,
+    reasoning TEXT,
+    overall_confidence REAL,
+    raw_data JSONB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'applied', 'rejected')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_extractions_paper ON ai_extractions(paper_id);
+CREATE INDEX IF NOT EXISTS idx_ai_extractions_status ON ai_extractions(status);
 
 DO $$
 BEGIN
@@ -760,6 +785,7 @@ AS $$
         SELECT 1
         FROM reviewer_profiles
         WHERE cockpit_access IS TRUE
+          AND tester_access IS FALSE
           AND (
               auth_user_id = auth.uid()
               OR (
@@ -770,12 +796,45 @@ AS $$
     );
 $$;
 
+CREATE OR REPLACE FUNCTION public.current_user_is_tester()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM reviewer_profiles
+        WHERE tester_access IS TRUE
+          AND active IS TRUE
+          AND (
+              auth_user_id = auth.uid()
+              OR (
+                  email IS NOT NULL
+                  AND email = public.current_auth_email()
+              )
+          )
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.current_user_can_write()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT NOT public.current_user_is_tester();
+$$;
+
 CREATE OR REPLACE FUNCTION public.upsert_reviewer_admin_config(
     p_email TEXT,
     p_display_name TEXT,
     p_active BOOLEAN DEFAULT TRUE,
     p_can_review_en BOOLEAN DEFAULT TRUE,
     p_can_review_tr BOOLEAN DEFAULT TRUE,
+    p_tester_access BOOLEAN DEFAULT FALSE,
     p_official_slot TEXT DEFAULT NULL,
     p_shadow_slots TEXT[] DEFAULT ARRAY[]::TEXT[],
     p_cockpit_access BOOLEAN DEFAULT FALSE,
@@ -838,6 +897,11 @@ BEGIN
         RAISE EXCEPTION 'A reviewer cannot be both the official and shadow member of the same slot';
     END IF;
 
+    IF coalesce(p_tester_access, FALSE) IS TRUE THEN
+        v_official_slot := NULL;
+        v_shadow_slots := ARRAY[]::TEXT[];
+    END IF;
+
     INSERT INTO allowed_auth_emails (email)
     VALUES (v_email)
     ON CONFLICT (email) DO NOTHING;
@@ -848,6 +912,7 @@ BEGIN
         active,
         can_review_en,
         can_review_tr,
+        tester_access,
         official_slot,
         cockpit_access,
         priority_weight_en,
@@ -861,8 +926,12 @@ BEGIN
         coalesce(p_active, TRUE),
         coalesce(p_can_review_en, TRUE),
         coalesce(p_can_review_tr, TRUE),
+        coalesce(p_tester_access, FALSE),
         v_official_slot,
-        coalesce(p_cockpit_access, FALSE),
+        CASE
+            WHEN coalesce(p_tester_access, FALSE) IS TRUE THEN FALSE
+            ELSE coalesce(p_cockpit_access, FALSE)
+        END,
         coalesce(p_priority_weight_en, 1.0),
         coalesce(p_priority_weight_tr, 1.0),
         nullif(trim(coalesce(p_notes, '')), ''),
@@ -874,6 +943,7 @@ BEGIN
         active = EXCLUDED.active,
         can_review_en = EXCLUDED.can_review_en,
         can_review_tr = EXCLUDED.can_review_tr,
+        tester_access = EXCLUDED.tester_access,
         official_slot = EXCLUDED.official_slot,
         cockpit_access = EXCLUDED.cockpit_access,
         priority_weight_en = EXCLUDED.priority_weight_en,
@@ -1944,6 +2014,17 @@ DROP POLICY IF EXISTS "Service role full access paper conflicts" ON paper_confli
 DROP POLICY IF EXISTS "Service role full access paper review outcomes" ON paper_review_outcomes;
 DROP POLICY IF EXISTS "Service role full access paper label events" ON paper_label_events;
 DROP POLICY IF EXISTS "Service role full access backlog review items" ON backlog_review_items;
+DROP POLICY IF EXISTS "Users can insert their own annotations" ON annotations;
+DROP POLICY IF EXISTS "Users can update their own annotations" ON annotations;
+DROP POLICY IF EXISTS "Users can insert their own food items" ON food_items;
+DROP POLICY IF EXISTS "Users can update their own food items" ON food_items;
+DROP POLICY IF EXISTS "Users can delete their own food items" ON food_items;
+DROP POLICY IF EXISTS "Users can insert their own nutrient values" ON annotation_nutrient_values;
+DROP POLICY IF EXISTS "Users can update their own nutrient values" ON annotation_nutrient_values;
+DROP POLICY IF EXISTS "Users can delete their own nutrient values" ON annotation_nutrient_values;
+DROP POLICY IF EXISTS "Users can insert global labels" ON paper_global_labels;
+DROP POLICY IF EXISTS "Users can delete their own global labels" ON paper_global_labels;
+DROP POLICY IF EXISTS "Users can insert their own search sessions" ON search_sessions;
 
 CREATE POLICY "Authenticated users can read reviewer slots"
     ON reviewer_slots FOR SELECT TO authenticated
@@ -2015,6 +2096,7 @@ CREATE POLICY "Users can insert their own paper label events"
     ON paper_label_events FOR INSERT TO authenticated
     WITH CHECK (
         user_id = auth.uid()
+        AND public.current_user_can_write()
         AND (
             paper_user_assignment_id IS NULL
             OR EXISTS (
@@ -2170,6 +2252,7 @@ ALTER TABLE paper_search_hits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_search_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_search_batch_hits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_global_labels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_extractions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE annotations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE annotation_nutrient_values ENABLE ROW LEVEL SECURITY;
@@ -2233,6 +2316,24 @@ BEGIN
 
     IF NOT EXISTS (
         SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'ai_extractions'
+          AND policyname = 'AI extractions readable by all authenticated users'
+    ) THEN
+        CREATE POLICY "AI extractions readable by all authenticated users"
+            ON ai_extractions FOR SELECT TO authenticated USING (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'ai_extractions'
+          AND policyname = 'Service role full access ai_extractions'
+    ) THEN
+        CREATE POLICY "Service role full access ai_extractions"
+            ON ai_extractions FOR ALL TO service_role USING (true) WITH CHECK (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
         WHERE schemaname = 'public' AND tablename = 'paper_search_hits'
           AND policyname = 'Service role can manage paper search hits'
     ) THEN
@@ -2274,7 +2375,7 @@ BEGIN
     ) THEN
         CREATE POLICY "Users can insert global labels"
             ON paper_global_labels FOR INSERT TO authenticated
-            WITH CHECK (user_id = auth.uid());
+            WITH CHECK (user_id = auth.uid() AND public.current_user_can_write());
     END IF;
 
     IF NOT EXISTS (
@@ -2284,7 +2385,7 @@ BEGIN
     ) THEN
         CREATE POLICY "Users can delete their own global labels"
             ON paper_global_labels FOR DELETE TO authenticated
-            USING (user_id = auth.uid());
+            USING (user_id = auth.uid() AND public.current_user_can_write());
     END IF;
 
     IF NOT EXISTS (
@@ -2304,7 +2405,7 @@ BEGIN
     ) THEN
         CREATE POLICY "Users can insert their own annotations"
             ON annotations FOR INSERT TO authenticated
-            WITH CHECK (user_id = auth.uid());
+            WITH CHECK (user_id = auth.uid() AND public.current_user_can_write());
     END IF;
 
     IF NOT EXISTS (
@@ -2314,7 +2415,7 @@ BEGIN
     ) THEN
         CREATE POLICY "Users can update their own annotations"
             ON annotations FOR UPDATE TO authenticated
-            USING (user_id = auth.uid());
+            USING (user_id = auth.uid() AND public.current_user_can_write());
     END IF;
 
     IF NOT EXISTS (
@@ -2339,6 +2440,8 @@ BEGIN
         CREATE POLICY "Users can insert their own food items"
             ON food_items FOR INSERT TO authenticated
             WITH CHECK (
+                public.current_user_can_write()
+                AND
                 annotation_id IN (
                     SELECT id FROM annotations WHERE user_id = auth.uid()
                 )
@@ -2353,6 +2456,8 @@ BEGIN
         CREATE POLICY "Users can update their own food items"
             ON food_items FOR UPDATE TO authenticated
             USING (
+                public.current_user_can_write()
+                AND
                 annotation_id IN (
                     SELECT id FROM annotations WHERE user_id = auth.uid()
                 )
@@ -2367,6 +2472,8 @@ BEGIN
         CREATE POLICY "Users can delete their own food items"
             ON food_items FOR DELETE TO authenticated
             USING (
+                public.current_user_can_write()
+                AND
                 annotation_id IN (
                     SELECT id FROM annotations WHERE user_id = auth.uid()
                 )
@@ -2398,6 +2505,8 @@ BEGIN
         CREATE POLICY "Users can insert their own nutrient values"
             ON annotation_nutrient_values FOR INSERT TO authenticated
             WITH CHECK (
+                public.current_user_can_write()
+                AND
                 food_item_id IN (
                     SELECT fi.id
                     FROM food_items fi
@@ -2415,6 +2524,8 @@ BEGIN
         CREATE POLICY "Users can update their own nutrient values"
             ON annotation_nutrient_values FOR UPDATE TO authenticated
             USING (
+                public.current_user_can_write()
+                AND
                 food_item_id IN (
                     SELECT fi.id
                     FROM food_items fi
@@ -2432,6 +2543,8 @@ BEGIN
         CREATE POLICY "Users can delete their own nutrient values"
             ON annotation_nutrient_values FOR DELETE TO authenticated
             USING (
+                public.current_user_can_write()
+                AND
                 food_item_id IN (
                     SELECT fi.id
                     FROM food_items fi
@@ -2458,7 +2571,7 @@ BEGIN
     ) THEN
         CREATE POLICY "Users can insert their own search sessions"
             ON search_sessions FOR INSERT TO authenticated
-            WITH CHECK (user_id = auth.uid());
+            WITH CHECK (user_id = auth.uid() AND public.current_user_can_write());
     END IF;
 
     IF NOT EXISTS (

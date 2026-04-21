@@ -249,46 +249,6 @@ Replace paginated navigation with infinite/limitless scrolling.
 
 
 
-## 11. Hide papers list popover when clicking outside
-
-### Problem
-The papers list dropdown/popup remains open when clicking elsewhere on the page.
-
-### Goal
-Dismiss the papers list popover on outside click.
-
-### Likely technical area
-- `apps/expert-annotator/src/pages/Annotate.jsx`
-- `apps/expert-annotator/src/components/Dropdown.jsx` (if present)
-
-### Done when
-- popover closes on any click outside the popover
-- clicking inside the popover does not close it
-
-
-
-
-
-
-
-
-## 12. Remove the “Trabzon Ekmeği” example text
-
-### Problem
-An example like “Trabzon Ekmeği” is shown, but no example is needed in that spot.
-
-### Goal
-Remove the example text so the UI is cleaner.
-
-### Likely technical area
-- `apps/expert-annotator/src/components/FoodAutocomplete.jsx`
-- `apps/expert-annotator/src/pages/Annotate.jsx`
-
-### Done when
-- the example text is no longer displayed
-
-
-
 
 ## 13. Add conflict resolution table + view
 
