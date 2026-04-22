@@ -22,13 +22,14 @@ Location: `apps/expert-annotator/`
 Features:
 - Supabase auth (email/password + Google).
 - Assignment-driven labeling queue with a strict personal `My Queue`; cockpit users now inspect the global paper/assignment state from a separate `All Papers` admin screen instead of mixing it into the labeling view.
+- Read-only developer-training accounts now use a virtual bilingual `My Queue` when `tester_access=true` and `cockpit_access=true`: they keep the normal labeling/admin UI, but annotation/admin/conflict actions stay local-only while new suggestion submissions still persist to Supabase.
 - PDF viewer with nutrient-name highlighting and click-to-add popover.
 - Food and nutrient autocomplete with ranking and search logging.
 - Save draft, submit usable-data extraction, or submit no-usable-data.
 - `done` / `draft` with `has_data=true` now requires at least one valid food item.
 - Exact-match submission snapshots are stored in `paper_assignment_submissions`.
-- Arciel-only cockpit shows queue health, reviewer agreement/accuracy, source yield, and conflict queues.
-- Arciel-only conflicts screen resolves internal Arciel-lane disagreements and cross-slot disagreements.
+- Cockpit users can inspect queue health, reviewer agreement/accuracy, source yield, and conflict queues.
+- Cockpit write actions remain restricted to non-tester cockpit users through `current_user_has_cockpit_write_access()`.
 - Test mode toggle to disable DB writes and store actions locally.
 - Suggestions modal now writes `suggestion_review` records into `backlog_review_items`, and cockpit reviewers triage them in the Suggestions tab.
 
@@ -128,10 +129,12 @@ Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/ingestor_pdf.py`: PDF downloader with a focused composition query.
 - `services/data-pipeline/scripts/ingestor_structured.py`: XML table extraction into `data/structured_lake`.
 - `services/data-pipeline/scripts/config_targets.py`: Shared query configuration for script-based harvesters.
+- `services/data-pipeline/scripts/backfill_paper_workflow_language.py`: Backfill only the legacy `papers.workflow_language IS NULL` rows using `food_paper_crawler.language_utils.detect_supported_language(..., default="en")`. Supports `--dry-run`.
 - `services/data-pipeline/scripts/refresh_dergipark_index.py`: Refresh the local DergiPark journal/article index from archive and article pages. Outputs `dergipark_journals.json`, `dergipark_articles.jsonl`, `dergipark_refresh_state.json`, and `dergipark_refresh_report.json` under the chosen `--data-dir`.
 - `services/data-pipeline/scripts/upload_to_supabase.py`: Upload accepted PDFs to Supabase Storage, update `papers` by canonical identity, upsert metadata-stage discovery hits into `paper_search_hits` via deterministic `hit_key` values, and persist per-query batch history into `paper_search_batches` plus `paper_search_batch_hits`. Metadata-stage runs with zero accepted PDFs are now valid as long as search hits exist, and hits keep `paper_id` nullable until a paper row exists. Pass `--data-dir` or `--manifest`; the script now requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 - `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, refresh the DergiPark journal/article index, then crawl + upload until per-language targets are met. It now treats already-assigned or already-resolved papers as unavailable queue stock. Supports `--target-en`, `--target-tr`, `--max-effort-tr`, `--quota-fallback`, `--dergipark-journal-limit`, and `--dergipark-max-issues-per-journal`, and prints both the crawler funnel summary and DergiPark index coverage after each cycle.
 - `services/data-pipeline/scripts/refill_assignment_queue.py`: Protected ops job that tops reviewer queues back up to a target open backlog, creates slot/user assignments, and triggers crawler refill when the unassigned pool is exhausted.
+- `services/data-pipeline/scripts/seed_training_stock.py`: Read-only inspection helper that prints the exact bilingual pool and ordering logic feeding read-only developer-training queues. Supports `--dry-run`.
 - `services/data-pipeline/scripts/check_db.py`, `check_db.js`, `test_frontend_fetch.js`: DB and frontend connectivity checks.
 - `services/data-pipeline/scripts/check_rls.py`: Placeholder for RLS checks.
 
@@ -183,6 +186,7 @@ Data pipeline and ETL:
 - Reviewer workflow is now slot-based:
   `arciel`, `peri`, and `aleyna` are the official reviewer slots.
   The cockpit can now create reviewer profiles, assign official slots, and add/remove shadow slot memberships without direct SQL edits.
+  `tester_access` keeps an account read-only, while `tester_access + cockpit_access` creates a read-only developer-training account with admin visibility and a virtual bilingual queue.
   Daine should be configured there as an English-only shadow member inside the Arciel slot when her actual reviewer profile is available.
   Peri and Aleyna can be assigned papers before their first login because `paper_user_assignments.auth_user_id` is backfilled later by `sync_reviewer_profile`.
 - PDF highlighting is tricky because PDF.js text layers may split visible words into multiple spans.

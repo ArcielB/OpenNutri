@@ -2,7 +2,13 @@ import { useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { appendTestEvent, isTestModeEnabled } from '../utils/testMode'
 
-export default function SuggestionModal({ user, reviewerProfile = null, onClose, testMode = false }) {
+export default function SuggestionModal({
+    user,
+    reviewerProfile = null,
+    onClose,
+    testMode = false,
+    persistInTestMode = false,
+}) {
     const [message, setMessage] = useState('')
     const [sending, setSending] = useState(false)
     const [sent, setSent] = useState(false)
@@ -28,7 +34,9 @@ export default function SuggestionModal({ user, reviewerProfile = null, onClose,
                 },
             }
 
-            if (testMode || isTestModeEnabled()) {
+            const useLocalOnlyMode = !persistInTestMode && (testMode || isTestModeEnabled())
+
+            if (useLocalOnlyMode) {
                 appendTestEvent({
                     type: 'suggestion_review_item',
                     ...payload,
@@ -63,7 +71,7 @@ export default function SuggestionModal({ user, reviewerProfile = null, onClose,
                         <p>
                             What would you like to see changed or added? Your feedback helps us improve the tool.
                         </p>
-                        {testMode && (
+                        {testMode && !persistInTestMode && (
                             <div className="test-mode-note">
                                 Test mode is active. Suggestions are stored locally and not sent to Supabase.
                             </div>

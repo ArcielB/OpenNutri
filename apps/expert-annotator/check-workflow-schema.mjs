@@ -31,6 +31,9 @@ async function main() {
       select proname
       from pg_proc
       where proname in (
+        'current_user_can_write',
+        'current_user_has_cockpit_access',
+        'current_user_has_cockpit_write_access',
         'sync_reviewer_profile',
         'touch_assignment_workspace',
         'upsert_reviewer_admin_config',
@@ -47,7 +50,7 @@ async function main() {
       from information_schema.columns
       where table_schema = 'public'
         and table_name = 'reviewer_profiles'
-        and column_name in ('tester_access')
+        and column_name in ('tester_access', 'cockpit_access')
       order by column_name
     `)
 

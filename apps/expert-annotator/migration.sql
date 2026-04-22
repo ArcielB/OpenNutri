@@ -785,7 +785,7 @@ AS $$
         SELECT 1
         FROM reviewer_profiles
         WHERE cockpit_access IS TRUE
-          AND tester_access IS FALSE
+          AND active IS TRUE
           AND (
               auth_user_id = auth.uid()
               OR (
@@ -828,6 +828,17 @@ AS $$
     SELECT NOT public.current_user_is_tester();
 $$;
 
+CREATE OR REPLACE FUNCTION public.current_user_has_cockpit_write_access()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT public.current_user_has_cockpit_access()
+       AND public.current_user_can_write();
+$$;
+
 CREATE OR REPLACE FUNCTION public.upsert_reviewer_admin_config(
     p_email TEXT,
     p_display_name TEXT,
@@ -861,8 +872,8 @@ DECLARE
     v_profile reviewer_profiles;
     v_active_cockpit_count INTEGER;
 BEGIN
-    IF NOT public.current_user_has_cockpit_access() THEN
-        RAISE EXCEPTION 'Cockpit access required';
+    IF NOT public.current_user_has_cockpit_write_access() THEN
+        RAISE EXCEPTION 'Cockpit write access required';
     END IF;
 
     IF v_email = '' THEN
@@ -928,10 +939,7 @@ BEGIN
         coalesce(p_can_review_tr, TRUE),
         coalesce(p_tester_access, FALSE),
         v_official_slot,
-        CASE
-            WHEN coalesce(p_tester_access, FALSE) IS TRUE THEN FALSE
-            ELSE coalesce(p_cockpit_access, FALSE)
-        END,
+        coalesce(p_cockpit_access, FALSE),
         coalesce(p_priority_weight_en, 1.0),
         coalesce(p_priority_weight_tr, 1.0),
         nullif(trim(coalesce(p_notes, '')), ''),
@@ -1017,10 +1025,11 @@ BEGIN
     INTO v_active_cockpit_count
     FROM reviewer_profiles
     WHERE cockpit_access IS TRUE
-      AND active IS TRUE;
+      AND active IS TRUE
+      AND tester_access IS FALSE;
 
     IF v_active_cockpit_count <= 0 THEN
-        RAISE EXCEPTION 'At least one active cockpit reviewer is required';
+        RAISE EXCEPTION 'At least one active cockpit write reviewer is required';
     END IF;
 
     SELECT *
@@ -1153,6 +1162,10 @@ DECLARE
 BEGIN
     IF p_status NOT IN ('assigned', 'draft') THEN
         RAISE EXCEPTION 'Unsupported workspace status: %', p_status;
+    END IF;
+
+    IF NOT public.current_user_can_write() THEN
+        RAISE EXCEPTION 'Read-only accounts cannot modify assignments';
     END IF;
 
     UPDATE paper_user_assignments
@@ -1627,6 +1640,10 @@ BEGIN
         RAISE EXCEPTION 'Unsupported decision kind: %', p_decision_kind;
     END IF;
 
+    IF NOT public.current_user_can_write() THEN
+        RAISE EXCEPTION 'Read-only accounts cannot modify assignments';
+    END IF;
+
     SELECT *
     INTO v_assignment
     FROM paper_user_assignments
@@ -1759,6 +1776,10 @@ DECLARE
 BEGIN
     IF v_reason = '' THEN
         RAISE EXCEPTION 'Reason required for definitely-no-data';
+    END IF;
+
+    IF NOT public.current_user_can_write() THEN
+        RAISE EXCEPTION 'Read-only accounts cannot modify assignments';
     END IF;
 
     SELECT *
@@ -1945,8 +1966,8 @@ AS $$
 DECLARE
     v_conflict paper_conflicts;
 BEGIN
-    IF NOT public.current_user_has_cockpit_access() THEN
-        RAISE EXCEPTION 'Cockpit access required';
+    IF NOT public.current_user_has_cockpit_write_access() THEN
+        RAISE EXCEPTION 'Cockpit write access required';
     END IF;
 
     SELECT *
@@ -2124,8 +2145,8 @@ CREATE POLICY "Users can insert suggestion review items"
 
 CREATE POLICY "Cockpit users can update backlog review items"
     ON backlog_review_items FOR UPDATE TO authenticated
-    USING (public.current_user_has_cockpit_access())
-    WITH CHECK (public.current_user_has_cockpit_access());
+    USING (public.current_user_has_cockpit_write_access())
+    WITH CHECK (public.current_user_has_cockpit_write_access());
 
 CREATE POLICY "Authenticated users can read paper search hits"
     ON paper_search_hits FOR SELECT TO authenticated

@@ -34,6 +34,8 @@ function normalizeFoodItem(item) {
 const OPEN_STATUSES = new Set(['assigned', 'draft'])
 const FINAL_STATUSES = new Set(['submitted', 'conflict', 'resolved', 'cancelled'])
 const SUGGESTION_REVIEW_STATUSES = ['new', 'triaged', 'planned', 'dismissed', 'done']
+const SUPPORTED_WORKFLOW_LANGUAGES = ['en', 'tr']
+const LIVE_TRAINING_SLOT_STATUSES = new Set(['pending', 'submitted', 'conflict'])
 const EMPTY_COCKPIT_DATA = {
   reviewerProfiles: [],
   reviewerSlots: [],
@@ -224,6 +226,127 @@ function buildPaperMap(rows) {
 
 function buildReviewerMap(rows) {
   return Object.fromEntries((rows || []).map((row) => [row.id, row]))
+}
+
+function normalizeWorkflowLanguage(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return SUPPORTED_WORKFLOW_LANGUAGES.includes(normalized) ? normalized : null
+}
+
+function interleaveRows(primaryRows, secondaryRows) {
+  const result = []
+  const maxLength = Math.max(primaryRows.length, secondaryRows.length)
+  for (let index = 0; index < maxLength; index += 1) {
+    if (primaryRows[index]) result.push(primaryRows[index])
+    if (secondaryRows[index]) result.push(secondaryRows[index])
+  }
+  return result
+}
+
+function compareTrainingPapers(left, right) {
+  const leftTime = new Date(left.representativeSlot?.assigned_at || left.paper?.created_at || 0).getTime()
+  const rightTime = new Date(right.representativeSlot?.assigned_at || right.paper?.created_at || 0).getTime()
+  if (rightTime !== leftTime) return rightTime - leftTime
+  return (right.paper?.id || 0) - (left.paper?.id || 0)
+}
+
+function pickTrainingRepresentativeSlot(slotAssignments) {
+  const statusRank = {
+    conflict: 0,
+    submitted: 1,
+    pending: 2,
+    resolved: 3,
+    cancelled: 4,
+  }
+
+  return [...(slotAssignments || [])].sort((left, right) => {
+    const rankDiff = (statusRank[left?.status] ?? 99) - (statusRank[right?.status] ?? 99)
+    if (rankDiff !== 0) return rankDiff
+    const leftTime = new Date(left?.assigned_at || left?.created_at || 0).getTime()
+    const rightTime = new Date(right?.assigned_at || right?.created_at || 0).getTime()
+    if (rightTime !== leftTime) return rightTime - leftTime
+    return String(left?.slot_key || '').localeCompare(String(right?.slot_key || ''))
+  })[0] || null
+}
+
+function buildVirtualQueueItem({ paper, reviewerProfileId, assignmentIdPrefix, representativeSlot = null, isTraining = false }) {
+  return {
+    id: `${assignmentIdPrefix}:${paper.id}`,
+    paper_id: paper.id,
+    reviewer_profile_id: reviewerProfileId,
+    workflow_language: normalizeWorkflowLanguage(paper.workflow_language),
+    status: 'assigned',
+    assigned_at: representativeSlot?.assigned_at || paper.created_at || null,
+    paper_slot_assignment_id: representativeSlot?.id || null,
+    latest_submission_id: null,
+    is_virtual: true,
+    is_training: isTraining,
+    paper,
+    slot_assignment: representativeSlot,
+    outcome: null,
+  }
+}
+
+function buildGenericTesterAssignments(papers, reviewerProfileId) {
+  const orderedPapers = [...(papers || [])].sort((left, right) => {
+    const leftLanguage = normalizeWorkflowLanguage(left?.workflow_language)
+    const rightLanguage = normalizeWorkflowLanguage(right?.workflow_language)
+    if (leftLanguage !== rightLanguage) {
+      if (leftLanguage === 'en') return -1
+      if (rightLanguage === 'en') return 1
+      if (leftLanguage === 'tr') return -1
+      if (rightLanguage === 'tr') return 1
+    }
+    return (right?.id || 0) - (left?.id || 0)
+  })
+
+  return orderedPapers.map((paper) => buildVirtualQueueItem({
+    paper,
+    reviewerProfileId,
+    assignmentIdPrefix: 'tester',
+  }))
+}
+
+function buildDeveloperTrainingAssignments({ papers, slotAssignments, reviewerProfileId }) {
+  const slotAssignmentsByPaperId = groupRowsByPaperId(slotAssignments)
+  const rankedPapers = (papers || [])
+    .filter((paper) => normalizeWorkflowLanguage(paper?.workflow_language))
+    .map((paper) => {
+      const paperSlotAssignments = slotAssignmentsByPaperId[paper.id] || []
+      const liveSlotAssignments = paperSlotAssignments.filter((assignment) =>
+        LIVE_TRAINING_SLOT_STATUSES.has(String(assignment?.status || '').trim().toLowerCase())
+      )
+
+      return {
+        paper,
+        language: normalizeWorkflowLanguage(paper.workflow_language),
+        hasLiveSlotAssignments: liveSlotAssignments.length > 0,
+        representativeSlot: pickTrainingRepresentativeSlot(liveSlotAssignments.length ? liveSlotAssignments : paperSlotAssignments),
+      }
+    })
+
+  const liveEn = rankedPapers
+    .filter((row) => row.hasLiveSlotAssignments && row.language === 'en')
+    .sort(compareTrainingPapers)
+  const liveTr = rankedPapers
+    .filter((row) => row.hasLiveSlotAssignments && row.language === 'tr')
+    .sort(compareTrainingPapers)
+  const backlogEn = rankedPapers
+    .filter((row) => !row.hasLiveSlotAssignments && row.language === 'en')
+    .sort(compareTrainingPapers)
+  const backlogTr = rankedPapers
+    .filter((row) => !row.hasLiveSlotAssignments && row.language === 'tr')
+    .sort(compareTrainingPapers)
+
+  return [...interleaveRows(liveEn, liveTr), ...interleaveRows(backlogEn, backlogTr)].map((row) =>
+    buildVirtualQueueItem({
+      paper: row.paper,
+      reviewerProfileId,
+      assignmentIdPrefix: 'training',
+      representativeSlot: row.representativeSlot,
+      isTraining: true,
+    })
+  )
 }
 
 function computeReviewerMetrics(cockpitData) {
@@ -425,6 +548,11 @@ function QueueView({
             <div className="empty-panel">Your queue is empty.</div>
           ) : (
             <>
+              {currentAssignment.is_training && (
+                <div className="outcome-banner">
+                  Developer training mode is read-only for annotation and admin actions. Suggestions still sync to the live review queue.
+                </div>
+              )}
               {!isEditable && (
                 <div className="review-lock-banner">
                   This assignment is finalized. You can inspect it here, but new edits will not be saved.
@@ -1355,6 +1483,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const currentPaper = currentAssignment?.paper || null
   const currentPaperIndex = assignments.findIndex((assignment) => assignment.id === selectedAssignmentId)
   const pdfUrl = currentPaper ? getPublicPdfUrl(currentPaper.filename) : null
+  const isTesterAccount = Boolean(reviewerProfile?.tester_access)
+  const isDeveloperTrainingMode = Boolean(reviewerProfile?.tester_access && reviewerProfile?.cockpit_access)
   const queueStats = {
     open: assignments.filter((assignment) => OPEN_STATUSES.has(assignment.status)).length,
     final: assignments.filter((assignment) => FINAL_STATUSES.has(assignment.status)).length,
@@ -1382,7 +1512,37 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
     setLoadingQueue(true)
     try {
-      if (reviewerProfile?.tester_access) {
+      if (isDeveloperTrainingMode) {
+        const [paperResponse, slotAssignmentsResponse] = await Promise.all([
+          supabase
+            .from('papers')
+            .select('id,title,abstract,doi,filename,workflow_language,created_at')
+            .in('workflow_language', SUPPORTED_WORKFLOW_LANGUAGES)
+            .order('id', { ascending: false })
+            .limit(2000),
+          supabase
+            .from('paper_slot_assignments')
+            .select('id,paper_id,slot_key,workflow_language,status,assigned_at,submitted_at,resolved_at,created_at')
+            .in('workflow_language', SUPPORTED_WORKFLOW_LANGUAGES)
+            .order('assigned_at', { ascending: false })
+            .limit(4000),
+        ])
+
+        if (paperResponse.error) throw paperResponse.error
+        if (slotAssignmentsResponse.error) throw slotAssignmentsResponse.error
+
+        const virtualAssignments = buildDeveloperTrainingAssignments({
+          papers: paperResponse.data || [],
+          slotAssignments: slotAssignmentsResponse.data || [],
+          reviewerProfileId: reviewerProfile.id,
+        })
+
+        setAssignments(virtualAssignments)
+        setSelectedAssignmentId((previousId) => pickDefaultAssignment(virtualAssignments, previousId))
+        return virtualAssignments
+      }
+
+      if (isTesterAccount) {
         const { data: paperRows, error: paperError } = await supabase
           .from('papers')
           .select('*')
@@ -1391,27 +1551,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
         if (paperError) throw paperError
 
-        const orderedPapers = [...(paperRows || [])].sort((a, b) => {
-          const aEn = (a?.workflow_language || '').toLowerCase() === 'en'
-          const bEn = (b?.workflow_language || '').toLowerCase() === 'en'
-          if (aEn !== bEn) return aEn ? -1 : 1
-          return (b?.id || 0) - (a?.id || 0)
-        })
-
-        const virtualAssignments = orderedPapers.map((paper) => ({
-          id: `tester:${paper.id}`,
-          paper_id: paper.id,
-          reviewer_profile_id: reviewerProfile.id,
-          workflow_language: paper.workflow_language || null,
-          status: 'assigned',
-          assigned_at: paper.created_at || null,
-          paper_slot_assignment_id: null,
-          latest_submission_id: null,
-          is_virtual: true,
-          paper,
-          slot_assignment: null,
-          outcome: null,
-        }))
+        const virtualAssignments = buildGenericTesterAssignments(paperRows || [], reviewerProfile.id)
 
         setAssignments(virtualAssignments)
         setSelectedAssignmentId((previousId) => pickDefaultAssignment(virtualAssignments, previousId))
@@ -1466,7 +1606,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     } finally {
       setLoadingQueue(false)
     }
-  }, [reviewerProfile?.id, reviewerProfile?.tester_access, showToast])
+  }, [isDeveloperTrainingMode, isTesterAccount, reviewerProfile?.id, showToast])
 
   const refreshCockpit = useCallback(async () => {
     if (!reviewerProfile?.cockpit_access) return
@@ -2322,6 +2462,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         <div className="top-bar-left">
           <span className="app-name">OpenNutri</span>
           {testMode && <span className="test-mode-pill">TEST MODE</span>}
+          {isDeveloperTrainingMode && <span className="status-badge status-draft">DEV TRAINING</span>}
           {reviewerProfile?.official_slot && (
             <span className="status-badge status-pending">{reviewerProfile.official_slot}</span>
           )}
@@ -2475,6 +2616,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           reviewerProfile={reviewerProfile}
           onClose={() => setShowSuggestion(false)}
           testMode={testMode}
+          persistInTestMode={isDeveloperTrainingMode}
         />
       )}
     </div>
