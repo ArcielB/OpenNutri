@@ -42,6 +42,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Prefer small, testable changes.
 - Commit every change you make once it is in a known working state.
 - Push every working commit soon after it is validated; do not leave validated local-only commits sitting around.
+- When a task changes the deployable annotator frontend under `apps/expert-annotator/`, deploy it to Vercel in the same task after the validated commit/push unless the user explicitly says not to, and report the production deployment state.
 - Do not use hard-negative veto logic in crawler/ranking relevance decisions. Prefer additive scoring and soft penalties. If a true hard reject seems necessary, stop and discuss it first.
 - When a task changes `apps/expert-annotator/migration.sql` or otherwise changes the live schema, apply that migration to the target database in the same task unless the user explicitly says not to or there is a concrete blocker. Do not stop at the file edit without calling out the DB state.
 - Update `BACKLOG.md` when backlog scope changes; delete completed items instead of leaving status notes.
