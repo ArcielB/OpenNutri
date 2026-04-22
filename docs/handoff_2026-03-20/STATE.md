@@ -114,7 +114,7 @@ This is the current high-signal project state after the assignment-driven annota
 **What Still Needs Attention**
 - Daine’s real email/profile still needs to be entered through the cockpit if she should receive English queue items.
 - Peri and Aleyna do not need to log in before the first refill; assignments can be created now and linked to their auth users when they log in later.
-- The current UI still carries existing PDF-highlighting limitations.
+- PDF nutrient highlights now render through `react-pdf` `customTextRenderer`, which removes the ghost top-of-page duplicate-text artifact from the regression PDF; matches that are split across multiple PDF text items are still not reconstructed.
 - L2 classifier training is still deferred until more resolved labels exist.
 
 **Useful Commands**

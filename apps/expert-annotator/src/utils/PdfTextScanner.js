@@ -1,6 +1,7 @@
 /**
- * PdfTextScanner — scans PDF text layer DOM for nutrient name matches
- * and adds highlight styling + click handlers.
+ * PdfTextScanner renders highlight markup for individual PDF text items and
+ * binds delegated interactions on the text layer after PDF.js finishes
+ * rendering it.
  */
 
 const SKIP_NAMES = new Set([
@@ -42,51 +43,45 @@ export function scanTextForNutrients(text, matcher) {
     return matchedIds
 }
 
-export function highlightNutrientsInTextLayer(textLayerEl, matcher, onNutrientClick) {
-    if (!textLayerEl) return () => { }
+export function renderTextItemWithNutrientHighlights(text, matcher) {
+    const originalText = text || ''
 
-    const spans = textLayerEl.querySelectorAll('span[role="presentation"], span')
-
-    for (const span of spans) {
-        if (span.dataset.nutrientScanned) continue
-        span.dataset.nutrientScanned = 'true'
-
-        const originalText = span.textContent || ''
-        if (originalText.trim().length < 2) continue
-
-        const matches = collectMatches(originalText, matcher)
-        if (matches.length === 0) continue
-
-        const fragment = document.createDocumentFragment()
-        let cursor = 0
-
-        for (const match of matches) {
-            if (match.start > cursor) {
-                fragment.appendChild(document.createTextNode(originalText.slice(cursor, match.start)))
-            }
-
-            const mark = document.createElement('mark')
-            mark.className = 'nutrient-highlight'
-            mark.dataset.nutrientId = String(match.nutrient.id)
-            mark.dataset.nutrientName = match.nutrient.name
-            mark.dataset.nutrientUnit = match.nutrient.unit_name || 'G'
-            mark.textContent = originalText.slice(match.start, match.end)
-            fragment.appendChild(mark)
-
-            cursor = match.end
-        }
-
-        if (cursor < originalText.length) {
-            fragment.appendChild(document.createTextNode(originalText.slice(cursor)))
-        }
-
-        span.replaceChildren(fragment)
+    if (!originalText) {
+        return ''
     }
 
+    if (!matcher) {
+        return escapeHtmlText(originalText)
+    }
+
+    const matches = collectMatches(originalText, matcher)
+    if (matches.length === 0) {
+        return escapeHtmlText(originalText)
+    }
+
+    let html = ''
+    let cursor = 0
+
+    for (const match of matches) {
+        if (match.start > cursor) {
+            html += escapeHtmlText(originalText.slice(cursor, match.start))
+        }
+
+        html += `<mark class="nutrient-highlight" data-nutrient-id="${escapeHtmlAttribute(String(match.nutrient.id))}" data-nutrient-name="${escapeHtmlAttribute(match.nutrient.name)}" data-nutrient-unit="${escapeHtmlAttribute(match.nutrient.unit_name || 'G')}">${escapeHtmlText(originalText.slice(match.start, match.end))}</mark>`
+        cursor = match.end
+    }
+
+    if (cursor < originalText.length) {
+        html += escapeHtmlText(originalText.slice(cursor))
+    }
+
+    return html
+}
+
+export function bindNutrientHighlightInteractions(textLayerEl, onNutrientClick) {
+    if (!textLayerEl) return () => { }
+
     const resolveMarkFromEvent = (event) => {
-        // PDF.js text layer bazen tıklanan highlight'ı doğrudan event target olarak
-        // vermiyor. Bu yüzden target, elementsFromPoint ve caret tabanlı fallback'leri
-        // sırayla deneyip gerçekten işaretlenen nutrient öğesini buluyoruz.
         const directTarget = event.target?.closest?.('mark.nutrient-highlight')
         if (directTarget && textLayerEl.contains(directTarget)) {
             return directTarget
@@ -145,6 +140,31 @@ function buildBoundaryRegex(name) {
     return new RegExp(`(^|[^A-Za-z0-9])(${escaped})(?=[^A-Za-z0-9]|$)`, 'gi')
 }
 
+function escapeHtmlText(value) {
+    return String(value).replace(/[&<>"']/g, mapEscapedHtmlChar)
+}
+
+function escapeHtmlAttribute(value) {
+    return String(value).replace(/[&<>"']/g, mapEscapedHtmlChar)
+}
+
+function mapEscapedHtmlChar(char) {
+    switch (char) {
+        case '&':
+            return '&amp;'
+        case '<':
+            return '&lt;'
+        case '>':
+            return '&gt;'
+        case '"':
+            return '&quot;'
+        case '\'':
+            return '&#39;'
+        default:
+            return char
+    }
+}
+
 function collectMatches(text, matcher) {
     const matches = []
 
@@ -182,9 +202,8 @@ function collectMatches(text, matcher) {
     const resolved = []
     let lastEnd = -1
 
-    // Aynı span içinde çakışan eşleşmeler olduğunda daha erken başlayan ve
-    // daha uzun terimleri koruyoruz; bu sayede kısa terimler uzun nutrient
-    // adlarını parçalayıp hatalı highlight üretmiyor.
+    // When matches overlap inside a single text item, keep the earlier and
+    // longer match so short names do not fragment longer nutrient names.
     for (const match of matches) {
         if (match.start < lastEnd) continue
         resolved.push(match)

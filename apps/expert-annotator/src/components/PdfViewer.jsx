@@ -1,9 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, useEffectEvent } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
 import NutrientPopover from './NutrientPopover'
-import { buildNutrientMatcher, highlightNutrientsInTextLayer } from '../utils/PdfTextScanner'
+import {
+    bindNutrientHighlightInteractions,
+    buildNutrientMatcher,
+    renderTextItemWithNutrientHighlights,
+} from '../utils/PdfTextScanner'
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -15,52 +19,69 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
     const [popover, setPopover] = useState(null) // { nutrient, rect }
     const containerRef = useRef(null)
     const cleanupRef = useRef(null)
-    const matcherRef = useRef(null)
 
-    // Build matcher when nutrients change
-    useEffect(() => {
-        if (allNutrients && allNutrients.length > 0) {
-            matcherRef.current = buildNutrientMatcher(allNutrients)
+    const nutrientMatcher = useMemo(() => {
+        if (!allNutrients || allNutrients.length === 0) {
+            return null
         }
+
+        return buildNutrientMatcher(allNutrients)
     }, [allNutrients])
+
+    const customTextRenderer = useCallback(
+        ({ str }) => renderTextItemWithNutrientHighlights(str, nutrientMatcher),
+        [nutrientMatcher]
+    )
 
     function onDocumentLoadSuccess({ numPages }) {
         setNumPages(numPages)
         setPageNumber(1)
     }
 
-    // After each page render, scan and highlight nutrient names
-    const handlePageRenderSuccess = useCallback(() => {
-        // Clean up previous highlights
+    const handleNutrientClick = useCallback((nutrient, rect) => {
+        setPopover({ nutrient, rect })
+    }, [])
+
+    const closePopover = useEffectEvent(() => {
+        setPopover(null)
+    })
+
+    const handleTextLayerRenderSuccess = useCallback(() => {
         if (cleanupRef.current) {
             cleanupRef.current()
             cleanupRef.current = null
         }
 
-        if (!matcherRef.current || !containerRef.current) return
+        if (!containerRef.current) return
 
-        // Find the text layer — react-pdf renders it as a div with class "textLayer"
         const textLayer = containerRef.current.querySelector('.textLayer')
         if (!textLayer) return
 
-        const cleanup = highlightNutrientsInTextLayer(
+        cleanupRef.current = bindNutrientHighlightInteractions(
             textLayer,
-            matcherRef.current,
-            (nutrient, rect) => {
-                setPopover({ nutrient, rect })
-            }
+            handleNutrientClick
         )
-        cleanupRef.current = cleanup
-    }, [])
+    }, [handleNutrientClick])
 
-    // Clean up on unmount or URL change
+    useEffect(() => {
+        closePopover()
+
+        return () => {
+            if (cleanupRef.current) {
+                cleanupRef.current()
+                cleanupRef.current = null
+            }
+        }
+    }, [pageNumber, pdfUrl, scale])
+
     useEffect(() => {
         return () => {
             if (cleanupRef.current) {
                 cleanupRef.current()
+                cleanupRef.current = null
             }
         }
-    }, [pdfUrl])
+    }, [])
 
     const handlePopoverAdd = (nutrientEntry) => {
         if (onAddNutrient) {
@@ -110,9 +131,10 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
                     <Page
                         pageNumber={pageNumber}
                         scale={scale}
+                        customTextRenderer={customTextRenderer}
                         renderTextLayer={true}
                         renderAnnotationLayer={false}
-                        onRenderTextLayerSuccess={handlePageRenderSuccess}
+                        onRenderTextLayerSuccess={handleTextLayerRenderSuccess}
                     />
                 </Document>
             </div>

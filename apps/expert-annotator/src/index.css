@@ -1002,9 +1002,10 @@ body {
 }
 
 /* ===== PDF NUTRIENT HIGHLIGHTS ===== */
-.nutrient-highlight {
+.textLayer .nutrient-highlight {
   background: rgba(91, 107, 240, 0.25);
-  color: inherit;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
   border-radius: 2px;
   cursor: pointer;
   position: relative;
@@ -1016,7 +1017,7 @@ body {
   pointer-events: auto;
 }
 
-.nutrient-highlight:hover {
+.textLayer .nutrient-highlight:hover {
   background: rgba(91, 107, 240, 0.45);
 }
 

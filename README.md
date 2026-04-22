@@ -190,6 +190,7 @@ Data pipeline and ETL:
   Daine should be configured there as an English-only shadow member inside the Arciel slot when her actual reviewer profile is available.
   Peri and Aleyna can be assigned papers before their first login because `paper_user_assignments.auth_user_id` is backfilled later by `sync_reviewer_profile`.
 - PDF highlighting is tricky because PDF.js text layers may split visible words into multiple spans.
+  The current viewer uses `react-pdf` `customTextRenderer` to inject highlight markup only into single PDF text items, which avoids post-render text-layer rewrites but still does not reconstruct matches across multiple items.
 
 **Contributing**
 When taking a backlog item:
