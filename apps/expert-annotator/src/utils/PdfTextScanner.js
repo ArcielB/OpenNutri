@@ -532,6 +532,7 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
     const bodyFragments = []
     const bodyRowIndexes = []
     let lastAcceptedRowIndex = null
+    let hasAcceptedDataLikeRow = false
 
     for (let rowIndex = block.endRowIndex + 1; rowIndex < nextBlockStartRowIndex; rowIndex += 1) {
         const row = rows[rowIndex]
@@ -561,18 +562,11 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
             continue
         }
 
-        const includeEntireRow = !row.fragments.some((fragment) => fragment.looksProseLike)
-        const fragmentsToInclude = row.fragments.filter((fragment) => {
-            if (fragment.looksProseLike) {
-                return false
-            }
-
-            if (fragment.isTableLike) {
-                return includeEntireRow || spansOverlap(band, spanFromFragment(fragment))
-            }
-
-            return false
+        const rowSelection = selectFragmentsForTableRow(overlappingFragments, {
+            hasAcceptedDataLikeRow,
+            rowsSinceCaption: rowIndex - block.endRowIndex - 1,
         })
+        const fragmentsToInclude = rowSelection.fragmentsToInclude
 
         if (fragmentsToInclude.length === 0) {
             break
@@ -581,6 +575,7 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
         bodyFragments.push(...fragmentsToInclude)
         bodyRowIndexes.push(rowIndex)
         lastAcceptedRowIndex = rowIndex
+        hasAcceptedDataLikeRow = hasAcceptedDataLikeRow || rowSelection.hasDataLikeFragment
 
         for (const fragment of fragmentsToInclude) {
             band = unionSpan(band, spanFromFragment(fragment))
@@ -673,6 +668,69 @@ function countMajorClusters(items) {
     }
 
     return clusters
+}
+
+function selectFragmentsForTableRow(overlappingFragments, context) {
+    const { hasAcceptedDataLikeRow, rowsSinceCaption } = context
+    const eligibleFragments = overlappingFragments.filter((fragment) => !fragment.looksProseLike)
+
+    if (eligibleFragments.length === 0) {
+        return createEmptyRowSelection()
+    }
+
+    const tableLikeFragments = eligibleFragments.filter((fragment) => fragment.isTableLike)
+    const shortHeaderFragments = eligibleFragments.filter(isShortHeaderCandidateFragment)
+    const rowWordCount = eligibleFragments.reduce((total, fragment) => total + fragment.wordCount, 0)
+    const rowHasMultipleCells = eligibleFragments.length >= 2
+    const rowHasExplicitHeaderSignal = eligibleFragments.some(
+        (fragment) => fragment.hasHeaderToken || fragment.hasUnitLabel
+    )
+    const rowHasDataLikeFragment = eligibleFragments.some(isDataLikeFragment)
+    const rowIsHeaderLike =
+        shortHeaderFragments.length === eligibleFragments.length &&
+        rowWordCount <= 9 &&
+        (rowHasMultipleCells || rowHasExplicitHeaderSignal || tableLikeFragments.length > 0)
+
+    if (tableLikeFragments.length > 0) {
+        const fragmentsToInclude = rowIsHeaderLike
+            ? uniqueFragments([...tableLikeFragments, ...shortHeaderFragments])
+            : tableLikeFragments
+
+        return {
+            fragmentsToInclude,
+            hasDataLikeFragment: rowHasDataLikeFragment,
+        }
+    }
+
+    const allowHeaderOnlyRow = rowIsHeaderLike && (hasAcceptedDataLikeRow || rowsSinceCaption <= 1)
+
+    if (!allowHeaderOnlyRow) {
+        return createEmptyRowSelection()
+    }
+
+    return {
+        fragmentsToInclude: shortHeaderFragments,
+        hasDataLikeFragment: false,
+    }
+}
+
+function createEmptyRowSelection() {
+    return {
+        fragmentsToInclude: [],
+        hasDataLikeFragment: false,
+    }
+}
+
+function uniqueFragments(fragments) {
+    return Array.from(new Set(fragments))
+}
+
+function isShortHeaderCandidateFragment(fragment) {
+    return !fragment.looksProseLike && fragment.wordCount > 0 && fragment.wordCount <= 4
+}
+
+function isDataLikeFragment(fragment) {
+    return fragment.numericTokenCount > 0 || fragment.sampleCodeCount > 0
 }
 
 function isAllCapsToken(token) {
