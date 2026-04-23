@@ -114,7 +114,9 @@ This is the current high-signal project state after the assignment-driven annota
 **What Still Needs Attention**
 - Daine’s real email/profile still needs to be entered through the cockpit if she should receive English queue items.
 - Peri and Aleyna do not need to log in before the first refill; assignments can be created now and linked to their auth users when they log in later.
-- PDF nutrient highlights now render through `react-pdf` `customTextRenderer`, which removes the ghost top-of-page duplicate-text artifact from the regression PDF; matches that are split across multiple PDF text items are still not reconstructed.
+- PDF nutrient highlights are now precision-first and table-only:
+  the annotator builds a page-local allowlist from PDF.js text content and only highlights detected table body/header cells plus caption/title lines.
+  Nearby prose, legends, and ambiguous pages stay unhighlighted, and captionless continuation pages are intentionally suppressed until a safer continuation heuristic exists.
 - L2 classifier training is still deferred until more resolved labels exist.
 
 **Useful Commands**

@@ -6,6 +6,7 @@ import NutrientPopover from './NutrientPopover'
 import {
     bindNutrientHighlightInteractions,
     buildNutrientMatcher,
+    buildPageTableHighlightPlan,
     renderTextItemWithNutrientHighlights,
 } from '../utils/PdfTextScanner'
 
@@ -17,6 +18,12 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
     const [pageNumber, setPageNumber] = useState(1)
     const [scale, setScale] = useState(1.2)
     const [popover, setPopover] = useState(null) // { nutrient, rect }
+    const [pageHighlightPlan, setPageHighlightPlan] = useState(() => ({
+        pdfUrl: null,
+        pageNumber: null,
+        isReady: false,
+        allowedItemIndexes: new Set(),
+    }))
     const containerRef = useRef(null)
     const cleanupRef = useRef(null)
 
@@ -29,8 +36,15 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
     }, [allNutrients])
 
     const customTextRenderer = useCallback(
-        ({ str }) => renderTextItemWithNutrientHighlights(str, nutrientMatcher),
-        [nutrientMatcher]
+        ({ str, itemIndex }) =>
+            renderTextItemWithNutrientHighlights(str, nutrientMatcher, {
+                allowHighlight:
+                    pageHighlightPlan.isReady &&
+                    pageHighlightPlan.pdfUrl === pdfUrl &&
+                    pageHighlightPlan.pageNumber === pageNumber &&
+                    pageHighlightPlan.allowedItemIndexes.has(itemIndex),
+            }),
+        [nutrientMatcher, pageHighlightPlan, pdfUrl, pageNumber]
     )
 
     function onDocumentLoadSuccess({ numPages }) {
@@ -45,6 +59,20 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
     const closePopover = useEffectEvent(() => {
         setPopover(null)
     })
+
+    const handlePageTextSuccess = useCallback(
+        (textContent) => {
+            const nextPlan = buildPageTableHighlightPlan(textContent)
+
+            setPageHighlightPlan({
+                pdfUrl,
+                pageNumber,
+                isReady: true,
+                allowedItemIndexes: nextPlan.allowedItemIndexes,
+            })
+        },
+        [pdfUrl, pageNumber]
+    )
 
     const handleTextLayerRenderSuccess = useCallback(() => {
         if (cleanupRef.current) {
@@ -134,6 +162,7 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
                         customTextRenderer={customTextRenderer}
                         renderTextLayer={true}
                         renderAnnotationLayer={false}
+                        onGetTextSuccess={handlePageTextSuccess}
                         onRenderTextLayerSuccess={handleTextLayerRenderSuccess}
                     />
                 </Document>

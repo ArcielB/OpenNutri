@@ -53,8 +53,10 @@ PDF text highlighting is not normal DOM text rendering.
 - create unexpected text boundaries
 - make click handling harder than normal HTML text
 
-The current viewer uses `react-pdf` `customTextRenderer` to inject highlight markup only into individual text items after PDF.js lays them out.
-Cross-item phrase reconstruction is still not implemented, so matches split across multiple PDF text items will not highlight as one combined phrase.
+The current viewer uses `react-pdf` `customTextRenderer` plus a page-local text-content analysis step.
+Only detected table body/header cells and table caption/title lines are eligible for nutrient highlights.
+Nearby prose, footnotes, legends, and pages without a confident local table anchor render with no nutrient highlights at all.
+Cross-item phrase reconstruction is still not implemented, so matches split across multiple PDF text items inside a detected table will not highlight as one combined phrase.
 
 If you change highlighting behavior:
 - test simple words

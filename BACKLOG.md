@@ -132,43 +132,36 @@ Allow one or more image attachments in the suggestion modal.
 
 
 
-## 7. Fix PDF nutrient highlighting errors
+## 7. Improve PDF highlight recall inside detected table regions
 
 ### Problem
-The nutrient highlighting feature works for many terms but fails for some words or phrases. In some PDFs it highlights partial words, the wrong word, or a broken segment inside a word.
+PDF nutrient highlighting is now intentionally limited to detected table body/header cells and caption/title lines only. That fixed the false positives in nearby prose, but some legitimate table matches are still missed.
 
-### Known bad example
-- `glucose`
-- `sucrose`
-- `maltose`
-- `lactose`
-
-Observed behavior:
-- highlight does not always cover the full visible nutrient token cleanly
+### Remaining limits to solve
+- nutrient names split across multiple PDF text items inside the same detected table row do not reconstruct into one highlight
+- captionless continuation pages are suppressed entirely, even when the next page is obviously the rest of the same table
 
 ### Likely technical area
 - `apps/expert-annotator/src/components/PdfViewer.jsx`
 - `apps/expert-annotator/src/utils/PdfTextScanner.js`
 
 ### Goal
-Make nutrient highlighting reliable in PDF text layers, even when PDF.js splits visible text into awkward spans or text nodes.
+Improve recall without undoing the precision-first rule that prose, footnotes, legends, and ambiguous pages must stay unhighlighted.
 
 ### Acceptance criteria
-- highlight covers the intended nutrient word only
-- no matching inside injected markup
-- no broken partial-word highlight
+- cross-item nutrient phrases inside detected table regions can highlight cleanly
+- safe continuation-page support is added only when the table region can still be identified confidently
+- surrounding prose still never becomes highlight-eligible again
 - click-to-open nutrient popover still works
-- no regression on already-working nutrient names
 
 ### Notes
-- This is harder than it looks because PDF text layers are not normal HTML text flows.
-- A rewrite of the highlight algorithm is acceptable if needed.
+- keep the table-only allowlist model
+- if a continuation-page heuristic is not clearly reliable, suppress highlights instead of expanding scope
 
 ### Done when
-- the known bad examples highlight correctly
-- already-working nutrient terms still highlight correctly
-- no highlight is created inside injected markup
-- popover interaction still works
+- detected table rows can highlight split nutrient phrases that currently fall between PDF text items
+- clearly confident continuation pages can opt in without page-wide matching
+- ambiguous pages still render with no nutrient highlights
 
 
 

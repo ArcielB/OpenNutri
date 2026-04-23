@@ -23,7 +23,7 @@ Features:
 - Supabase auth (email/password + Google).
 - Assignment-driven labeling queue with a strict personal `My Queue`; cockpit users now inspect the global paper/assignment state from a separate `All Papers` admin screen instead of mixing it into the labeling view.
 - Read-only developer-training accounts now use a virtual bilingual `My Queue` when `tester_access=true` and `cockpit_access=true`: they keep the normal labeling/admin UI, but annotation/admin/conflict actions stay local-only while new suggestion submissions still persist to Supabase.
-- PDF viewer with nutrient-name highlighting and click-to-add popover.
+- PDF viewer with table-scoped nutrient-name highlighting and click-to-add popover.
 - Food and nutrient autocomplete with ranking and search logging.
 - Save draft, submit usable-data extraction, or submit no-usable-data.
 - `done` / `draft` with `has_data=true` now requires at least one valid food item.
@@ -189,8 +189,10 @@ Data pipeline and ETL:
   `tester_access` keeps an account read-only, while `tester_access + cockpit_access` creates a read-only developer-training account with admin visibility and a virtual bilingual queue.
   Daine should be configured there as an English-only shadow member inside the Arciel slot when her actual reviewer profile is available.
   Peri and Aleyna can be assigned papers before their first login because `paper_user_assignments.auth_user_id` is backfilled later by `sync_reviewer_profile`.
-- PDF highlighting is tricky because PDF.js text layers may split visible words into multiple spans.
-  The current viewer uses `react-pdf` `customTextRenderer` to inject highlight markup only into single PDF text items, which avoids post-render text-layer rewrites but still does not reconstruct matches across multiple items.
+- PDF highlighting is table-scoped and precision-first.
+  The viewer builds a page-local allowlist from PDF.js text content and only highlights detected table body/header cells plus table caption/title lines.
+  If a page has no confident local table anchor, or a table continues onto a captionless page, the viewer suppresses highlights on that page instead of falling back to page-wide prose matching.
+  Highlight markup is still injected through `react-pdf` `customTextRenderer` on single PDF text items, so matches split across multiple items inside a table are still a separate follow-up.
 
 **Contributing**
 When taking a backlog item:
