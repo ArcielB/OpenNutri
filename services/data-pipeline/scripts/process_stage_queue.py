@@ -144,6 +144,13 @@ def extract_pdf_text(filename: str) -> str:
     return full_text
 
 
+def ai_result_error(ai_result) -> str | None:
+    reasoning = str(getattr(ai_result, "reasoning", "") or "").strip()
+    if reasoning.lower().startswith("extraction error:"):
+        return reasoning
+    return None
+
+
 def update_paper_processing_state(
     client: Client,
     *,
@@ -307,6 +314,9 @@ def process_one_task(client: Client, *, task: dict, stage_config: RoutingStageCo
                 "full_text": full_text,
             }
         )
+        embedded_error = ai_result_error(ai_result)
+        if embedded_error:
+            raise RuntimeError(embedded_error)
         routing_bucket = classify_routing_bucket(
             is_useful=ai_result.is_useful,
             overall_confidence=ai_result.overall_confidence,

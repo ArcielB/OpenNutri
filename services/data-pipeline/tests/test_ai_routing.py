@@ -519,6 +519,46 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
         self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
 
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_embedded_evaluator_errors_requeue_instead_of_routing_to_humans(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 10,
+                        "title": "Quota paper",
+                        "doi": "10.123/quota",
+                        "filename": "quota.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-10", "paper_id": 10, "status": "processing"}],
+            }
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=False,
+            reasoning="Extraction error: 429 quota exceeded",
+            overall_confidence=0.0,
+            data=[],
+            raw_response_text="",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-10", "paper_id": 10},
+            stage_config=self.stage_config(),
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], "queued_for_ai")
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "queued")
+        self.assertIn("429 quota exceeded", client.tables["paper_stage_tasks"][0]["last_error"])
+        self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
+        self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
+        self.assertEqual(client.inserts, [])
+
 
 if __name__ == "__main__":
     unittest.main()
