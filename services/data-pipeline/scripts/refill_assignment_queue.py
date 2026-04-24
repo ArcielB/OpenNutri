@@ -164,7 +164,9 @@ def available_papers(
     return [
         paper
         for paper in sorted(papers, key=lambda row: row.get("id") or 0)
-        if paper.get("id") not in blocked_ids and str(paper.get("workflow_language") or "").strip().lower() in SUPPORTED_LANGUAGES
+        if paper.get("id") not in blocked_ids
+        and str(paper.get("routing_status") or "").strip().lower() == "human_review_ready"
+        and str(paper.get("workflow_language") or "").strip().lower() in SUPPORTED_LANGUAGES
     ]
 
 
@@ -279,7 +281,7 @@ def build_assignment_rows(
 
 def fetch_state(client: Client) -> dict[str, list[dict]]:
     return {
-        "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at"),
+        "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at,routing_status"),
         "global_labels": fetch_all(client, "paper_global_labels", "paper_id,label"),
         "review_outcomes": fetch_all(client, "paper_review_outcomes", "paper_id,decision_kind"),
         "slot_assignments": fetch_all(client, "paper_slot_assignments", "id,paper_id,slot_key,status,workflow_language"),
@@ -299,6 +301,32 @@ def fetch_state(client: Client) -> dict[str, list[dict]]:
             "slot_key,reviewer_profile_id,member_role,can_review_en,can_review_tr,counts_toward_official,active",
         ),
     }
+
+
+def has_queued_ai_work(papers: list[dict]) -> bool:
+    return any(
+        str(paper.get("routing_status") or "").strip().lower() == "queued_for_ai"
+        for paper in papers
+    )
+
+
+def drain_ai_queue(*, dry_run: bool) -> bool:
+    cmd = [
+        sys.executable,
+        "services/data-pipeline/scripts/process_stage_queue.py",
+        "--max-tasks",
+        "200",
+    ]
+    print("Queue stock exhausted; attempting to drain queued AI routing tasks first.")
+    if dry_run:
+        print("[dry-run] " + " ".join(cmd))
+        return True
+
+    env = os.environ.copy()
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env, check=False)
+    if result.returncode != 0:
+        raise SystemExit(f"process_stage_queue.py failed with exit code {result.returncode}")
+    return True
 
 
 def refill_stock(
@@ -448,6 +476,12 @@ def main() -> None:
                 client.table("paper_user_assignments").insert(user_inserts).execute()
                 print("  Inserted assignments into Supabase.")
             continue
+
+        if has_queued_ai_work(state["papers"]):
+            if drain_ai_queue(dry_run=args.dry_run):
+                if args.dry_run:
+                    return
+                continue
 
         if not refill_stock(
             current_available=open_available,

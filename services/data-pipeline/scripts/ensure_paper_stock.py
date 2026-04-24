@@ -54,7 +54,7 @@ def fetch_rows(
 
 
 def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, int]:
-    papers = fetch_rows(supabase_url, supabase_key, "papers", "id,workflow_language")
+    papers = fetch_rows(supabase_url, supabase_key, "papers", "id,workflow_language,routing_status")
     global_labels = fetch_rows(
         supabase_url,
         supabase_key,
@@ -96,6 +96,8 @@ def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, in
     for row in papers:
         paper_id = row.get("id")
         if paper_id in skipped_ids or paper_id in resolved_ids or paper_id in assigned_ids:
+            continue
+        if str(row.get("routing_status") or "").strip().lower() != "human_review_ready":
             continue
         workflow_language = str(row.get("workflow_language") or "").strip().lower()
         if workflow_language in SUPPORTED_LANGUAGES:
@@ -157,11 +159,11 @@ def print_counts(prefix: str, counts: Dict[str, int], targets: Dict[str, int]) -
     print(f"  Global no-data labels: {counts['global_skips']}")
     print(f"  Resolved review outcomes: {counts['resolved']}")
     print(f"  Already assigned papers: {counts['assigned']}")
-    print(f"  Available total: {counts['total']}")
-    print(f"  Available EN: {counts['en']} / target {targets['en']}")
-    print(f"  Available TR: {counts['tr']} / target {targets['tr']}")
+    print(f"  Human-review-ready total: {counts['total']}")
+    print(f"  Human-review-ready EN: {counts['en']} / target {targets['en']}")
+    print(f"  Human-review-ready TR: {counts['tr']} / target {targets['tr']}")
     if counts["unscoped"]:
-        print(f"  Available unscoped: {counts['unscoped']}")
+        print(f"  Human-review-ready unscoped: {counts['unscoped']}")
 
 
 def _load_manifest_payload(data_dir: str) -> dict | None:
@@ -308,6 +310,18 @@ def run_refill_cycle(
         env,
     )
 
+    worker_batch = max(50, (deficits["en"] + deficits["tr"]) * 5)
+    run_command(
+        "Process AI routing queue",
+        [
+            sys.executable,
+            "services/data-pipeline/scripts/process_stage_queue.py",
+            "--max-tasks",
+            str(worker_batch),
+        ],
+        env,
+    )
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Ensure there are enough bilingual papers for the UI.")
@@ -376,16 +390,30 @@ def main() -> None:
     if args.dry_run:
         return
 
+    env = os.environ.copy()
+    env["SUPABASE_URL"] = supabase_url
+    env["SUPABASE_SERVICE_ROLE_KEY"] = supabase_key
+
+    run_command(
+        "Process existing AI routing queue",
+        [
+            sys.executable,
+            "services/data-pipeline/scripts/process_stage_queue.py",
+            "--max-tasks",
+            str(max(50, sum(targets.values()) * 5)),
+        ],
+        env=env,
+        allow_failure=False,
+    )
+    counts = fetch_available_counts(supabase_url, supabase_key)
+    print_counts("After draining existing AI queue:", counts, targets)
+
     if quotas_met(targets, counts):
         print("Language targets already met. No crawl triggered.")
         return
 
     if counts["total"] > args.threshold:
         print("Total threshold already exceeded, but refill will continue because at least one language is under target.")
-
-    env = os.environ.copy()
-    env["SUPABASE_URL"] = supabase_url
-    env["SUPABASE_SERVICE_ROLE_KEY"] = supabase_key
 
     for cycle in range(1, args.max_cycles + 1):
         current_deficits = deficits_for(targets, counts)

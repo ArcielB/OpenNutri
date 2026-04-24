@@ -104,7 +104,82 @@ ALTER TABLE papers
     ADD COLUMN IF NOT EXISTS filter_score REAL,
     ADD COLUMN IF NOT EXISTS ingest_status TEXT NOT NULL DEFAULT 'accepted',
     ADD COLUMN IF NOT EXISTS audit_flag BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS rejection_reasons JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ADD COLUMN IF NOT EXISTS rejection_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS current_stage_key TEXT,
+    ADD COLUMN IF NOT EXISTS routing_status TEXT,
+    ADD COLUMN IF NOT EXISTS routing_bucket TEXT,
+    ADD COLUMN IF NOT EXISTS route_destination TEXT,
+    ADD COLUMN IF NOT EXISTS latest_ai_extraction_id UUID,
+    ADD COLUMN IF NOT EXISTS routing_updated_at TIMESTAMPTZ;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'papers'
+          AND constraint_name = 'papers_routing_status_check'
+    ) THEN
+        ALTER TABLE papers
+            DROP CONSTRAINT papers_routing_status_check;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'papers'
+          AND constraint_name = 'papers_routing_bucket_check'
+    ) THEN
+        ALTER TABLE papers
+            DROP CONSTRAINT papers_routing_bucket_check;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'papers'
+          AND constraint_name = 'papers_route_destination_check'
+    ) THEN
+        ALTER TABLE papers
+            DROP CONSTRAINT papers_route_destination_check;
+    END IF;
+END $$;
+
+ALTER TABLE papers
+    ADD CONSTRAINT papers_routing_status_check
+    CHECK (
+        routing_status IS NULL
+        OR routing_status IN (
+            'queued_for_ai',
+            'ai_processing',
+            'ai_failed',
+            'human_review_ready',
+            'ai_finalized_has_data',
+            'ai_finalized_no_usable_data'
+        )
+    );
+
+ALTER TABLE papers
+    ADD CONSTRAINT papers_routing_bucket_check
+    CHECK (
+        routing_bucket IS NULL
+        OR routing_bucket IN (
+            'high_confidence_has_data',
+            'high_confidence_no_usable_data',
+            'low_confidence_has_data',
+            'low_confidence_no_usable_data'
+        )
+    );
+
+ALTER TABLE papers
+    ADD CONSTRAINT papers_route_destination_check
+    CHECK (
+        route_destination IS NULL
+        OR route_destination IN ('human_review', 'finalized', 'blocked')
+    );
 
 CREATE TABLE IF NOT EXISTS paper_search_hits (
     id BIGSERIAL PRIMARY KEY,
@@ -562,6 +637,146 @@ CREATE TABLE IF NOT EXISTS ai_extractions (
 CREATE INDEX IF NOT EXISTS idx_ai_extractions_paper ON ai_extractions(paper_id);
 CREATE INDEX IF NOT EXISTS idx_ai_extractions_status ON ai_extractions(status);
 
+ALTER TABLE ai_extractions
+    ADD COLUMN IF NOT EXISTS stage_key TEXT,
+    ADD COLUMN IF NOT EXISTS prompt_version TEXT,
+    ADD COLUMN IF NOT EXISTS input_hash TEXT,
+    ADD COLUMN IF NOT EXISTS normalized_payload_json JSONB,
+    ADD COLUMN IF NOT EXISTS positive_threshold_snapshot REAL,
+    ADD COLUMN IF NOT EXISTS negative_threshold_snapshot REAL,
+    ADD COLUMN IF NOT EXISTS routing_bucket TEXT,
+    ADD COLUMN IF NOT EXISTS route_destination TEXT,
+    ADD COLUMN IF NOT EXISTS audit_sampled BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS finalized_without_human BOOLEAN NOT NULL DEFAULT FALSE;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'ai_extractions'
+          AND constraint_name = 'ai_extractions_routing_bucket_check'
+    ) THEN
+        ALTER TABLE ai_extractions
+            DROP CONSTRAINT ai_extractions_routing_bucket_check;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'ai_extractions'
+          AND constraint_name = 'ai_extractions_route_destination_check'
+    ) THEN
+        ALTER TABLE ai_extractions
+            DROP CONSTRAINT ai_extractions_route_destination_check;
+    END IF;
+END $$;
+
+ALTER TABLE ai_extractions
+    ADD CONSTRAINT ai_extractions_routing_bucket_check
+    CHECK (
+        routing_bucket IS NULL
+        OR routing_bucket IN (
+            'high_confidence_has_data',
+            'high_confidence_no_usable_data',
+            'low_confidence_has_data',
+            'low_confidence_no_usable_data'
+        )
+    );
+
+ALTER TABLE ai_extractions
+    ADD CONSTRAINT ai_extractions_route_destination_check
+    CHECK (
+        route_destination IS NULL
+        OR route_destination IN ('human_review', 'finalized', 'blocked')
+    );
+
+CREATE TABLE IF NOT EXISTS routing_stage_configs (
+    stage_key TEXT PRIMARY KEY,
+    stage_kind TEXT NOT NULL
+        CHECK (stage_kind IN ('ai_model')),
+    display_name TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT FALSE,
+    positive_threshold REAL NOT NULL DEFAULT 1.0
+        CHECK (positive_threshold >= 0 AND positive_threshold <= 1),
+    negative_threshold REAL NOT NULL DEFAULT 1.0
+        CHECK (negative_threshold >= 0 AND negative_threshold <= 1),
+    audit_rate REAL NOT NULL DEFAULT 0.05
+        CHECK (audit_rate >= 0 AND audit_rate <= 1),
+    next_stage_on_low_confidence TEXT NOT NULL DEFAULT 'human_review',
+    counts_as_truth BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS paper_stage_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    stage_key TEXT NOT NULL REFERENCES routing_stage_configs(stage_key) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'processing', 'completed', 'failed', 'cancelled')),
+    priority INTEGER NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (paper_id, stage_key)
+);
+
+INSERT INTO routing_stage_configs (
+    stage_key,
+    stage_kind,
+    display_name,
+    model_name,
+    prompt_version,
+    active,
+    positive_threshold,
+    negative_threshold,
+    audit_rate,
+    next_stage_on_low_confidence,
+    counts_as_truth
+)
+VALUES (
+    'gemini_flash_triage_v1',
+    'ai_model',
+    'Gemini Flash Triage v1',
+    'gemini-3-flash-preview',
+    'gemini_flash_triage_v1',
+    TRUE,
+    1.0,
+    1.0,
+    0.05,
+    'human_review',
+    FALSE
+)
+ON CONFLICT (stage_key) DO UPDATE
+SET
+    stage_kind = EXCLUDED.stage_kind,
+    display_name = EXCLUDED.display_name,
+    model_name = EXCLUDED.model_name,
+    prompt_version = EXCLUDED.prompt_version;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'papers'
+          AND constraint_name = 'papers_latest_ai_extraction_id_fkey'
+    ) THEN
+        ALTER TABLE papers
+            ADD CONSTRAINT papers_latest_ai_extraction_id_fkey
+            FOREIGN KEY (latest_ai_extraction_id) REFERENCES ai_extractions(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -616,6 +831,18 @@ ALTER TABLE paper_label_events
     ADD COLUMN IF NOT EXISTS decision_kind TEXT
         CHECK (decision_kind IN ('has_data', 'no_usable_data'));
 
+ALTER TABLE paper_review_outcomes
+    ADD COLUMN IF NOT EXISTS truth_source_kind TEXT NOT NULL DEFAULT 'human_review',
+    ADD COLUMN IF NOT EXISTS source_stage_key TEXT,
+    ADD COLUMN IF NOT EXISTS source_model_name TEXT,
+    ADD COLUMN IF NOT EXISTS source_confidence REAL,
+    ADD COLUMN IF NOT EXISTS training_weight REAL DEFAULT 1.0;
+
+UPDATE paper_review_outcomes
+SET training_weight = 1.0
+WHERE training_weight IS NULL
+  AND truth_source_kind = 'human_review';
+
 DO $$
 BEGIN
     IF EXISTS (
@@ -628,11 +855,26 @@ BEGIN
         ALTER TABLE paper_review_outcomes
             DROP CONSTRAINT paper_review_outcomes_resolution_source_check;
     END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'paper_review_outcomes'
+          AND constraint_name = 'paper_review_outcomes_truth_source_kind_check'
+    ) THEN
+        ALTER TABLE paper_review_outcomes
+            DROP CONSTRAINT paper_review_outcomes_truth_source_kind_check;
+    END IF;
 END $$;
 
 ALTER TABLE paper_review_outcomes
     ADD CONSTRAINT paper_review_outcomes_resolution_source_check
-    CHECK (resolution_source IN ('slot_agreement', 'conflict_resolution', 'global_skip'));
+    CHECK (resolution_source IN ('slot_agreement', 'conflict_resolution', 'global_skip', 'ai_high_confidence'));
+
+ALTER TABLE paper_review_outcomes
+    ADD CONSTRAINT paper_review_outcomes_truth_source_kind_check
+    CHECK (truth_source_kind IN ('human_review', 'ai_model'));
 
 INSERT INTO reviewer_slots (slot_key, display_name, is_official)
 VALUES
@@ -753,6 +995,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_open_external_slot_conflicts_unique
     ON paper_conflicts(paper_id)
     WHERE conflict_type = 'external_slot_conflict' AND status = 'open';
 CREATE INDEX IF NOT EXISTS idx_paper_review_outcomes_decision ON paper_review_outcomes(decision_kind, resolved_at DESC);
+CREATE INDEX IF NOT EXISTS idx_papers_routing_status ON papers(routing_status, workflow_language, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_papers_route_destination ON papers(route_destination, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_papers_latest_ai_extraction ON papers(latest_ai_extraction_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_routing_stage_configs_single_active
+    ON routing_stage_configs(active)
+    WHERE active IS TRUE;
+CREATE INDEX IF NOT EXISTS idx_paper_stage_tasks_status_created ON paper_stage_tasks(status, created_at, priority);
+CREATE INDEX IF NOT EXISTS idx_paper_stage_tasks_paper ON paper_stage_tasks(paper_id, stage_key);
+CREATE INDEX IF NOT EXISTS idx_ai_extractions_stage_paper ON ai_extractions(stage_key, paper_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_extractions_route_destination ON ai_extractions(route_destination, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_annotations_assignment_unique
     ON annotations(paper_user_assignment_id)
     WHERE paper_user_assignment_id IS NOT NULL;
@@ -765,6 +1017,78 @@ IMMUTABLE
 AS $$
     SELECT regexp_replace(trim(coalesce(input_text, '')), '\s+', ' ', 'g');
 $$;
+
+CREATE OR REPLACE FUNCTION public.claim_paper_stage_tasks(
+    p_stage_key TEXT,
+    p_limit INTEGER DEFAULT 1
+)
+RETURNS SETOF paper_stage_tasks
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_role TEXT := lower(trim(coalesce(auth.jwt() ->> 'role', current_setting('request.jwt.claim.role', true), '')));
+BEGIN
+    IF v_role <> 'service_role' THEN
+        RAISE EXCEPTION 'service role required';
+    END IF;
+
+    RETURN QUERY
+    WITH next_tasks AS (
+        SELECT id
+        FROM paper_stage_tasks
+        WHERE status = 'queued'
+          AND (p_stage_key IS NULL OR stage_key = p_stage_key)
+        ORDER BY created_at ASC, id ASC
+        LIMIT GREATEST(coalesce(p_limit, 1), 1)
+        FOR UPDATE SKIP LOCKED
+    )
+    UPDATE paper_stage_tasks task
+    SET
+        status = 'processing',
+        attempt_count = task.attempt_count + 1,
+        started_at = NOW(),
+        updated_at = NOW(),
+        last_error = NULL
+    FROM next_tasks
+    WHERE task.id = next_tasks.id
+    RETURNING task.*;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.enforce_human_review_ready_assignment()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+    v_routing_status TEXT;
+BEGIN
+    SELECT routing_status
+    INTO v_routing_status
+    FROM papers
+    WHERE id = NEW.paper_id;
+
+    IF coalesce(v_routing_status, '') <> 'human_review_ready' THEN
+        RAISE EXCEPTION 'Paper % is not human_review_ready', NEW.paper_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_paper_slot_assignment_requires_human_review_ready ON paper_slot_assignments;
+CREATE TRIGGER trg_paper_slot_assignment_requires_human_review_ready
+    BEFORE INSERT OR UPDATE OF paper_id ON paper_slot_assignments
+    FOR EACH ROW
+    EXECUTE FUNCTION public.enforce_human_review_ready_assignment();
+
+DROP TRIGGER IF EXISTS trg_paper_user_assignment_requires_human_review_ready ON paper_user_assignments;
+CREATE TRIGGER trg_paper_user_assignment_requires_human_review_ready
+    BEFORE INSERT OR UPDATE OF paper_id ON paper_user_assignments
+    FOR EACH ROW
+    EXECUTE FUNCTION public.enforce_human_review_ready_assignment();
 
 CREATE OR REPLACE FUNCTION public.current_auth_email()
 RETURNS TEXT
@@ -1447,7 +1771,12 @@ BEGIN
             conflict_id,
             resolved_by,
             resolved_at,
-            updated_at
+            updated_at,
+            truth_source_kind,
+            source_stage_key,
+            source_model_name,
+            source_confidence,
+            training_weight
         )
         VALUES (
             p_paper_id,
@@ -1462,7 +1791,12 @@ BEGIN
             NULL,
             NULL,
             NOW(),
-            NOW()
+            NOW(),
+            'human_review',
+            NULL,
+            NULL,
+            NULL,
+            1.0
         )
         ON CONFLICT (paper_id) DO UPDATE
         SET
@@ -1477,6 +1811,11 @@ BEGIN
             conflict_id = EXCLUDED.conflict_id,
             resolved_by = EXCLUDED.resolved_by,
             resolved_at = EXCLUDED.resolved_at,
+            truth_source_kind = EXCLUDED.truth_source_kind,
+            source_stage_key = NULL,
+            source_model_name = NULL,
+            source_confidence = NULL,
+            training_weight = 1.0,
             updated_at = NOW();
 
         UPDATE paper_slot_assignments
@@ -1529,7 +1868,12 @@ BEGIN
             conflict_id,
             resolved_by,
             resolved_at,
-            updated_at
+            updated_at,
+            truth_source_kind,
+            source_stage_key,
+            source_model_name,
+            source_confidence,
+            training_weight
         )
         SELECT
             p_paper_id,
@@ -1544,7 +1888,12 @@ BEGIN
             v_resolved_external_conflict_id,
             chosen.auth_user_id,
             NOW(),
-            NOW()
+            NOW(),
+            'human_review',
+            NULL,
+            NULL,
+            NULL,
+            1.0
         FROM paper_assignment_submissions chosen
         WHERE chosen.id = v_manual_submission_id
         ON CONFLICT (paper_id) DO UPDATE
@@ -1560,6 +1909,11 @@ BEGIN
             conflict_id = EXCLUDED.conflict_id,
             resolved_by = EXCLUDED.resolved_by,
             resolved_at = EXCLUDED.resolved_at,
+            truth_source_kind = EXCLUDED.truth_source_kind,
+            source_stage_key = NULL,
+            source_model_name = NULL,
+            source_confidence = NULL,
+            training_weight = 1.0,
             updated_at = NOW();
 
         UPDATE paper_slot_assignments
@@ -1917,7 +2271,12 @@ BEGIN
         conflict_id,
         resolved_by,
         resolved_at,
-        updated_at
+        updated_at,
+        truth_source_kind,
+        source_stage_key,
+        source_model_name,
+        source_confidence,
+        training_weight
     )
     VALUES (
         v_assignment.paper_id,
@@ -1932,7 +2291,12 @@ BEGIN
         NULL,
         auth.uid(),
         NOW(),
-        NOW()
+        NOW(),
+        'human_review',
+        NULL,
+        NULL,
+        NULL,
+        1.0
     )
     ON CONFLICT (paper_id) DO UPDATE
     SET
@@ -1947,6 +2311,11 @@ BEGIN
         conflict_id = NULL,
         resolved_by = EXCLUDED.resolved_by,
         resolved_at = EXCLUDED.resolved_at,
+        truth_source_kind = EXCLUDED.truth_source_kind,
+        source_stage_key = NULL,
+        source_model_name = NULL,
+        source_confidence = NULL,
+        training_weight = 1.0,
         updated_at = NOW();
 
     RETURN v_global_label;
@@ -2269,6 +2638,8 @@ ALTER TABLE master_nutrients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE claims ENABLE ROW LEVEL SECURITY;
 ALTER TABLE papers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE routing_stage_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_stage_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_search_hits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_search_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_search_batch_hits ENABLE ROW LEVEL SECURITY;
@@ -2324,6 +2695,45 @@ BEGIN
     ) THEN
         CREATE POLICY "Authenticated users can read claims"
             ON claims FOR SELECT TO authenticated USING (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'routing_stage_configs'
+          AND policyname = 'Cockpit users can read routing stage configs'
+    ) THEN
+        CREATE POLICY "Cockpit users can read routing stage configs"
+            ON routing_stage_configs FOR SELECT TO authenticated
+            USING (public.current_user_has_cockpit_access());
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'routing_stage_configs'
+          AND policyname = 'Cockpit writers can update routing stage configs'
+    ) THEN
+        CREATE POLICY "Cockpit writers can update routing stage configs"
+            ON routing_stage_configs FOR UPDATE TO authenticated
+            USING (public.current_user_has_cockpit_write_access())
+            WITH CHECK (public.current_user_has_cockpit_write_access());
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'routing_stage_configs'
+          AND policyname = 'Service role full access routing stage configs'
+    ) THEN
+        CREATE POLICY "Service role full access routing stage configs"
+            ON routing_stage_configs FOR ALL TO service_role USING (true) WITH CHECK (true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'paper_stage_tasks'
+          AND policyname = 'Service role full access paper stage tasks'
+    ) THEN
+        CREATE POLICY "Service role full access paper stage tasks"
+            ON paper_stage_tasks FOR ALL TO service_role USING (true) WITH CHECK (true);
     END IF;
 
     IF NOT EXISTS (

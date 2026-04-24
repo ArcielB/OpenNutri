@@ -7,7 +7,7 @@ Single-pass evaluation: Filter papers AND extract structured food composition da
 import os
 import json
 from typing import Optional, List, Dict
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 try:
     import google.generativeai as genai
@@ -45,6 +45,7 @@ class ExtractionResult:
     overall_confidence: float  # 0.0-1.0 confidence for the entire paper
     data: List[NutrientRecord]
     source_term: str = ""
+    raw_response_text: str = ""
 
 
 class UnifiedEvaluator:
@@ -124,14 +125,20 @@ Full Text:
 
 **Your Response** (JSON only, no other text):"""
 
-    def __init__(self, raw_lake_dir: str = "data/raw_lake", api_key: str = None):
+    def __init__(
+        self,
+        raw_lake_dir: str = "data/raw_lake",
+        api_key: str = None,
+        model_name: str = "gemini-3-flash-preview",
+    ):
         self.raw_lake_dir = raw_lake_dir
+        self.model_name = model_name
         
         # Try to get API key from: 1) argument, 2) env var, 3) config.py
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not self.api_key:
             try:
-                from crawler.config import GEMINI_API_KEY
+                from config import GEMINI_API_KEY
                 self.api_key = GEMINI_API_KEY
             except ImportError:
                 pass
@@ -142,12 +149,12 @@ Full Text:
             genai.configure(api_key=self.api_key)
             # Use JSON mode for structured output
             self.model = genai.GenerativeModel(
-                'gemini-3-flash-preview',  # Gemini 3 Flash
+                self.model_name,
                 generation_config={
                     "response_mime_type": "application/json"
                 }
             )
-            print("🤖 Unified Evaluator initialized with Gemini 3 Flash (High Accuracy Mode)")
+            print(f"🤖 Unified Evaluator initialized with {self.model_name}")
 
         else:
             print("⚠️ No LLM available. API key required for UnifiedEvaluator.")
@@ -174,8 +181,10 @@ Full Text:
         
         try:
             # Extract text from XML
-            from crawler.processing.content import extract_full_text
-            full_text = extract_full_text(paper.get("raw_xml", ""))
+            full_text = paper.get("full_text")
+            if full_text is None:
+                from processing.content import extract_full_text
+                full_text = extract_full_text(paper.get("raw_xml", ""))
             
             # Truncate if too long (safety limit: ~1M tokens = ~4M chars)
             if len(full_text) > 4_000_000:
@@ -227,7 +236,8 @@ Full Text:
                 reasoning=result_json.get("reasoning", "No reasoning provided"),
                 overall_confidence=float(result_json.get("overall_confidence", 0.0)),
                 data=records,
-                source_term=paper.get("source_term", "")
+                source_term=paper.get("source_term", ""),
+                raw_response_text=response_text,
             )
             
         except Exception as e:

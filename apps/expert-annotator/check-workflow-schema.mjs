@@ -24,7 +24,9 @@ async function main() {
         to_regclass('public.paper_assignment_submissions') as paper_assignment_submissions,
         to_regclass('public.paper_conflicts') as paper_conflicts,
         to_regclass('public.paper_review_outcomes') as paper_review_outcomes,
-        to_regclass('public.ai_extractions') as ai_extractions
+        to_regclass('public.ai_extractions') as ai_extractions,
+        to_regclass('public.routing_stage_configs') as routing_stage_configs,
+        to_regclass('public.paper_stage_tasks') as paper_stage_tasks
     `)
 
     const { rows: functions } = await client.query(`
@@ -40,7 +42,8 @@ async function main() {
         'mark_assignment_global_no_data',
         'submit_assignment_review',
         'resolve_paper_conflict',
-        'refresh_paper_resolution_state'
+        'refresh_paper_resolution_state',
+        'claim_paper_stage_tasks'
       )
       order by proname
     `)
@@ -52,6 +55,19 @@ async function main() {
         and table_name = 'reviewer_profiles'
         and column_name in ('tester_access', 'cockpit_access')
       order by column_name
+    `)
+
+    const { rows: paperRoutingColumns } = await client.query(`
+      select table_name, column_name
+      from information_schema.columns
+      where table_schema = 'public'
+        and (
+          (table_name = 'papers' and column_name in ('current_stage_key', 'routing_status', 'routing_bucket', 'route_destination', 'latest_ai_extraction_id'))
+          or (table_name = 'paper_review_outcomes' and column_name in ('truth_source_kind', 'source_stage_key', 'source_model_name', 'source_confidence', 'training_weight'))
+          or (table_name = 'ai_extractions' and column_name in ('stage_key', 'prompt_version', 'input_hash', 'normalized_payload_json', 'positive_threshold_snapshot', 'negative_threshold_snapshot', 'routing_bucket', 'route_destination', 'audit_sampled', 'finalized_without_human'))
+          or (table_name = 'routing_stage_configs' and column_name in ('positive_threshold', 'negative_threshold', 'audit_rate', 'active'))
+        )
+      order by table_name, column_name
     `)
 
     const { rows: slots } = await client.query(`
@@ -66,6 +82,8 @@ async function main() {
     console.log(JSON.stringify(functions, null, 2))
     console.log('\nReviewer profile access columns:')
     console.log(JSON.stringify(reviewerColumns, null, 2))
+    console.log('\nRouting columns:')
+    console.log(JSON.stringify(paperRoutingColumns, null, 2))
     console.log('\nReviewer slots:')
     console.log(JSON.stringify(slots, null, 2))
   } finally {

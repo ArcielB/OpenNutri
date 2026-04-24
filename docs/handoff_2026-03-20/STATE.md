@@ -1,6 +1,6 @@
-# OpenNutri Handoff — 2026-04-22 (Europe/Istanbul)
+# OpenNutri Handoff — 2026-04-24 (Europe/Istanbul)
 
-This is the current high-signal project state after the assignment-driven annotator workflow, reviewer-admin cockpit, and bilingual queue repair landed.
+This is the current high-signal project state after the assignment-driven annotator workflow, reviewer-admin cockpit, bilingual queue repair, and staged AI routing implementation landed in code.
 
 **Primary Goal**
 - Finish Preliminary Study 3 as fast as possible so the benchmark-quality dataset supports both the TÜBİTAK application and the paper draft.
@@ -15,6 +15,13 @@ This is the current high-signal project state after the assignment-driven annota
   Daine only starts receiving queue items once her real reviewer profile is configured in `reviewer_profiles` + `reviewer_slot_members`.
 
 **Workflow Now**
+- New ingest gate:
+  `crawl -> upload -> AI queue -> routing -> human_review_ready or AI finalization`.
+- The active AI stage is `gemini_flash_triage_v1`.
+- Upload no longer runs Gemini inline. It enqueues `paper_stage_tasks` and sets paper-level routing state instead.
+- Humans may only be assigned papers whose `papers.routing_status = 'human_review_ready'`.
+- High-confidence AI positives and negatives are finalized immediately unless they fall into the deterministic audit sample.
+- Low-confidence papers always route to humans for now.
 - The shared paper list is gone.
 - Every paper is assigned to exactly 2 official reviewer slots:
   `arciel`, `peri`, `aleyna`.
@@ -54,6 +61,16 @@ This is the current high-signal project state after the assignment-driven annota
   - `cockpit_access`
 - Cockpit reads now allow active `cockpit_access` users even when `tester_access=true`.
 - Cockpit writes, conflict resolution, suggestion-review status writes, and assignment RPC writes remain blocked for tester accounts through SQL guards.
+- Code now also expects these additional routing tables/fields:
+  - `routing_stage_configs`
+  - `paper_stage_tasks`
+  - paper-level routing columns on `papers`
+  - AI provenance columns on `ai_extractions`
+  - AI/human truth-source columns on `paper_review_outcomes`
+- Important rollout blocker from April 24, 2026:
+  the migration was not re-applied from this coding environment because DNS resolution for the Supabase pooler host failed with
+  `getaddrinfo ENOTFOUND aws-1-eu-central-1.pooler.supabase.com`.
+  Treat live DB state for the new AI-routing schema as pending until migration + schema check succeed from a network-enabled environment.
 
 **Live Data Repair Status**
 - On April 22, 2026, `papers.workflow_language IS NULL` was backfilled from `12` to `0` using `services/data-pipeline/scripts/backfill_paper_workflow_language.py`.
@@ -103,12 +120,16 @@ This is the current high-signal project state after the assignment-driven annota
 
 **Crawler / Feedback Status**
 - `update_terms.py` now prefers resolved `paper_review_outcomes`, with legacy label events as fallback only for older papers that have no resolved outcome yet.
-- `ensure_paper_stock.py` now treats already-assigned or already-resolved papers as unavailable stock.
+- `update_terms.py` now excludes `paper_review_outcomes.truth_source_kind = 'ai_model'` from the current human-truth feedback export.
+- `ensure_paper_stock.py` now treats only `papers.routing_status = 'human_review_ready'` papers as available reviewer stock, and drains the AI queue after upload.
 - New protected queue job:
   - `services/data-pipeline/scripts/refill_assignment_queue.py`
   - keeps each active reviewer’s personal open backlog at the target level
-  - creates slot assignments + user assignments
-  - triggers stock refill when the unassigned queue is exhausted
+  - creates slot assignments + user assignments only from `human_review_ready` papers
+  - drains queued AI tasks before triggering crawler refill when the human-ready pool is exhausted
+- New AI routing ops scripts:
+  - `services/data-pipeline/scripts/process_stage_queue.py`
+  - `services/data-pipeline/scripts/backfill_ai_routing.py`
 - Dry-run check works after a one-pass preview fix.
 
 **What Still Needs Attention**
@@ -130,11 +151,17 @@ This is the current high-signal project state after the assignment-driven annota
   - `python3 services/data-pipeline/scripts/backfill_paper_workflow_language.py [--dry-run]`
 - Refill crawler stock:
   - `python3 services/data-pipeline/scripts/ensure_paper_stock.py --threshold 0`
+- Drain the AI routing queue:
+  - `python3 services/data-pipeline/scripts/process_stage_queue.py`
+- Backfill the active AI routing stage:
+  - `python3 services/data-pipeline/scripts/backfill_ai_routing.py`
 - Top up reviewer queues:
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py`
 - Inspect the developer-training queue pool:
   - `python3 services/data-pipeline/scripts/seed_training_stock.py [--dry-run]`
 
 **Immediate Next Step**
-- Open the cockpit reviewer-admin section and configure Daine’s reviewer profile if her email is known.
-- Then keep consuming the assignment queues and rerun `ensure_paper_stock.py` plus `refill_assignment_queue.py` as stock drops, instead of returning to the old shared-paper assumption.
+- Re-run `apps/expert-annotator/run-migration.js`, `check-workflow-schema.mjs`, and `backfill_ai_routing.py` from a network-enabled environment that can resolve the Supabase DB host.
+- After that, verify the routing invariants:
+  no open human assignments on `queued_for_ai`, `ai_processing`, `ai_failed`, or AI-finalized papers.
+- Then rerun `refill_assignment_queue.py` and deploy the annotator frontend.

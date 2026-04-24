@@ -8,6 +8,29 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
+## 10. Calibrate AI routing thresholds from audited human truth
+
+### Problem
+The new AI routing stage now stores confidence, routing bucket, audit sampling, and eventual paper outcomes, but the thresholds are still manual.
+
+### Goal
+Add a safe threshold-tuning workflow that uses only papers which eventually received human truth:
+- recompute on a fixed cadence or batch size, not paper-by-paper
+- keep separate positive and negative calibration
+- optimize for precision floors, not raw accuracy
+- require a minimum recent audited sample before any threshold move
+- cap each move size to avoid oscillation
+
+### Likely technical area
+- `services/data-pipeline/scripts/`
+- `services/data-pipeline/food_paper_crawler/feedback/`
+- `apps/expert-annotator/src/pages/Annotate.jsx`
+
+### Done when
+- the tuner reads audited human-reviewed outcomes only
+- thresholds stay scoped per stage/model
+- every automatic threshold change is explainable from stored routing provenance
+
 ## 3. Train and integrate the L2 classifier (depends on label volume)
 
 ### Problem

@@ -46,6 +46,8 @@ const EMPTY_COCKPIT_DATA = {
   outcomes: [],
   conflicts: [],
   papers: [],
+  aiExtractions: [],
+  routingStageConfigs: [],
   searchHits: [],
   suggestionReviewItems: [],
 }
@@ -176,6 +178,38 @@ function formatStatusLabel(status) {
 
 function formatDecisionLabel(decisionKind) {
   return decisionKind === 'has_data' ? 'Usable Data' : 'No Usable Data'
+}
+
+function formatRoutingStatusLabel(status) {
+  switch (status) {
+    case 'queued_for_ai':
+      return 'Queued For AI'
+    case 'ai_processing':
+      return 'AI Processing'
+    case 'ai_failed':
+      return 'AI Failed'
+    case 'human_review_ready':
+      return 'Human Review Ready'
+    case 'ai_finalized_has_data':
+      return 'AI Finalized: Has Data'
+    case 'ai_finalized_no_usable_data':
+      return 'AI Finalized: No Data'
+    default:
+      return status || 'Unknown'
+  }
+}
+
+function formatRouteDestinationLabel(destination) {
+  switch (destination) {
+    case 'human_review':
+      return 'Human Review'
+    case 'finalized':
+      return 'Finalized'
+    case 'blocked':
+      return 'Blocked'
+    default:
+      return destination || 'Unknown'
+  }
 }
 
 function formatSuggestionReviewStatus(status) {
@@ -416,6 +450,26 @@ function computeSourceBreakdown(cockpitData) {
   return [...aggregate.values()]
     .sort((a, b) => (b.positive - a.positive) || (a.negative - b.negative) || a.source.localeCompare(b.source))
     .slice(0, 10)
+}
+
+function computeRoutingCounts(papers) {
+  const counts = {
+    queued_for_ai: 0,
+    ai_processing: 0,
+    ai_failed: 0,
+    human_review_ready: 0,
+    ai_finalized_has_data: 0,
+    ai_finalized_no_usable_data: 0,
+  }
+
+  for (const paper of papers || []) {
+    const status = String(paper?.routing_status || '').trim().toLowerCase()
+    if (status in counts) {
+      counts[status] += 1
+    }
+  }
+
+  return counts
 }
 
 function groupRowsByPaperId(rows) {
@@ -942,12 +996,135 @@ function ReviewerAdminPanel({
   )
 }
 
+function RoutingStagePanel({
+  stageConfigs,
+  routingCounts,
+  routingConfigDrafts,
+  savingStageKey,
+  onChangeDraft,
+  onSaveDraft,
+}) {
+  return (
+    <div className="dashboard-card reviewer-admin-shell">
+      <div className="reviewer-admin-shell-header">
+        <div>
+          <div className="dashboard-card-title">AI Routing</div>
+          <p>Active-stage thresholds gate every paper before human assignment.</p>
+        </div>
+        <span className="status-badge status-pending">{stageConfigs.length} stages</span>
+      </div>
+
+      <div className="dashboard-grid dashboard-grid-summary">
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Queued</div>
+          <div className="dashboard-card-value">{routingCounts.queued_for_ai}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Processing</div>
+          <div className="dashboard-card-value">{routingCounts.ai_processing}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Failed</div>
+          <div className="dashboard-card-value">{routingCounts.ai_failed}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Human Ready</div>
+          <div className="dashboard-card-value">{routingCounts.human_review_ready}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">AI Final Has Data</div>
+          <div className="dashboard-card-value">{routingCounts.ai_finalized_has_data}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">AI Final No Data</div>
+          <div className="dashboard-card-value">{routingCounts.ai_finalized_no_usable_data}</div>
+        </div>
+      </div>
+
+      <div className="reviewer-admin-stack">
+        {(stageConfigs || []).map((stage) => {
+          const draft = routingConfigDrafts[stage.stage_key] || {
+            positive_threshold: stage.positive_threshold ?? 1,
+            negative_threshold: stage.negative_threshold ?? 1,
+            audit_rate: stage.audit_rate ?? 0.05,
+          }
+          return (
+            <div key={stage.stage_key} className="reviewer-editor-card">
+              <div className="reviewer-editor-header">
+                <div>
+                  <h3>{stage.display_name || stage.stage_key}</h3>
+                  <p>{stage.model_name} · prompt {stage.prompt_version}</p>
+                </div>
+                <div className="reviewer-editor-badges">
+                  <span className={`status-badge ${stage.active ? 'status-done' : 'status-draft'}`}>
+                    {stage.active ? 'ACTIVE' : 'INACTIVE'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="reviewer-editor-grid">
+                <label className="form-group">
+                  <span>Has Data Threshold</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={draft.positive_threshold}
+                    onChange={(event) => onChangeDraft(stage.stage_key, 'positive_threshold', event.target.value)}
+                  />
+                </label>
+
+                <label className="form-group">
+                  <span>No Data Threshold</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={draft.negative_threshold}
+                    onChange={(event) => onChangeDraft(stage.stage_key, 'negative_threshold', event.target.value)}
+                  />
+                </label>
+
+                <label className="form-group">
+                  <span>Audit Rate</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={draft.audit_rate}
+                    onChange={(event) => onChangeDraft(stage.stage_key, 'audit_rate', event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="reviewer-admin-actions">
+                <button
+                  className="btn btn-primary reviewer-save-btn"
+                  onClick={() => onSaveDraft(stage.stage_key)}
+                  disabled={savingStageKey === stage.stage_key}
+                >
+                  {savingStageKey === stage.stage_key ? 'Saving...' : 'Save routing policy'}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function CockpitView({
   cockpitData,
   onRefresh,
   reviewerDrafts,
   newReviewerDraft,
   savingReviewerTarget,
+  routingConfigDrafts,
+  savingRoutingStageKey,
   onChangeDraft,
   onToggleDraftShadowSlot,
   onSaveDraft,
@@ -956,9 +1133,12 @@ function CockpitView({
   onToggleNewShadowSlot,
   onCreateReviewer,
   onResetNewReviewer,
+  onChangeRoutingConfig,
+  onSaveRoutingConfig,
 }) {
   const reviewerMetrics = computeReviewerMetrics(cockpitData)
   const sourceBreakdown = computeSourceBreakdown(cockpitData)
+  const routingCounts = computeRoutingCounts(cockpitData.papers)
   const openConflicts = (cockpitData.conflicts || []).filter((row) => row.status === 'open')
   const openAssignments = (cockpitData.userAssignments || []).filter((row) => OPEN_STATUSES.has(row.status))
 
@@ -990,6 +1170,15 @@ function CockpitView({
           <div className="dashboard-card-value">{cockpitData.submissions.length}</div>
         </div>
       </div>
+
+      <RoutingStagePanel
+        stageConfigs={cockpitData.routingStageConfigs || []}
+        routingCounts={routingCounts}
+        routingConfigDrafts={routingConfigDrafts}
+        savingStageKey={savingRoutingStageKey}
+        onChangeDraft={onChangeRoutingConfig}
+        onSaveDraft={onSaveRoutingConfig}
+      />
 
       <div className="dashboard-grid dashboard-grid-main">
         <div className="dashboard-card dashboard-card-table">
@@ -1223,6 +1412,15 @@ function AllPapersView({ cockpitData, onRefresh }) {
   const slotAssignmentsByPaperId = groupRowsByPaperId(cockpitData.slotAssignments)
   const userAssignmentsByPaperId = groupRowsByPaperId(cockpitData.userAssignments)
   const outcomeByPaperId = Object.fromEntries((cockpitData.outcomes || []).map((row) => [row.paper_id, row]))
+  const latestAiExtractionById = Object.fromEntries((cockpitData.aiExtractions || []).map((row) => [row.id, row]))
+  const latestAiExtractionByPaperId = {}
+  for (const row of cockpitData.aiExtractions || []) {
+    if (!row?.paper_id) continue
+    const existing = latestAiExtractionByPaperId[row.paper_id]
+    if (!existing || new Date(row.created_at || 0).getTime() > new Date(existing.created_at || 0).getTime()) {
+      latestAiExtractionByPaperId[row.paper_id] = row
+    }
+  }
   const rows = (cockpitData.papers || []).map((paper) => ({
     paper,
     slotAssignments: (slotAssignmentsByPaperId[paper.id] || []).slice().sort((left, right) => left.slot_key.localeCompare(right.slot_key)),
@@ -1232,6 +1430,7 @@ function AllPapersView({ cockpitData, onRefresh }) {
       return leftName.localeCompare(rightName)
     }),
     outcome: outcomeByPaperId[paper.id] || null,
+    latestAiExtraction: latestAiExtractionById[paper.latest_ai_extraction_id] || latestAiExtractionByPaperId[paper.id] || null,
   }))
   const unresolvedCount = rows.filter((row) => !row.outcome).length
   const openAssignmentCount = (cockpitData.userAssignments || []).filter((row) => OPEN_STATUSES.has(row.status)).length
@@ -1272,6 +1471,8 @@ function AllPapersView({ cockpitData, onRefresh }) {
             <thead>
               <tr>
                 <th>Paper</th>
+                <th>Routing</th>
+                <th>Latest AI</th>
                 <th>Official Slots</th>
                 <th>Reviewer Tasks</th>
                 <th>Final Outcome</th>
@@ -1280,9 +1481,9 @@ function AllPapersView({ cockpitData, onRefresh }) {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan="4">No papers found.</td>
+                  <td colSpan="6">No papers found.</td>
                 </tr>
-              ) : rows.map(({ paper, slotAssignments, userAssignments, outcome }) => (
+              ) : rows.map(({ paper, slotAssignments, userAssignments, outcome, latestAiExtraction }) => (
                 <tr key={paper.id}>
                   <td className="table-title-cell">
                     <div className="table-primary-line">{paper.title || paper.filename || `Paper ${paper.id}`}</div>
@@ -1291,6 +1492,36 @@ function AllPapersView({ cockpitData, onRefresh }) {
                       {paper.workflow_language && ` · ${paper.workflow_language.toUpperCase()}`}
                       {paper.doi && ` · DOI: ${paper.doi}`}
                     </div>
+                  </td>
+                  <td>
+                    <div className="table-cell-stack">
+                      <div className="table-detail-line">
+                        <span>{formatRoutingStatusLabel(paper.routing_status)}</span>
+                        <span className={`status-badge ${paper.route_destination === 'finalized' ? 'status-done' : paper.route_destination === 'blocked' ? 'status-skipped' : 'status-pending'}`}>
+                          {formatRouteDestinationLabel(paper.route_destination)}
+                        </span>
+                      </div>
+                      <span className="table-secondary-line">{paper.routing_bucket || 'No bucket yet'}</span>
+                    </div>
+                  </td>
+                  <td>
+                    {latestAiExtraction ? (
+                      <div className="table-cell-stack">
+                        <div className="table-detail-line">
+                          <span>{latestAiExtraction.is_useful ? 'Has Data' : 'No Data'}</span>
+                          <span className={`status-badge ${latestAiExtraction.audit_sampled ? 'status-draft' : 'status-pending'}`}>
+                            {latestAiExtraction.audit_sampled ? 'AUDIT' : 'LIVE'}
+                          </span>
+                        </div>
+                        <span className="table-secondary-line">
+                          conf {latestAiExtraction.overall_confidence == null ? '—' : Number(latestAiExtraction.overall_confidence).toFixed(2)}
+                          {' · '}
+                          {formatRouteDestinationLabel(latestAiExtraction.route_destination)}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="table-secondary-line">No AI extraction yet.</span>
+                    )}
                   </td>
                   <td>
                     <div className="table-cell-stack">
@@ -1461,8 +1692,10 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [testMode, setTestMode] = useState(() => isTestModeEnabled())
   const [cockpitData, setCockpitData] = useState(EMPTY_COCKPIT_DATA)
   const [reviewerDrafts, setReviewerDrafts] = useState({})
+  const [routingConfigDrafts, setRoutingConfigDrafts] = useState({})
   const [newReviewerDraft, setNewReviewerDraft] = useState(() => createEmptyReviewerDraft())
   const [savingReviewerTarget, setSavingReviewerTarget] = useState(null)
+  const [savingRoutingStageKey, setSavingRoutingStageKey] = useState(null)
   const [savingSuggestionId, setSavingSuggestionId] = useState(null)
   const [selectedConflictId, setSelectedConflictId] = useState(null)
   const [resolutionNote, setResolutionNote] = useState('')
@@ -1516,7 +1749,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         const [paperResponse, slotAssignmentsResponse] = await Promise.all([
           supabase
             .from('papers')
-            .select('id,title,abstract,doi,filename,workflow_language,created_at')
+            .select('id,title,abstract,doi,filename,workflow_language,created_at,routing_status')
+            .eq('routing_status', 'human_review_ready')
             .in('workflow_language', SUPPORTED_WORKFLOW_LANGUAGES)
             .order('id', { ascending: false })
             .limit(2000),
@@ -1546,6 +1780,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         const { data: paperRows, error: paperError } = await supabase
           .from('papers')
           .select('*')
+          .eq('routing_status', 'human_review_ready')
           .order('id', { ascending: false })
           .limit(250)
 
@@ -1622,6 +1857,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         outcomesResponse,
         conflictsResponse,
         papersResponse,
+        aiExtractionsResponse,
+        routingStageConfigsResponse,
         searchHitsResponse,
         suggestionReviewItemsResponse,
       ] = await Promise.all([
@@ -1633,7 +1870,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         supabase.from('paper_assignment_submissions').select('*').order('submitted_at', { ascending: false }),
         supabase.from('paper_review_outcomes').select('*').order('resolved_at', { ascending: false }),
         supabase.from('paper_conflicts').select('*').order('created_at', { ascending: false }),
-        supabase.from('papers').select('id,title,doi,filename,workflow_language').order('id', { ascending: false }),
+        supabase.from('papers').select('id,title,doi,filename,workflow_language,routing_status,routing_bucket,route_destination,current_stage_key,latest_ai_extraction_id,routing_updated_at').order('id', { ascending: false }),
+        supabase.from('ai_extractions').select('*').order('created_at', { ascending: false }).limit(5000),
+        supabase.from('routing_stage_configs').select('*').order('display_name', { ascending: true }),
         supabase.from('paper_search_hits').select('paper_id,source,template_id,source_term,query_phrase,workflow_language'),
         supabase.from('backlog_review_items').select('*').order('created_at', { ascending: false }),
       ])
@@ -1647,6 +1886,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       if (outcomesResponse.error) throw outcomesResponse.error
       if (conflictsResponse.error) throw conflictsResponse.error
       if (papersResponse.error) throw papersResponse.error
+      if (aiExtractionsResponse.error) throw aiExtractionsResponse.error
+      if (routingStageConfigsResponse.error) throw routingStageConfigsResponse.error
       if (searchHitsResponse.error) throw searchHitsResponse.error
       if (suggestionReviewItemsResponse.error) throw suggestionReviewItemsResponse.error
 
@@ -1660,6 +1901,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         outcomes: outcomesResponse.data || [],
         conflicts: conflictsResponse.data || [],
         papers: papersResponse.data || [],
+        aiExtractions: aiExtractionsResponse.data || [],
+        routingStageConfigs: routingStageConfigsResponse.data || [],
         searchHits: searchHitsResponse.data || [],
         suggestionReviewItems: suggestionReviewItemsResponse.data || [],
       })
@@ -1738,6 +1981,21 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     setReviewerDrafts(nextDrafts)
     setNewReviewerDraft(createEmptyReviewerDraft())
   }, [cockpitData.reviewerProfiles, cockpitData.slotMembers, reviewerProfile?.cockpit_access])
+
+  useEffect(() => {
+    if (!reviewerProfile?.cockpit_access) return
+    const nextDrafts = Object.fromEntries(
+      (cockpitData.routingStageConfigs || []).map((stage) => [
+        stage.stage_key,
+        {
+          positive_threshold: stage.positive_threshold ?? 1,
+          negative_threshold: stage.negative_threshold ?? 1,
+          audit_rate: stage.audit_rate ?? 0.05,
+        },
+      ])
+    )
+    setRoutingConfigDrafts(nextDrafts)
+  }, [cockpitData.routingStageConfigs, reviewerProfile?.cockpit_access])
 
   useEffect(() => {
     async function fetchNutrients() {
@@ -2072,6 +2330,57 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const createReviewer = useCallback(async () => {
     await persistReviewerDraft(newReviewerDraft, '__new__')
   }, [newReviewerDraft, persistReviewerDraft])
+
+  const updateRoutingConfigDraft = useCallback((stageKey, field, value) => {
+    setRoutingConfigDrafts((previous) => ({
+      ...previous,
+      [stageKey]: {
+        ...(previous[stageKey] || {}),
+        [field]: value,
+      },
+    }))
+  }, [])
+
+  const saveRoutingConfigDraft = useCallback(async (stageKey) => {
+    const draft = routingConfigDrafts[stageKey]
+    if (!draft) return
+
+    const payload = {
+      positive_threshold: Number(draft.positive_threshold),
+      negative_threshold: Number(draft.negative_threshold),
+      audit_rate: Number(draft.audit_rate),
+    }
+    if (Object.values(payload).some((value) => Number.isNaN(value) || value < 0 || value > 1)) {
+      showToast('Routing thresholds and audit rate must stay between 0 and 1.', 'error')
+      return
+    }
+
+    if (testMode) {
+      appendTestEvent({
+        type: 'routing_stage_config_save',
+        stage_key: stageKey,
+        payload,
+      })
+      showToast('Routing config stored locally (test mode).')
+      return
+    }
+
+    setSavingRoutingStageKey(stageKey)
+    try {
+      const { error } = await supabase
+        .from('routing_stage_configs')
+        .update(payload)
+        .eq('stage_key', stageKey)
+      if (error) throw error
+      await refreshCockpit()
+      showToast('Routing policy saved.')
+    } catch (error) {
+      console.error('Routing policy save failed:', error)
+      showToast(`Failed to save routing policy: ${error.message}`, 'error')
+    } finally {
+      setSavingRoutingStageKey(null)
+    }
+  }, [refreshCockpit, routingConfigDrafts, showToast, testMode])
 
   const saveSuggestionReview = useCallback(async (itemId, draft) => {
     if (!itemId || !draft) return
@@ -2568,6 +2877,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           reviewerDrafts={reviewerDrafts}
           newReviewerDraft={newReviewerDraft}
           savingReviewerTarget={savingReviewerTarget}
+          routingConfigDrafts={routingConfigDrafts}
+          savingRoutingStageKey={savingRoutingStageKey}
           onChangeDraft={updateReviewerDraft}
           onToggleDraftShadowSlot={toggleReviewerDraftShadowSlot}
           onSaveDraft={saveReviewerDraft}
@@ -2576,6 +2887,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           onToggleNewShadowSlot={toggleNewReviewerShadowSlot}
           onCreateReviewer={createReviewer}
           onResetNewReviewer={resetNewReviewerDraft}
+          onChangeRoutingConfig={updateRoutingConfigDraft}
+          onSaveRoutingConfig={saveRoutingConfigDraft}
         />
       )}
 

@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from supabase import Client, create_client
@@ -13,8 +14,14 @@ PIPELINE_ROOT = PROJECT_ROOT / "services" / "data-pipeline"
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
+from ai_routing import (
+    BLOCKED_DESTINATION,
+    HUMAN_REVIEW_DESTINATION,
+    ROUTING_STATUS_HUMAN_READY,
+    ROUTING_STATUS_QUEUED,
+    RoutingStageConfig,
+)
 from food_paper_crawler.models import build_search_batch_key, build_search_hit_key
-from evaluator.unified_evaluator import UnifiedEvaluator
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -130,16 +137,105 @@ def _create_supabase_client_from_env() -> Client:
     return create_client(url, key)
 
 
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _fetch_active_stage_config(supabase: Client) -> RoutingStageConfig:
+    response = (
+        supabase.table("routing_stage_configs")
+        .select("*")
+        .eq("active", True)
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        raise SystemExit("No active routing_stage_configs row found. Upload cannot enqueue AI routing.")
+    return RoutingStageConfig.from_row(response.data[0])
+
+
+def _paper_has_human_outcome(supabase: Client, paper_id: int) -> bool:
+    response = (
+        supabase.table("paper_review_outcomes")
+        .select("truth_source_kind")
+        .eq("paper_id", paper_id)
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        return False
+    return str(response.data[0].get("truth_source_kind") or "human_review").strip().lower() == "human_review"
+
+
+def _enqueue_stage_task(
+    supabase: Client,
+    *,
+    paper_id: int,
+    stage_config: RoutingStageConfig,
+    filter_score: object,
+    preserve_human_route: bool,
+) -> None:
+    existing_task_response = (
+        supabase.table("paper_stage_tasks")
+        .select("id,status")
+        .eq("paper_id", paper_id)
+        .eq("stage_key", stage_config.stage_key)
+        .limit(1)
+        .execute()
+    )
+    existing_task = existing_task_response.data[0] if existing_task_response.data else None
+    existing_status = str(existing_task.get("status") or "").strip().lower() if existing_task else ""
+    should_queue_task = existing_status not in {"queued", "processing", "completed"}
+
+    if should_queue_task:
+        priority = 0
+        try:
+            priority = int(round(float(filter_score or 0) * 100))
+        except (TypeError, ValueError):
+            priority = 0
+        supabase.table("paper_stage_tasks").upsert(
+            {
+                "paper_id": paper_id,
+                "stage_key": stage_config.stage_key,
+                "status": "queued",
+                "priority": priority,
+                "last_error": None,
+                "started_at": None,
+                "completed_at": None,
+                "updated_at": _utcnow_iso(),
+            },
+            on_conflict="paper_id,stage_key",
+        ).execute()
+
+    paper_update = {
+        "current_stage_key": stage_config.stage_key,
+        "routing_updated_at": _utcnow_iso(),
+    }
+    if preserve_human_route:
+        paper_update["routing_status"] = ROUTING_STATUS_HUMAN_READY
+        paper_update["route_destination"] = HUMAN_REVIEW_DESTINATION
+    elif should_queue_task:
+        paper_update["routing_status"] = ROUTING_STATUS_QUEUED
+        paper_update["route_destination"] = BLOCKED_DESTINATION
+        paper_update["routing_bucket"] = None
+    supabase.table("papers").update(paper_update).eq("id", paper_id).execute()
+
+
 def _find_existing_paper(supabase: Client, payload: dict, filename: str) -> dict | None:
     canonical_key = payload.get("canonical_key")
     if canonical_key:
-        existing = supabase.table("papers").select("id,canonical_key").eq("canonical_key", canonical_key).execute()
+        existing = (
+            supabase.table("papers")
+            .select("id,canonical_key,routing_status,current_stage_key")
+            .eq("canonical_key", canonical_key)
+            .execute()
+        )
         if existing.data:
             return existing.data[0]
 
     doi = payload.get("doi")
     if doi:
-        existing = supabase.table("papers").select("id,canonical_key").eq("doi", doi).execute()
+        existing = supabase.table("papers").select("id,canonical_key,routing_status,current_stage_key").eq("doi", doi).execute()
         if existing.data:
             return existing.data[0]
 
@@ -148,7 +244,7 @@ def _find_existing_paper(supabase: Client, payload: dict, filename: str) -> dict
     if source and source_record_id:
         existing = (
             supabase.table("papers")
-            .select("id,canonical_key")
+            .select("id,canonical_key,routing_status,current_stage_key")
             .eq("source", source)
             .eq("source_record_id", source_record_id)
             .execute()
@@ -156,7 +252,7 @@ def _find_existing_paper(supabase: Client, payload: dict, filename: str) -> dict
         if existing.data:
             return existing.data[0]
 
-    existing = supabase.table("papers").select("id,canonical_key").eq("filename", filename).execute()
+    existing = supabase.table("papers").select("id,canonical_key,routing_status,current_stage_key").eq("filename", filename).execute()
     if not existing.data:
         return None
     for row in existing.data:
@@ -392,9 +488,7 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
     paper_id_by_key: dict[str, int] = {}
     upload_errors: list[str] = []
     uploaded_count = 0
-    
-    # Initialize UnifiedEvaluator for AI Triage
-    evaluator = UnifiedEvaluator()
+    active_stage = _fetch_active_stage_config(supabase)
 
     for record in upload_candidates:
         file_path = _resolve_crawl_path(manifest_path, str(record.get("file") or ""))
@@ -434,65 +528,15 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
             if canonical_key:
                 paper_id_by_key[canonical_key] = paper_id
             uploaded_count += 1
-
-            # --- AI EXTRACTION / TRIAGE ---
-            if evaluator.model:
-                pmc_id = record.get("pmc_id") or record.get("pmcid")
-                print(f"  🤖 Running AI extraction for {pmc_id}...")
-                try:
-                    # Try to provide the PDF text if XML is missing
-                    pdf_text = ""
-                    try:
-                        import subprocess
-                        pdf_text = subprocess.check_output(["pdftotext", str(file_path), "-"], text=True)
-                    except:
-                        pass
-                    
-                    # Mock the paper for the evaluator
-                    paper_mock = {
-                        "pmc_id": pmc_id,
-                        "title": record.get("title", ""),
-                        "raw_xml": pdf_text # Bypass XML parsing with raw text
-                    }
-                    
-                    # We need to monkeypatch processing.content.extract_full_text to return the text as-is
-                    import crawler.processing.content as content
-                    original_extract = content.extract_full_text
-                    content.extract_full_text = lambda x: x
-                    
-                    try:
-                        ai_result = evaluator.evaluate_and_extract(paper_mock)
-                    finally:
-                        content.extract_full_text = original_extract
-                    
-                    # Save to database
-                    from dataclasses import asdict
-                    extract_payload = {
-                        "paper_id": paper_id,
-                        "model_name": "gemini-3-flash-preview",
-                        "is_useful": ai_result.is_useful,
-                        "reasoning": ai_result.reasoning,
-                        "overall_confidence": ai_result.overall_confidence,
-                        "raw_data": {
-                            "reasoning": ai_result.reasoning,
-                            "is_useful": ai_result.is_useful,
-                            "overall_confidence": ai_result.overall_confidence,
-                            "data": [asdict(r) for r in ai_result.data]
-                        },
-                        "status": "pending"
-                    }
-                    
-                    # Upsert
-                    existing_ai = supabase.table("ai_extractions").select("id").eq("paper_id", paper_id).eq("model_name", "gemini-3-flash-preview").execute()
-                    if existing_ai.data:
-                        supabase.table("ai_extractions").update(extract_payload).eq("id", existing_ai.data[0]["id"]).execute()
-                    else:
-                        supabase.table("ai_extractions").insert(extract_payload).execute()
-                    print(f"  ✅ AI extraction stored (is_useful={ai_result.is_useful})")
-                except Exception as ai_err:
-                    print(f"  ⚠️ AI extraction failed: {ai_err}")
-                    import traceback
-                    traceback.print_exc()
+            preserve_human_route = _paper_has_human_outcome(supabase, paper_id)
+            _enqueue_stage_task(
+                supabase,
+                paper_id=paper_id,
+                stage_config=active_stage,
+                filter_score=payload.get("filter_score"),
+                preserve_human_route=preserve_human_route,
+            )
+            print(f"  Enqueued AI routing stage: {active_stage.stage_key}")
         except Exception as exc:
             upload_errors.append(f"{filename}: {exc}")
 

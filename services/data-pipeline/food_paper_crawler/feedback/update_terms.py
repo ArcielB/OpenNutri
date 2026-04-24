@@ -214,6 +214,9 @@ def build_labels(
         paper_id = outcome.get("paper_id")
         if not isinstance(paper_id, int):
             continue
+        truth_source_kind = str(outcome.get("truth_source_kind") or "human_review").strip().lower()
+        if truth_source_kind != "human_review":
+            continue
         decision_kind = str(outcome.get("decision_kind") or "").strip().lower()
         resolved_paper_ids.add(paper_id)
         if decision_kind == "has_data":
@@ -1006,7 +1009,7 @@ def main() -> None:
         args.supabase_url,
         args.supabase_key,
         "paper_review_outcomes",
-        "paper_id,decision_kind,resolution_source,resolved_at",
+        "paper_id,decision_kind,resolution_source,resolved_at,truth_source_kind",
         batch_size=1000,
     )
     open_conflicts = fetch_rows(
