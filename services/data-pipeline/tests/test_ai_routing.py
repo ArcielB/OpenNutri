@@ -332,6 +332,47 @@ class StockAndFeedbackTests(unittest.TestCase):
 
         self.assertEqual([paper["id"] for paper in available], [2, 3, 1])
 
+    def test_assignment_changes_reuse_cancelled_rows(self) -> None:
+        profile = refill_assignment_queue.ReviewerProfile(
+            id="profile-peri",
+            display_name="Peri",
+            active=True,
+            can_review_en=True,
+            can_review_tr=True,
+            tester_access=False,
+            official_slot="peri",
+            auth_user_id="auth-peri",
+        )
+        existing_slot = {
+            "id": "slot-existing",
+            "paper_id": 26,
+            "slot_key": "peri",
+            "status": "cancelled",
+        }
+        existing_user = {
+            "id": "user-existing",
+            "paper_slot_assignment_id": "slot-existing",
+            "paper_id": 26,
+            "reviewer_profile_id": "profile-peri",
+            "status": "cancelled",
+        }
+
+        slot_inserts, slot_updates, user_inserts, user_updates = refill_assignment_queue.build_assignment_changes(
+            {"id": 26, "workflow_language": "en"},
+            ("peri",),
+            {"peri": [{"reviewer_profile_id": "profile-peri", "can_review_en": True, "can_review_tr": True}]},
+            {"profile-peri": profile},
+            existing_slot_by_paper_slot={(26, "peri"): existing_slot},
+            existing_user_by_slot_profile={("slot-existing", "profile-peri"): existing_user},
+        )
+
+        self.assertEqual(slot_inserts, [])
+        self.assertEqual(user_inserts, [])
+        self.assertEqual(slot_updates[0]["id"], "slot-existing")
+        self.assertEqual(slot_updates[0]["payload"]["status"], "pending")
+        self.assertEqual(user_updates[0]["id"], "user-existing")
+        self.assertEqual(user_updates[0]["payload"]["status"], "assigned")
+
     def test_build_labels_excludes_ai_model_outcomes(self) -> None:
         good_ids, bad_ids, conflict_ids = build_labels(
             review_outcomes=[

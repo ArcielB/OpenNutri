@@ -8,6 +8,7 @@ import sys
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List
 
@@ -52,6 +53,10 @@ def require_client() -> Client:
     if not supabase_url or not supabase_key:
         raise SystemExit("Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.")
     return create_client(supabase_url, supabase_key)
+
+
+def utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def fetch_all(client: Client, table: str, select: str, batch_size: int = 1000) -> list[dict]:
@@ -240,29 +245,59 @@ def choose_slot_pair(
     return best_pair
 
 
-def build_assignment_rows(
+def build_assignment_changes(
     paper: dict,
     slot_pair: tuple[str, str],
     slot_members_by_slot: dict[str, list[dict]],
     profiles: dict[str, ReviewerProfile],
-) -> tuple[list[dict], list[dict]]:
+    existing_slot_by_paper_slot: dict[tuple[int, str], dict] | None = None,
+    existing_user_by_slot_profile: dict[tuple[str, str], dict] | None = None,
+) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     paper_id = paper["id"]
     language = str(paper.get("workflow_language") or "").strip().lower()
+    existing_slot_by_paper_slot = existing_slot_by_paper_slot or {}
+    existing_user_by_slot_profile = existing_user_by_slot_profile or {}
     slot_rows: list[dict] = []
+    slot_updates: list[dict] = []
     user_rows: list[dict] = []
+    user_updates: list[dict] = []
+    now = utcnow_iso()
 
     for slot_key in slot_pair:
-        slot_assignment_id = str(uuid.uuid4())
+        existing_slot = existing_slot_by_paper_slot.get((paper_id, slot_key))
+        if existing_slot:
+            existing_slot_status = str(existing_slot.get("status") or "").strip().lower()
+            if existing_slot_status != "cancelled":
+                return [], [], [], []
+            slot_assignment_id = str(existing_slot["id"])
+            slot_updates.append(
+                {
+                    "id": slot_assignment_id,
+                    "paper_id": paper_id,
+                    "slot_key": slot_key,
+                    "payload": {
+                        "workflow_language": language,
+                        "status": "pending",
+                        "official_submission_id": None,
+                        "submitted_at": None,
+                        "resolved_at": None,
+                        "assigned_at": now,
+                    },
+                }
+            )
+        else:
+            slot_assignment_id = str(uuid.uuid4())
+            slot_rows.append(
+                {
+                    "id": slot_assignment_id,
+                    "paper_id": paper_id,
+                    "slot_key": slot_key,
+                    "workflow_language": language,
+                    "status": "pending",
+                }
+            )
         before_user_count = len(user_rows)
-        slot_rows.append(
-            {
-                "id": slot_assignment_id,
-                "paper_id": paper_id,
-                "slot_key": slot_key,
-                "workflow_language": language,
-                "status": "pending",
-            }
-        )
+        before_user_update_count = len(user_updates)
 
         for member in slot_members_by_slot.get(slot_key, []):
             profile_id = member["reviewer_profile_id"]
@@ -272,19 +307,59 @@ def build_assignment_rows(
             can_review = bool(member.get("can_review_en", True) if language == "en" else member.get("can_review_tr", True))
             if not can_review or not profile_can_review_language(profile, language):
                 continue
-            user_rows.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "paper_slot_assignment_id": slot_assignment_id,
-                    "paper_id": paper_id,
-                    "reviewer_profile_id": profile_id,
-                    "auth_user_id": profile.auth_user_id,
-                    "workflow_language": language,
-                    "status": "assigned",
-                }
-            )
-        if len(user_rows) == before_user_count:
-            return [], []
+            existing_user = existing_user_by_slot_profile.get((slot_assignment_id, profile_id))
+            if existing_user:
+                existing_user_status = str(existing_user.get("status") or "").strip().lower()
+                if existing_user_status != "cancelled":
+                    return [], [], [], []
+                user_updates.append(
+                    {
+                        "id": existing_user["id"],
+                        "paper_slot_assignment_id": slot_assignment_id,
+                        "paper_id": paper_id,
+                        "reviewer_profile_id": profile_id,
+                        "payload": {
+                            "auth_user_id": profile.auth_user_id,
+                            "workflow_language": language,
+                            "status": "assigned",
+                            "last_annotation_id": None,
+                            "latest_submission_id": None,
+                            "last_saved_at": None,
+                            "submitted_at": None,
+                            "resolved_at": None,
+                            "assigned_at": now,
+                        },
+                    }
+                )
+            else:
+                user_rows.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "paper_slot_assignment_id": slot_assignment_id,
+                        "paper_id": paper_id,
+                        "reviewer_profile_id": profile_id,
+                        "auth_user_id": profile.auth_user_id,
+                        "workflow_language": language,
+                        "status": "assigned",
+                    }
+                )
+        if len(user_rows) == before_user_count and len(user_updates) == before_user_update_count:
+            return [], [], [], []
+    return slot_rows, slot_updates, user_rows, user_updates
+
+
+def build_assignment_rows(
+    paper: dict,
+    slot_pair: tuple[str, str],
+    slot_members_by_slot: dict[str, list[dict]],
+    profiles: dict[str, ReviewerProfile],
+) -> tuple[list[dict], list[dict]]:
+    slot_rows, _slot_updates, user_rows, _user_updates = build_assignment_changes(
+        paper,
+        slot_pair,
+        slot_members_by_slot,
+        profiles,
+    )
     return slot_rows, user_rows
 
 
@@ -438,7 +513,19 @@ def main() -> None:
             return
 
         slot_inserts: list[dict] = []
+        slot_updates: list[dict] = []
         user_inserts: list[dict] = []
+        user_updates: list[dict] = []
+        existing_slot_by_paper_slot = {
+            (int(row["paper_id"]), str(row["slot_key"])): row
+            for row in state["slot_assignments"]
+            if row.get("paper_id") is not None and row.get("slot_key") and row.get("id")
+        }
+        existing_user_by_slot_profile = {
+            (str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"])): row
+            for row in state["user_assignments"]
+            if row.get("paper_slot_assignment_id") and row.get("reviewer_profile_id") and row.get("id")
+        }
         made_progress = False
 
         for paper in open_available:
@@ -458,31 +545,57 @@ def main() -> None:
             if slot_pair is None:
                 continue
 
-            next_slot_rows, next_user_rows = build_assignment_rows(paper, slot_pair, slot_members_by_slot, profiles)
-            if not next_user_rows:
+            next_slot_rows, next_slot_updates, next_user_rows, next_user_updates = build_assignment_changes(
+                paper,
+                slot_pair,
+                slot_members_by_slot,
+                profiles,
+                existing_slot_by_paper_slot=existing_slot_by_paper_slot,
+                existing_user_by_slot_profile=existing_user_by_slot_profile,
+            )
+            if not next_user_rows and not next_user_updates:
                 continue
 
             slot_inserts.extend(next_slot_rows)
+            slot_updates.extend(next_slot_updates)
             user_inserts.extend(next_user_rows)
+            user_updates.extend(next_user_updates)
             made_progress = True
+            for row in next_slot_rows:
+                existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))] = row
+            for row in next_slot_updates:
+                existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))] = {
+                    **existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))],
+                    **row["payload"],
+                }
+            for row in next_user_rows:
+                existing_user_by_slot_profile[(str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"]))] = row
+            for row in next_user_updates:
+                existing_user_by_slot_profile[(str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"]))] = row
 
             for slot_key in slot_pair:
                 slot_loads[slot_key] += 1
-            for row in next_user_rows:
+            for row in [*next_user_rows, *next_user_updates]:
                 profile_id = row["reviewer_profile_id"]
                 open_counts[profile_id] += 1
                 deficits[profile_id] = max(0, args.target_open - open_counts[profile_id])
 
         if made_progress:
-            print(f"  Planned slot assignments: {len(slot_inserts)}")
-            print(f"  Planned user assignments: {len(user_inserts)}")
+            print(f"  Planned slot assignments: {len(slot_inserts) + len(slot_updates)}")
+            print(f"  Planned user assignments: {len(user_inserts) + len(user_updates)}")
             if args.dry_run:
-                for row in user_inserts[:12]:
+                for row in [*user_inserts, *user_updates][:12]:
                     print(f"    [dry-run] user_assignment paper={row['paper_id']} reviewer={profiles[row['reviewer_profile_id']].display_name}")
                 return
             else:
-                client.table("paper_slot_assignments").insert(slot_inserts).execute()
-                client.table("paper_user_assignments").insert(user_inserts).execute()
+                for row in slot_updates:
+                    client.table("paper_slot_assignments").update(row["payload"]).eq("id", row["id"]).execute()
+                if slot_inserts:
+                    client.table("paper_slot_assignments").insert(slot_inserts).execute()
+                for row in user_updates:
+                    client.table("paper_user_assignments").update(row["payload"]).eq("id", row["id"]).execute()
+                if user_inserts:
+                    client.table("paper_user_assignments").insert(user_inserts).execute()
                 print("  Inserted assignments into Supabase.")
             continue
 
