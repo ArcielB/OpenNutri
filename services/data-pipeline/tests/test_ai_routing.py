@@ -21,8 +21,11 @@ from ai_routing import (
 )
 from food_paper_crawler.feedback.update_terms import build_labels
 from scripts import ensure_paper_stock, refill_assignment_queue, upload_to_supabase
-from scripts.backfill_ai_routing import cancel_unresolved_assignments_for_closed_routes
-from scripts.process_stage_queue import claim_stage_tasks
+from scripts.backfill_ai_routing import (
+    cancel_unresolved_assignments_for_closed_routes,
+    reset_open_human_assignments_for_ai,
+)
+from scripts.process_stage_queue import claim_stage_tasks, process_one_task
 
 
 class FakeResponse:
@@ -81,6 +84,11 @@ class FakeTable:
         self.on_conflict = on_conflict
         return self
 
+    def insert(self, payload: dict | list[dict]):
+        self.action = "insert"
+        self.payload = payload
+        return self
+
     def execute(self):
         rows = [row for row in self.client.tables.get(self.name, []) if self._matches(row)]
         if self.action == "select":
@@ -110,6 +118,13 @@ class FakeTable:
             self.client.upserts.append((self.name, payload, self.on_conflict))
             return FakeResponse([payload])
 
+        if self.action == "insert":
+            payload_rows = self.payload if isinstance(self.payload, list) else [self.payload]
+            inserted = [dict(row) for row in payload_rows]
+            self.client.tables.setdefault(self.name, []).extend(inserted)
+            self.client.inserts.append((self.name, inserted))
+            return FakeResponse(inserted)
+
         raise AssertionError(f"Unsupported action {self.action!r} on {self.name}")
 
     def _matches(self, row: dict) -> bool:
@@ -121,6 +136,7 @@ class FakeSupabaseClient:
         self.tables = {name: [dict(row) for row in rows] for name, rows in (tables or {}).items()}
         self.updates: list[tuple[str, dict, list[tuple[str, object]]]] = []
         self.upserts: list[tuple[str, dict, str | None]] = []
+        self.inserts: list[tuple[str, list[dict]]] = []
         self.rpc_calls: list[tuple[str, dict]] = []
         self.rpc_payload = rpc_payload or []
 
@@ -282,6 +298,40 @@ class StockAndFeedbackTests(unittest.TestCase):
         )
         self.assertEqual([paper["id"] for paper in available], [1])
 
+    def test_available_papers_sorts_oldest_human_ready_waiting_first(self) -> None:
+        papers = [
+            {
+                "id": 1,
+                "workflow_language": "en",
+                "routing_status": "human_review_ready",
+                "created_at": "2026-04-01T00:00:00+00:00",
+                "routing_updated_at": "2026-04-20T00:00:00+00:00",
+            },
+            {
+                "id": 2,
+                "workflow_language": "tr",
+                "routing_status": "human_review_ready",
+                "created_at": "2026-04-02T00:00:00+00:00",
+                "routing_updated_at": "2026-04-10T00:00:00+00:00",
+            },
+            {
+                "id": 3,
+                "workflow_language": "en",
+                "routing_status": "human_review_ready",
+                "created_at": "2026-04-03T00:00:00+00:00",
+                "routing_updated_at": "2026-04-10T00:00:00+00:00",
+            },
+        ]
+
+        available = refill_assignment_queue.available_papers(
+            papers,
+            slot_assignments=[],
+            review_outcomes=[],
+            global_labels=[],
+        )
+
+        self.assertEqual([paper["id"] for paper in available], [2, 3, 1])
+
     def test_build_labels_excludes_ai_model_outcomes(self) -> None:
         good_ids, bad_ids, conflict_ids = build_labels(
             review_outcomes=[
@@ -298,8 +348,8 @@ class StockAndFeedbackTests(unittest.TestCase):
 
 
 class QueueAndBackfillTests(unittest.TestCase):
-    def test_enqueue_stage_task_requeues_failed_tasks(self) -> None:
-        stage = RoutingStageConfig(
+    def stage_config(self) -> RoutingStageConfig:
+        return RoutingStageConfig(
             stage_key="gemini_flash_triage_v1",
             stage_kind="ai_model",
             display_name="Gemini Flash Triage v1",
@@ -312,6 +362,9 @@ class QueueAndBackfillTests(unittest.TestCase):
             next_stage_on_low_confidence=HUMAN_REVIEW_DESTINATION,
             counts_as_truth=False,
         )
+
+    def test_enqueue_stage_task_requeues_failed_tasks(self) -> None:
+        stage = self.stage_config()
         client = FakeSupabaseClient(
             tables={
                 "paper_stage_tasks": [
@@ -381,6 +434,90 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["paper_user_assignments"][0]["status"], "cancelled")
         self.assertEqual(client.tables["paper_user_assignments"][1]["status"], "draft")
         self.assertEqual(client.tables["paper_user_assignments"][2]["status"], "cancelled")
+
+    def test_reset_cancels_unresolved_assignments_and_enqueues_existing_papers(self) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {"id": 1, "filter_score": 0.76, "routing_status": "human_review_ready"},
+                    {"id": 2, "filter_score": 0.21, "routing_status": None},
+                ],
+                "paper_assignment_submissions": [],
+                "paper_review_outcomes": [],
+                "paper_slot_assignments": [
+                    {"id": "slot-1", "paper_id": 1, "status": "pending"},
+                    {"id": "slot-2", "paper_id": 2, "status": "resolved"},
+                ],
+                "paper_user_assignments": [
+                    {"id": "user-1", "paper_id": 1, "status": "assigned"},
+                    {"id": "user-2", "paper_id": 2, "status": "cancelled"},
+                ],
+                "paper_stage_tasks": [
+                    {"paper_id": 2, "stage_key": "gemini_flash_triage_v1", "status": "completed"},
+                ],
+            }
+        )
+
+        result = reset_open_human_assignments_for_ai(client, stage_config=self.stage_config())
+
+        self.assertEqual(result["enqueued"], 2)
+        self.assertEqual(result["cancelled"], {"slot_assignments": 1, "user_assignments": 1})
+        self.assertEqual(client.tables["paper_slot_assignments"][0]["status"], "cancelled")
+        self.assertEqual(client.tables["paper_user_assignments"][0]["status"], "cancelled")
+        self.assertEqual([paper["routing_status"] for paper in client.tables["papers"]], ["queued_for_ai", "queued_for_ai"])
+        self.assertEqual([paper["route_destination"] for paper in client.tables["papers"]], ["blocked", "blocked"])
+        self.assertEqual([upsert[1]["status"] for upsert in client.upserts], ["queued", "queued"])
+
+    def test_reset_refuses_to_discard_submitted_or_human_truth_work(self) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [{"id": 1, "filter_score": 0.76, "routing_status": "human_review_ready"}],
+                "paper_assignment_submissions": [{"paper_id": 1}],
+                "paper_review_outcomes": [{"paper_id": 2, "truth_source_kind": "human_review"}],
+                "paper_slot_assignments": [{"id": "slot-1", "paper_id": 1, "status": "pending"}],
+                "paper_user_assignments": [{"id": "user-1", "paper_id": 1, "status": "assigned"}],
+                "paper_stage_tasks": [],
+            }
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Refusing to reset AI routing"):
+            reset_open_human_assignments_for_ai(client, stage_config=self.stage_config())
+
+        self.assertEqual(client.tables["paper_slot_assignments"][0]["status"], "pending")
+        self.assertEqual(client.tables["paper_user_assignments"][0]["status"], "assigned")
+        self.assertEqual(client.upserts, [])
+
+    def test_ai_processing_errors_requeue_task_and_paper(self) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 9,
+                        "title": "Missing file paper",
+                        "doi": "10.123/example",
+                        "filename": "",
+                        "latest_ai_extraction_id": "old-extraction",
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-9", "paper_id": 9, "status": "processing"}],
+            }
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-9", "paper_id": 9},
+            stage_config=self.stage_config(),
+            evaluator=Mock(),
+        )
+
+        self.assertEqual(result["status"], "queued_for_ai")
+        self.assertEqual(result["route_destination"], "blocked")
+        self.assertIn("missing filename", result["error"])
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "queued")
+        self.assertIn("missing filename", client.tables["paper_stage_tasks"][0]["last_error"])
+        self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
+        self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
 
 
 if __name__ == "__main__":

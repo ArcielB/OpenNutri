@@ -26,6 +26,7 @@ from ai_routing import (
     HUMAN_REVIEW_DESTINATION,
     ROUTING_STATUS_HUMAN_READY,
     ROUTING_STATUS_PROCESSING,
+    ROUTING_STATUS_QUEUED,
     RoutingStageConfig,
     classify_routing_bucket,
     decision_kind_for_useful,
@@ -33,7 +34,6 @@ from ai_routing import (
     normalize_ai_payload,
     payload_text_and_hash,
     route_bucket,
-    route_failure,
     stable_audit_sample,
 )
 from evaluator.unified_evaluator import UnifiedEvaluator
@@ -172,11 +172,12 @@ def mark_task_completed(client: Client, task_id: str) -> None:
     ).eq("id", task_id).execute()
 
 
-def mark_task_failed(client: Client, *, task_id: str, error_text: str) -> None:
+def mark_task_requeued_after_error(client: Client, *, task_id: str, error_text: str) -> None:
     client.table("paper_stage_tasks").update(
         {
-            "status": "failed",
+            "status": "queued",
             "last_error": error_text[:4000],
+            "started_at": None,
             "completed_at": None,
             "updated_at": _utcnow_iso(),
         }
@@ -367,21 +368,20 @@ def process_one_task(client: Client, *, task: dict, stage_config: RoutingStageCo
         }
     except Exception as exc:
         error_text = str(exc)
-        failed_status, failed_destination = route_failure(has_human_truth=preserve_human_route)
         update_paper_routing_summary(
             client,
             paper_id=paper_id,
             stage_key=stage_config.stage_key,
-            routing_status=failed_status,
+            routing_status=ROUTING_STATUS_QUEUED,
             routing_bucket=None,
-            route_destination=failed_destination,
+            route_destination=BLOCKED_DESTINATION,
             latest_ai_extraction_id=paper.get("latest_ai_extraction_id"),
         )
-        mark_task_failed(client, task_id=task_id, error_text=error_text)
+        mark_task_requeued_after_error(client, task_id=task_id, error_text=error_text)
         return {
             "paper_id": paper_id,
-            "status": failed_status,
-            "route_destination": failed_destination,
+            "status": ROUTING_STATUS_QUEUED,
+            "route_destination": BLOCKED_DESTINATION,
             "error": error_text,
         }
 
@@ -401,20 +401,25 @@ def drain_stage_queue(
     processed = 0
     finalized = 0
     human_ready = 0
-    failed = 0
-    while processed < max_tasks:
-        claimed = claim_stage_tasks(client, stage_key=stage_config.stage_key, limit=1)
-        if not claimed:
-            break
-        result = process_one_task(client, task=claimed[0], stage_config=stage_config, evaluator=evaluator)
+    requeued = 0
+    claimed = claim_stage_tasks(client, stage_key=stage_config.stage_key, limit=max(1, max_tasks))
+    claimed = sorted(
+        claimed,
+        key=lambda row: (
+            str(row.get("created_at") or ""),
+            str(row.get("id") or ""),
+        ),
+    )
+    for task in claimed[:max_tasks]:
+        result = process_one_task(client, task=task, stage_config=stage_config, evaluator=evaluator)
         processed += 1
         status = str(result.get("status") or "")
         if status in {"ai_finalized_has_data", "ai_finalized_no_usable_data"}:
             finalized += 1
         elif status == ROUTING_STATUS_HUMAN_READY:
             human_ready += 1
-        elif status == "ai_failed":
-            failed += 1
+        elif status == ROUTING_STATUS_QUEUED and result.get("error"):
+            requeued += 1
         if verbose:
             message = f"paper={result['paper_id']} status={status} destination={result.get('route_destination')}"
             if result.get("error"):
@@ -425,7 +430,8 @@ def drain_stage_queue(
         "processed": processed,
         "finalized": finalized,
         "human_ready": human_ready,
-        "failed": failed,
+        "requeued": requeued,
+        "failed": 0,
         "stage_key": stage_config.stage_key,
     }
     if verbose:

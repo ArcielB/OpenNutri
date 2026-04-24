@@ -126,10 +126,13 @@ This is the current high-signal project state after the assignment-driven annota
   - `services/data-pipeline/scripts/refill_assignment_queue.py`
   - keeps each active reviewer’s personal open backlog at the target level
   - creates slot assignments + user assignments only from `human_review_ready` papers
+  - assigns older waiting `human_review_ready` papers first by `routing_updated_at` / creation order
   - drains queued AI tasks before triggering crawler refill when the human-ready pool is exhausted
 - New AI routing ops scripts:
   - `services/data-pipeline/scripts/process_stage_queue.py`
   - `services/data-pipeline/scripts/backfill_ai_routing.py`
+  - `process_stage_queue.py` now claims one queued batch per run and returns AI processing errors to `queued_for_ai` with `last_error` instead of routing them to humans
+  - `backfill_ai_routing.py --reset-open-human-assignments` is the safe reroute path for existing papers: it refuses submitted/human-truth work, cancels unresolved assignment rows, and queues existing papers for AI without draining by default
 - Dry-run check works after a one-pass preview fix.
 
 **What Still Needs Attention**
@@ -155,13 +158,14 @@ This is the current high-signal project state after the assignment-driven annota
   - `python3 services/data-pipeline/scripts/process_stage_queue.py`
 - Backfill the active AI routing stage:
   - `python3 services/data-pipeline/scripts/backfill_ai_routing.py`
+- Reset existing unresolved human assignments back through the active AI gate:
+  - `python3 services/data-pipeline/scripts/backfill_ai_routing.py --reset-open-human-assignments`
 - Top up reviewer queues:
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py`
 - Inspect the developer-training queue pool:
   - `python3 services/data-pipeline/scripts/seed_training_stock.py [--dry-run]`
 
 **Immediate Next Step**
-- Re-run `apps/expert-annotator/run-migration.js`, `check-workflow-schema.mjs`, and `backfill_ai_routing.py` from a network-enabled environment that can resolve the Supabase DB host.
+- Run the reset/backfill flow, drain the AI queue once, then rerun `refill_assignment_queue.py`.
 - After that, verify the routing invariants:
-  no open human assignments on `queued_for_ai`, `ai_processing`, `ai_failed`, or AI-finalized papers.
-- Then rerun `refill_assignment_queue.py` and deploy the annotator frontend.
+  no open human assignments on `queued_for_ai`, `ai_processing`, AI-finalized, or null-routed papers.

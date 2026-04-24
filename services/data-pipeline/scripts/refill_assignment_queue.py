@@ -161,9 +161,18 @@ def available_papers(
         for row in global_labels
         if row.get("paper_id") is not None and row.get("label") == "definitely_no_data"
     }
+
+    def waiting_order(row: dict) -> tuple[str, int]:
+        timestamp = str(row.get("routing_updated_at") or row.get("created_at") or "")
+        try:
+            paper_id = int(row.get("id") or 0)
+        except (TypeError, ValueError):
+            paper_id = 0
+        return timestamp, paper_id
+
     return [
         paper
-        for paper in sorted(papers, key=lambda row: row.get("id") or 0)
+        for paper in sorted(papers, key=waiting_order)
         if paper.get("id") not in blocked_ids
         and str(paper.get("routing_status") or "").strip().lower() == "human_review_ready"
         and str(paper.get("workflow_language") or "").strip().lower() in SUPPORTED_LANGUAGES
@@ -281,7 +290,7 @@ def build_assignment_rows(
 
 def fetch_state(client: Client) -> dict[str, list[dict]]:
     return {
-        "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at,routing_status"),
+        "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at,routing_updated_at,routing_status"),
         "global_labels": fetch_all(client, "paper_global_labels", "paper_id,label"),
         "review_outcomes": fetch_all(client, "paper_review_outcomes", "paper_id,decision_kind"),
         "slot_assignments": fetch_all(client, "paper_slot_assignments", "id,paper_id,slot_key,status,workflow_language"),
