@@ -1,3 +1,24 @@
 keys
 keys/
 Keys and links
+
+# Python generated files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Codex/session state
+.codex
+.codex/
+
+# Local crawler and experiment outputs
+data/
+services/data-pipeline/data/
+services/data-pipeline/food_paper_crawler/feedback/latest.json
+services/data-pipeline/food_paper_crawler/feedback/term_scores_*.json
+
+# Local editor/archive artifacts
+.~lock.*#
+docs/.~lock.*#
+o.zip
+check_docs_defense_pdfs_or_docs.zip
