@@ -372,7 +372,7 @@ def fetch_state(client: Client) -> dict[str, list[dict]]:
         "user_assignments": fetch_all(
             client,
             "paper_user_assignments",
-            "id,paper_id,reviewer_profile_id,auth_user_id,status,workflow_language",
+            "id,paper_slot_assignment_id,paper_id,reviewer_profile_id,auth_user_id,status,workflow_language",
         ),
         "reviewer_profiles": fetch_all(
             client,
