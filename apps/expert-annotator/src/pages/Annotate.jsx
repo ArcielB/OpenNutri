@@ -486,10 +486,7 @@ function groupRowsByPaperId(rows) {
 function QueueView({
   assignments,
   currentAssignment,
-  currentPaper,
   currentPaperIndex,
-  reviewerProfile,
-  aiExtractions,
   pdfUrl,
   theme,
   allNutrients,
@@ -527,19 +524,6 @@ function QueueView({
         <div className="queue-assignment-header">
           {currentAssignment ? (
             <>
-              <div className="queue-assignment-title-row">
-                <div>
-                  <h2>{currentPaper?.title || currentPaper?.filename || `Paper ${currentAssignment.paper_id}`}</h2>
-                  <p>
-                    {(currentAssignment.workflow_language || currentPaper?.workflow_language || 'unknown').toUpperCase()} · {currentAssignment.slot_assignment?.slot_key || reviewerProfile?.official_slot || 'slot pending'}
-                    {currentPaper?.doi && ` · DOI: ${currentPaper.doi}`}
-                  </p>
-                </div>
-                <div className={`status-badge ${getStatusBadgeClass(currentAssignment.status)}`}>
-                  {formatStatusLabel(currentAssignment.status)}
-                </div>
-              </div>
-
               <div className="queue-assignment-toolbar">
                 <div className="queue-toolbar-group">
                   <div className="paper-list-toggle" ref={paperListRef}>
@@ -567,6 +551,9 @@ function QueueView({
                   </div>
 
                   <div className="queue-mini-stats">
+                    <span className={`status-badge ${getStatusBadgeClass(currentAssignment.status)}`}>
+                      {formatStatusLabel(currentAssignment.status)}
+                    </span>
                     <span className="status-badge status-pending">{queueStats.open} open</span>
                     <span className="status-badge status-draft">{queueStats.conflict} conflict</span>
                     <span className="status-badge status-done">{queueStats.resolved} resolved</span>
@@ -615,46 +602,6 @@ function QueueView({
               {currentAssignment.outcome && (
                 <div className="outcome-banner">
                   Final paper outcome: {formatDecisionLabel(currentAssignment.outcome.decision_kind)}
-                </div>
-              )}
-
-              {aiExtractions.length > 0 && (
-                <div
-                  className={`ai-card ${aiExtractions[0]?.is_useful ? 'ai-card-useful' : 'ai-card-not-useful'}`}
-                >
-                  <div className="ai-card-header">
-                    <div>
-                      <h3>AI extraction</h3>
-                      <p>
-                        {aiExtractions[0]?.model_name || 'unknown model'}
-                        {aiExtractions[0]?.overall_confidence != null
-                          ? ` · confidence ${Math.round(aiExtractions[0].overall_confidence * 100)}%`
-                          : ''}
-                      </p>
-                    </div>
-                    <div className="ai-card-badges">
-                      <span className={`status-badge ${aiExtractions[0]?.is_useful ? 'status-done' : 'status-draft'}`}>
-                        {aiExtractions[0]?.is_useful ? 'Useful' : 'Not useful'}
-                      </span>
-                      <span className="status-badge status-pending">
-                        {aiExtractions[0]?.status || 'pending'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {aiExtractions[0]?.reasoning && <div className="ai-card-reasoning">{aiExtractions[0].reasoning}</div>}
-
-                  <div className="ai-card-footer">
-                    <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                      {aiExtractions[0]?.created_at ? new Date(aiExtractions[0].created_at).toLocaleString() : 'No timestamp'}
-                    </div>
-                    <details>
-                      <summary style={{ cursor: 'pointer' }}>Raw JSON</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', marginTop: 10 }}>
-                        {JSON.stringify(aiExtractions[0]?.raw_data || {}, null, 2)}
-                      </pre>
-                    </details>
-                  </div>
                 </div>
               )}
 
@@ -1679,7 +1626,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [assignments, setAssignments] = useState([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null)
   const [foodItems, setFoodItems] = useState([createEmptyFoodItem()])
-  const [aiExtractions, setAiExtractions] = useState([])
   const [saving, setSaving] = useState(false)
   const [loadingQueue, setLoadingQueue] = useState(true)
   const [loadingCockpit, setLoadingCockpit] = useState(false)
@@ -2069,13 +2015,11 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   useEffect(() => {
     if (!currentAssignment) {
       setFoodItems([createEmptyFoodItem()])
-      setAiExtractions([])
       return
     }
 
     if (currentAssignment.is_virtual) {
       setFoodItems([createEmptyFoodItem()])
-      setAiExtractions([])
       return
     }
 
@@ -2155,37 +2099,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       cancelled = true
     }
   }, [currentAssignment, user.id])
-
-  useEffect(() => {
-    if (!currentPaper?.id) {
-      setAiExtractions([])
-      return
-    }
-
-    let cancelled = false
-
-    async function loadAiExtractions() {
-      const { data, error } = await supabase
-        .from('ai_extractions')
-        .select('*')
-        .eq('paper_id', currentPaper.id)
-        .order('created_at', { ascending: false })
-        .limit(3)
-
-      if (cancelled) return
-      if (error) {
-        console.error('AI extraction load failed:', error)
-        setAiExtractions([])
-        return
-      }
-      setAiExtractions(data || [])
-    }
-
-    loadAiExtractions()
-    return () => {
-      cancelled = true
-    }
-  }, [currentPaper?.id])
 
   const handleToggleTestMode = useCallback(() => {
     if (reviewerProfile?.tester_access) {
@@ -2833,10 +2746,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         <QueueView
           assignments={assignments}
           currentAssignment={currentAssignment}
-          currentPaper={currentPaper}
           currentPaperIndex={currentPaperIndex}
-          reviewerProfile={reviewerProfile}
-          aiExtractions={aiExtractions}
           pdfUrl={pdfUrl}
           theme={theme}
           allNutrients={allNutrients}

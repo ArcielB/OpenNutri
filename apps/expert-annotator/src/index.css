@@ -1172,29 +1172,22 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .queue-assignment-header,
 .conflict-header {
   display: flex;
   align-items: flex-start;
-  padding: 18px 20px 12px;
+  padding: 12px 16px 10px;
   border-bottom: 1px solid var(--border);
 }
 
 .queue-assignment-header {
-  flex-direction: column;
-  gap: 14px;
+  gap: 0;
 }
 
 .conflict-header {
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.queue-assignment-title-row {
-  display: flex;
-  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
@@ -1205,6 +1198,7 @@ body {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .queue-toolbar-group {
@@ -1212,18 +1206,6 @@ body {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.queue-assignment-header h2,
-.conflict-header h2 {
-  font-size: 16px;
-  margin-bottom: 4px;
-}
-
-.queue-assignment-header p,
-.conflict-header p {
-  color: var(--text-secondary);
-  font-size: 13px;
 }
 
 .review-lock-banner,
@@ -1248,60 +1230,6 @@ body {
   border-color: rgba(34, 197, 94, 0.35);
   background: rgba(34, 197, 94, 0.12);
   color: var(--text-primary);
-}
-
-.ai-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  margin-bottom: 16px;
-  background: var(--bg-card);
-}
-
-.ai-card-useful {
-  border-color: rgba(34, 197, 94, 0.3);
-  background: rgba(34, 197, 94, 0.08);
-}
-
-.ai-card-not-useful {
-  border-color: rgba(245, 158, 11, 0.32);
-  background: rgba(245, 158, 11, 0.08);
-}
-
-.ai-card-header,
-.ai-card-footer {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.ai-card-header {
-  margin-bottom: 10px;
-}
-
-.ai-card-header h3 {
-  font-size: 15px;
-  margin-bottom: 4px;
-}
-
-.ai-card-header p,
-.ai-card-reasoning {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.ai-card-badges {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.ai-card-reasoning {
-  margin-bottom: 12px;
-  line-height: 1.45;
 }
 
 .dashboard-page {
@@ -1853,9 +1781,6 @@ body {
 
   .pdf-top-strip,
   .queue-assignment-toolbar,
-  .queue-assignment-title-row,
-  .ai-card-header,
-  .ai-card-footer,
   .dashboard-header {
     flex-direction: column;
     align-items: flex-start;
