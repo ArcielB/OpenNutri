@@ -127,6 +127,7 @@ This is the current high-signal project state after the assignment-driven annota
   - keeps each active reviewer’s personal open backlog at the target level
   - creates slot assignments + user assignments only from `human_review_ready` papers
   - assigns older waiting `human_review_ready` papers first by `routing_updated_at` / creation order
+  - reuses cancelled slot/user assignment rows when reset papers return from AI, because live uniqueness constraints are `(paper_id, slot_key)` and `(paper_slot_assignment_id, reviewer_profile_id)`
   - drains queued AI tasks before triggering crawler refill when the human-ready pool is exhausted
 - New AI routing ops scripts:
   - `services/data-pipeline/scripts/process_stage_queue.py`
@@ -165,7 +166,19 @@ This is the current high-signal project state after the assignment-driven annota
 - Inspect the developer-training queue pool:
   - `python3 services/data-pipeline/scripts/seed_training_stock.py [--dry-run]`
 
+**Live Reroute State - April 24, 2026**
+- Existing papers were reset through `backfill_ai_routing.py --reset-open-human-assignments` against Supabase.
+- AI drain processed one 25-paper batch:
+  - 16 papers are `human_review_ready`
+  - 9 papers remain `queued_for_ai` / `blocked` with `last_error` retained for the next AI run
+  - embedded evaluator `Extraction error:` rows were marked rejected and no longer route to human review
+- `refill_assignment_queue.py` refilled the official queues:
+  - Arciel: 10 open assignments
+  - Peri: 10 open assignments
+  - Aleyna: 10 open assignments
+  - 1 `human_review_ready` paper remains unassigned in the pool
+- Verified invariant:
+  no open human assignments exist on `queued_for_ai`, `ai_processing`, AI-finalized, or null-routed papers.
+
 **Immediate Next Step**
-- Run the reset/backfill flow, drain the AI queue once, then rerun `refill_assignment_queue.py`.
-- After that, verify the routing invariants:
-  no open human assignments on `queued_for_ai`, `ai_processing`, AI-finalized, or null-routed papers.
+- After Gemini quota resets, rerun `python3 services/data-pipeline/scripts/process_stage_queue.py --max-tasks 9` to retry the queued AI failures, then run `python3 services/data-pipeline/scripts/refill_assignment_queue.py`.
