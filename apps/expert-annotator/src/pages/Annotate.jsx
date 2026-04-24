@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
@@ -470,6 +470,85 @@ function computeRoutingCounts(papers) {
   }
 
   return counts
+}
+
+function countPayloadRows(payload) {
+  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
+  return foodItems.reduce((total, item) => total + (Array.isArray(item?.nutrients) ? item.nutrients.length : 0), 0)
+}
+
+function normalizeForStableJson(value) {
+  if (Array.isArray(value)) {
+    return value.map(normalizeForStableJson)
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((accumulator, key) => {
+      accumulator[key] = normalizeForStableJson(value[key])
+      return accumulator
+    }, {})
+  }
+  return value
+}
+
+function stableJson(value) {
+  return JSON.stringify(normalizeForStableJson(value ?? null))
+}
+
+function getAiDecisionKind(extraction) {
+  const decisionKind = extraction?.normalized_payload_json?.decision_kind
+  if (decisionKind) return decisionKind
+  return extraction?.is_useful ? 'has_data' : 'no_usable_data'
+}
+
+function getAiComparisonStatus(extraction, outcome) {
+  if (!extraction || !outcome) return null
+  const truthSource = String(outcome.truth_source_kind || 'human_review').trim().toLowerCase()
+  if (truthSource === 'ai_model') return null
+
+  const aiPayload = extraction.normalized_payload_json || null
+  const outcomePayload = outcome.payload_json || null
+  if (aiPayload && outcomePayload && stableJson(aiPayload) === stableJson(outcomePayload)) {
+    return { label: 'Exact DB Payload Match', badgeClass: 'status-done' }
+  }
+  if (getAiDecisionKind(extraction) === outcome.decision_kind) {
+    return { label: 'Decision-Only Match', badgeClass: 'status-draft' }
+  }
+  return { label: 'Mismatch', badgeClass: 'status-conflict' }
+}
+
+function getNormalizationSummary(extraction) {
+  const rawSummary = extraction?.raw_data?.normalization_summary || {}
+  const payload = extraction?.normalized_payload_json || {}
+  const accepted = Number(rawSummary.accepted_row_count ?? countPayloadRows(payload)) || 0
+  const input = Number(rawSummary.input_row_count ?? extraction?.raw_data?.parsed_result?.data?.length ?? accepted) || 0
+  return {
+    accepted_row_count: accepted,
+    rejected_row_count: Number(rawSummary.rejected_row_count ?? Math.max(0, input - accepted)) || 0,
+    unmapped_food_count: Number(rawSummary.unmapped_food_count ?? 0) || 0,
+    unmapped_nutrient_count: Number(rawSummary.unmapped_nutrient_count ?? 0) || 0,
+    input_row_count: input,
+    rejection_reasons: rawSummary.rejection_reasons || {},
+  }
+}
+
+function getAiRawMetadata(extraction) {
+  const rawData = extraction?.raw_data || {}
+  return {
+    extraction_id: extraction?.id || null,
+    stage_key: extraction?.stage_key || null,
+    prompt_version: extraction?.prompt_version || null,
+    model_name: extraction?.model_name || null,
+    input_hash: extraction?.input_hash || null,
+    status: extraction?.status || null,
+    route_destination: extraction?.route_destination || null,
+    audit_sampled: Boolean(extraction?.audit_sampled),
+    finalized_without_human: Boolean(extraction?.finalized_without_human),
+    positive_threshold_snapshot: extraction?.positive_threshold_snapshot ?? null,
+    negative_threshold_snapshot: extraction?.negative_threshold_snapshot ?? null,
+    parsed_data_rows: Array.isArray(rawData?.parsed_result?.data) ? rawData.parsed_result.data.length : null,
+    raw_response_chars: typeof rawData?.raw_response_text === 'string' ? rawData.raw_response_text.length : null,
+    created_at: extraction?.created_at || null,
+  }
 }
 
 function groupRowsByPaperId(rows) {
@@ -1354,7 +1433,97 @@ function SuggestionsReviewView({
   )
 }
 
+function AiDetailPanel({ extraction, outcome }) {
+  const payload = extraction?.normalized_payload_json || { decision_kind: getAiDecisionKind(extraction), food_items: [] }
+  const summary = getNormalizationSummary(extraction)
+  const comparison = getAiComparisonStatus(extraction, outcome)
+  const metadata = getAiRawMetadata(extraction)
+  const rejectionReasons = Object.entries(summary.rejection_reasons || {})
+
+  return (
+    <div className="ai-detail-panel">
+      <div className="ai-detail-header">
+        <div>
+          <div className="ai-detail-title">AI Extraction Detail</div>
+          <div className="table-secondary-line">
+            {extraction?.stage_key || 'No stage'} · {extraction?.prompt_version || 'No prompt version'}
+          </div>
+        </div>
+        <div className="reviewer-admin-badges">
+          <span className={`status-badge ${payload.decision_kind === 'has_data' ? 'status-done' : 'status-skipped'}`}>
+            {formatDecisionLabel(payload.decision_kind)}
+          </span>
+          {comparison && <span className={`status-badge ${comparison.badgeClass}`}>{comparison.label}</span>}
+        </div>
+      </div>
+
+      <div className="ai-detail-grid">
+        <div className="ai-detail-metric">
+          <span>Model Decision</span>
+          <strong>{extraction?.is_useful ? 'Has Data' : 'No Data'}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Confidence</span>
+          <strong>{extraction?.overall_confidence == null ? '—' : Number(extraction.overall_confidence).toFixed(3)}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Routing Bucket</span>
+          <strong>{extraction?.routing_bucket || '—'}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Rows</span>
+          <strong>{summary.accepted_row_count}/{summary.input_row_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Rejected</span>
+          <strong>{summary.rejected_row_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Custom Foods</span>
+          <strong>{summary.unmapped_food_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Custom Nutrients</span>
+          <strong>{summary.unmapped_nutrient_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Destination</span>
+          <strong>{formatRouteDestinationLabel(extraction?.route_destination)}</strong>
+        </div>
+      </div>
+
+      <div className="ai-detail-section">
+        <div className="ai-detail-section-title">Reasoning</div>
+        <div className="ai-reasoning">{extraction?.reasoning || 'No reasoning stored.'}</div>
+      </div>
+
+      {rejectionReasons.length > 0 && (
+        <div className="ai-detail-section">
+          <div className="ai-detail-section-title">Rejected Rows</div>
+          <div className="ai-rejection-list">
+            {rejectionReasons.map(([reason, count]) => (
+              <span key={reason} className="status-badge status-skipped">{reason}: {count}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="ai-json-grid">
+        <div className="ai-detail-section">
+          <div className="ai-detail-section-title">Normalized DB Payload</div>
+          <pre className="ai-json-block">{JSON.stringify(payload, null, 2)}</pre>
+        </div>
+        <div className="ai-detail-section">
+          <div className="ai-detail-section-title">Raw Response Metadata</div>
+          <pre className="ai-json-block">{JSON.stringify(metadata, null, 2)}</pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AllPapersView({ cockpitData, onRefresh }) {
+  const [expandedAiPaperId, setExpandedAiPaperId] = useState(null)
   const reviewerById = buildReviewerMap(cockpitData.reviewerProfiles)
   const slotAssignmentsByPaperId = groupRowsByPaperId(cockpitData.slotAssignments)
   const userAssignmentsByPaperId = groupRowsByPaperId(cockpitData.userAssignments)
@@ -1430,88 +1599,106 @@ function AllPapersView({ cockpitData, onRefresh }) {
                 <tr>
                   <td colSpan="6">No papers found.</td>
                 </tr>
-              ) : rows.map(({ paper, slotAssignments, userAssignments, outcome, latestAiExtraction }) => (
-                <tr key={paper.id}>
-                  <td className="table-title-cell">
-                    <div className="table-primary-line">{paper.title || paper.filename || `Paper ${paper.id}`}</div>
-                    <div className="table-secondary-line">
-                      Paper {paper.id}
-                      {paper.workflow_language && ` · ${paper.workflow_language.toUpperCase()}`}
-                      {paper.doi && ` · DOI: ${paper.doi}`}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="table-cell-stack">
-                      <div className="table-detail-line">
-                        <span>{formatRoutingStatusLabel(paper.routing_status)}</span>
-                        <span className={`status-badge ${paper.route_destination === 'finalized' ? 'status-done' : paper.route_destination === 'blocked' ? 'status-skipped' : 'status-pending'}`}>
-                          {formatRouteDestinationLabel(paper.route_destination)}
-                        </span>
-                      </div>
-                      <span className="table-secondary-line">{paper.routing_bucket || 'No bucket yet'}</span>
-                    </div>
-                  </td>
-                  <td>
-                    {latestAiExtraction ? (
-                      <div className="table-cell-stack">
-                        <div className="table-detail-line">
-                          <span>{latestAiExtraction.is_useful ? 'Has Data' : 'No Data'}</span>
-                          <span className={`status-badge ${latestAiExtraction.audit_sampled ? 'status-draft' : 'status-pending'}`}>
-                            {latestAiExtraction.audit_sampled ? 'AUDIT' : 'LIVE'}
-                          </span>
+              ) : rows.map(({ paper, slotAssignments, userAssignments, outcome, latestAiExtraction }) => {
+                const aiExpanded = Boolean(latestAiExtraction && expandedAiPaperId === paper.id)
+                return (
+                  <Fragment key={paper.id}>
+                    <tr>
+                      <td className="table-title-cell">
+                        <div className="table-primary-line">{paper.title || paper.filename || `Paper ${paper.id}`}</div>
+                        <div className="table-secondary-line">
+                          Paper {paper.id}
+                          {paper.workflow_language && ` · ${paper.workflow_language.toUpperCase()}`}
+                          {paper.doi && ` · DOI: ${paper.doi}`}
                         </div>
-                        <span className="table-secondary-line">
-                          conf {latestAiExtraction.overall_confidence == null ? '—' : Number(latestAiExtraction.overall_confidence).toFixed(2)}
-                          {' · '}
-                          {formatRouteDestinationLabel(latestAiExtraction.route_destination)}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="table-secondary-line">No AI extraction yet.</span>
-                    )}
-                  </td>
-                  <td>
-                    <div className="table-cell-stack">
-                      {slotAssignments.length === 0 ? (
-                        <span className="table-secondary-line">No slot assignments.</span>
-                      ) : slotAssignments.map((assignment) => (
-                        <div key={assignment.id} className="table-detail-line">
-                          <span>{assignment.slot_key}</span>
-                          <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="table-cell-stack">
-                      {userAssignments.length === 0 ? (
-                        <span className="table-secondary-line">No user assignments.</span>
-                      ) : userAssignments.map((assignment) => {
-                        const reviewer = reviewerById[assignment.reviewer_profile_id]
-                        return (
-                          <div key={assignment.id} className="table-detail-line">
-                            <span>{reviewer?.display_name || reviewer?.email || assignment.reviewer_profile_id}</span>
-                            <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
+                      </td>
+                      <td>
+                        <div className="table-cell-stack">
+                          <div className="table-detail-line">
+                            <span>{formatRoutingStatusLabel(paper.routing_status)}</span>
+                            <span className={`status-badge ${paper.route_destination === 'finalized' ? 'status-done' : paper.route_destination === 'blocked' ? 'status-skipped' : 'status-pending'}`}>
+                              {formatRouteDestinationLabel(paper.route_destination)}
+                            </span>
                           </div>
-                        )
-                      })}
-                    </div>
-                  </td>
-                  <td>
-                    {outcome ? (
-                      <div className="table-cell-stack">
-                        <div className="table-detail-line">
-                          <span>{formatDecisionLabel(outcome.decision_kind)}</span>
-                          <span className="status-badge status-done">{outcome.resolution_source || 'resolved'}</span>
+                          <span className="table-secondary-line">{paper.routing_bucket || 'No bucket yet'}</span>
                         </div>
-                        <span className="table-secondary-line">{outcome.resolved_at ? new Date(outcome.resolved_at).toLocaleString() : 'No timestamp'}</span>
-                      </div>
-                    ) : (
-                      <span className="status-badge status-pending">Pending</span>
+                      </td>
+                      <td>
+                        {latestAiExtraction ? (
+                          <div className="table-cell-stack">
+                            <div className="table-detail-line">
+                              <span>{latestAiExtraction.is_useful ? 'Has Data' : 'No Data'}</span>
+                              <span className={`status-badge ${latestAiExtraction.audit_sampled ? 'status-draft' : 'status-pending'}`}>
+                                {latestAiExtraction.audit_sampled ? 'AUDIT' : 'LIVE'}
+                              </span>
+                            </div>
+                            <span className="table-secondary-line">
+                              conf {latestAiExtraction.overall_confidence == null ? '—' : Number(latestAiExtraction.overall_confidence).toFixed(2)}
+                              {' · '}
+                              {formatRouteDestinationLabel(latestAiExtraction.route_destination)}
+                            </span>
+                            <button
+                              className="nav-btn ai-detail-toggle"
+                              onClick={() => setExpandedAiPaperId(aiExpanded ? null : paper.id)}
+                            >
+                              {aiExpanded ? 'Hide Details' : 'Details'}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="table-secondary-line">No AI extraction yet.</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="table-cell-stack">
+                          {slotAssignments.length === 0 ? (
+                            <span className="table-secondary-line">No slot assignments.</span>
+                          ) : slotAssignments.map((assignment) => (
+                            <div key={assignment.id} className="table-detail-line">
+                              <span>{assignment.slot_key}</span>
+                              <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="table-cell-stack">
+                          {userAssignments.length === 0 ? (
+                            <span className="table-secondary-line">No user assignments.</span>
+                          ) : userAssignments.map((assignment) => {
+                            const reviewer = reviewerById[assignment.reviewer_profile_id]
+                            return (
+                              <div key={assignment.id} className="table-detail-line">
+                                <span>{reviewer?.display_name || reviewer?.email || assignment.reviewer_profile_id}</span>
+                                <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </td>
+                      <td>
+                        {outcome ? (
+                          <div className="table-cell-stack">
+                            <div className="table-detail-line">
+                              <span>{formatDecisionLabel(outcome.decision_kind)}</span>
+                              <span className="status-badge status-done">{outcome.resolution_source || 'resolved'}</span>
+                            </div>
+                            <span className="table-secondary-line">{outcome.resolved_at ? new Date(outcome.resolved_at).toLocaleString() : 'No timestamp'}</span>
+                          </div>
+                        ) : (
+                          <span className="status-badge status-pending">Pending</span>
+                        )}
+                      </td>
+                    </tr>
+                    {aiExpanded && (
+                      <tr className="ai-detail-row">
+                        <td colSpan="6">
+                          <AiDetailPanel extraction={latestAiExtraction} outcome={outcome} />
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                </tr>
-              ))}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>

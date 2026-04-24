@@ -66,8 +66,8 @@ class UnifiedEvaluator:
 2. Provide a detailed reasoning for your decision (why it is or isn't useful).
 3. Determine if it is useful (is_useful: true/false).
 4. Assign an overall_confidence score (0.0-1.0) for the paper.
-5. If is_useful is true: Extract ALL food-nutrient data from tables.
-6. For each data point, ensure the structure matches our database requirements.
+5. If is_useful is true: Extract ALL candidate food-nutrient composition data from tables.
+6. For each data point, preserve the explicit unit and basis from the paper so downstream validation can standardize it to the database payload.
 
 **Output Format** (Strict JSON only):
 ```json
@@ -115,7 +115,8 @@ class UnifiedEvaluator:
 2. Do NOT hallucinate values.
 3. If is_useful is false, return an empty "data" array.
 4. Extract ALL nutrients from tables, not just a sample.
-5. Standardize units where possible (e.g., convert % to g/100g if basis is clear).
+5. Prefer rows reported per 100g or as percentages. Rows on other bases may be included as candidates only when the basis is explicit.
+6. Do not treat clinical outcomes, digestibility metrics, antioxidant assays, pH, color, texture, yield, or other non-composition measurements as food composition nutrient values.
 
 **Paper Content**:
 Title: {title}

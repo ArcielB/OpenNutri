@@ -181,6 +181,7 @@ def force_enqueue_existing_papers_for_ai(client, *, stage_config) -> int:
                 "routing_status": ROUTING_STATUS_QUEUED,
                 "routing_bucket": None,
                 "route_destination": BLOCKED_DESTINATION,
+                "latest_ai_extraction_id": None,
                 "routing_updated_at": now,
             }
         ).eq("id", paper_id).execute()

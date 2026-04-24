@@ -218,6 +218,7 @@ def _enqueue_stage_task(
         paper_update["routing_status"] = ROUTING_STATUS_QUEUED
         paper_update["route_destination"] = BLOCKED_DESTINATION
         paper_update["routing_bucket"] = None
+        paper_update["latest_ai_extraction_id"] = None
     supabase.table("papers").update(paper_update).eq("id", paper_id).execute()
 
 

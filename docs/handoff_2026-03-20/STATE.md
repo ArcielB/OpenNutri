@@ -17,8 +17,11 @@ This is the current high-signal project state after the assignment-driven annota
 **Workflow Now**
 - New ingest gate:
   `crawl -> upload -> AI queue -> routing -> human_review_ready or AI finalization`.
-- The active AI stage is `gemini_flash_triage_v1`.
+- The active AI stage is `gemini_flash_db_payload_v2`.
 - Upload no longer runs Gemini inline. It enqueues `paper_stage_tasks` and sets paper-level routing state instead.
+- AI extraction remains blind to human labels. The scored AI artifact is now the deterministic DB-shaped `normalized_payload_json`, not the raw LLM JSON or raw `is_useful` boolean.
+- The DB-shaped AI payload uses the same top-level contract as `build_annotation_submission_payload`: `decision_kind`, `food_items[].food_name`, `food_fdc_id`, `is_custom_food`, and `nutrients[].nutrient_id`, `nutrient_name`, `value`, `unit`.
+- AI routing/finalization now follows the normalized payload decision. If the model says useful but all rows are rejected as unsupported or non-100g/non-composition data, the paper routes as `no_usable_data`.
 - Humans may only be assigned papers whose `papers.routing_status = 'human_review_ready'`.
 - High-confidence AI positives and negatives are finalized immediately unless they fall into the deterministic audit sample.
 - Low-confidence papers always route to humans for now.
@@ -67,10 +70,8 @@ This is the current high-signal project state after the assignment-driven annota
   - paper-level routing columns on `papers`
   - AI provenance columns on `ai_extractions`
   - AI/human truth-source columns on `paper_review_outcomes`
-- Important rollout blocker from April 24, 2026:
-  the migration was not re-applied from this coding environment because DNS resolution for the Supabase pooler host failed with
-  `getaddrinfo ENOTFOUND aws-1-eu-central-1.pooler.supabase.com`.
-  Treat live DB state for the new AI-routing schema as pending until migration + schema check succeed from a network-enabled environment.
+- Live migration was applied again on April 24, 2026 for the standardized AI DB-payload stage.
+- Live schema verification now confirms `gemini_flash_db_payload_v2` is the only active `routing_stage_configs` row, while `gemini_flash_triage_v1` is preserved inactive for audit.
 
 **Live Data Repair Status**
 - On April 22, 2026, `papers.workflow_language IS NULL` was backfilled from `12` to `0` using `services/data-pipeline/scripts/backfill_paper_workflow_language.py`.
@@ -91,7 +92,8 @@ This is the current high-signal project state after the assignment-driven annota
   - generic tester mode: local-only virtual queue
   - developer-training mode (`tester_access && cockpit_access`): local-only admin/annotation/conflict actions plus a virtual bilingual `My Queue`
 - Queue saves drafts to the workspace tables, then uses RPC submission for final snapshots.
-- Cockpit shows reviewer queue/accuracy summaries, resolved source-yield breakdowns, and reviewer-admin controls.
+- Cockpit shows reviewer queue/accuracy summaries, resolved source-yield breakdowns, reviewer-admin controls, and expandable AI details in the cockpit-only `All Papers` screen.
+- The AI detail panel shows model decision, confidence, routing bucket, reasoning, normalized DB payload, rejected/custom row counts, raw response metadata, and later human-outcome comparison status.
 - Reviewer-admin controls can:
   - create a reviewer profile by email
   - allowlist the reviewer for auth
@@ -167,18 +169,24 @@ This is the current high-signal project state after the assignment-driven annota
   - `python3 services/data-pipeline/scripts/seed_training_stock.py [--dry-run]`
 
 **Live Reroute State - April 24, 2026**
-- Existing papers were reset through `backfill_ai_routing.py --reset-open-human-assignments` against Supabase.
-- AI drain processed one 25-paper batch:
-  - 16 papers are `human_review_ready`
-  - 9 papers remain `queued_for_ai` / `blocked` with `last_error` retained for the next AI run
-  - embedded evaluator `Extraction error:` rows were marked rejected and no longer route to human review
-- `refill_assignment_queue.py` refilled the official queues:
-  - Arciel: 10 open assignments
-  - Peri: 10 open assignments
-  - Aleyna: 10 open assignments
-  - 1 `human_review_ready` paper remains unassigned in the pool
+- Before the v2 reroute reset, live checks found:
+  - `0` assignment submissions
+  - `0` human-review outcomes
+  - `30` open unsubmitted user/slot assignments
+- Existing papers were reset through `backfill_ai_routing.py --reset-open-human-assignments` against Supabase for `gemini_flash_db_payload_v2`.
+- The reset queued `25` papers for v2 and cancelled `30` open slot assignments plus `30` open user assignments.
+- The v2 AI drain processed one 25-paper batch:
+  - `1` paper reached `human_review_ready`
+  - `24` papers remain `queued_for_ai` / `blocked` because Gemini returned free-tier quota errors
+  - queued v2 papers now have stale old-stage `latest_ai_extraction_id` cleared until a v2 extraction exists
+- The single successful v2 extraction stored `normalized_payload_json.decision_kind = no_usable_data`, zero accepted rows, normalization summary metadata, and `papers.latest_ai_extraction_id` points to the v2 extraction row.
+- `refill_assignment_queue.py --max-cycles 1` assigned the one available human-ready English paper:
+  - Arciel: 1 open EN assignment
+  - Peri: 1 open EN assignment
+  - Aleyna: 0 open assignments
+  - full 10-open backlog refill is blocked until the 24 queued AI papers are retried or new human-ready stock exists
 - Verified invariant:
   no open human assignments exist on `queued_for_ai`, `ai_processing`, AI-finalized, or null-routed papers.
 
 **Immediate Next Step**
-- After Gemini quota resets, rerun `python3 services/data-pipeline/scripts/process_stage_queue.py --max-tasks 9` to retry the queued AI failures, then run `python3 services/data-pipeline/scripts/refill_assignment_queue.py`.
+- After Gemini quota resets, rerun `python3 services/data-pipeline/scripts/process_stage_queue.py --max-tasks 24` to retry the queued v2 AI failures, then run `python3 services/data-pipeline/scripts/refill_assignment_queue.py`.

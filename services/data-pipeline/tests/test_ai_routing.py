@@ -17,6 +17,7 @@ from ai_routing import (
     RoutingStageConfig,
     classify_routing_bucket,
     normalize_ai_payload,
+    normalize_ai_payload_with_summary,
     stable_audit_sample,
 )
 from food_paper_crawler.feedback.update_terms import build_labels
@@ -259,9 +260,78 @@ class RoutingLogicTests(unittest.TestCase):
         self.assertEqual(
             food_item["nutrients"],
             [
-                {"nutrient_id": None, "nutrient_name": "Protein", "unit": "g", "value": 0.3},
-                {"nutrient_id": None, "nutrient_name": "Vitamin C", "unit": "mg", "value": 4.6},
+                {"nutrient_id": None, "nutrient_name": "Protein", "unit": "g/100g", "value": 0.3},
+                {"nutrient_id": None, "nutrient_name": "Vitamin C", "unit": "mg/100g", "value": 4.6},
             ],
+        )
+
+    def test_normalize_ai_payload_standardizes_supported_units_and_drops_unsupported_rows(self) -> None:
+        result = normalize_ai_payload_with_summary(
+            is_useful=True,
+            records=[
+                {"food_name": "Apple", "nutrient_name": "Iron", "amount": 1, "unit": "mg", "basis": "100g"},
+                {"food_name": "Apple", "nutrient_name": "Folate", "amount": 2, "unit": "mcg", "basis": "100 g"},
+                {"food_name": "Apple", "nutrient_name": "Vitamin B12", "amount": 3, "unit": "µg", "basis": "per 100g"},
+                {"food_name": "Apple", "nutrient_name": "Energy", "amount": 52, "unit": "kcal", "basis": "100g"},
+                {"food_name": "Apple", "nutrient_name": "Moisture", "amount": 84.1, "unit": "%", "basis": "100g"},
+                {"food_name": "Apple", "nutrient_name": "pH", "amount": 3.5, "unit": "pH", "basis": "100g"},
+                {"food_name": "Apple", "nutrient_name": "Iron per serving", "amount": 1, "unit": "mg", "basis": "serving"},
+            ],
+        )
+
+        nutrients = result.payload["food_items"][0]["nutrients"]
+        self.assertEqual(
+            [row["unit"] for row in nutrients],
+            ["kcal/100g", "μg/100g", "mg/100g", "%", "μg/100g"],
+        )
+        self.assertEqual(result.accepted_row_count, 5)
+        self.assertEqual(result.rejected_row_count, 2)
+        self.assertEqual(result.rejection_reasons, {"unsupported_unit_or_basis": 2})
+
+    def test_normalize_ai_payload_turns_empty_standardized_rows_into_no_usable_data(self) -> None:
+        payload = normalize_ai_payload(
+            is_useful=True,
+            records=[
+                {"food_name": "Apple", "nutrient_name": "Color", "amount": 12, "unit": "a*", "basis": "100g"},
+                {"food_name": "Apple", "nutrient_name": "Iron", "amount": 1, "unit": "mg", "basis": "per serving"},
+            ],
+        )
+
+        self.assertEqual(payload, {"decision_kind": "no_usable_data", "food_items": []})
+
+    def test_normalize_ai_payload_orders_and_rounds_like_submission_contract(self) -> None:
+        payload = normalize_ai_payload(
+            is_useful=True,
+            records=[
+                {"food_name": "Banana", "nutrient_name": "Zinc", "amount": 1.23456789, "unit": "mg", "basis": "100g"},
+                {"food_name": "Apple, raw", "nutrient_name": "Vitamin C", "amount": 4.6000001, "unit": "mg", "basis": "100g"},
+                {"food_name": "Apple, raw", "nutrient_name": "Protein", "amount": 0.3000004, "unit": "g", "basis": "100g"},
+                {"food_name": "Apple, raw", "nutrient_name": "Ascorbic acid", "amount": 5, "unit": "mg", "basis": "100g"},
+            ],
+            food_lookup=[
+                {"id": "food-apple", "canonical_name": "Apple, raw"},
+            ],
+            nutrient_lookup=[
+                {"id": "nutrient-protein", "standard_name": "Protein"},
+                {"id": "nutrient-vitc", "standard_name": "Vitamin C", "aliases": ["Ascorbic acid"]},
+            ],
+        )
+
+        self.assertEqual([item["food_name"] for item in payload["food_items"]], ["Apple, raw", "Banana"])
+        apple = payload["food_items"][0]
+        self.assertFalse(apple["is_custom_food"])
+        self.assertEqual(apple["food_fdc_id"], "food-apple")
+        self.assertEqual(
+            apple["nutrients"],
+            [
+                {"nutrient_id": "nutrient-protein", "nutrient_name": "Protein", "unit": "g/100g", "value": 0.3},
+                {"nutrient_id": "nutrient-vitc", "nutrient_name": "Vitamin C", "unit": "mg/100g", "value": 4.6},
+                {"nutrient_id": "nutrient-vitc", "nutrient_name": "Vitamin C", "unit": "mg/100g", "value": 5.0},
+            ],
+        )
+        self.assertEqual(
+            payload["food_items"][1]["nutrients"],
+            [{"nutrient_id": None, "nutrient_name": "Zinc", "unit": "mg/100g", "value": 1.234568}],
         )
 
 
@@ -411,7 +481,7 @@ class QueueAndBackfillTests(unittest.TestCase):
                 "paper_stage_tasks": [
                     {"paper_id": 11, "stage_key": "gemini_flash_triage_v1", "status": "failed"},
                 ],
-                "papers": [{"id": 11, "routing_status": None}],
+                "papers": [{"id": 11, "routing_status": None, "latest_ai_extraction_id": "old-extraction"}],
             }
         )
 
@@ -428,6 +498,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.upserts[0][1]["status"], "queued")
         self.assertEqual(client.updates[-1][0], "papers")
         self.assertEqual(client.updates[-1][1]["routing_status"], "queued_for_ai")
+        self.assertIsNone(client.updates[-1][1]["latest_ai_extraction_id"])
 
     def test_claim_stage_tasks_calls_rpc_with_requested_limit(self) -> None:
         client = FakeSupabaseClient(rpc_payload=[{"id": "task-1", "paper_id": 11}])
@@ -480,8 +551,8 @@ class QueueAndBackfillTests(unittest.TestCase):
         client = FakeSupabaseClient(
             tables={
                 "papers": [
-                    {"id": 1, "filter_score": 0.76, "routing_status": "human_review_ready"},
-                    {"id": 2, "filter_score": 0.21, "routing_status": None},
+                    {"id": 1, "filter_score": 0.76, "routing_status": "human_review_ready", "latest_ai_extraction_id": "old-1"},
+                    {"id": 2, "filter_score": 0.21, "routing_status": None, "latest_ai_extraction_id": "old-2"},
                 ],
                 "paper_assignment_submissions": [],
                 "paper_review_outcomes": [],
@@ -507,6 +578,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["paper_user_assignments"][0]["status"], "cancelled")
         self.assertEqual([paper["routing_status"] for paper in client.tables["papers"]], ["queued_for_ai", "queued_for_ai"])
         self.assertEqual([paper["route_destination"] for paper in client.tables["papers"]], ["blocked", "blocked"])
+        self.assertEqual([paper["latest_ai_extraction_id"] for paper in client.tables["papers"]], [None, None])
         self.assertEqual([upsert[1]["status"] for upsert in client.upserts], ["queued", "queued"])
 
     def test_reset_refuses_to_discard_submitted_or_human_truth_work(self) -> None:
@@ -599,6 +671,67 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
         self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
         self.assertEqual(client.inserts, [])
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_ai_routing_uses_normalized_decision_not_raw_model_usefulness(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 12,
+                        "title": "Non-composition metrics paper",
+                        "doi": "10.123/noncomposition",
+                        "filename": "paper.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-12", "paper_id": 12, "status": "processing"}],
+            }
+        )
+        stage = RoutingStageConfig(
+            stage_key="gemini_flash_db_payload_v2",
+            stage_kind="ai_model",
+            display_name="Gemini Flash DB Payload v2",
+            model_name="gemini-3-flash-preview",
+            prompt_version="gemini_flash_db_payload_v2",
+            active=True,
+            positive_threshold=1.0,
+            negative_threshold=1.0,
+            audit_rate=0.0,
+            next_stage_on_low_confidence=HUMAN_REVIEW_DESTINATION,
+            counts_as_truth=False,
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=True,
+            reasoning="The paper reports table values, but they are not standardized composition rows.",
+            overall_confidence=1.0,
+            data=[
+                {"food_name": "Apple", "nutrient_name": "pH", "amount": 3.4, "unit": "pH", "basis": "100g"},
+                {"food_name": "Apple", "nutrient_name": "Iron", "amount": 1.2, "unit": "mg", "basis": "serving"},
+            ],
+            raw_response_text="{}",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-12", "paper_id": 12},
+            stage_config=stage,
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], "ai_finalized_no_usable_data")
+        extraction_payload = client.inserts[0][1][0]
+        self.assertTrue(extraction_payload["is_useful"])
+        self.assertEqual(extraction_payload["routing_bucket"], "high_confidence_no_usable_data")
+        self.assertEqual(extraction_payload["normalized_payload_json"], {"decision_kind": "no_usable_data", "food_items": []})
+        self.assertEqual(
+            extraction_payload["raw_data"]["normalization_summary"]["rejection_reasons"],
+            {"unsupported_unit_or_basis": 2},
+        )
+        self.assertEqual(client.upserts[0][0], "paper_review_outcomes")
+        self.assertEqual(client.upserts[0][1]["decision_kind"], "no_usable_data")
 
 
 if __name__ == "__main__":

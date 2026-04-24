@@ -76,6 +76,12 @@ async function main() {
       order by slot_key
     `)
 
+    const { rows: routingStages } = await client.query(`
+      select stage_key, prompt_version, active
+      from routing_stage_configs
+      order by active desc, stage_key
+    `)
+
     console.log('Workflow tables:')
     console.log(JSON.stringify(tables[0], null, 2))
     console.log('\nWorkflow functions:')
@@ -86,6 +92,8 @@ async function main() {
     console.log(JSON.stringify(paperRoutingColumns, null, 2))
     console.log('\nReviewer slots:')
     console.log(JSON.stringify(slots, null, 2))
+    console.log('\nRouting stages:')
+    console.log(JSON.stringify(routingStages, null, 2))
   } finally {
     await client.end()
   }

@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import asdict
+from dataclasses import is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -29,9 +30,8 @@ from ai_routing import (
     ROUTING_STATUS_QUEUED,
     RoutingStageConfig,
     classify_routing_bucket,
-    decision_kind_for_useful,
     input_hash_for_text,
-    normalize_ai_payload,
+    normalize_ai_payload_with_summary,
     payload_text_and_hash,
     route_bucket,
     stable_audit_sample,
@@ -76,6 +76,25 @@ def claim_stage_tasks(client: Client, *, stage_key: str, limit: int) -> list[dic
         {"p_stage_key": stage_key, "p_limit": max(1, int(limit))},
     ).execute()
     return response.data or []
+
+
+def fetch_reference_lookups(client: Client) -> dict[str, list[dict]]:
+    return {
+        "nutrients": _fetch_all_rows(client, "master_nutrients", "id,standard_name"),
+        "foods": _fetch_all_rows(client, "entities", "id,canonical_name"),
+    }
+
+
+def _fetch_all_rows(client: Client, table_name: str, select: str) -> list[dict]:
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        response = client.table(table_name).select(select).range(offset, offset + 999).execute()
+        batch = response.data or []
+        rows.extend(batch)
+        if len(batch) < 1000:
+            return rows
+        offset += 1000
 
 
 def fetch_paper(client: Client, paper_id: int) -> dict:
@@ -232,6 +251,7 @@ def insert_ai_extraction(
     ai_result,
     input_hash: str,
     normalized_payload_json: dict,
+    normalization_summary: dict,
     routing_bucket: str,
     route_destination: str,
     audit_sampled: bool,
@@ -252,8 +272,9 @@ def insert_ai_extraction(
                 "reasoning": ai_result.reasoning,
                 "is_useful": ai_result.is_useful,
                 "overall_confidence": ai_result.overall_confidence,
-                "data": [asdict(record) for record in ai_result.data],
+                "data": [_serialize_ai_record(record) for record in ai_result.data],
             },
+            "normalization_summary": normalization_summary,
         },
         "normalized_payload_json": normalized_payload_json,
         "positive_threshold_snapshot": stage_config.positive_threshold,
@@ -268,6 +289,26 @@ def insert_ai_extraction(
     if not response.data:
         raise RuntimeError(f"AI extraction insert returned no row for paper {paper_id}.")
     return response.data[0]
+
+
+def _serialize_ai_record(record) -> dict:
+    if is_dataclass(record):
+        return asdict(record)
+    if isinstance(record, dict):
+        return dict(record)
+    return {
+        "food_name": getattr(record, "food_name", None),
+        "nutrient_name": getattr(record, "nutrient_name", None),
+        "amount": getattr(record, "amount", None),
+        "unit": getattr(record, "unit", None),
+        "basis": getattr(record, "basis", None),
+        "preparation_state": getattr(record, "preparation_state", None),
+        "sample_size": getattr(record, "sample_size", None),
+        "confidence": getattr(record, "confidence", None),
+        "source_citation": getattr(record, "source_citation", None),
+        "metadata": getattr(record, "metadata", None),
+        "flags": getattr(record, "flags", None),
+    }
 
 
 def update_paper_routing_summary(
@@ -291,7 +332,14 @@ def update_paper_routing_summary(
     client.table("papers").update(payload).eq("id", paper_id).execute()
 
 
-def process_one_task(client: Client, *, task: dict, stage_config: RoutingStageConfig, evaluator: UnifiedEvaluator) -> dict:
+def process_one_task(
+    client: Client,
+    *,
+    task: dict,
+    stage_config: RoutingStageConfig,
+    evaluator: UnifiedEvaluator,
+    reference_lookups: dict[str, list[dict]] | None = None,
+) -> dict:
     task_id = str(task.get("id") or "").strip()
     paper_id = int(task["paper_id"])
     paper = fetch_paper(client, paper_id)
@@ -317,8 +365,16 @@ def process_one_task(client: Client, *, task: dict, stage_config: RoutingStageCo
         embedded_error = ai_result_error(ai_result)
         if embedded_error:
             raise RuntimeError(embedded_error)
-        routing_bucket = classify_routing_bucket(
+        normalization = normalize_ai_payload_with_summary(
             is_useful=ai_result.is_useful,
+            records=ai_result.data,
+            nutrient_lookup=(reference_lookups or {}).get("nutrients") or [],
+            food_lookup=(reference_lookups or {}).get("foods") or [],
+        )
+        normalized_payload_json = normalization.payload
+        normalized_is_useful = normalization.has_data
+        routing_bucket = classify_routing_bucket(
+            is_useful=normalized_is_useful,
             overall_confidence=ai_result.overall_confidence,
             positive_threshold=stage_config.positive_threshold,
             negative_threshold=stage_config.negative_threshold,
@@ -334,10 +390,6 @@ def process_one_task(client: Client, *, task: dict, stage_config: RoutingStageCo
             audit_sampled=audit_sampled,
             has_human_truth=preserve_human_route,
         )
-        normalized_payload_json = normalize_ai_payload(
-            is_useful=ai_result.is_useful,
-            records=ai_result.data,
-        )
         extraction_row = insert_ai_extraction(
             client,
             paper_id=paper_id,
@@ -345,6 +397,7 @@ def process_one_task(client: Client, *, task: dict, stage_config: RoutingStageCo
             ai_result=ai_result,
             input_hash=input_hash,
             normalized_payload_json=normalized_payload_json,
+            normalization_summary=normalization.summary(),
             routing_bucket=routing_bucket,
             route_destination=route_destination,
             audit_sampled=audit_sampled,
@@ -354,7 +407,7 @@ def process_one_task(client: Client, *, task: dict, stage_config: RoutingStageCo
             finalize_ai_outcome(
                 client,
                 paper_id=paper_id,
-                decision_kind=decision_kind_for_useful(ai_result.is_useful),
+                decision_kind=normalization.decision_kind,
                 payload_json=normalized_payload_json,
                 stage_config=stage_config,
                 source_confidence=float(ai_result.overall_confidence or 0.0),
@@ -407,6 +460,7 @@ def drain_stage_queue(
     evaluator = UnifiedEvaluator(model_name=stage_config.model_name)
     if evaluator.model is None:
         raise RuntimeError("UnifiedEvaluator could not initialize a Gemini model. Check GEMINI_API_KEY.")
+    reference_lookups = fetch_reference_lookups(client)
 
     processed = 0
     finalized = 0
@@ -421,7 +475,13 @@ def drain_stage_queue(
         ),
     )
     for task in claimed[:max_tasks]:
-        result = process_one_task(client, task=task, stage_config=stage_config, evaluator=evaluator)
+        result = process_one_task(
+            client,
+            task=task,
+            stage_config=stage_config,
+            evaluator=evaluator,
+            reference_lookups=reference_lookups,
+        )
         processed += 1
         status = str(result.get("status") or "")
         if status in {"ai_finalized_has_data", "ai_finalized_no_usable_data"}:

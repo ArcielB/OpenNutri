@@ -748,6 +748,48 @@ VALUES (
     'Gemini Flash Triage v1',
     'gemini-3-flash-preview',
     'gemini_flash_triage_v1',
+    FALSE,
+    1.0,
+    1.0,
+    0.05,
+    'human_review',
+    FALSE
+)
+ON CONFLICT (stage_key) DO UPDATE
+SET
+    stage_kind = EXCLUDED.stage_kind,
+    display_name = EXCLUDED.display_name,
+    model_name = EXCLUDED.model_name,
+    prompt_version = EXCLUDED.prompt_version,
+    active = FALSE,
+    updated_at = NOW();
+
+UPDATE routing_stage_configs
+SET
+    active = FALSE,
+    updated_at = NOW()
+WHERE active IS TRUE
+  AND stage_key <> 'gemini_flash_db_payload_v2';
+
+INSERT INTO routing_stage_configs (
+    stage_key,
+    stage_kind,
+    display_name,
+    model_name,
+    prompt_version,
+    active,
+    positive_threshold,
+    negative_threshold,
+    audit_rate,
+    next_stage_on_low_confidence,
+    counts_as_truth
+)
+VALUES (
+    'gemini_flash_db_payload_v2',
+    'ai_model',
+    'Gemini Flash DB Payload v2',
+    'gemini-3-flash-preview',
+    'gemini_flash_db_payload_v2',
     TRUE,
     1.0,
     1.0,
@@ -760,7 +802,9 @@ SET
     stage_kind = EXCLUDED.stage_kind,
     display_name = EXCLUDED.display_name,
     model_name = EXCLUDED.model_name,
-    prompt_version = EXCLUDED.prompt_version;
+    prompt_version = EXCLUDED.prompt_version,
+    active = TRUE,
+    updated_at = NOW();
 
 DO $$
 BEGIN

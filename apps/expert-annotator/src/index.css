@@ -1679,6 +1679,107 @@ body {
   font-size: 12px;
 }
 
+.ai-detail-row td {
+  padding-top: 0;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.ai-detail-toggle {
+  width: fit-content;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.ai-detail-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  padding: 16px;
+  min-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ai-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ai-detail-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.ai-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.ai-detail-metric {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  padding: 10px;
+  min-width: 0;
+}
+
+.ai-detail-metric span,
+.ai-detail-section-title {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.ai-detail-metric strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.ai-reasoning {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ai-rejection-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-json-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 14px;
+}
+
+.ai-json-block {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .floating-loading {
   position: fixed;
   top: 76px;
@@ -1770,9 +1871,15 @@ body {
   }
 
   .payload-grid,
+  .ai-detail-grid,
+  .ai-json-grid,
   .dashboard-grid-summary,
   .dashboard-grid-main {
     grid-template-columns: 1fr;
+  }
+
+  .ai-detail-panel {
+    min-width: 0;
   }
 
   .reviewer-admin-grid {
