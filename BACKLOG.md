@@ -89,72 +89,6 @@ Fine-tune a multilingual transformer (XLM-R) for relevance classification and co
 
 
 
-## 5. Route user suggestions into the backlog review queue
-
-### Problem
-The UI has a suggestion button, but suggestions are not flowing into an internal review workflow that is easy to track, triage, or follow up on.
-
-### Goal
-Store each suggestion as a backlog review item that supports:
-- easy review
-- status tracking
-- optional follow-up
-- low operational overhead
-
-### Notes
-- Do not send suggestions to Google Keep or another external note app.
-- Suggestions should be saved as review items in the project backlog or a backlog-backed store.
-- Each suggestion should record who submitted it and that it is a `suggestion to review`, not an approved backlog task.
-- If image attachments are added, the destination must support files as well as text.
-
-### Good candidate solutions
-- Supabase table plus internal backlog-review view
-- file or JSON-backed review queue that can be synced into `BACKLOG.md`
-- GitHub Issues only if they are clearly marked as unreviewed suggestions
-
-### Done when
-- a suggestion is saved in a reviewable destination
-- the destination records submitter identity and timestamp
-- the record is marked as a suggestion to review, not a confirmed task
-- reviewers can change status later without losing the original suggestion text
-
-
-
-
-
-
-
-
-## 6. (Depends on 5) Add image attachments to the suggestion flow
-
-### Problem
-Users can submit text suggestions, but they cannot attach screenshots. That makes bug reports slower to understand and reproduce.
-
-### Goal
-Allow one or more image attachments in the suggestion modal.
-
-### Requirements
-- image upload from the UI
-- file validation
-- upload success and failure feedback
-- suggestion record linked to uploaded files
-
-### Dependency
-- This may change the best implementation choice for item 4.
-
-### Done when
-- a user can attach at least one image
-- invalid files are rejected clearly
-- uploaded images remain linked to the suggestion record
-- failure states are visible to the user
-
-
-
-
-
-
-
-
 ## 7. Improve PDF highlight recall inside detected table regions
 
 ### Problem
@@ -283,3 +217,4 @@ Add a lightweight resolution table (plus a conflict view/query) so conflicts are
 - conflicts are derivable via a consistent query or view
 - a reviewer decision can be stored per paper (with resolved_by + timestamp)
 - the decision can be read without scanning past label events
+

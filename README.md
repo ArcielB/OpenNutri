@@ -33,7 +33,7 @@ Features:
 - The cockpit-only `All Papers` view includes an expandable AI detail panel with model decision, confidence, routing bucket, reasoning, normalized DB payload, rejected/custom row counts, raw response metadata, and any later human-outcome comparison.
 - Cockpit write actions remain restricted to non-tester cockpit users through `current_user_has_cockpit_write_access()`.
 - Test mode toggle to disable DB writes and store actions locally.
-- Suggestions modal now writes `suggestion_review` records into `backlog_review_items`, and cockpit reviewers triage them in the Suggestions tab.
+- Suggestions modal now writes `suggestion_review` records into `backlog_review_items`, supports image attachments with validation, and cockpit reviewers triage them in the Suggestions tab (including attachment previews).
 
 Run locally:
 ```bash
@@ -62,6 +62,7 @@ Notes:
   `current_stage_key`, `routing_status`, `routing_bucket`, `route_destination`, `latest_ai_extraction_id`, `routing_updated_at`.
 - `paper_search_hits` stores metadata-stage search discoveries separately from downloaded papers, including source, language, rendered query text, search-gate score, filter score, and duplicate status.
 - `paper_search_batches` and `paper_search_batch_hits` now store per-query-batch history separately from hit evidence, so the crawler can evaluate exact query batches by downstream label yield without duplicating raw hit rows.
+- Suggestion images are stored in the private `suggestion-attachments` Supabase Storage bucket; attachment metadata is saved in `backlog_review_items.attachments`.
 
 Frontend config and templates:
 - `apps/expert-annotator/index.html`: Vite HTML entry point.
