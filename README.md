@@ -22,7 +22,7 @@ Location: `apps/expert-annotator/`
 Features:
 - Supabase auth (email/password + Google).
 - Assignment-driven labeling queue with a strict personal `My Queue`; cockpit users now inspect the global paper/assignment state from a separate `All Papers` admin screen instead of mixing it into the labeling view.
-- Read-only developer-training accounts now use a virtual bilingual `My Queue` when `tester_access=true` and `cockpit_access=true`: they keep the normal labeling/admin UI, but annotation/admin/conflict actions stay local-only while new suggestion submissions still persist to Supabase.
+- Read-only developer-training accounts now use a virtual bilingual `My Queue` when `tester_access=true` and `cockpit_access=true`: they keep the normal labeling/admin UI, see the full bilingual training paper pool with live slot assignments prioritized, but annotation/admin/conflict actions stay local-only while new suggestion submissions still persist to Supabase.
 - PDF viewer with table-scoped nutrient-name highlighting and click-to-add popover.
 - Food and nutrient autocomplete with ranking and search logging.
 - Save draft, submit usable-data extraction, or submit no-usable-data.

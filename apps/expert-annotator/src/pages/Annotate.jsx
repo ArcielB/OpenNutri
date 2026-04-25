@@ -2009,7 +2009,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           supabase
             .from('papers')
             .select('id,title,abstract,doi,filename,workflow_language,created_at,routing_status')
-            .eq('routing_status', 'human_review_ready')
             .in('workflow_language', SUPPORTED_WORKFLOW_LANGUAGES)
             .order('id', { ascending: false })
             .limit(2000),

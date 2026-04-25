@@ -90,7 +90,7 @@ This is the current high-signal project state after the assignment-driven annota
 - Mode split is now:
   - normal reviewer mode: real `paper_user_assignments`, live writes
   - generic tester mode: local-only virtual queue
-  - developer-training mode (`tester_access && cockpit_access`): local-only admin/annotation/conflict actions plus a virtual bilingual `My Queue`
+  - developer-training mode (`tester_access && cockpit_access`): local-only admin/annotation/conflict actions plus a virtual bilingual `My Queue` from the full bilingual training paper pool, with live slot assignments prioritized
 - Queue saves drafts to the workspace tables, then uses RPC submission for final snapshots.
 - Cockpit shows reviewer queue/accuracy summaries, resolved source-yield breakdowns, reviewer-admin controls, and expandable AI details in the cockpit-only `All Papers` screen.
 - The AI detail panel shows model decision, confidence, routing bucket, reasoning, normalized DB payload, rejected/custom row counts, raw response metadata, and later human-outcome comparison status.
