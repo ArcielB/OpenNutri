@@ -229,6 +229,37 @@ function formatSuggestionReviewStatus(status) {
   }
 }
 
+function formatBytesLabel(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function normalizeSuggestionAttachments(rawValue) {
+  if (!Array.isArray(rawValue)) return []
+  return rawValue
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null
+      const bucket = String(row.bucket || 'suggestion-attachments').trim()
+      const path = String(row.path || row.storage_path || '').trim() || null
+      const directUrl = String(row.url || row.public_url || '').trim() || null
+      const fileName = String(row.file_name || row.name || path || 'attachment').trim()
+      const fileSize = Number(row.file_size || row.size || 0) || 0
+      const mimeType = String(row.mime_type || row.type || '').trim() || null
+      if (!path && !directUrl) return null
+      return {
+        bucket,
+        path,
+        directUrl,
+        fileName,
+        fileSize,
+        mimeType,
+      }
+    })
+    .filter(Boolean)
+}
+
 function getPublicPdfUrl(filename) {
   if (!filename) return null
   return supabase.storage.from('papers').getPublicUrl(filename).data.publicUrl
@@ -1325,6 +1356,7 @@ function SuggestionsReviewView({
   savingSuggestionId,
 }) {
   const [drafts, setDrafts] = useState({})
+  const [attachmentLinksByItem, setAttachmentLinksByItem] = useState({})
 
   const updateDraft = useCallback((itemId, field, value) => {
     setDrafts((previous) => ({
@@ -1335,6 +1367,66 @@ function SuggestionsReviewView({
       },
     }))
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function resolveAttachmentLinks() {
+      const nextLinksByItem = {}
+      await Promise.all((suggestionItems || []).map(async (item) => {
+        const attachments = normalizeSuggestionAttachments(item.attachments)
+        if (!attachments.length) {
+          nextLinksByItem[item.id] = []
+          return
+        }
+
+        const resolvedAttachments = await Promise.all(attachments.map(async (attachment) => {
+          if (attachment.directUrl) {
+            return {
+              ...attachment,
+              resolvedUrl: attachment.directUrl,
+            }
+          }
+
+          if (!attachment.path) {
+            return {
+              ...attachment,
+              resolvedUrl: null,
+            }
+          }
+
+          const { data, error } = await supabase.storage
+            .from(attachment.bucket)
+            .createSignedUrl(attachment.path, 60 * 60 * 24 * 7)
+
+          if (error) {
+            console.error(`Failed to create signed URL for ${attachment.path}:`, error)
+            return {
+              ...attachment,
+              resolvedUrl: null,
+            }
+          }
+
+          return {
+            ...attachment,
+            resolvedUrl: data?.signedUrl || null,
+          }
+        }))
+
+        nextLinksByItem[item.id] = resolvedAttachments
+      }))
+
+      if (!cancelled) {
+        setAttachmentLinksByItem(nextLinksByItem)
+      }
+    }
+
+    resolveAttachmentLinks()
+
+    return () => {
+      cancelled = true
+    }
+  }, [suggestionItems])
 
   return (
     <div className="dashboard-page">
@@ -1358,6 +1450,7 @@ function SuggestionsReviewView({
               follow_up_note: item.follow_up_note || '',
               review_note: item.review_note || '',
             }
+            const attachments = attachmentLinksByItem[item.id] || normalizeSuggestionAttachments(item.attachments)
 
             return (
               <div key={item.id} className="suggestion-review-item">
@@ -1373,6 +1466,39 @@ function SuggestionsReviewView({
                 </div>
 
                 <div className="suggestion-review-body">{item.suggestion_text}</div>
+                {attachments.length > 0 && (
+                  <div className="suggestion-review-attachments">
+                    <div className="suggestion-review-attachments-title">Attachments ({attachments.length})</div>
+                    <div className="suggestion-review-attachment-grid">
+                      {attachments.map((attachment, index) => (
+                        <div key={`${item.id}-attachment-${index}`} className="suggestion-review-attachment-item">
+                          {attachment.resolvedUrl ? (
+                            <a href={attachment.resolvedUrl} target="_blank" rel="noreferrer">
+                              <img
+                                className="suggestion-review-attachment-thumb"
+                                src={attachment.resolvedUrl}
+                                alt={attachment.fileName || `Attachment ${index + 1}`}
+                                loading="lazy"
+                              />
+                            </a>
+                          ) : (
+                            <div className="suggestion-review-attachment-unavailable">Preview unavailable</div>
+                          )}
+                          <div className="suggestion-review-attachment-meta">
+                            {attachment.resolvedUrl ? (
+                              <a href={attachment.resolvedUrl} target="_blank" rel="noreferrer">
+                                {attachment.fileName || `Attachment ${index + 1}`}
+                              </a>
+                            ) : (
+                              <span>{attachment.fileName || `Attachment ${index + 1}`}</span>
+                            )}
+                            <span>{formatBytesLabel(attachment.fileSize)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="suggestion-review-controls">
                   <label className="form-group">

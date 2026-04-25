@@ -1847,6 +1847,75 @@ body {
   justify-content: flex-end;
 }
 
+.suggestion-review-attachments {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.suggestion-review-attachments-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.suggestion-review-attachment-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+
+.suggestion-review-attachment-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+.suggestion-review-attachment-thumb {
+  width: 100%;
+  height: 132px;
+  object-fit: cover;
+  display: block;
+}
+
+.suggestion-review-attachment-unavailable {
+  height: 132px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 8px;
+  text-align: center;
+}
+
+.suggestion-review-attachment-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 8px;
+}
+
+.suggestion-review-attachment-meta a {
+  color: var(--accent);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestion-review-attachment-meta a:hover {
+  text-decoration: underline;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1024px) {
   .workspace {
@@ -2002,6 +2071,77 @@ body {
 
 .modal-card textarea::placeholder {
   color: var(--text-muted);
+}
+
+.suggestion-attachment-panel {
+  margin-bottom: 16px;
+}
+
+.suggestion-attachment-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.suggestion-attachment-picker:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.suggestion-attachment-picker input {
+  display: none;
+}
+
+.suggestion-attachment-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.suggestion-attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.suggestion-attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
+.suggestion-attachment-name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.suggestion-attachment-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.suggestion-attachment-remove {
+  width: auto;
+  min-width: 90px;
+}
+
+.suggestion-attachment-error {
+  margin-top: 10px;
+  margin-bottom: 0;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
 .modal-actions {
