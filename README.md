@@ -89,6 +89,12 @@ The active stage is currently `gemini_flash_db_payload_v2`.
 The AI model may extract broad candidate rows, but routing and AI finalization use only a deterministic `normalized_payload_json` with the same contract as human assignment submissions:
 `decision_kind`, `food_items[].food_name`, `food_fdc_id`, `is_custom_food`, and `nutrients[].nutrient_id`, `nutrient_name`, `value`, `unit`.
 The normalizer accepts only DB-compatible units (`g/100g`, `mg/100g`, `μg/100g`, `kcal/100g`, `kJ/100g`, `IU/100g`, `%`) on supported bases, exact food matches against `entities.canonical_name`, and exact nutrient name/alias matches against `master_nutrients`; unresolved foods/nutrients remain custom and unsupported rows are rejected before routing.
+Daily ops are designed as a recursive top-up loop:
+`assign existing human-ready papers -> process already queued AI papers -> crawl/upload only if reviewer deficits remain -> process the new AI queue -> repeat`.
+The runner stops cleanly when all reviewer queues are full, when Gemini quota/rate limit is hit, or when the configured cycle cap is reached.
+This is automated by GitHub Actions in `.github/workflows/daily-ops.yml` at 07:00 Europe/Istanbul (`04:00 UTC`) and can also be run manually:
+`python3 services/data-pipeline/scripts/daily_ops_orchestrator.py`.
+The scheduled job runs on GitHub-hosted infrastructure, not on this laptop. It talks to Supabase, Supabase Storage, and Gemini using GitHub repository secrets.
 Crawler v2 now splits its query budget across independent English and Turkish workflows, with separate query phrases, anchors, weighted n-grams, concept-term ordering, and language-scoped embedding/metadata scoring.
 Accepted-paper targets can now be set per language, so the crawler can fill English and Turkish quotas independently instead of collapsing everything into one shared accepted pool.
 Crawler v2 now also runs as `Search -> Filter -> Acquisition`:
@@ -146,6 +152,7 @@ Utility scripts (mostly one-off or experimental):
 - `services/data-pipeline/scripts/refresh_dergipark_index.py`: Refresh the local DergiPark journal/article index from archive and article pages. Outputs `dergipark_journals.json`, `dergipark_articles.jsonl`, `dergipark_refresh_state.json`, and `dergipark_refresh_report.json` under the chosen `--data-dir`.
 - `services/data-pipeline/scripts/upload_to_supabase.py`: Upload accepted PDFs to Supabase Storage, update `papers` by canonical identity, upsert metadata-stage discovery hits into `paper_search_hits` via deterministic `hit_key` values, and persist per-query batch history into `paper_search_batches` plus `paper_search_batch_hits`. Metadata-stage runs with zero accepted PDFs are now valid as long as search hits exist, and hits keep `paper_id` nullable until a paper row exists. Pass `--data-dir` or `--manifest`; the script now requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 - `services/data-pipeline/scripts/process_stage_queue.py`: Claims one oldest-first batch of queued AI stage tasks per run, runs `UnifiedEvaluator`, standardizes candidate rows into the human-submission-shaped `normalized_payload_json`, stores routed `ai_extractions`, and either finalizes high-confidence AI outcomes or releases low-confidence/audited papers to human review. AI processing errors return the task and paper to `queued_for_ai` with `last_error` preserved for the next run.
+- `services/data-pipeline/scripts/daily_ops_orchestrator.py`: Daily recursive ops runner for automation. It first tops up reviewers from existing `human_review_ready` stock, then drains already queued AI work with `--stop-on-quota`, then crawls/uploads only when deficits remain, and stops for the day if Gemini quota is exhausted.
 - `services/data-pipeline/scripts/backfill_ai_routing.py`: Enqueue and process the active AI stage for existing papers, then cancel unresolved human assignments only for papers that ended outside `human_review_ready`. The one-time `--reset-open-human-assignments` mode first refuses to run if submitted/human-truth work exists, cancels unresolved human assignment rows, and queues every existing paper for AI without draining unless `--drain-after-reset` is passed.
 - `services/data-pipeline/scripts/ensure_paper_stock.py`: Refresh feedback terms, refresh the DergiPark journal/article index, then crawl + upload until per-language targets are met. It now counts only `papers.routing_status = 'human_review_ready'` as available reviewer stock and drains the AI queue after upload. Supports `--target-en`, `--target-tr`, `--max-effort-tr`, `--quota-fallback`, `--dergipark-journal-limit`, and `--dergipark-max-issues-per-journal`, and prints both the crawler funnel summary and DergiPark index coverage after each cycle.
 - `services/data-pipeline/scripts/refill_assignment_queue.py`: Protected ops job that tops reviewer queues back up to a target open backlog, creates slot/user assignments only from `human_review_ready` papers ordered by oldest routing update/creation time, reuses cancelled assignment rows when reset papers return from AI, drains queued AI work before giving up on stock, and triggers crawler refill when the human-ready pool is exhausted.
@@ -181,7 +188,8 @@ Pipeline data outputs:
 - `docs/draft_commercialization.txt`: Commercialization notes (TR).
 
 **Python Dependencies**
-- `sentence-transformers` (required for L2 embedding scoring; crawler will error if missing). Install with `python3 -m pip install sentence-transformers`.
+- Data pipeline dependencies are listed in `services/data-pipeline/requirements.txt`.
+- `sentence-transformers` is required for L2 embedding scoring; crawler will error if missing.
 
 **Environment Variables**
 Frontend:
@@ -194,6 +202,11 @@ Data pipeline and ETL:
 - `GEMINI_API_KEY` (required for LLM evaluator/extractor)
 - `SUPABASE_RESOLVE_IP` (optional; IP pinning for SR legacy ETL)
 - `DATABASE_URL` (required for `apps/expert-annotator/run-migration.js`)
+
+GitHub Actions daily ops requires repository secrets with these same names:
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GEMINI_API_KEY`
 
 **Development Notes**
 - The annotator app is deployed on Vercel.

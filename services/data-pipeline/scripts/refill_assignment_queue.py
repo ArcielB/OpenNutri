@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import subprocess
@@ -387,6 +388,213 @@ def fetch_state(client: Client) -> dict[str, list[dict]]:
     }
 
 
+def reviewer_open_counts_by_name(open_counts: dict[str, int], profiles: dict[str, ReviewerProfile]) -> dict[str, int]:
+    return {
+        profiles[profile_id].display_name: int(open_counts.get(profile_id, 0))
+        for profile_id in sorted(profiles, key=lambda value: profiles[value].display_name.lower())
+    }
+
+
+def deficits_by_name(deficits: dict[str, int], profiles: dict[str, ReviewerProfile]) -> dict[str, int]:
+    return {
+        profiles[profile_id].display_name: int(deficit)
+        for profile_id, deficit in sorted(deficits.items(), key=lambda item: profiles[item[0]].display_name.lower())
+    }
+
+
+def assignment_stock_counts(open_available: list[dict]) -> dict[str, int]:
+    return {
+        "en": sum(1 for paper in open_available if paper.get("workflow_language") == "en"),
+        "tr": sum(1 for paper in open_available if paper.get("workflow_language") == "tr"),
+    }
+
+
+def build_profiles(state: dict[str, list[dict]]) -> dict[str, ReviewerProfile]:
+    return {
+        row["id"]: ReviewerProfile(
+            id=row["id"],
+            display_name=str(row.get("display_name") or row["id"]),
+            active=bool(row.get("active", True)),
+            can_review_en=bool(row.get("can_review_en", True)),
+            can_review_tr=bool(row.get("can_review_tr", True)),
+            tester_access=bool(row.get("tester_access", False)),
+            official_slot=row.get("official_slot"),
+            auth_user_id=row.get("auth_user_id"),
+        )
+        for row in state["reviewer_profiles"]
+        if row.get("id")
+    }
+
+
+def compute_assignment_context(
+    state: dict[str, list[dict]],
+    *,
+    target_open: int,
+) -> dict[str, object]:
+    profiles = build_profiles(state)
+    slot_members_by_slot = build_slot_member_map(state["slot_members"], profiles)
+    open_counts = compute_open_counts(state["user_assignments"])
+    slot_loads = compute_slot_load(state["slot_assignments"])
+    deficits = compute_deficits(profiles, state["slot_members"], open_counts, target_open)
+    open_available = available_papers(
+        state["papers"],
+        state["slot_assignments"],
+        state["review_outcomes"],
+        state["global_labels"],
+    )
+    return {
+        "profiles": profiles,
+        "slot_members_by_slot": slot_members_by_slot,
+        "open_counts": open_counts,
+        "slot_loads": slot_loads,
+        "deficits": deficits,
+        "open_available": open_available,
+    }
+
+
+def apply_assignment_changes(
+    client: Client,
+    *,
+    slot_inserts: list[dict],
+    slot_updates: list[dict],
+    user_inserts: list[dict],
+    user_updates: list[dict],
+) -> None:
+    for row in slot_updates:
+        client.table("paper_slot_assignments").update(row["payload"]).eq("id", row["id"]).execute()
+    if slot_inserts:
+        client.table("paper_slot_assignments").insert(slot_inserts).execute()
+    for row in user_updates:
+        client.table("paper_user_assignments").update(row["payload"]).eq("id", row["id"]).execute()
+    if user_inserts:
+        client.table("paper_user_assignments").insert(user_inserts).execute()
+
+
+def assign_ready_papers(
+    client: Client,
+    *,
+    target_open: int = 10,
+    seed: int = 20260413,
+    dry_run: bool = False,
+    verbose: bool = True,
+) -> dict[str, object]:
+    state = fetch_state(client)
+    context = compute_assignment_context(state, target_open=target_open)
+    profiles: dict[str, ReviewerProfile] = context["profiles"]  # type: ignore[assignment]
+    slot_members_by_slot = context["slot_members_by_slot"]  # type: ignore[assignment]
+    open_counts: dict[str, int] = context["open_counts"]  # type: ignore[assignment]
+    slot_loads: dict[str, int] = context["slot_loads"]  # type: ignore[assignment]
+    deficits: dict[str, int] = context["deficits"]  # type: ignore[assignment]
+    open_available: list[dict] = context["open_available"]  # type: ignore[assignment]
+    deficits_before = dict(deficits)
+    rng = random.Random(seed)
+
+    if verbose:
+        for profile_id, deficit in sorted(deficits.items(), key=lambda item: profiles[item[0]].display_name.lower()):
+            profile = profiles[profile_id]
+            print(
+                f"  {profile.display_name}: open={open_counts.get(profile_id, 0)} "
+                f"target={target_open} deficit={deficit}"
+            )
+        stock_counts = assignment_stock_counts(open_available)
+        print(f"  Unassigned queue stock: EN={stock_counts['en']} TR={stock_counts['tr']}")
+
+    slot_inserts: list[dict] = []
+    slot_updates: list[dict] = []
+    user_inserts: list[dict] = []
+    user_updates: list[dict] = []
+    existing_slot_by_paper_slot = {
+        (int(row["paper_id"]), str(row["slot_key"])): row
+        for row in state["slot_assignments"]
+        if row.get("paper_id") is not None and row.get("slot_key") and row.get("id")
+    }
+    existing_user_by_slot_profile = {
+        (str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"])): row
+        for row in state["user_assignments"]
+        if row.get("paper_slot_assignment_id") and row.get("reviewer_profile_id") and row.get("id")
+    }
+
+    for paper in open_available:
+        if not any(deficits.values()):
+            break
+        language = str(paper.get("workflow_language") or "").strip().lower()
+        slot_pair = choose_slot_pair(
+            language=language,
+            rng=rng,
+            slot_loads=slot_loads,
+            slot_members_by_slot=slot_members_by_slot,
+            profiles=profiles,
+            deficits=deficits,
+            open_counts=open_counts,
+            target_open=target_open,
+        )
+        if slot_pair is None:
+            continue
+
+        next_slot_rows, next_slot_updates, next_user_rows, next_user_updates = build_assignment_changes(
+            paper,
+            slot_pair,
+            slot_members_by_slot,
+            profiles,
+            existing_slot_by_paper_slot=existing_slot_by_paper_slot,
+            existing_user_by_slot_profile=existing_user_by_slot_profile,
+        )
+        if not next_user_rows and not next_user_updates:
+            continue
+
+        slot_inserts.extend(next_slot_rows)
+        slot_updates.extend(next_slot_updates)
+        user_inserts.extend(next_user_rows)
+        user_updates.extend(next_user_updates)
+        for row in next_slot_rows:
+            existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))] = row
+        for row in next_slot_updates:
+            existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))] = {
+                **existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))],
+                **row["payload"],
+            }
+        for row in next_user_rows:
+            existing_user_by_slot_profile[(str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"]))] = row
+        for row in next_user_updates:
+            existing_user_by_slot_profile[(str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"]))] = row
+
+        for slot_key in slot_pair:
+            slot_loads[slot_key] += 1
+        for row in [*next_user_rows, *next_user_updates]:
+            profile_id = row["reviewer_profile_id"]
+            open_counts[profile_id] += 1
+            deficits[profile_id] = max(0, target_open - open_counts[profile_id])
+
+    made_progress = bool(slot_inserts or slot_updates or user_inserts or user_updates)
+    if made_progress:
+        if verbose:
+            print(f"  Planned slot assignments: {len(slot_inserts) + len(slot_updates)}")
+            print(f"  Planned user assignments: {len(user_inserts) + len(user_updates)}")
+        if not dry_run:
+            apply_assignment_changes(
+                client,
+                slot_inserts=slot_inserts,
+                slot_updates=slot_updates,
+                user_inserts=user_inserts,
+                user_updates=user_updates,
+            )
+            if verbose:
+                print("  Inserted assignments into Supabase.")
+
+    return {
+        "target_open": int(target_open),
+        "made_progress": made_progress,
+        "satisfied": not any(deficits.values()),
+        "open_counts": reviewer_open_counts_by_name(open_counts, profiles),
+        "deficits_before": deficits_by_name(deficits_before, profiles),
+        "deficits_after": deficits_by_name(deficits, profiles),
+        "available_before": assignment_stock_counts(open_available),
+        "planned_slot_assignments": len(slot_inserts) + len(slot_updates),
+        "planned_user_assignments": len(user_inserts) + len(user_updates),
+        "dry_run": bool(dry_run),
+    }
+
+
 def has_queued_ai_work(papers: list[dict]) -> bool:
     return any(
         str(paper.get("routing_status") or "").strip().lower() == "queued_for_ai"
@@ -400,6 +608,8 @@ def drain_ai_queue(*, dry_run: bool) -> bool:
         "services/data-pipeline/scripts/process_stage_queue.py",
         "--max-tasks",
         "200",
+        "--stop-on-quota",
+        "--json-summary",
     ]
     print("Queue stock exhausted; attempting to drain queued AI routing tasks first.")
     if dry_run:
@@ -407,9 +617,24 @@ def drain_ai_queue(*, dry_run: bool) -> bool:
         return True
 
     env = os.environ.copy()
-    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env, check=False)
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env, check=False, capture_output=True, text=True)
+    if result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    if result.stderr:
+        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
     if result.returncode != 0:
         raise SystemExit(f"process_stage_queue.py failed with exit code {result.returncode}")
+    summary: dict | None = None
+    for line in reversed(result.stdout.splitlines()):
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            summary = payload
+            break
+    if summary and summary.get("quota_limited"):
+        raise SystemExit("Gemini quota/rate limit reached; stopping before crawl refill.")
     return True
 
 
@@ -465,139 +690,30 @@ def refill_stock(
 
 def main() -> None:
     args = build_parser().parse_args()
-    rng = random.Random(args.seed)
     client = require_client()
 
     for cycle in range(1, args.max_cycles + 1):
-        state = fetch_state(client)
-        profiles = {
-            row["id"]: ReviewerProfile(
-                id=row["id"],
-                display_name=str(row.get("display_name") or row["id"]),
-                active=bool(row.get("active", True)),
-                can_review_en=bool(row.get("can_review_en", True)),
-                can_review_tr=bool(row.get("can_review_tr", True)),
-                tester_access=bool(row.get("tester_access", False)),
-                official_slot=row.get("official_slot"),
-                auth_user_id=row.get("auth_user_id"),
-            )
-            for row in state["reviewer_profiles"]
-            if row.get("id")
-        }
-        slot_members_by_slot = build_slot_member_map(state["slot_members"], profiles)
-        open_counts = compute_open_counts(state["user_assignments"])
-        slot_loads = compute_slot_load(state["slot_assignments"])
-        deficits = compute_deficits(profiles, state["slot_members"], open_counts, args.target_open)
-        open_available = available_papers(
-            state["papers"],
-            state["slot_assignments"],
-            state["review_outcomes"],
-            state["global_labels"],
-        )
-
         print(f"\nCycle {cycle}")
-        for profile_id, deficit in sorted(deficits.items(), key=lambda item: profiles[item[0]].display_name.lower()):
-            profile = profiles[profile_id]
-            print(
-                f"  {profile.display_name}: open={open_counts.get(profile_id, 0)} "
-                f"target={args.target_open} deficit={deficit}"
-            )
-        print(
-            "  Unassigned queue stock: "
-            f"EN={sum(1 for paper in open_available if paper.get('workflow_language') == 'en')} "
-            f"TR={sum(1 for paper in open_available if paper.get('workflow_language') == 'tr')}"
+        assignment_summary = assign_ready_papers(
+            client,
+            target_open=args.target_open,
+            seed=args.seed,
+            dry_run=args.dry_run,
+            verbose=True,
         )
-
-        if not any(deficits.values()):
+        if assignment_summary["satisfied"]:
             print("All active reviewers already meet the open-backlog target.")
             return
-
-        slot_inserts: list[dict] = []
-        slot_updates: list[dict] = []
-        user_inserts: list[dict] = []
-        user_updates: list[dict] = []
-        existing_slot_by_paper_slot = {
-            (int(row["paper_id"]), str(row["slot_key"])): row
-            for row in state["slot_assignments"]
-            if row.get("paper_id") is not None and row.get("slot_key") and row.get("id")
-        }
-        existing_user_by_slot_profile = {
-            (str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"])): row
-            for row in state["user_assignments"]
-            if row.get("paper_slot_assignment_id") and row.get("reviewer_profile_id") and row.get("id")
-        }
-        made_progress = False
-
-        for paper in open_available:
-            if not any(deficits.values()):
-                break
-            language = str(paper.get("workflow_language") or "").strip().lower()
-            slot_pair = choose_slot_pair(
-                language=language,
-                rng=rng,
-                slot_loads=slot_loads,
-                slot_members_by_slot=slot_members_by_slot,
-                profiles=profiles,
-                deficits=deficits,
-                open_counts=open_counts,
-                target_open=args.target_open,
-            )
-            if slot_pair is None:
-                continue
-
-            next_slot_rows, next_slot_updates, next_user_rows, next_user_updates = build_assignment_changes(
-                paper,
-                slot_pair,
-                slot_members_by_slot,
-                profiles,
-                existing_slot_by_paper_slot=existing_slot_by_paper_slot,
-                existing_user_by_slot_profile=existing_user_by_slot_profile,
-            )
-            if not next_user_rows and not next_user_updates:
-                continue
-
-            slot_inserts.extend(next_slot_rows)
-            slot_updates.extend(next_slot_updates)
-            user_inserts.extend(next_user_rows)
-            user_updates.extend(next_user_updates)
-            made_progress = True
-            for row in next_slot_rows:
-                existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))] = row
-            for row in next_slot_updates:
-                existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))] = {
-                    **existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))],
-                    **row["payload"],
-                }
-            for row in next_user_rows:
-                existing_user_by_slot_profile[(str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"]))] = row
-            for row in next_user_updates:
-                existing_user_by_slot_profile[(str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"]))] = row
-
-            for slot_key in slot_pair:
-                slot_loads[slot_key] += 1
-            for row in [*next_user_rows, *next_user_updates]:
-                profile_id = row["reviewer_profile_id"]
-                open_counts[profile_id] += 1
-                deficits[profile_id] = max(0, args.target_open - open_counts[profile_id])
-
-        if made_progress:
-            print(f"  Planned slot assignments: {len(slot_inserts) + len(slot_updates)}")
-            print(f"  Planned user assignments: {len(user_inserts) + len(user_updates)}")
+        if assignment_summary["made_progress"]:
             if args.dry_run:
-                for row in [*user_inserts, *user_updates][:12]:
-                    print(f"    [dry-run] user_assignment paper={row['paper_id']} reviewer={profiles[row['reviewer_profile_id']].display_name}")
                 return
-            else:
-                for row in slot_updates:
-                    client.table("paper_slot_assignments").update(row["payload"]).eq("id", row["id"]).execute()
-                if slot_inserts:
-                    client.table("paper_slot_assignments").insert(slot_inserts).execute()
-                for row in user_updates:
-                    client.table("paper_user_assignments").update(row["payload"]).eq("id", row["id"]).execute()
-                if user_inserts:
-                    client.table("paper_user_assignments").insert(user_inserts).execute()
-                print("  Inserted assignments into Supabase.")
             continue
+
+        state = fetch_state(client)
+        context = compute_assignment_context(state, target_open=args.target_open)
+        profiles = context["profiles"]
+        deficits = context["deficits"]
+        open_available = context["open_available"]
 
         if has_queued_ai_work(state["papers"]):
             if drain_ai_queue(dry_run=args.dry_run):

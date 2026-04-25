@@ -1,0 +1,217 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PIPELINE_ROOT = PROJECT_ROOT / "services" / "data-pipeline"
+if str(PIPELINE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PIPELINE_ROOT))
+
+from scripts import ensure_paper_stock, refill_assignment_queue
+from scripts.process_stage_queue import drain_stage_queue, require_client
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run the daily recursive OpenNutri queue operation loop."
+    )
+    parser.add_argument("--target-open", type=int, default=10, help="Target open assignments per active reviewer")
+    parser.add_argument("--max-cycles", type=int, default=8, help="Maximum assign/AI/crawl cycles to run")
+    parser.add_argument("--max-ai-tasks", type=int, default=50, help="Maximum AI tasks to process per AI-drain step")
+    parser.add_argument("--refill-step-en", type=int, default=4, help="New English papers to request when needed")
+    parser.add_argument("--refill-step-tr", type=int, default=4, help="New Turkish papers to request when needed")
+    parser.add_argument("--seed", type=int, default=20260413, help="Random seed for assignment balancing")
+    parser.add_argument("--data-dir", default="services/data-pipeline/data", help="Crawler data directory")
+    parser.add_argument("--query-limit", type=int, default=50, help="Max search hits to inspect per query batch")
+    parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count per crawler run")
+    parser.add_argument(
+        "--dergipark-journal-limit",
+        type=int,
+        default=0,
+        help="Limit DergiPark journals refreshed per cycle (0 = all)",
+    )
+    parser.add_argument(
+        "--dergipark-max-issues-per-journal",
+        type=int,
+        default=12,
+        help="Newest archive issues to inspect per DergiPark journal",
+    )
+    parser.add_argument("--skip-feedback", action="store_true", help="Skip feedback refresh before crawling")
+    parser.add_argument(
+        "--skip-dergipark-refresh",
+        action="store_true",
+        help="Skip refreshing the DergiPark journal/article index before crawling",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Report planned work without writes or network jobs")
+    parser.add_argument("--json-summary", action="store_true", help="Print a final JSON summary")
+    return parser
+
+
+def _need_by_language(
+    client: Any,
+    *,
+    target_open: int,
+    refill_step_en: int,
+    refill_step_tr: int,
+) -> dict[str, Any]:
+    state = refill_assignment_queue.fetch_state(client)
+    context = refill_assignment_queue.compute_assignment_context(state, target_open=target_open)
+    profiles: dict[str, refill_assignment_queue.ReviewerProfile] = context["profiles"]  # type: ignore[assignment]
+    deficits: dict[str, int] = context["deficits"]  # type: ignore[assignment]
+    open_available: list[dict] = context["open_available"]  # type: ignore[assignment]
+
+    need_en = any(
+        deficit > 0 and profile.can_review_en
+        for profile_id, deficit in deficits.items()
+        if (profile := profiles.get(profile_id))
+    )
+    need_tr = any(
+        deficit > 0 and profile.can_review_tr
+        for profile_id, deficit in deficits.items()
+        if (profile := profiles.get(profile_id))
+    )
+    requested = {
+        "en": max(0, int(refill_step_en)) if need_en else 0,
+        "tr": max(0, int(refill_step_tr)) if need_tr else 0,
+    }
+    return {
+        "requested": requested,
+        "deficits": refill_assignment_queue.deficits_by_name(deficits, profiles),
+        "available": refill_assignment_queue.assignment_stock_counts(open_available),
+    }
+
+
+def _crawler_args(args: argparse.Namespace) -> SimpleNamespace:
+    return SimpleNamespace(
+        data_dir=args.data_dir,
+        query_limit=args.query_limit,
+        max_queries=args.max_queries,
+        dergipark_journal_limit=args.dergipark_journal_limit,
+        dergipark_max_issues_per_journal=args.dergipark_max_issues_per_journal,
+        skip_feedback=args.skip_feedback,
+        skip_dergipark_refresh=args.skip_dergipark_refresh,
+    )
+
+
+def _run_ai_drain(client: Any, args: argparse.Namespace) -> dict[str, object]:
+    return drain_stage_queue(
+        client,
+        max_tasks=max(1, int(args.max_ai_tasks)),
+        stop_on_quota=True,
+        verbose=not args.json_summary,
+    )
+
+
+def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "dry_run": bool(args.dry_run),
+        "target_open": int(args.target_open),
+        "cycles": [],
+        "stopped_reason": None,
+    }
+
+    for cycle in range(1, max(1, int(args.max_cycles)) + 1):
+        if not args.json_summary:
+            print(f"\nDaily ops cycle {cycle}")
+        cycle_summary: dict[str, Any] = {"cycle": cycle}
+
+        assignment_summary = refill_assignment_queue.assign_ready_papers(
+            client,
+            target_open=args.target_open,
+            seed=args.seed,
+            dry_run=args.dry_run,
+            verbose=not args.json_summary,
+        )
+        cycle_summary["assignment"] = assignment_summary
+
+        if assignment_summary.get("satisfied"):
+            summary["stopped_reason"] = "queues_full"
+            summary["cycles"].append(cycle_summary)
+            break
+
+        if assignment_summary.get("made_progress"):
+            summary["cycles"].append(cycle_summary)
+            if args.dry_run:
+                summary["stopped_reason"] = "dry_run"
+                break
+            continue
+
+        state = refill_assignment_queue.fetch_state(client)
+        if refill_assignment_queue.has_queued_ai_work(state["papers"]):
+            if args.dry_run:
+                cycle_summary["ai"] = {"would_process": True}
+                summary["stopped_reason"] = "dry_run"
+                summary["cycles"].append(cycle_summary)
+                break
+            ai_summary = _run_ai_drain(client, args)
+            cycle_summary["ai"] = ai_summary
+            if ai_summary.get("quota_limited"):
+                summary["stopped_reason"] = "ai_quota_limited"
+                summary["cycles"].append(cycle_summary)
+                break
+            if int(ai_summary.get("processed") or 0) > 0:
+                summary["cycles"].append(cycle_summary)
+                continue
+
+        crawl_need = _need_by_language(
+            client,
+            target_open=args.target_open,
+            refill_step_en=args.refill_step_en,
+            refill_step_tr=args.refill_step_tr,
+        )
+        requested = crawl_need["requested"]
+        cycle_summary["crawl_need"] = crawl_need
+        if requested["en"] <= 0 and requested["tr"] <= 0:
+            summary["stopped_reason"] = "no_eligible_refill_need"
+            summary["cycles"].append(cycle_summary)
+            break
+
+        if args.dry_run:
+            cycle_summary["crawl"] = {"would_run": True, "requested": requested}
+            summary["stopped_reason"] = "dry_run"
+            summary["cycles"].append(cycle_summary)
+            break
+
+        ensure_paper_stock.run_refill_cycle(
+            deficits=requested,
+            env=os.environ.copy(),
+            args=_crawler_args(args),
+            cycle_label=f"Daily ops cycle {cycle} crawler refill",
+            process_ai_after_upload=False,
+        )
+        cycle_summary["crawl"] = {"requested": requested}
+
+        ai_summary = _run_ai_drain(client, args)
+        cycle_summary["ai_after_crawl"] = ai_summary
+        if ai_summary.get("quota_limited"):
+            summary["stopped_reason"] = "ai_quota_limited"
+            summary["cycles"].append(cycle_summary)
+            break
+
+        summary["cycles"].append(cycle_summary)
+
+    if summary["stopped_reason"] is None:
+        summary["stopped_reason"] = "max_cycles"
+    return summary
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    client = require_client()
+    summary = run_daily_ops(client, args)
+    if args.json_summary:
+        print(json.dumps(summary, sort_keys=True))
+    else:
+        print("\nDaily ops summary")
+        print(json.dumps(summary, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

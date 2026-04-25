@@ -26,7 +26,7 @@ from scripts.backfill_ai_routing import (
     cancel_unresolved_assignments_for_closed_routes,
     reset_open_human_assignments_for_ai,
 )
-from scripts.process_stage_queue import claim_stage_tasks, process_one_task
+from scripts.process_stage_queue import claim_stage_tasks, drain_stage_queue, is_quota_error, process_one_task
 
 
 class FakeResponse:
@@ -509,6 +509,55 @@ class QueueAndBackfillTests(unittest.TestCase):
             [("claim_paper_stage_tasks", {"p_stage_key": "gemini_flash_triage_v1", "p_limit": 3})],
         )
 
+    def test_is_quota_error_detects_gemini_quota_without_treating_generic_429_as_ai_limit(self) -> None:
+        self.assertTrue(is_quota_error("Extraction error: 429 quota exceeded"))
+        self.assertTrue(
+            is_quota_error(
+                "429 generate_content_free_tier_requests from generativelanguage.googleapis.com"
+            )
+        )
+        self.assertFalse(is_quota_error("HTTP Error 429 while downloading https://example.org/paper.pdf"))
+
+    @patch("scripts.process_stage_queue.process_one_task")
+    @patch("scripts.process_stage_queue.claim_stage_tasks")
+    @patch("scripts.process_stage_queue.fetch_reference_lookups", return_value={})
+    @patch("scripts.process_stage_queue.UnifiedEvaluator")
+    @patch("scripts.process_stage_queue.fetch_active_stage_config")
+    def test_stop_on_quota_claims_one_task_at_a_time_and_stops(
+        self,
+        fetch_stage_mock: Mock,
+        evaluator_mock: Mock,
+        _reference_mock: Mock,
+        claim_mock: Mock,
+        process_mock: Mock,
+    ) -> None:
+        fetch_stage_mock.return_value = self.stage_config()
+        evaluator_mock.return_value = Mock(model=object())
+        claim_mock.side_effect = [
+            [{"id": "task-1", "paper_id": 11, "created_at": "2026-04-24"}],
+            [{"id": "task-2", "paper_id": 12, "created_at": "2026-04-24"}],
+        ]
+        process_mock.return_value = {
+            "paper_id": 11,
+            "status": "queued_for_ai",
+            "route_destination": "blocked",
+            "error": "Extraction error: 429 quota exceeded",
+            "quota_limited": True,
+        }
+
+        summary = drain_stage_queue(
+            FakeSupabaseClient(),
+            max_tasks=10,
+            stop_on_quota=True,
+            verbose=False,
+        )
+
+        self.assertEqual(summary["processed"], 1)
+        self.assertEqual(summary["claimed"], 1)
+        self.assertEqual(summary["requeued"], 1)
+        self.assertTrue(summary["quota_limited"])
+        self.assertEqual(claim_mock.call_count, 1)
+
     def test_backfill_cancels_only_non_human_ready_final_routes(self) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -666,6 +715,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "queued_for_ai")
+        self.assertTrue(result["quota_limited"])
         self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "queued")
         self.assertIn("429 quota exceeded", client.tables["paper_stage_tasks"][0]["last_error"])
         self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")

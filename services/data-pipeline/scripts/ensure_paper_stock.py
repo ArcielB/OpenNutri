@@ -153,6 +153,47 @@ def run_command(label: str, cmd: list[str], env: dict, *, allow_failure: bool = 
     return True
 
 
+def run_json_command(label: str, cmd: list[str], env: dict) -> dict:
+    print(f"\n== {label} ==")
+    print(" ".join(cmd))
+    result = subprocess.run(cmd, env=env, check=False, capture_output=True, text=True)
+    if result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    if result.stderr:
+        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
+    if result.returncode != 0:
+        raise SystemExit(f"{label} failed with exit code {result.returncode}")
+    for line in reversed(result.stdout.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    raise SystemExit(f"{label} did not print a JSON summary.")
+
+
+def run_ai_queue(label: str, *, max_tasks: int, env: dict) -> dict:
+    summary = run_json_command(
+        label,
+        [
+            sys.executable,
+            "services/data-pipeline/scripts/process_stage_queue.py",
+            "--max-tasks",
+            str(max(1, int(max_tasks))),
+            "--stop-on-quota",
+            "--json-summary",
+        ],
+        env,
+    )
+    if summary.get("quota_limited"):
+        raise SystemExit(f"{label} stopped because Gemini quota/rate limit was reached.")
+    return summary
+
+
 def print_counts(prefix: str, counts: Dict[str, int], targets: Dict[str, int]) -> None:
     print(prefix)
     print(f"  Papers total: {counts['papers_total']}")
@@ -246,6 +287,7 @@ def run_refill_cycle(
     env: dict,
     args: argparse.Namespace,
     cycle_label: str,
+    process_ai_after_upload: bool = True,
 ) -> None:
     if deficits["en"] <= 0 and deficits["tr"] <= 0:
         return
@@ -310,17 +352,13 @@ def run_refill_cycle(
         env,
     )
 
-    worker_batch = max(50, (deficits["en"] + deficits["tr"]) * 5)
-    run_command(
-        "Process AI routing queue",
-        [
-            sys.executable,
-            "services/data-pipeline/scripts/process_stage_queue.py",
-            "--max-tasks",
-            str(worker_batch),
-        ],
-        env,
-    )
+    if process_ai_after_upload:
+        worker_batch = max(50, (deficits["en"] + deficits["tr"]) * 5)
+        run_ai_queue(
+            "Process AI routing queue",
+            max_tasks=worker_batch,
+            env=env,
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -394,16 +432,10 @@ def main() -> None:
     env["SUPABASE_URL"] = supabase_url
     env["SUPABASE_SERVICE_ROLE_KEY"] = supabase_key
 
-    run_command(
+    run_ai_queue(
         "Process existing AI routing queue",
-        [
-            sys.executable,
-            "services/data-pipeline/scripts/process_stage_queue.py",
-            "--max-tasks",
-            str(max(50, sum(targets.values()) * 5)),
-        ],
+        max_tasks=max(50, sum(targets.values()) * 5),
         env=env,
-        allow_failure=False,
     )
     counts = fetch_available_counts(supabase_url, supabase_key)
     print_counts("After draining existing AI queue:", counts, targets)

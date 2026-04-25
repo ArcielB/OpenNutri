@@ -131,10 +131,16 @@ This is the current high-signal project state after the assignment-driven annota
   - assigns older waiting `human_review_ready` papers first by `routing_updated_at` / creation order
   - reuses cancelled slot/user assignment rows when reset papers return from AI, because live uniqueness constraints are `(paper_id, slot_key)` and `(paper_slot_assignment_id, reviewer_profile_id)`
   - drains queued AI tasks before triggering crawler refill when the human-ready pool is exhausted
+- New daily recursive ops runner:
+  - `services/data-pipeline/scripts/daily_ops_orchestrator.py`
+  - runs the safe top-up order: assign existing human-ready stock, process already queued AI tasks, crawl/upload only if reviewer deficits remain, process the new AI queue, then repeat
+  - uses quota-aware AI draining and stops for the day when Gemini quota/rate limit is reached instead of claiming a whole batch that cannot be processed
+  - scheduled in GitHub Actions by `.github/workflows/daily-ops.yml` at 07:00 Europe/Istanbul (`04:00 UTC`) and can be manually dispatched
+  - this automation runs on GitHub-hosted runners, not the laptop; it needs GitHub repository secrets `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY`
 - New AI routing ops scripts:
   - `services/data-pipeline/scripts/process_stage_queue.py`
   - `services/data-pipeline/scripts/backfill_ai_routing.py`
-  - `process_stage_queue.py` now claims one queued batch per run and returns AI processing errors to `queued_for_ai` with `last_error` instead of routing them to humans
+  - `process_stage_queue.py` now claims one queued batch per run by default, can claim one task at a time with `--stop-on-quota`, and returns AI processing errors to `queued_for_ai` with `last_error` instead of routing them to humans
   - `backfill_ai_routing.py --reset-open-human-assignments` is the safe reroute path for existing papers: it refuses submitted/human-truth work, cancels unresolved assignment rows, and queues existing papers for AI without draining by default
 - Dry-run check works after a one-pass preview fix.
 
@@ -159,6 +165,8 @@ This is the current high-signal project state after the assignment-driven annota
   - `python3 services/data-pipeline/scripts/ensure_paper_stock.py --threshold 0`
 - Drain the AI routing queue:
   - `python3 services/data-pipeline/scripts/process_stage_queue.py`
+- Run the daily recursive ops loop:
+  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py`
 - Backfill the active AI routing stage:
   - `python3 services/data-pipeline/scripts/backfill_ai_routing.py`
 - Reset existing unresolved human assignments back through the active AI gate:
@@ -189,4 +197,4 @@ This is the current high-signal project state after the assignment-driven annota
   no open human assignments exist on `queued_for_ai`, `ai_processing`, AI-finalized, or null-routed papers.
 
 **Immediate Next Step**
-- After Gemini quota resets, rerun `python3 services/data-pipeline/scripts/process_stage_queue.py --max-tasks 24` to retry the queued v2 AI failures, then run `python3 services/data-pipeline/scripts/refill_assignment_queue.py`.
+- After Gemini quota resets, the scheduled GitHub Actions daily ops job should retry queued v2 AI failures and refill human queues automatically, provided the GitHub secrets are configured. For a manual run, use `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --max-ai-tasks 24`.

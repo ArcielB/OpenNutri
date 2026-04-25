@@ -1,0 +1,55 @@
+name: Daily OpenNutri Ops
+
+on:
+  schedule:
+    # 07:00 Europe/Istanbul while Turkey remains UTC+3.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: opennutri-daily-ops
+  cancel-in-progress: false
+
+jobs:
+  daily-ops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/data-pipeline/requirements.txt
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Cache pipeline data
+        uses: actions/cache@v4
+        with:
+          path: |
+            services/data-pipeline/data
+            ~/.cache/huggingface
+          key: opennutri-pipeline-${{ github.run_id }}
+          restore-keys: |
+            opennutri-pipeline-
+
+      - name: Install Python dependencies
+        run: python3 -m pip install -r services/data-pipeline/requirements.txt
+
+      - name: Run daily ops loop
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
+            --json-summary \
+            --target-open 10 \
+            --max-cycles 8 \
+            --max-ai-tasks 50

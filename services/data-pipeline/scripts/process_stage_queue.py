@@ -43,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Process the staged AI routing queue.")
     parser.add_argument("--stage-key", default=None, help="Specific stage key to drain. Defaults to the active stage.")
     parser.add_argument("--max-tasks", type=int, default=50, help="Maximum queued papers to process in one run.")
+    parser.add_argument(
+        "--stop-on-quota",
+        action="store_true",
+        help="Stop after the first Gemini quota/rate-limit error instead of burning through the claimed queue.",
+    )
+    parser.add_argument("--json-summary", action="store_true", help="Print a machine-readable run summary.")
     return parser
 
 
@@ -168,6 +174,24 @@ def ai_result_error(ai_result) -> str | None:
     if reasoning.lower().startswith("extraction error:"):
         return reasoning
     return None
+
+
+def is_quota_error(error_text: object) -> bool:
+    text = str(error_text or "").strip().lower()
+    if not text:
+        return False
+    quota_markers = (
+        "quota",
+        "rate limit",
+        "rate-limit",
+        "free_tier",
+        "free-tier",
+        "generativelanguage.googleapis.com",
+        "gemini-api",
+    )
+    if any(marker in text for marker in quota_markers):
+        return True
+    return "429" in text and ("gemini" in text or "generate_content" in text)
 
 
 def update_paper_processing_state(
@@ -446,7 +470,39 @@ def process_one_task(
             "status": ROUTING_STATUS_QUEUED,
             "route_destination": BLOCKED_DESTINATION,
             "error": error_text,
+            "quota_limited": is_quota_error(error_text),
         }
+
+
+def _empty_stage_summary(stage_key: str) -> dict[str, object]:
+    return {
+        "processed": 0,
+        "finalized": 0,
+        "human_ready": 0,
+        "requeued": 0,
+        "failed": 0,
+        "quota_limited": False,
+        "claimed": 0,
+        "stage_key": stage_key,
+    }
+
+
+def _record_processing_result(summary: dict[str, object], result: dict, *, verbose: bool) -> None:
+    summary["processed"] = int(summary["processed"]) + 1
+    status = str(result.get("status") or "")
+    if status in {"ai_finalized_has_data", "ai_finalized_no_usable_data"}:
+        summary["finalized"] = int(summary["finalized"]) + 1
+    elif status == ROUTING_STATUS_HUMAN_READY:
+        summary["human_ready"] = int(summary["human_ready"]) + 1
+    elif status == ROUTING_STATUS_QUEUED and result.get("error"):
+        summary["requeued"] = int(summary["requeued"]) + 1
+    if result.get("quota_limited"):
+        summary["quota_limited"] = True
+    if verbose:
+        message = f"paper={result['paper_id']} status={status} destination={result.get('route_destination')}"
+        if result.get("error"):
+            message += f" error={result['error']}"
+        print(message)
 
 
 def drain_stage_queue(
@@ -455,18 +511,37 @@ def drain_stage_queue(
     stage_key: str | None = None,
     max_tasks: int = 50,
     verbose: bool = True,
-) -> dict[str, int]:
+    stop_on_quota: bool = False,
+) -> dict[str, object]:
     stage_config = fetch_active_stage_config(client, stage_key or None)
     evaluator = UnifiedEvaluator(model_name=stage_config.model_name)
     if evaluator.model is None:
         raise RuntimeError("UnifiedEvaluator could not initialize a Gemini model. Check GEMINI_API_KEY.")
     reference_lookups = fetch_reference_lookups(client)
+    summary = _empty_stage_summary(stage_config.stage_key)
 
-    processed = 0
-    finalized = 0
-    human_ready = 0
-    requeued = 0
+    if stop_on_quota:
+        while int(summary["processed"]) < max(1, max_tasks):
+            claimed = claim_stage_tasks(client, stage_key=stage_config.stage_key, limit=1)
+            if not claimed:
+                break
+            summary["claimed"] = int(summary["claimed"]) + len(claimed)
+            result = process_one_task(
+                client,
+                task=claimed[0],
+                stage_config=stage_config,
+                evaluator=evaluator,
+                reference_lookups=reference_lookups,
+            )
+            _record_processing_result(summary, result, verbose=verbose)
+            if result.get("quota_limited"):
+                break
+        if verbose:
+            print(json.dumps(summary, indent=2))
+        return summary
+
     claimed = claim_stage_tasks(client, stage_key=stage_config.stage_key, limit=max(1, max_tasks))
+    summary["claimed"] = len(claimed)
     claimed = sorted(
         claimed,
         key=lambda row: (
@@ -482,28 +557,7 @@ def drain_stage_queue(
             evaluator=evaluator,
             reference_lookups=reference_lookups,
         )
-        processed += 1
-        status = str(result.get("status") or "")
-        if status in {"ai_finalized_has_data", "ai_finalized_no_usable_data"}:
-            finalized += 1
-        elif status == ROUTING_STATUS_HUMAN_READY:
-            human_ready += 1
-        elif status == ROUTING_STATUS_QUEUED and result.get("error"):
-            requeued += 1
-        if verbose:
-            message = f"paper={result['paper_id']} status={status} destination={result.get('route_destination')}"
-            if result.get("error"):
-                message += f" error={result['error']}"
-            print(message)
-
-    summary = {
-        "processed": processed,
-        "finalized": finalized,
-        "human_ready": human_ready,
-        "requeued": requeued,
-        "failed": 0,
-        "stage_key": stage_config.stage_key,
-    }
+        _record_processing_result(summary, result, verbose=verbose)
     if verbose:
         print(json.dumps(summary, indent=2))
     return summary
@@ -512,12 +566,15 @@ def drain_stage_queue(
 def main() -> None:
     args = build_parser().parse_args()
     client = require_client()
-    drain_stage_queue(
+    summary = drain_stage_queue(
         client,
         stage_key=args.stage_key,
         max_tasks=max(1, args.max_tasks),
-        verbose=True,
+        verbose=not args.json_summary,
+        stop_on_quota=args.stop_on_quota,
     )
+    if args.json_summary:
+        print(json.dumps(summary, sort_keys=True))
 
 
 if __name__ == "__main__":
