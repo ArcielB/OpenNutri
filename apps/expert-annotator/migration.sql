@@ -2459,6 +2459,10 @@ DROP POLICY IF EXISTS "Users can delete their own nutrient values" ON annotation
 DROP POLICY IF EXISTS "Users can insert global labels" ON paper_global_labels;
 DROP POLICY IF EXISTS "Users can delete their own global labels" ON paper_global_labels;
 DROP POLICY IF EXISTS "Users can insert their own search sessions" ON search_sessions;
+DROP POLICY IF EXISTS "Users can view suggestion attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Users can upload suggestion attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Users can update suggestion attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete suggestion attachments" ON storage.objects;
 
 CREATE POLICY "Authenticated users can read reviewer slots"
     ON reviewer_slots FOR SELECT TO authenticated
@@ -2564,6 +2568,65 @@ CREATE POLICY "Cockpit users can update backlog review items"
 CREATE POLICY "Authenticated users can read paper search hits"
     ON paper_search_hits FOR SELECT TO authenticated
     USING (public.current_user_has_cockpit_access());
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+    'suggestion-attachments',
+    'suggestion-attachments',
+    FALSE,
+    10485760,
+    ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff', 'image/heic']
+)
+ON CONFLICT (id) DO UPDATE
+SET
+    name = EXCLUDED.name,
+    public = EXCLUDED.public,
+    file_size_limit = EXCLUDED.file_size_limit,
+    allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+CREATE POLICY "Users can view suggestion attachments"
+    ON storage.objects FOR SELECT TO authenticated
+    USING (
+        bucket_id = 'suggestion-attachments'
+        AND (
+            public.current_user_has_cockpit_access()
+            OR (storage.foldername(name))[1] = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Users can upload suggestion attachments"
+    ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (
+        bucket_id = 'suggestion-attachments'
+        AND (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+CREATE POLICY "Users can update suggestion attachments"
+    ON storage.objects FOR UPDATE TO authenticated
+    USING (
+        bucket_id = 'suggestion-attachments'
+        AND (
+            public.current_user_has_cockpit_write_access()
+            OR (storage.foldername(name))[1] = auth.uid()::text
+        )
+    )
+    WITH CHECK (
+        bucket_id = 'suggestion-attachments'
+        AND (
+            public.current_user_has_cockpit_write_access()
+            OR (storage.foldername(name))[1] = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Users can delete suggestion attachments"
+    ON storage.objects FOR DELETE TO authenticated
+    USING (
+        bucket_id = 'suggestion-attachments'
+        AND (
+            public.current_user_has_cockpit_write_access()
+            OR (storage.foldername(name))[1] = auth.uid()::text
+        )
+    );
 
 CREATE POLICY "Service role full access reviewer slots"
     ON reviewer_slots FOR ALL TO service_role
