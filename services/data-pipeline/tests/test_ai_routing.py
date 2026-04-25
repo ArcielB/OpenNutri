@@ -187,6 +187,35 @@ class RoutingLogicTests(unittest.TestCase):
             ROUTING_BUCKET_LOW_NEGATIVE,
         )
 
+    def test_threshold_one_disables_ai_auto_finalization(self) -> None:
+        self.assertEqual(
+            classify_routing_bucket(
+                is_useful=True,
+                overall_confidence=1.0,
+                positive_threshold=1.0,
+                negative_threshold=1.0,
+            ),
+            ROUTING_BUCKET_LOW_POSITIVE,
+        )
+        self.assertEqual(
+            classify_routing_bucket(
+                is_useful=False,
+                overall_confidence=1.0,
+                positive_threshold=1.0,
+                negative_threshold=1.0,
+            ),
+            ROUTING_BUCKET_LOW_NEGATIVE,
+        )
+        self.assertEqual(
+            classify_routing_bucket(
+                is_useful=False,
+                overall_confidence=1.0,
+                positive_threshold=0.99,
+                negative_threshold=0.99,
+            ),
+            ROUTING_BUCKET_HIGH_NEGATIVE,
+        )
+
     def test_audit_sampling_is_deterministic(self) -> None:
         baseline = stable_audit_sample(
             paper_id=42,
@@ -747,7 +776,7 @@ class QueueAndBackfillTests(unittest.TestCase):
             prompt_version="gemini_flash_db_payload_v2",
             active=True,
             positive_threshold=1.0,
-            negative_threshold=1.0,
+            negative_threshold=0.99,
             audit_rate=0.0,
             next_stage_on_low_confidence=HUMAN_REVIEW_DESTINATION,
             counts_as_truth=False,
@@ -782,6 +811,58 @@ class QueueAndBackfillTests(unittest.TestCase):
         )
         self.assertEqual(client.upserts[0][0], "paper_review_outcomes")
         self.assertEqual(client.upserts[0][1]["decision_kind"], "no_usable_data")
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_threshold_one_routes_perfect_confidence_to_humans(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 13,
+                        "title": "Perfect confidence paper",
+                        "doi": "10.123/perfect",
+                        "filename": "paper.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-13", "paper_id": 13, "status": "processing"}],
+            }
+        )
+        stage = RoutingStageConfig(
+            stage_key="gemini_flash_db_payload_v2",
+            stage_kind="ai_model",
+            display_name="Gemini Flash DB Payload v2",
+            model_name="gemini-3-flash-preview",
+            prompt_version="gemini_flash_db_payload_v2",
+            active=True,
+            positive_threshold=1.0,
+            negative_threshold=1.0,
+            audit_rate=0.0,
+            next_stage_on_low_confidence=HUMAN_REVIEW_DESTINATION,
+            counts_as_truth=False,
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=False,
+            reasoning="No standardized food composition rows.",
+            overall_confidence=1.0,
+            data=[],
+            raw_response_text="{}",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-13", "paper_id": 13},
+            stage_config=stage,
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], "human_review_ready")
+        extraction_payload = client.inserts[0][1][0]
+        self.assertEqual(extraction_payload["routing_bucket"], "low_confidence_no_usable_data")
+        self.assertFalse(extraction_payload["finalized_without_human"])
+        self.assertEqual(client.upserts, [])
 
 
 if __name__ == "__main__":

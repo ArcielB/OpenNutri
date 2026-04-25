@@ -89,6 +89,7 @@ The active stage is currently `gemini_flash_db_payload_v2`.
 The AI model may extract broad candidate rows, but routing and AI finalization use only a deterministic `normalized_payload_json` with the same contract as human assignment submissions:
 `decision_kind`, `food_items[].food_name`, `food_fdc_id`, `is_custom_food`, and `nutrients[].nutrient_id`, `nutrient_name`, `value`, `unit`.
 The normalizer accepts only DB-compatible units (`g/100g`, `mg/100g`, `μg/100g`, `kcal/100g`, `kJ/100g`, `IU/100g`, `%`) on supported bases, exact food matches against `entities.canonical_name`, and exact nutrient name/alias matches against `master_nutrients`; unresolved foods/nutrients remain custom and unsupported rows are rejected before routing.
+AI routing thresholds use `1.0` as an explicit blind-study safety setting: `positive_threshold = 1.0` or `negative_threshold = 1.0` disables automatic AI finalization for that decision class, even if the model reports `overall_confidence = 1.0`.
 Daily ops are designed as a recursive top-up loop:
 `assign existing human-ready papers -> process already queued AI papers -> crawl/upload only if reviewer deficits remain -> process the new AI queue -> repeat`.
 The runner stops cleanly when all reviewer queues are full, when Gemini quota/rate limit is hit, or when the configured cycle cap is reached.

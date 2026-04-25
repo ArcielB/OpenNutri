@@ -22,6 +22,7 @@ This is the current high-signal project state after the assignment-driven annota
 - AI extraction remains blind to human labels. The scored AI artifact is now the deterministic DB-shaped `normalized_payload_json`, not the raw LLM JSON or raw `is_useful` boolean.
 - The DB-shaped AI payload uses the same top-level contract as `build_annotation_submission_payload`: `decision_kind`, `food_items[].food_name`, `food_fdc_id`, `is_custom_food`, and `nutrients[].nutrient_id`, `nutrient_name`, `value`, `unit`.
 - AI routing/finalization now follows the normalized payload decision. If the model says useful but all rows are rejected as unsupported or non-100g/non-composition data, the paper routes as `no_usable_data`.
+- For the blind human study, an AI routing threshold of `1.0` is a safety sentinel that disables automatic AI finalization for that decision class, even when the model reports `overall_confidence = 1.0`; threshold values below `1.0` still use normal `>= threshold` routing.
 - Humans may only be assigned papers whose `papers.routing_status = 'human_review_ready'`.
 - High-confidence AI positives and negatives are finalized immediately unless they fall into the deterministic audit sample.
 - Low-confidence papers always route to humans for now.
@@ -196,5 +197,16 @@ This is the current high-signal project state after the assignment-driven annota
 - Verified invariant:
   no open human assignments exist on `queued_for_ai`, `ai_processing`, AI-finalized, or null-routed papers.
 
+**Live Threshold Repair - April 25, 2026**
+- The active v2 thresholds remain `positive_threshold = 1.0` and `negative_threshold = 1.0`, now interpreted in code as "never auto-finalize this decision class."
+- Three papers that had been unintentionally finalized as `ai_finalized_no_usable_data` because Gemini returned `overall_confidence = 1.0` were restored to `human_review_ready`.
+- Their AI-model `paper_review_outcomes` rows were deleted; their `ai_extractions` audit rows were kept but marked `finalized_without_human = false` with `route_destination = human_review`.
+- `refill_assignment_queue.py --target-open 10 --max-cycles 4` then assigned all available human-ready stock:
+  - Arciel: 10 open assignments
+  - Peri: 9 open assignments
+  - Aleyna: 9 open assignments
+  - 0 unassigned `human_review_ready` papers remain
+- The last two reviewer slots remain blocked by Gemini quota because the remaining 11 papers are still `queued_for_ai`.
+
 **Immediate Next Step**
-- After Gemini quota resets, the scheduled GitHub Actions daily ops job should retry queued v2 AI failures and refill human queues automatically, provided the GitHub secrets are configured. For a manual run, use `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --max-ai-tasks 24`.
+- After Gemini quota resets, the scheduled GitHub Actions daily ops job should retry queued v2 AI failures under the new threshold-1.0 sentinel behavior and refill the remaining two human queue slots automatically. For a manual run, use `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --max-ai-tasks 24`.

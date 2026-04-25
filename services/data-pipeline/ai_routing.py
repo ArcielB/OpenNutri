@@ -109,6 +109,13 @@ def clamp_probability(value: object) -> float:
     return numeric
 
 
+def meets_auto_finalize_threshold(*, confidence: object, threshold: object) -> bool:
+    threshold_floor = clamp_probability(threshold)
+    if threshold_floor >= 1.0:
+        return False
+    return clamp_probability(confidence) >= threshold_floor
+
+
 def classify_routing_bucket(
     *,
     is_useful: bool,
@@ -116,14 +123,11 @@ def classify_routing_bucket(
     positive_threshold: object,
     negative_threshold: object,
 ) -> str:
-    confidence = clamp_probability(overall_confidence)
-    positive_floor = clamp_probability(positive_threshold)
-    negative_floor = clamp_probability(negative_threshold)
     if is_useful:
-        if confidence >= positive_floor:
+        if meets_auto_finalize_threshold(confidence=overall_confidence, threshold=positive_threshold):
             return ROUTING_BUCKET_HIGH_POSITIVE
         return ROUTING_BUCKET_LOW_POSITIVE
-    if confidence >= negative_floor:
+    if meets_auto_finalize_threshold(confidence=overall_confidence, threshold=negative_threshold):
         return ROUTING_BUCKET_HIGH_NEGATIVE
     return ROUTING_BUCKET_LOW_NEGATIVE
 
