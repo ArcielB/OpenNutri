@@ -94,7 +94,8 @@ class DailyOpsTests(unittest.TestCase):
 
         summary = daily_ops_orchestrator.run_daily_ops(object(), build_args())
 
-        self.assertEqual(summary["stopped_reason"], "ai_quota_limited")
+        self.assertEqual(summary["stopped_reason"], "ai_first_task_quota_limited")
+        self.assertTrue(summary["terminal"])
         drain_mock.assert_called_once()
         crawl_mock.assert_not_called()
 
@@ -123,7 +124,8 @@ class DailyOpsTests(unittest.TestCase):
 
         summary = daily_ops_orchestrator.run_daily_ops(object(), build_args())
 
-        self.assertEqual(summary["stopped_reason"], "ai_quota_limited")
+        self.assertEqual(summary["stopped_reason"], "ai_quota_limited_after_progress")
+        self.assertFalse(summary["terminal"])
         self.assertEqual(assign_mock.call_count, 2)
         self.assertEqual(summary["cycles"][0]["assignment_after_ai"]["planned_user_assignments"], 2)
         crawl_mock.assert_not_called()
@@ -153,6 +155,7 @@ class DailyOpsTests(unittest.TestCase):
         summary = daily_ops_orchestrator.run_daily_ops(object(), build_args(max_ai_tasks=1))
 
         self.assertEqual(summary["stopped_reason"], "ai_run_budget_exhausted")
+        self.assertFalse(summary["terminal"])
         self.assertEqual(summary["ai_tasks_used"], 1)
         self.assertEqual(assign_mock.call_count, 2)
         self.assertEqual(drain_mock.call_args.kwargs["max_tasks"], 1)
@@ -265,7 +268,8 @@ class DailyOpsTests(unittest.TestCase):
 
         summary = daily_ops_orchestrator.run_daily_ops(object(), build_args())
 
-        self.assertEqual(summary["stopped_reason"], "ai_quota_limited")
+        self.assertEqual(summary["stopped_reason"], "ai_quota_limited_after_progress")
+        self.assertFalse(summary["terminal"])
         crawl_mock.assert_called_once()
         drain_mock.assert_called_once()
         self.assertEqual(assign_mock.call_count, 2)

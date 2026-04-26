@@ -2,9 +2,9 @@ name: Daily OpenNutri Ops
 
 on:
   schedule:
-    # GitHub cron is UTC. The gate step below keeps only the 00:15-00:55
-    # America/Los_Angeles reset-window runs in both PDT and PST.
-    - cron: "15,20,25,30,35,40,45,50,55 7,8 * * *"
+    # GitHub cron is UTC. The gate step below keeps the 00:15
+    # America/Los_Angeles start in both PDT and PST, with tolerance for runner delay.
+    - cron: "15 7,8 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -14,10 +14,10 @@ concurrency:
 jobs:
   daily-ops:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
-      - name: Gate scheduled reset retry window
+      - name: Gate scheduled reset start
         id: reset_window
         run: |
           if [ "${{ github.event_name }}" != "schedule" ]; then
@@ -33,7 +33,7 @@ jobs:
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               ;;
             *)
-              echo "Skipping scheduled run outside Gemini reset retry window: $pacific_time America/Los_Angeles"
+              echo "Skipping scheduled run outside Gemini reset start window: $pacific_time America/Los_Angeles"
               echo "should_run=false" >> "$GITHUB_OUTPUT"
               ;;
           esac
@@ -69,15 +69,33 @@ jobs:
         if: steps.reset_window.outputs.should_run == 'true'
         run: python3 -m pip install -r services/data-pipeline/requirements.txt
 
-      - name: Run daily ops loop
+      - name: Run recursive daily ops controller
         if: steps.reset_window.outputs.should_run == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
-            --json-summary \
-            --target-open 50 \
-            --max-cycles 8 \
-            --max-ai-tasks 5
+          set -euo pipefail
+
+          while true; do
+            summary="$(
+              python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
+                --json-summary \
+                --target-open 50 \
+                --max-cycles 8 \
+                --max-ai-tasks 5 \
+                | tee /tmp/opennutri-daily-ops-last.jsonl \
+                | tail -n 1
+            )"
+            reason="$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("stopped_reason", ""))' "$summary")"
+            terminal="$(python3 -c 'import json, sys; print("true" if json.loads(sys.argv[1]).get("terminal") else "false")' "$summary")"
+            echo "Daily ops iteration stopped_reason=$reason terminal=$terminal"
+
+            if [ "$terminal" = "true" ]; then
+              break
+            fi
+
+            echo "Non-terminal stop; sleeping 5 minutes before the next recursive iteration."
+            sleep 300
+          done

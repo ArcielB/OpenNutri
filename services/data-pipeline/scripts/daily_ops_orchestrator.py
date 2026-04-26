@@ -18,6 +18,14 @@ from scripts import ensure_paper_stock, refill_assignment_queue
 from scripts.process_stage_queue import drain_stage_queue, require_client
 
 
+TERMINAL_STOP_REASONS = {
+    "queues_full",
+    "ai_first_task_quota_limited",
+    "no_eligible_refill_need",
+    "dry_run",
+}
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the daily recursive OpenNutri queue operation loop."
@@ -93,6 +101,7 @@ def _crawler_args(args: argparse.Namespace) -> SimpleNamespace:
         data_dir=args.data_dir,
         query_limit=args.query_limit,
         max_queries=args.max_queries,
+        max_ai_tasks=args.max_ai_tasks,
         dergipark_journal_limit=args.dergipark_journal_limit,
         dergipark_max_issues_per_journal=args.dergipark_max_issues_per_journal,
         skip_feedback=args.skip_feedback,
@@ -123,6 +132,14 @@ def _assign_new_human_ready_after_ai(
         dry_run=args.dry_run,
         verbose=not args.json_summary,
     )
+
+
+def _quota_stop_reason(ai_summary: dict[str, object]) -> str:
+    processed = int(ai_summary.get("processed") or 0)
+    successful_routes = int(ai_summary.get("human_ready") or 0) + int(ai_summary.get("finalized") or 0)
+    if processed <= 1 and successful_routes <= 0:
+        return "ai_first_task_quota_limited"
+    return "ai_quota_limited_after_progress"
 
 
 def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
@@ -184,7 +201,7 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
                 assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
                 if assignment_after_ai is not None:
                     cycle_summary["assignment_after_ai"] = assignment_after_ai
-                summary["stopped_reason"] = "ai_quota_limited"
+                summary["stopped_reason"] = _quota_stop_reason(ai_summary)
                 summary["cycles"].append(cycle_summary)
                 break
             if int(ai_summary.get("processed") or 0) > 0:
@@ -240,7 +257,7 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
             if assignment_after_ai is not None:
                 cycle_summary["assignment_after_ai"] = assignment_after_ai
-            summary["stopped_reason"] = "ai_quota_limited"
+            summary["stopped_reason"] = _quota_stop_reason(ai_summary)
             summary["cycles"].append(cycle_summary)
             break
         if int(ai_summary.get("processed") or 0) > 0 and ai_tasks_used >= max_ai_tasks:
@@ -255,6 +272,7 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
 
     if summary["stopped_reason"] is None:
         summary["stopped_reason"] = "max_cycles"
+    summary["terminal"] = summary["stopped_reason"] in TERMINAL_STOP_REASONS
     return summary
 
 

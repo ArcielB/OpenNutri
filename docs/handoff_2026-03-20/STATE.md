@@ -137,9 +137,11 @@ This is the current high-signal project state after the assignment-driven annota
   - runs the safe top-up order: assign existing human-ready stock, process already queued AI tasks, crawl/upload only if reviewer deficits remain, process the new AI queue, then repeat
   - targets 50 open assignments for each official reviewer
   - uses quota-aware AI draining and stops when Gemini quota/rate limit is reached instead of claiming a whole batch that cannot be processed
-  - enforces a per-run AI budget of 5 tasks so each scheduled run stays under the 5 RPM free-tier limit, then lets the next 5-minute scheduled run continue; manual `daily_ops_orchestrator.py`, `refill_assignment_queue.py`, and `ensure_paper_stock.py` defaults are also capped at 5 AI tasks per run unless explicitly overridden
-  - if quota or the per-run AI budget is reached after AI created new `human_review_ready` papers, runs one final assignment pass before stopping so those papers are visible to reviewers
-  - scheduled in GitHub Actions by `.github/workflows/daily-ops.yml`; the workflow wakes during both possible UTC reset windows and only runs real work at `00:15, 00:20, ..., 00:55` America/Los_Angeles after the Gemini RPD reset
+  - enforces a per-invocation AI budget of 5 tasks so each iteration stays under the 5 RPM free-tier limit
+  - returns JSON with `stopped_reason` and `terminal`; terminal reasons include `queues_full`, `ai_first_task_quota_limited`, `no_eligible_refill_need`, and `dry_run`
+  - non-terminal reasons such as `ai_run_budget_exhausted`, `ai_quota_limited_after_progress`, and `max_cycles` are expected to continue from the GitHub Actions controller after a 5-minute sleep
+  - if quota or the per-invocation AI budget is reached after AI created new `human_review_ready` papers, runs one final assignment pass before stopping that invocation so those papers are visible to reviewers
+  - scheduled in GitHub Actions by `.github/workflows/daily-ops.yml`; the workflow starts once at `00:15` America/Los_Angeles after the Gemini RPD reset, then loops internally every 5 minutes until the orchestrator returns `terminal=true`
   - this automation runs on GitHub-hosted runners, not the laptop; it needs GitHub repository secrets `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY`
   - feedback refresh is intentionally tied to search/refill only: existing `human_review_ready` assignment and queued-AI draining do not run feedback; when crawler refill is needed, `ensure_paper_stock.run_refill_cycle` runs `update_terms.py` immediately before DergiPark refresh/search unless `--skip-feedback` is explicitly passed
 - New AI routing ops scripts:
@@ -213,9 +215,11 @@ This is the current high-signal project state after the assignment-driven annota
 - The last two reviewer slots remain blocked by Gemini quota because the remaining 11 papers are still `queued_for_ai`.
 
 **Daily Ops Retune - April 26, 2026**
-- The GitHub Actions daily ops workflow now runs in 5-minute reset-window retries instead of one fixed Istanbul-morning run.
-- Because Gemini RPD resets at midnight Pacific and the free tier is 5 RPM / 20 RPD for the current model/project, scheduled runs are gated to `00:15-00:55` America/Los_Angeles and use `--max-ai-tasks 5`.
+- The GitHub Actions daily ops workflow now starts once at `00:15` America/Los_Angeles after Gemini RPD reset, then loops every 5 minutes inside the same automation session until a terminal condition is true.
+- Because Gemini RPD resets at midnight Pacific and the free tier is 5 RPM / 20 RPD for the current model/project, each controller iteration uses `--max-ai-tasks 5`.
 - The workflow target is now `--target-open 50`, so Arciel, Peri, and Aleyna should each be topped up toward 50 open assignments as AI/crawler stock permits.
-- `daily_ops_orchestrator.py` now treats `--max-ai-tasks` as a whole-run budget, not a per-drain-step budget. Stop reason `ai_run_budget_exhausted` is expected and means the next scheduled run should continue. Manual `refill_assignment_queue.py` and `ensure_paper_stock.py` are capped at 5 AI tasks by default too.
-- If AI creates human-ready stock and then quota/budget stops the run, the orchestrator does a final assignment pass before exiting.
+- `daily_ops_orchestrator.py` now treats `--max-ai-tasks` as a whole-invocation budget, not a per-drain-step budget. Stop reason `ai_run_budget_exhausted` is non-terminal and means the controller should sleep 5 minutes and invoke the runner again. Manual `refill_assignment_queue.py` and `ensure_paper_stock.py` are capped at 5 AI tasks by default too.
+- `ai_first_task_quota_limited` is terminal: it means the first attempted AI paper in that invocation hit Gemini quota before any AI progress, so the controller stops for the day.
+- `ai_quota_limited_after_progress` is non-terminal: it means at least one AI paper moved before quota/rate limiting, so the controller sleeps and retries.
+- If AI creates human-ready stock and then quota/budget stops an invocation, the orchestrator does a final assignment pass before exiting.
 - Feedback terms are refreshed only when the automation reaches crawler refill. That refresh happens inside `ensure_paper_stock.run_refill_cycle` immediately before DergiPark refresh and search; do not add feedback refresh to pure assignment or queued-AI-only runs.
