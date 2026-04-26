@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -27,6 +28,7 @@ from scripts.backfill_ai_routing import (
     reset_open_human_assignments_for_ai,
 )
 from scripts.process_stage_queue import claim_stage_tasks, drain_stage_queue, is_quota_error, process_one_task
+from evaluator.unified_evaluator import UnifiedEvaluator
 
 
 class FakeResponse:
@@ -485,6 +487,64 @@ class StockAndFeedbackTests(unittest.TestCase):
         self.assertEqual(good_ids, set())
         self.assertEqual(bad_ids, {2})
         self.assertEqual(conflict_ids, set())
+
+
+class UnifiedEvaluatorParsingTests(unittest.TestCase):
+    def evaluator_with_response(self, payload: object) -> UnifiedEvaluator:
+        evaluator = UnifiedEvaluator.__new__(UnifiedEvaluator)
+        evaluator.model = Mock()
+        evaluator.model.generate_content.return_value = Mock(text=json.dumps(payload))
+        return evaluator
+
+    def test_top_level_array_response_is_treated_as_candidate_rows(self) -> None:
+        evaluator = self.evaluator_with_response(
+            [
+                {
+                    "food_name": "Apple",
+                    "nutrient_name": "Vitamin C",
+                    "amount": 4.6,
+                    "unit": "mg",
+                    "basis": "100g",
+                    "confidence": 0.8,
+                    "source_citation": "Table 1",
+                }
+            ]
+        )
+
+        result = evaluator.evaluate_and_extract({"pmc_id": "paper-1", "title": "Paper", "full_text": "body"})
+
+        self.assertTrue(result.is_useful)
+        self.assertEqual(result.overall_confidence, 0.8)
+        self.assertEqual(len(result.data), 1)
+        self.assertEqual(result.data[0].food_name, "Apple")
+        self.assertEqual(result.data[0].nutrient_name, "Vitamin C")
+
+    def test_nested_food_nutrient_response_is_flattened(self) -> None:
+        evaluator = self.evaluator_with_response(
+            {
+                "reasoning": "Table contains composition rows.",
+                "is_useful": True,
+                "overall_confidence": 0.9,
+                "data": [
+                    {
+                        "food_name": "Pear",
+                        "basis": "100g",
+                        "source_citation": "Table 2",
+                        "nutrients": [
+                            {"nutrient_name": "Protein", "amount": 0.4, "unit": "g", "confidence": 0.7}
+                        ],
+                    }
+                ],
+            }
+        )
+
+        result = evaluator.evaluate_and_extract({"pmc_id": "paper-2", "title": "Paper", "full_text": "body"})
+
+        self.assertTrue(result.is_useful)
+        self.assertEqual(len(result.data), 1)
+        self.assertEqual(result.data[0].food_name, "Pear")
+        self.assertEqual(result.data[0].basis, "100g")
+        self.assertEqual(result.data[0].source_citation, "Table 2")
 
 
 class QueueAndBackfillTests(unittest.TestCase):

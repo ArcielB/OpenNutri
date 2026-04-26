@@ -20,6 +20,7 @@ This is the current high-signal project state after the assignment-driven annota
 - The active AI stage is `gemini_flash_db_payload_v2`.
 - Upload no longer runs Gemini inline. It enqueues `paper_stage_tasks` and sets paper-level routing state instead.
 - AI extraction remains blind to human labels. The scored AI artifact is now the deterministic DB-shaped `normalized_payload_json`, not the raw LLM JSON or raw `is_useful` boolean.
+- `UnifiedEvaluator` accepts the requested JSON object shape plus top-level candidate-row arrays and nested `food -> nutrients[]` arrays; those variants are flattened before normalization to avoid retry loops from harmless Gemini shape drift.
 - The DB-shaped AI payload uses the same top-level contract as `build_annotation_submission_payload`: `decision_kind`, `food_items[].food_name`, `food_fdc_id`, `is_custom_food`, and `nutrients[].nutrient_id`, `nutrient_name`, `value`, `unit`.
 - AI routing/finalization now follows the normalized payload decision. If the model says useful but all rows are rejected as unsupported or non-100g/non-composition data, the paper routes as `no_usable_data`.
 - For the blind human study, an AI routing threshold of `1.0` is a safety sentinel that disables automatic AI finalization for that decision class, even when the model reports `overall_confidence = 1.0`; threshold values below `1.0` still use normal `>= threshold` routing.
@@ -148,6 +149,7 @@ This is the current high-signal project state after the assignment-driven annota
   - `services/data-pipeline/scripts/process_stage_queue.py`
   - `services/data-pipeline/scripts/backfill_ai_routing.py`
   - `process_stage_queue.py` now claims one queued batch per run by default, can claim one task at a time with `--stop-on-quota`, and returns AI processing errors to `queued_for_ai` with `last_error` instead of routing them to humans
+  - AI task claiming is retry-fair: queued tasks sort by lower `attempt_count`, then higher `priority`, then older creation order, so one repeatedly failing paper cannot monopolize the 5-minute automation loop
   - `backfill_ai_routing.py --reset-open-human-assignments` is the safe reroute path for existing papers: it refuses submitted/human-truth work, cancels unresolved assignment rows, and queues existing papers for AI without draining by default
 - Dry-run check works after a one-pass preview fix.
 

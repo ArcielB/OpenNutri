@@ -545,6 +545,8 @@ def drain_stage_queue(
     claimed = sorted(
         claimed,
         key=lambda row: (
+            int(row.get("attempt_count") or 0),
+            -int(row.get("priority") or 0),
             str(row.get("created_at") or ""),
             str(row.get("id") or ""),
         ),

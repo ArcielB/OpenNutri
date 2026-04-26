@@ -6,7 +6,7 @@ Single-pass evaluation: Filter papers AND extract structured food composition da
 
 import os
 import json
-from typing import Optional, List, Dict
+from typing import Any, Optional, List, Dict
 from dataclasses import dataclass
 
 try:
@@ -28,7 +28,7 @@ class NutrientRecord:
     sample_size: Optional[int]
     confidence: float  # 0.0-1.0 confidence score for THIS specific record
     source_citation: str  # "Table 2, Row 3" or "Page 5, Results section"
-    metadata: Dict[str, any]
+    metadata: Dict[str, Any]
     flags: List[str] = None  # Plausibility warnings
     
     def __post_init__(self):
@@ -209,15 +209,15 @@ Full Text:
                 else:
                     response_text = "\n".join(lines[1:-1])
             
-            result_json = json.loads(response_text)
+            result_json = self._coerce_result_root(json.loads(response_text))
             
             # Parse into our data structure with plausibility checks
             records = []
-            for item in result_json.get("data", []):
+            for item in self._iter_candidate_rows(result_json.get("data", [])):
                 record = NutrientRecord(
                     food_name=item["food_name"],
                     nutrient_name=item["nutrient_name"],
-                    amount=float(item["amount"]),
+                    amount=float(item.get("amount", item.get("value"))),
                     unit=item["unit"],
                     basis=item.get("basis", "100g"),
                     preparation_state=item.get("preparation_state", "raw"),
@@ -251,6 +251,70 @@ Full Text:
                 data=[],
                 source_term=paper.get("source_term", "")
             )
+
+    def _coerce_result_root(self, parsed_json: Any) -> dict:
+        if isinstance(parsed_json, dict):
+            data = parsed_json.get("data", [])
+            if not isinstance(data, list):
+                parsed_json = dict(parsed_json)
+                parsed_json["data"] = []
+            return parsed_json
+        if isinstance(parsed_json, list):
+            return {
+                "reasoning": "Model returned a top-level data array; treating it as candidate food composition rows.",
+                "is_useful": bool(parsed_json),
+                "overall_confidence": self._confidence_from_rows(parsed_json),
+                "data": parsed_json,
+            }
+        raise ValueError(f"Expected JSON object or data array, got {type(parsed_json).__name__}")
+
+    def _confidence_from_rows(self, rows: list) -> float:
+        confidences = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                confidences.append(float(row.get("confidence", row.get("overall_confidence"))))
+            except (TypeError, ValueError):
+                continue
+        if not confidences:
+            return 0.5 if rows else 0.0
+        return max(0.0, min(1.0, sum(confidences) / len(confidences)))
+
+    def _iter_candidate_rows(self, data: list) -> list[dict]:
+        rows = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            nutrients = item.get("nutrients")
+            if isinstance(nutrients, list):
+                for nutrient in nutrients:
+                    if not isinstance(nutrient, dict):
+                        continue
+                    rows.append(self._standardize_candidate_row({**self._food_context(item), **nutrient}))
+                continue
+            rows.append(self._standardize_candidate_row(item))
+        return [row for row in rows if row]
+
+    def _food_context(self, item: dict) -> dict:
+        return {
+            "food_name": item.get("food_name") or item.get("food") or item.get("name"),
+            "basis": item.get("basis"),
+            "preparation_state": item.get("preparation_state"),
+            "sample_size": item.get("sample_size"),
+            "source_citation": item.get("source_citation"),
+            "metadata": item.get("metadata"),
+        }
+
+    def _standardize_candidate_row(self, item: dict) -> dict | None:
+        row = dict(item)
+        row["food_name"] = row.get("food_name") or row.get("food") or row.get("food_item") or row.get("name")
+        row["nutrient_name"] = row.get("nutrient_name") or row.get("nutrient")
+        if "amount" not in row and "value" in row:
+            row["amount"] = row.get("value")
+        if not row.get("food_name") or not row.get("nutrient_name") or row.get("amount") is None or not row.get("unit"):
+            return None
+        return row
 
     
     def _check_plausibility(self, record: NutrientRecord) -> List[str]:

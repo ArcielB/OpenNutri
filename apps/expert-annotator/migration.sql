@@ -1046,6 +1046,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_routing_stage_configs_single_active
     ON routing_stage_configs(active)
     WHERE active IS TRUE;
 CREATE INDEX IF NOT EXISTS idx_paper_stage_tasks_status_created ON paper_stage_tasks(status, created_at, priority);
+CREATE INDEX IF NOT EXISTS idx_paper_stage_tasks_status_stage_attempts_created
+    ON paper_stage_tasks(status, stage_key, attempt_count, priority DESC, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_paper_stage_tasks_paper ON paper_stage_tasks(paper_id, stage_key);
 CREATE INDEX IF NOT EXISTS idx_ai_extractions_stage_paper ON ai_extractions(stage_key, paper_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_extractions_route_destination ON ai_extractions(route_destination, created_at DESC);
@@ -1084,7 +1086,7 @@ BEGIN
         FROM paper_stage_tasks
         WHERE status = 'queued'
           AND (p_stage_key IS NULL OR stage_key = p_stage_key)
-        ORDER BY created_at ASC, id ASC
+        ORDER BY attempt_count ASC, priority DESC, created_at ASC, id ASC
         LIMIT GREATEST(coalesce(p_limit, 1), 1)
         FOR UPDATE SKIP LOCKED
     )
