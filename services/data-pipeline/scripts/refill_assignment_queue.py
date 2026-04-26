@@ -39,10 +39,11 @@ class ReviewerProfile:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Top up reviewer-specific annotation queues.")
-    parser.add_argument("--target-open", type=int, default=10, help="Minimum open personal backlog per active reviewer")
+    parser.add_argument("--target-open", type=int, default=50, help="Minimum open personal backlog per active reviewer")
     parser.add_argument("--max-cycles", type=int, default=8, help="Maximum assign/refill cycles to run")
     parser.add_argument("--refill-step-en", type=int, default=4, help="How many new EN papers to request when queue stock is exhausted")
     parser.add_argument("--refill-step-tr", type=int, default=4, help="How many new TR papers to request when queue stock is exhausted")
+    parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum queued AI tasks to process during this run")
     parser.add_argument("--seed", type=int, default=20260413, help="Random seed for balanced pair selection")
     parser.add_argument("--dry-run", action="store_true", help="Report planned assignments without writing to Supabase")
     return parser
@@ -473,7 +474,7 @@ def apply_assignment_changes(
 def assign_ready_papers(
     client: Client,
     *,
-    target_open: int = 10,
+    target_open: int = 50,
     seed: int = 20260413,
     dry_run: bool = False,
     verbose: bool = True,
@@ -602,12 +603,12 @@ def has_queued_ai_work(papers: list[dict]) -> bool:
     )
 
 
-def drain_ai_queue(*, dry_run: bool) -> bool:
+def drain_ai_queue(*, dry_run: bool, max_tasks: int) -> bool:
     cmd = [
         sys.executable,
         "services/data-pipeline/scripts/process_stage_queue.py",
         "--max-tasks",
-        "200",
+        str(max(1, int(max_tasks))),
         "--stop-on-quota",
         "--json-summary",
     ]
@@ -716,7 +717,7 @@ def main() -> None:
         open_available = context["open_available"]
 
         if has_queued_ai_work(state["papers"]):
-            if drain_ai_queue(dry_run=args.dry_run):
+            if drain_ai_queue(dry_run=args.dry_run, max_tasks=args.max_ai_tasks):
                 if args.dry_run:
                     return
                 continue

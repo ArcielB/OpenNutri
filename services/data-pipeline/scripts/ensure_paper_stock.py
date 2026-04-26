@@ -353,7 +353,7 @@ def run_refill_cycle(
     )
 
     if process_ai_after_upload:
-        worker_batch = max(50, (deficits["en"] + deficits["tr"]) * 5)
+        worker_batch = max(1, int(getattr(args, "max_ai_tasks", 5)))
         run_ai_queue(
             "Process AI routing queue",
             max_tasks=worker_batch,
@@ -385,6 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max search hits to inspect per query batch before moving to the next batch",
     )
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count per crawler run")
+    parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum queued AI tasks to process during each AI drain")
     parser.add_argument("--dergipark-journal-limit", type=int, default=0, help="Limit how many configured DergiPark journals are refreshed per cycle (0 = all)")
     parser.add_argument("--dergipark-max-issues-per-journal", type=int, default=12, help="How many newest archive issues to inspect per DergiPark journal refresh")
     parser.add_argument("--dergipark-scan-budget", type=int, default=0, help="Deprecated alias for --dergipark-max-issues-per-journal")
@@ -434,7 +435,7 @@ def main() -> None:
 
     run_ai_queue(
         "Process existing AI routing queue",
-        max_tasks=max(50, sum(targets.values()) * 5),
+        max_tasks=max(1, int(args.max_ai_tasks)),
         env=env,
     )
     counts = fetch_available_counts(supabase_url, supabase_key)

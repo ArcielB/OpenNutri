@@ -14,6 +14,7 @@ This file captures standing instructions and should be updated whenever new inst
 - Edit `BACKLOG.md` whenever backlog-related changes happen.
 - Delete implemented items from `BACKLOG.md` instead of leaving a status note.
 - Edit `README.md` whenever an important change happens.
+- Document important implementation details for future agents in the same task; update `README.md`, the latest handoff/state note, and `AGENTS.md` when the behavior is a standing workflow expectation.
 - Check `Keys and links` for required credentials/URLs before running operations that need them.
 - Use the GitHub token from `Keys and links` through a non-interactive auth path such as `GIT_ASKPASS` for authenticated `git fetch`/`git pull`/`git push`.
 - Use the Supabase service role key from `Keys and links` for tests that require write access.

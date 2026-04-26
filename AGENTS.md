@@ -48,6 +48,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Update `BACKLOG.md` when backlog scope changes; delete completed items instead of leaving status notes.
 - Update `README.md` when commands, architecture, or important behavior changes.
 - When a research-protocol, reviewer-role, or benchmark-validity decision changes, write it to the latest handoff/state note in the same task instead of leaving it only in chat.
+- Clearly document important implementation details for following agents in the same task. For code or ops behavior, update `README.md` plus the latest handoff/state note; for standing workflow expectations, update this `AGENTS.md`.
 - Fail fast on missing dependencies; install them instead of adding fallback behavior.
 - `sentence-transformers` is required for L2 embedding scoring.
 - `feedback/latest.json` is generated local output; do not hand-edit it.
@@ -71,6 +72,9 @@ Do not spend tokens on these unless the task explicitly needs them:
 ## Research Ops Notes
 - Current top-level goal: finish Preliminary Study 3 fast enough to publish the paper and support the TÜBİTAK application.
 - Queue strategy: keep paper stock low on purpose and refill as labeling proceeds so each crawl benefits from newer feedback.
+- Automated daily ops target 50 open assignments for each official reviewer lane (`arciel`, `peri`, `aleyna`).
+- Daily ops scheduled runs are paced around Gemini free-tier limits: at 00:15-00:55 America/Los_Angeles every 5 minutes, each run processes at most 5 AI tasks and lets the next scheduled run continue. Manual `daily_ops_orchestrator.py`, `refill_assignment_queue.py`, and `ensure_paper_stock.py` defaults are also capped at 5 AI tasks per run unless explicitly overridden.
+- Daily ops only refreshes feedback terms when it reaches the crawler/refill path. Existing `human_review_ready` assignment and queued-AI draining do not refresh feedback; `ensure_paper_stock.run_refill_cycle` refreshes terms immediately before DergiPark refresh/search unless `--skip-feedback` is explicitly passed.
 - Team operating model:
   - Arciel: developer, official reviewer slot, cockpit/conflict resolver.
   - Peri: official reviewer slot.
@@ -86,7 +90,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - After changing schema, verify the new columns/indexes or behavior against the live database before closing the task.
 - Refresh label-feedback terms: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
 - Refill low paper stock: `python3 services/data-pipeline/scripts/ensure_paper_stock.py --threshold 0`
-- Top up reviewer queues: `python3 services/data-pipeline/scripts/refill_assignment_queue.py`
+- Top up reviewer queues: `python3 services/data-pipeline/scripts/refill_assignment_queue.py --target-open 50`
 
 ## Secrets
 - `Keys and links` is the main local source for GitHub, Supabase, and database credentials.

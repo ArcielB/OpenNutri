@@ -2,9 +2,9 @@ name: Daily OpenNutri Ops
 
 on:
   schedule:
-    # Run after Gemini RPD resets at midnight Pacific in both PDT and PST.
-    # This is 11:15 Europe/Istanbul while Turkey remains UTC+3.
-    - cron: "15 8 * * *"
+    # GitHub cron is UTC. The gate step below keeps only the 00:15-00:55
+    # America/Los_Angeles reset-window runs in both PDT and PST.
+    - cron: "15,20,25,30,35,40,45,50,55 7,8 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -17,10 +17,33 @@ jobs:
     timeout-minutes: 180
 
     steps:
+      - name: Gate scheduled reset retry window
+        id: reset_window
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          pacific_hour="$(TZ=America/Los_Angeles date +%H)"
+          pacific_minute="$(TZ=America/Los_Angeles date +%M)"
+          pacific_time="${pacific_hour}:${pacific_minute}"
+          case "$pacific_time" in
+            00:1[5-9]|00:[2-5][0-9])
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Skipping scheduled run outside Gemini reset retry window: $pacific_time America/Los_Angeles"
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
       - name: Check out repository
+        if: steps.reset_window.outputs.should_run == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: steps.reset_window.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -28,9 +51,11 @@ jobs:
           cache-dependency-path: services/data-pipeline/requirements.txt
 
       - name: Install system dependencies
+        if: steps.reset_window.outputs.should_run == 'true'
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Cache pipeline data
+        if: steps.reset_window.outputs.should_run == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -41,9 +66,11 @@ jobs:
             opennutri-pipeline-
 
       - name: Install Python dependencies
+        if: steps.reset_window.outputs.should_run == 'true'
         run: python3 -m pip install -r services/data-pipeline/requirements.txt
 
       - name: Run daily ops loop
+        if: steps.reset_window.outputs.should_run == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -51,6 +78,6 @@ jobs:
         run: |
           python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
             --json-summary \
-            --target-open 10 \
+            --target-open 50 \
             --max-cycles 8 \
-            --max-ai-tasks 50
+            --max-ai-tasks 5
