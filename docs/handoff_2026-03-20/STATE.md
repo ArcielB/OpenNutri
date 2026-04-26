@@ -136,7 +136,8 @@ This is the current high-signal project state after the assignment-driven annota
   - `services/data-pipeline/scripts/daily_ops_orchestrator.py`
   - runs the safe top-up order: assign existing human-ready stock, process already queued AI tasks, crawl/upload only if reviewer deficits remain, process the new AI queue, then repeat
   - uses quota-aware AI draining and stops for the day when Gemini quota/rate limit is reached instead of claiming a whole batch that cannot be processed
-  - scheduled in GitHub Actions by `.github/workflows/daily-ops.yml` at 07:00 Europe/Istanbul (`04:00 UTC`) and can be manually dispatched
+  - if quota is reached after AI created new `human_review_ready` papers, runs one final assignment pass before stopping so those papers are visible to reviewers
+  - scheduled in GitHub Actions by `.github/workflows/daily-ops.yml` at 11:15 Europe/Istanbul (`08:15 UTC`), after the Gemini RPD reset at midnight Pacific time, and can be manually dispatched
   - this automation runs on GitHub-hosted runners, not the laptop; it needs GitHub repository secrets `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY`
 - New AI routing ops scripts:
   - `services/data-pipeline/scripts/process_stage_queue.py`

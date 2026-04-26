@@ -109,6 +109,22 @@ def _run_ai_drain(client: Any, args: argparse.Namespace) -> dict[str, object]:
     )
 
 
+def _assign_new_human_ready_after_ai(
+    client: Any,
+    args: argparse.Namespace,
+    ai_summary: dict[str, object],
+) -> dict[str, object] | None:
+    if int(ai_summary.get("human_ready") or 0) <= 0:
+        return None
+    return refill_assignment_queue.assign_ready_papers(
+        client,
+        target_open=args.target_open,
+        seed=args.seed,
+        dry_run=args.dry_run,
+        verbose=not args.json_summary,
+    )
+
+
 def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "dry_run": bool(args.dry_run),
@@ -153,6 +169,9 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             ai_summary = _run_ai_drain(client, args)
             cycle_summary["ai"] = ai_summary
             if ai_summary.get("quota_limited"):
+                assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
+                if assignment_after_ai is not None:
+                    cycle_summary["assignment_after_ai"] = assignment_after_ai
                 summary["stopped_reason"] = "ai_quota_limited"
                 summary["cycles"].append(cycle_summary)
                 break
@@ -191,6 +210,9 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         ai_summary = _run_ai_drain(client, args)
         cycle_summary["ai_after_crawl"] = ai_summary
         if ai_summary.get("quota_limited"):
+            assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
+            if assignment_after_ai is not None:
+                cycle_summary["assignment_after_ai"] = assignment_after_ai
             summary["stopped_reason"] = "ai_quota_limited"
             summary["cycles"].append(cycle_summary)
             break

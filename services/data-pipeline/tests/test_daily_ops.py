@@ -100,6 +100,36 @@ class DailyOpsTests(unittest.TestCase):
 
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.assign_ready_papers")
+    def test_queued_ai_quota_assigns_new_human_ready_before_stop(
+        self,
+        assign_mock: Mock,
+        fetch_state_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+    ) -> None:
+        assign_mock.side_effect = [
+            {"satisfied": False, "made_progress": False},
+            {"satisfied": False, "made_progress": True, "planned_user_assignments": 2},
+        ]
+        fetch_state_mock.return_value = {"papers": [{"routing_status": "queued_for_ai"}]}
+        drain_mock.return_value = {
+            "processed": 2,
+            "human_ready": 1,
+            "requeued": 1,
+            "quota_limited": True,
+        }
+
+        summary = daily_ops_orchestrator.run_daily_ops(object(), build_args())
+
+        self.assertEqual(summary["stopped_reason"], "ai_quota_limited")
+        self.assertEqual(assign_mock.call_count, 2)
+        self.assertEqual(summary["cycles"][0]["assignment_after_ai"]["planned_user_assignments"], 2)
+        crawl_mock.assert_not_called()
+
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.compute_assignment_context")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.assign_ready_papers")
@@ -151,6 +181,62 @@ class DailyOpsTests(unittest.TestCase):
         drain_mock.assert_called_once()
         self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 4, "tr": 0})
         self.assertFalse(crawl_mock.call_args.kwargs["process_ai_after_upload"])
+
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.compute_assignment_context")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.assign_ready_papers")
+    def test_after_crawl_quota_assigns_new_human_ready_before_stop(
+        self,
+        assign_mock: Mock,
+        fetch_state_mock: Mock,
+        context_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+    ) -> None:
+        assign_mock.side_effect = [
+            {"satisfied": False, "made_progress": False},
+            {"satisfied": False, "made_progress": True, "planned_user_assignments": 2},
+        ]
+        fetch_state_mock.return_value = {
+            "papers": [],
+            "reviewer_profiles": [],
+            "slot_members": [],
+            "user_assignments": [],
+            "slot_assignments": [],
+            "review_outcomes": [],
+            "global_labels": [],
+        }
+        profile = refill_assignment_queue.ReviewerProfile(
+            id="profile-arciel",
+            display_name="Arciel",
+            active=True,
+            can_review_en=True,
+            can_review_tr=False,
+            tester_access=False,
+            official_slot="arciel",
+            auth_user_id="auth-arciel",
+        )
+        context_mock.return_value = {
+            "profiles": {"profile-arciel": profile},
+            "deficits": {"profile-arciel": 4},
+            "open_available": [],
+        }
+        drain_mock.return_value = {
+            "processed": 2,
+            "human_ready": 1,
+            "requeued": 1,
+            "quota_limited": True,
+        }
+
+        summary = daily_ops_orchestrator.run_daily_ops(object(), build_args())
+
+        self.assertEqual(summary["stopped_reason"], "ai_quota_limited")
+        crawl_mock.assert_called_once()
+        drain_mock.assert_called_once()
+        self.assertEqual(assign_mock.call_count, 2)
+        self.assertEqual(summary["cycles"][0]["assignment_after_ai"]["planned_user_assignments"], 2)
 
 
 if __name__ == "__main__":

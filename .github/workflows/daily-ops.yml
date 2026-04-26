@@ -2,8 +2,9 @@ name: Daily OpenNutri Ops
 
 on:
   schedule:
-    # 07:00 Europe/Istanbul while Turkey remains UTC+3.
-    - cron: "0 4 * * *"
+    # Run after Gemini RPD resets at midnight Pacific in both PDT and PST.
+    # This is 11:15 Europe/Istanbul while Turkey remains UTC+3.
+    - cron: "15 8 * * *"
   workflow_dispatch:
 
 concurrency:
