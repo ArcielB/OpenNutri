@@ -144,19 +144,19 @@ export function renderTextItemWithNutrientHighlights(text, matcher, options = {}
     return html
 }
 
-export function bindNutrientHighlightInteractions(textLayerEl, onNutrientClick) {
-    if (!textLayerEl) return () => { }
+export function bindNutrientHighlightInteractions(interactionRootEl, onNutrientClick) {
+    if (!interactionRootEl) return () => { }
 
     const resolveMarkFromEvent = (event) => {
         const directTarget = event.target?.closest?.('mark.nutrient-highlight')
-        if (directTarget && textLayerEl.contains(directTarget)) {
+        if (directTarget && interactionRootEl.contains(directTarget)) {
             return directTarget
         }
 
         const pointTargets = document.elementsFromPoint?.(event.clientX, event.clientY) || []
         for (const element of pointTargets) {
             const mark = element?.closest?.('mark.nutrient-highlight')
-            if (mark && textLayerEl.contains(mark)) {
+            if (mark && interactionRootEl.contains(mark)) {
                 return mark
             }
         }
@@ -168,7 +168,7 @@ export function bindNutrientHighlightInteractions(textLayerEl, onNutrientClick) 
 
         const caretParent = caretNode?.nodeType === Node.TEXT_NODE ? caretNode.parentElement : caretNode
         const caretMark = caretParent?.closest?.('mark.nutrient-highlight')
-        if (caretMark && textLayerEl.contains(caretMark)) {
+        if (caretMark && interactionRootEl.contains(caretMark)) {
             return caretMark
         }
 
@@ -192,12 +192,12 @@ export function bindNutrientHighlightInteractions(textLayerEl, onNutrientClick) 
         )
     }
 
-    textLayerEl.addEventListener('pointerup', openPopoverForEvent, true)
-    textLayerEl.addEventListener('click', openPopoverForEvent, true)
+    interactionRootEl.addEventListener('pointerup', openPopoverForEvent, true)
+    interactionRootEl.addEventListener('click', openPopoverForEvent, true)
 
     return () => {
-        textLayerEl.removeEventListener('pointerup', openPopoverForEvent, true)
-        textLayerEl.removeEventListener('click', openPopoverForEvent, true)
+        interactionRootEl.removeEventListener('pointerup', openPopoverForEvent, true)
+        interactionRootEl.removeEventListener('click', openPopoverForEvent, true)
     }
 }
 

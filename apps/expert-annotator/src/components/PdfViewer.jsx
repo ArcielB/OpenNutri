@@ -15,15 +15,10 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 
 export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }) {
     const [numPages, setNumPages] = useState(null)
-    const [pageNumber, setPageNumber] = useState(1)
+    const [currentPageNumber, setCurrentPageNumber] = useState(1)
     const [scale, setScale] = useState(1.2)
     const [popover, setPopover] = useState(null) // { nutrient, rect }
-    const [pageHighlightPlan, setPageHighlightPlan] = useState(() => ({
-        pdfUrl: null,
-        pageNumber: null,
-        isReady: false,
-        allowedItemIndexes: new Set(),
-    }))
+    const [pageHighlightPlans, setPageHighlightPlans] = useState(() => ({}))
     const containerRef = useRef(null)
     const cleanupRef = useRef(null)
 
@@ -35,21 +30,23 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
         return buildNutrientMatcher(allNutrients)
     }, [allNutrients])
 
-    const customTextRenderer = useCallback(
-        ({ str, itemIndex }) =>
-            renderTextItemWithNutrientHighlights(str, nutrientMatcher, {
-                allowHighlight:
-                    pageHighlightPlan.isReady &&
-                    pageHighlightPlan.pdfUrl === pdfUrl &&
-                    pageHighlightPlan.pageNumber === pageNumber &&
-                    pageHighlightPlan.allowedItemIndexes.has(itemIndex),
-            }),
-        [nutrientMatcher, pageHighlightPlan, pdfUrl, pageNumber]
+    const buildCustomTextRenderer = useCallback(
+        (pageNumber) =>
+            ({ str, itemIndex }) => {
+                const pagePlan = pageHighlightPlans[pageNumber]
+                return renderTextItemWithNutrientHighlights(str, nutrientMatcher, {
+                    allowHighlight: Boolean(
+                        pagePlan?.isReady && pagePlan.allowedItemIndexes.has(itemIndex)
+                    ),
+                })
+            },
+        [nutrientMatcher, pageHighlightPlans]
     )
 
     function onDocumentLoadSuccess({ numPages }) {
         setNumPages(numPages)
-        setPageNumber(1)
+        setCurrentPageNumber(1)
+        setPageHighlightPlans({})
     }
 
     const handleNutrientClick = useCallback((nutrient, rect) => {
@@ -60,21 +57,19 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
         setPopover(null)
     })
 
-    const handlePageTextSuccess = useCallback(
-        (textContent) => {
-            const nextPlan = buildPageTableHighlightPlan(textContent)
+    const handlePageTextSuccess = useCallback((pageNumber, textContent) => {
+        const nextPlan = buildPageTableHighlightPlan(textContent)
 
-            setPageHighlightPlan({
-                pdfUrl,
-                pageNumber,
+        setPageHighlightPlans((previous) => ({
+            ...previous,
+            [pageNumber]: {
                 isReady: true,
                 allowedItemIndexes: nextPlan.allowedItemIndexes,
-            })
-        },
-        [pdfUrl, pageNumber]
-    )
+            },
+        }))
+    }, [])
 
-    const handleTextLayerRenderSuccess = useCallback(() => {
+    useEffect(() => {
         if (cleanupRef.current) {
             cleanupRef.current()
             cleanupRef.current = null
@@ -82,25 +77,16 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
 
         if (!containerRef.current) return
 
-        const textLayer = containerRef.current.querySelector('.textLayer')
-        if (!textLayer) return
-
         cleanupRef.current = bindNutrientHighlightInteractions(
-            textLayer,
+            containerRef.current,
             handleNutrientClick
         )
-    }, [handleNutrientClick])
+    }, [handleNutrientClick, pdfUrl])
 
     useEffect(() => {
         closePopover()
-
-        return () => {
-            if (cleanupRef.current) {
-                cleanupRef.current()
-                cleanupRef.current = null
-            }
-        }
-    }, [pageNumber, pdfUrl, scale])
+        setPageHighlightPlans({})
+    }, [pdfUrl, scale])
 
     useEffect(() => {
         return () => {
@@ -110,6 +96,43 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
             }
         }
     }, [])
+
+    useEffect(() => {
+        const panel = containerRef.current
+        if (!panel || !numPages) return
+
+        const scrollRoot = panel.querySelector('.pdf-container')
+        if (!scrollRoot) return
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                let bestEntry = null
+
+                for (const entry of entries) {
+                    if (!entry.isIntersecting) continue
+                    if (!bestEntry || entry.intersectionRatio > bestEntry.intersectionRatio) {
+                        bestEntry = entry
+                    }
+                }
+
+                if (!bestEntry) return
+
+                const nextPage = Number(bestEntry.target.getAttribute('data-page-number') || 1)
+                if (Number.isFinite(nextPage)) {
+                    setCurrentPageNumber(nextPage)
+                }
+            },
+            {
+                root: scrollRoot,
+                threshold: [0.25, 0.5, 0.75],
+            }
+        )
+
+        const pageNodes = scrollRoot.querySelectorAll('[data-page-number]')
+        pageNodes.forEach((node) => observer.observe(node))
+
+        return () => observer.disconnect()
+    }, [numPages, pdfUrl, scale])
 
     const handlePopoverAdd = (nutrientEntry) => {
         if (onAddNutrient) {
@@ -131,23 +154,11 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
     return (
         <div className={panelClassName} ref={containerRef}>
             <div className="pdf-toolbar">
-                <button onClick={() => setScale((s) => Math.max(0.5, s - 0.2))}>−</button>
+                <button onClick={() => setScale((s) => Math.max(0.5, s - 0.2))}>-</button>
                 <button onClick={() => setScale((s) => Math.min(3, s + 0.2))}>+</button>
                 <span className="page-info">
-                    {numPages ? `${pageNumber} / ${numPages}` : '...'}
+                    {numPages ? `${currentPageNumber} / ${numPages}` : '...'}
                 </span>
-                <button
-                    onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
-                    disabled={pageNumber <= 1}
-                >
-                    ◄ Prev
-                </button>
-                <button
-                    onClick={() => setPageNumber((p) => Math.min(numPages || 1, p + 1))}
-                    disabled={pageNumber >= (numPages || 1)}
-                >
-                    Next ►
-                </button>
             </div>
             <div className="pdf-container">
                 <Document
@@ -156,19 +167,31 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
                     loading={<div className="pdf-loading">Loading PDF...</div>}
                     error={<div className="pdf-loading">Failed to load PDF</div>}
                 >
-                    <Page
-                        pageNumber={pageNumber}
-                        scale={scale}
-                        customTextRenderer={customTextRenderer}
-                        renderTextLayer={true}
-                        renderAnnotationLayer={false}
-                        onGetTextSuccess={handlePageTextSuccess}
-                        onRenderTextLayerSuccess={handleTextLayerRenderSuccess}
-                    />
+                    {Array.from({ length: numPages || 0 }, (_, index) => {
+                        const pageNumber = index + 1
+                        return (
+                            <div
+                                className="pdf-page-wrap"
+                                data-page-number={pageNumber}
+                                key={`pdf-page-${pageNumber}`}
+                            >
+                                <Page
+                                    pageNumber={pageNumber}
+                                    scale={scale}
+                                    customTextRenderer={buildCustomTextRenderer(pageNumber)}
+                                    renderTextLayer={true}
+                                    renderAnnotationLayer={false}
+                                    onGetTextSuccess={(textContent) =>
+                                        handlePageTextSuccess(pageNumber, textContent)
+                                    }
+                                />
+                            </div>
+                        )
+                    })}
                 </Document>
             </div>
 
-            {/* Nutrient popover — floats on top of PDF */}
+            {/* Nutrient popover - floats on top of PDF */}
             {popover && (
                 <NutrientPopover
                     nutrient={popover.nutrient}
