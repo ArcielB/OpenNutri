@@ -85,7 +85,6 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
 
     useEffect(() => {
         closePopover()
-        setPageHighlightPlans({})
     }, [pdfUrl, scale])
 
     useEffect(() => {
