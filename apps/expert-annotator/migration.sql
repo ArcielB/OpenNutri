@@ -596,6 +596,101 @@ CREATE TABLE IF NOT EXISTS paper_conflicts (
     resolved_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS paper_conflict_resolutions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_id INTEGER NOT NULL UNIQUE REFERENCES papers(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'resolved', 'dismissed')),
+    winning_submission_id UUID REFERENCES paper_assignment_submissions(id) ON DELETE SET NULL,
+    decision_kind TEXT
+        CHECK (decision_kind IN ('has_data', 'no_usable_data')),
+    resolution_note TEXT,
+    resolved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE VIEW public.paper_conflict_candidates AS
+WITH latest_submissions AS (
+    SELECT
+        pua.paper_id,
+        pua.id AS paper_user_assignment_id,
+        pua.reviewer_profile_id,
+        pua.latest_submission_id AS submission_id
+    FROM paper_user_assignments pua
+    WHERE pua.latest_submission_id IS NOT NULL
+),
+submission_rows AS (
+    SELECT
+        ls.paper_id,
+        ls.paper_user_assignment_id,
+        ls.reviewer_profile_id,
+        pas.id AS submission_id,
+        pas.decision_kind,
+        pas.payload_hash,
+        pas.submitted_at
+    FROM latest_submissions ls
+    JOIN paper_assignment_submissions pas
+      ON pas.id = ls.submission_id
+),
+aggregated AS (
+    SELECT
+        paper_id,
+        COUNT(*)::INTEGER AS submission_count,
+        COUNT(DISTINCT reviewer_profile_id)::INTEGER AS reviewer_count,
+        COUNT(DISTINCT decision_kind)::INTEGER AS distinct_decision_count,
+        COUNT(DISTINCT payload_hash)::INTEGER AS distinct_payload_count,
+        MAX(submitted_at) AS latest_submitted_at,
+        ARRAY_AGG(submission_id ORDER BY submitted_at DESC, submission_id) AS submission_ids,
+        JSONB_AGG(
+            JSONB_BUILD_OBJECT(
+                'submission_id', submission_id,
+                'paper_user_assignment_id', paper_user_assignment_id,
+                'reviewer_profile_id', reviewer_profile_id,
+                'decision_kind', decision_kind,
+                'payload_hash', payload_hash,
+                'submitted_at', submitted_at
+            )
+            ORDER BY submitted_at DESC, submission_id
+        ) AS submission_summaries
+    FROM submission_rows
+    GROUP BY paper_id
+)
+SELECT
+    md5(
+        aggregated.paper_id::TEXT || '|' ||
+        array_to_string(aggregated.submission_ids::TEXT[], ',')
+    ) AS conflict_key,
+    aggregated.paper_id,
+    aggregated.submission_count,
+    aggregated.reviewer_count,
+    aggregated.distinct_decision_count,
+    aggregated.distinct_payload_count,
+    CASE
+        WHEN aggregated.distinct_decision_count > 1 AND aggregated.distinct_payload_count > 1 THEN 'decision_and_payload_mismatch'
+        WHEN aggregated.distinct_decision_count > 1 THEN 'decision_mismatch'
+        ELSE 'payload_mismatch'
+    END AS conflict_kind,
+    aggregated.latest_submitted_at,
+    aggregated.submission_ids,
+    aggregated.submission_summaries,
+    COALESCE(resolution.status, 'open') AS resolution_status,
+    resolution.winning_submission_id,
+    resolution.decision_kind AS resolution_decision_kind,
+    resolution.resolution_note,
+    resolution.resolved_by,
+    resolution.resolved_at,
+    resolution.updated_at AS resolution_updated_at
+FROM aggregated
+LEFT JOIN paper_conflict_resolutions resolution
+  ON resolution.paper_id = aggregated.paper_id
+WHERE aggregated.submission_count >= 2
+  AND (
+      aggregated.distinct_decision_count > 1
+      OR aggregated.distinct_payload_count > 1
+  );
+
 CREATE TABLE IF NOT EXISTS paper_review_outcomes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     paper_id INTEGER NOT NULL UNIQUE REFERENCES papers(id) ON DELETE CASCADE,
@@ -1032,6 +1127,8 @@ CREATE INDEX IF NOT EXISTS idx_paper_assignment_submissions_assignment ON paper_
 CREATE INDEX IF NOT EXISTS idx_paper_assignment_submissions_paper ON paper_assignment_submissions(paper_id, submitted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_paper_assignment_submissions_hash ON paper_assignment_submissions(payload_hash);
 CREATE INDEX IF NOT EXISTS idx_paper_conflicts_paper_status ON paper_conflicts(paper_id, status, conflict_type);
+CREATE INDEX IF NOT EXISTS idx_paper_conflict_resolutions_paper_status
+    ON paper_conflict_resolutions(paper_id, status, updated_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_open_internal_slot_conflicts_unique
     ON paper_conflicts(paper_id, slot_key)
     WHERE conflict_type = 'internal_slot_conflict' AND status = 'open';
@@ -2415,6 +2512,170 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.resolve_paper_conflict_case(
+    p_paper_id INTEGER,
+    p_winning_submission_id UUID,
+    p_resolution_note TEXT DEFAULT NULL
+)
+RETURNS paper_conflict_resolutions
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_submission paper_assignment_submissions;
+    v_conflict_submission_ids UUID[];
+    v_resolution paper_conflict_resolutions;
+BEGIN
+    IF NOT public.current_user_has_cockpit_write_access() THEN
+        RAISE EXCEPTION 'Cockpit write access required';
+    END IF;
+
+    SELECT *
+    INTO v_submission
+    FROM paper_assignment_submissions
+    WHERE id = p_winning_submission_id
+      AND paper_id = p_paper_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Winning submission does not belong to this paper';
+    END IF;
+
+    SELECT submission_ids
+    INTO v_conflict_submission_ids
+    FROM public.paper_conflict_candidates
+    WHERE paper_id = p_paper_id;
+
+    IF v_conflict_submission_ids IS NULL THEN
+        RAISE EXCEPTION 'No derived conflict found for paper %', p_paper_id;
+    END IF;
+
+    IF NOT (p_winning_submission_id = ANY(v_conflict_submission_ids)) THEN
+        RAISE EXCEPTION 'Winning submission is not part of the active conflict set';
+    END IF;
+
+    INSERT INTO paper_conflict_resolutions (
+        paper_id,
+        status,
+        winning_submission_id,
+        decision_kind,
+        resolution_note,
+        resolved_by,
+        resolved_at,
+        updated_at
+    )
+    VALUES (
+        p_paper_id,
+        'resolved',
+        p_winning_submission_id,
+        v_submission.decision_kind,
+        p_resolution_note,
+        auth.uid(),
+        NOW(),
+        NOW()
+    )
+    ON CONFLICT (paper_id) DO UPDATE
+    SET
+        status = 'resolved',
+        winning_submission_id = EXCLUDED.winning_submission_id,
+        decision_kind = EXCLUDED.decision_kind,
+        resolution_note = EXCLUDED.resolution_note,
+        resolved_by = EXCLUDED.resolved_by,
+        resolved_at = EXCLUDED.resolved_at,
+        updated_at = NOW()
+    RETURNING * INTO v_resolution;
+
+    UPDATE paper_conflicts
+    SET
+        status = 'resolved',
+        resolved_submission_id = CASE
+            WHEN p_winning_submission_id IN (left_submission_id, right_submission_id) THEN p_winning_submission_id
+            ELSE resolved_submission_id
+        END,
+        resolution_note = COALESCE(p_resolution_note, resolution_note),
+        resolved_by = COALESCE(resolved_by, auth.uid()),
+        resolved_at = COALESCE(resolved_at, NOW())
+    WHERE paper_id = p_paper_id
+      AND status = 'open';
+
+    UPDATE paper_slot_assignments
+    SET
+        status = 'resolved',
+        resolved_at = NOW()
+    WHERE paper_id = p_paper_id
+      AND status IN ('submitted', 'conflict');
+
+    UPDATE paper_user_assignments
+    SET
+        status = 'resolved',
+        resolved_at = NOW()
+    WHERE paper_id = p_paper_id
+      AND status IN ('submitted', 'conflict');
+
+    INSERT INTO paper_review_outcomes (
+        paper_id,
+        decision_kind,
+        resolution_source,
+        payload_json,
+        payload_text,
+        payload_hash,
+        slot_submission_a_id,
+        slot_submission_b_id,
+        resolved_submission_id,
+        conflict_id,
+        resolved_by,
+        resolved_at,
+        truth_source_kind,
+        source_stage_key,
+        source_model_name,
+        source_confidence,
+        training_weight,
+        updated_at
+    )
+    VALUES (
+        p_paper_id,
+        v_submission.decision_kind,
+        'conflict_resolution',
+        v_submission.payload_json,
+        v_submission.payload_text,
+        v_submission.payload_hash,
+        NULL,
+        NULL,
+        v_submission.id,
+        NULL,
+        auth.uid(),
+        NOW(),
+        'human_review',
+        NULL,
+        NULL,
+        NULL,
+        1.0,
+        NOW()
+    )
+    ON CONFLICT (paper_id) DO UPDATE
+    SET
+        decision_kind = EXCLUDED.decision_kind,
+        resolution_source = EXCLUDED.resolution_source,
+        payload_json = EXCLUDED.payload_json,
+        payload_text = EXCLUDED.payload_text,
+        payload_hash = EXCLUDED.payload_hash,
+        slot_submission_a_id = NULL,
+        slot_submission_b_id = NULL,
+        resolved_submission_id = EXCLUDED.resolved_submission_id,
+        conflict_id = NULL,
+        resolved_by = EXCLUDED.resolved_by,
+        resolved_at = EXCLUDED.resolved_at,
+        truth_source_kind = EXCLUDED.truth_source_kind,
+        source_stage_key = EXCLUDED.source_stage_key,
+        source_model_name = EXCLUDED.source_model_name,
+        source_confidence = EXCLUDED.source_confidence,
+        training_weight = EXCLUDED.training_weight,
+        updated_at = NOW();
+
+    RETURN v_resolution;
+END;
+$$;
+
 ALTER TABLE reviewer_slots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviewer_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviewer_slot_members ENABLE ROW LEVEL SECURITY;
@@ -2422,6 +2683,7 @@ ALTER TABLE paper_slot_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_user_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_assignment_submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_conflicts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_conflict_resolutions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_review_outcomes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_label_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE backlog_review_items ENABLE ROW LEVEL SECURITY;
@@ -2436,6 +2698,9 @@ DROP POLICY IF EXISTS "Users can view their own paper slot assignments" ON paper
 DROP POLICY IF EXISTS "Users can view their own paper user assignments" ON paper_user_assignments;
 DROP POLICY IF EXISTS "Users can view their own assignment submissions" ON paper_assignment_submissions;
 DROP POLICY IF EXISTS "Cockpit users can read conflicts" ON paper_conflicts;
+DROP POLICY IF EXISTS "Users can view accessible conflict resolutions" ON paper_conflict_resolutions;
+DROP POLICY IF EXISTS "Cockpit writers can insert conflict resolutions" ON paper_conflict_resolutions;
+DROP POLICY IF EXISTS "Cockpit writers can update conflict resolutions" ON paper_conflict_resolutions;
 DROP POLICY IF EXISTS "Users can view accessible review outcomes" ON paper_review_outcomes;
 DROP POLICY IF EXISTS "Users can view accessible backlog review items" ON backlog_review_items;
 DROP POLICY IF EXISTS "Users can insert suggestion review items" ON backlog_review_items;
@@ -2447,6 +2712,7 @@ DROP POLICY IF EXISTS "Service role full access paper slot assignments" ON paper
 DROP POLICY IF EXISTS "Service role full access paper user assignments" ON paper_user_assignments;
 DROP POLICY IF EXISTS "Service role full access paper assignment submissions" ON paper_assignment_submissions;
 DROP POLICY IF EXISTS "Service role full access paper conflicts" ON paper_conflicts;
+DROP POLICY IF EXISTS "Service role full access paper conflict resolutions" ON paper_conflict_resolutions;
 DROP POLICY IF EXISTS "Service role full access paper review outcomes" ON paper_review_outcomes;
 DROP POLICY IF EXISTS "Service role full access paper label events" ON paper_label_events;
 DROP POLICY IF EXISTS "Service role full access backlog review items" ON backlog_review_items;
@@ -2512,6 +2778,27 @@ CREATE POLICY "Users can view their own assignment submissions"
 CREATE POLICY "Cockpit users can read conflicts"
     ON paper_conflicts FOR SELECT TO authenticated
     USING (public.current_user_has_cockpit_access());
+
+CREATE POLICY "Users can view accessible conflict resolutions"
+    ON paper_conflict_resolutions FOR SELECT TO authenticated
+    USING (
+        public.current_user_has_cockpit_access()
+        OR EXISTS (
+            SELECT 1
+            FROM paper_user_assignments pua
+            WHERE pua.paper_id = paper_conflict_resolutions.paper_id
+              AND pua.auth_user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Cockpit writers can insert conflict resolutions"
+    ON paper_conflict_resolutions FOR INSERT TO authenticated
+    WITH CHECK (public.current_user_has_cockpit_write_access());
+
+CREATE POLICY "Cockpit writers can update conflict resolutions"
+    ON paper_conflict_resolutions FOR UPDATE TO authenticated
+    USING (public.current_user_has_cockpit_write_access())
+    WITH CHECK (public.current_user_has_cockpit_write_access());
 
 CREATE POLICY "Users can view accessible review outcomes"
     ON paper_review_outcomes FOR SELECT TO authenticated
@@ -2662,6 +2949,11 @@ CREATE POLICY "Service role full access paper assignment submissions"
 
 CREATE POLICY "Service role full access paper conflicts"
     ON paper_conflicts FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access paper conflict resolutions"
+    ON paper_conflict_resolutions FOR ALL TO service_role
     USING (true)
     WITH CHECK (true);
 
