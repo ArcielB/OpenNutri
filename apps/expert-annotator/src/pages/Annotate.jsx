@@ -45,6 +45,7 @@ const EMPTY_COCKPIT_DATA = {
   submissions: [],
   outcomes: [],
   conflicts: [],
+  derivedConflicts: [],
   papers: [],
   aiExtractions: [],
   routingStageConfigs: [],
@@ -1846,11 +1847,16 @@ function ConflictsView({
   allNutrients,
   theme,
 }) {
-  const openConflicts = conflicts.filter((row) => row.status === 'open')
+  const openConflicts = conflicts.filter((row) => {
+    const status = String(row?.resolution_status || 'open').trim().toLowerCase()
+    return status !== 'resolved' && status !== 'dismissed'
+  })
   const selectedConflict =
-    openConflicts.find((row) => row.id === selectedConflictId) || openConflicts[0] || null
-  const leftSubmission = selectedConflict ? submissionsById[selectedConflict.left_submission_id] : null
-  const rightSubmission = selectedConflict ? submissionsById[selectedConflict.right_submission_id] : null
+    openConflicts.find((row) => row.conflict_key === selectedConflictId) || openConflicts[0] || null
+  const conflictSubmissionIds = Array.isArray(selectedConflict?.submission_ids) ? selectedConflict.submission_ids : []
+  const conflictSubmissions = conflictSubmissionIds
+    .map((submissionId) => submissionsById[submissionId])
+    .filter(Boolean)
   const paper = selectedConflict ? papersById[selectedConflict.paper_id] : null
   const pdfUrl = paper ? getPublicPdfUrl(paper.filename) : null
 
@@ -1866,13 +1872,13 @@ function ConflictsView({
             <div className="empty-panel">No open conflicts right now.</div>
           ) : openConflicts.map((conflict) => (
             <button
-              key={conflict.id}
-              className={`conflict-list-item ${selectedConflict?.id === conflict.id ? 'active' : ''}`}
-              onClick={() => setSelectedConflictId(conflict.id)}
+              key={conflict.conflict_key}
+              className={`conflict-list-item ${selectedConflict?.conflict_key === conflict.conflict_key ? 'active' : ''}`}
+              onClick={() => setSelectedConflictId(conflict.conflict_key)}
             >
-              <span>{conflict.conflict_type === 'internal_slot_conflict' ? 'Internal' : 'External'}</span>
+              <span>{conflict.conflict_kind || 'Conflict'}</span>
               <strong>Paper {conflict.paper_id}</strong>
-              <small>{conflict.slot_key || 'cross-slot'}</small>
+              <small>{conflict.submission_count || 0} submissions</small>
             </button>
           ))}
         </div>
@@ -1888,31 +1894,28 @@ function ConflictsView({
       <div className="annotation-panel conflict-panel">
         {!selectedConflict ? (
           <div className="annotation-scroll">
-            <div className="empty-panel">Select a conflict to compare both submissions.</div>
+            <div className="empty-panel">Select a conflict to compare all submissions.</div>
           </div>
         ) : (
           <>
             <div className="conflict-header">
               <div>
                 <h2>{paper?.title || `Paper ${selectedConflict.paper_id}`}</h2>
-                <p>{selectedConflict.conflict_type} · {selectedConflict.slot_key || 'cross-slot'}</p>
+                <p>{selectedConflict.conflict_kind || 'conflict'} - {selectedConflict.submission_count || 0} submissions</p>
               </div>
               <div className="status-badge status-conflict">Needs decision</div>
             </div>
             <div className="annotation-scroll conflict-scroll">
               <div className="payload-grid">
-                <PayloadSummary
-                  submission={leftSubmission}
-                  reviewer={reviewerById[leftSubmission?.reviewer_profile_id]}
-                  highlighted={false}
-                  onResolve={leftSubmission ? () => onResolve(selectedConflict, leftSubmission.id) : null}
-                />
-                <PayloadSummary
-                  submission={rightSubmission}
-                  reviewer={reviewerById[rightSubmission?.reviewer_profile_id]}
-                  highlighted={false}
-                  onResolve={rightSubmission ? () => onResolve(selectedConflict, rightSubmission.id) : null}
-                />
+                {conflictSubmissions.map((submission) => (
+                  <PayloadSummary
+                    key={submission.id}
+                    submission={submission}
+                    reviewer={reviewerById[submission?.reviewer_profile_id]}
+                    highlighted={false}
+                    onResolve={() => onResolve(selectedConflict, submission.id)}
+                  />
+                ))}
               </div>
             </div>
             <div className="annotation-actions">
@@ -1921,7 +1924,7 @@ function ConflictsView({
                 <input
                   value={resolutionNote}
                   onChange={(event) => setResolutionNote(event.target.value)}
-                  placeholder="Why this side wins"
+                  placeholder="Why this submission wins"
                 />
               </label>
             </div>
@@ -1931,7 +1934,6 @@ function ConflictsView({
     </div>
   )
 }
-
 export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [reviewerProfile, setReviewerProfile] = useState(null)
   const [profileError, setProfileError] = useState(null)
@@ -2114,6 +2116,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         submissionsResponse,
         outcomesResponse,
         conflictsResponse,
+        derivedConflictsResponse,
         papersResponse,
         aiExtractionsResponse,
         routingStageConfigsResponse,
@@ -2128,6 +2131,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         supabase.from('paper_assignment_submissions').select('*').order('submitted_at', { ascending: false }),
         supabase.from('paper_review_outcomes').select('*').order('resolved_at', { ascending: false }),
         supabase.from('paper_conflicts').select('*').order('created_at', { ascending: false }),
+        supabase.from('paper_conflict_candidates').select('*').order('latest_submitted_at', { ascending: false }),
         supabase.from('papers').select('id,title,doi,filename,workflow_language,routing_status,routing_bucket,route_destination,current_stage_key,latest_ai_extraction_id,routing_updated_at').order('id', { ascending: false }),
         supabase.from('ai_extractions').select('*').order('created_at', { ascending: false }).limit(5000),
         supabase.from('routing_stage_configs').select('*').order('display_name', { ascending: true }),
@@ -2143,6 +2147,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       if (submissionsResponse.error) throw submissionsResponse.error
       if (outcomesResponse.error) throw outcomesResponse.error
       if (conflictsResponse.error) throw conflictsResponse.error
+      if (derivedConflictsResponse.error) throw derivedConflictsResponse.error
       if (papersResponse.error) throw papersResponse.error
       if (aiExtractionsResponse.error) throw aiExtractionsResponse.error
       if (routingStageConfigsResponse.error) throw routingStageConfigsResponse.error
@@ -2158,6 +2163,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         submissions: submissionsResponse.data || [],
         outcomes: outcomesResponse.data || [],
         conflicts: conflictsResponse.data || [],
+        derivedConflicts: derivedConflictsResponse.data || [],
         papers: papersResponse.data || [],
         aiExtractions: aiExtractionsResponse.data || [],
         routingStageConfigs: routingStageConfigsResponse.data || [],
@@ -2166,10 +2172,13 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       })
 
       setSelectedConflictId((previousId) => {
-        const openConflicts = (conflictsResponse.data || []).filter((row) => row.status === 'open')
+        const openConflicts = (derivedConflictsResponse.data || []).filter((row) => {
+          const status = String(row?.resolution_status || 'open').trim().toLowerCase()
+          return status !== 'resolved' && status !== 'dismissed'
+        })
         if (!openConflicts.length) return null
-        if (previousId && openConflicts.some((row) => row.id === previousId)) return previousId
-        return openConflicts[0].id
+        if (previousId && openConflicts.some((row) => row.conflict_key === previousId)) return previousId
+        return openConflicts[0].conflict_key
       })
     } catch (error) {
       console.error('Cockpit refresh failed:', error)
@@ -2952,7 +2961,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     if (testMode) {
       appendTestEvent({
         type: 'resolve_conflict',
-        conflict_id: conflict.id,
+        paper_id: conflict.paper_id,
+        conflict_key: conflict.conflict_key,
         submission_id: submissionId,
       })
       showToast('Conflict resolution stored locally (test mode).')
@@ -2960,8 +2970,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     }
     setSaving(true)
     try {
-      const { error } = await supabase.rpc('resolve_paper_conflict', {
-        p_conflict_id: conflict.id,
+      const { error } = await supabase.rpc('resolve_paper_conflict_case', {
+        p_paper_id: conflict.paper_id,
         p_winning_submission_id: submissionId,
         p_resolution_note: resolutionNote || null,
       })
@@ -3116,7 +3126,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
       {activeView === 'conflicts' && (
         <ConflictsView
-          conflicts={cockpitData.conflicts || []}
+          conflicts={cockpitData.derivedConflicts || []}
           selectedConflictId={selectedConflictId}
           setSelectedConflictId={setSelectedConflictId}
           papersById={papersById}
@@ -3157,3 +3167,4 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     </div>
   )
 }
+
