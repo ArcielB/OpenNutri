@@ -7,6 +7,7 @@ Use this file to keep context narrow. Read this first, then open only the files 
 2. Check `git status --short` before editing so you do not disturb local run artifacts or user changes.
 3. Read `Keys and links` only if the task needs credentials, network calls, or database writes. Use it as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
 4. Read `README.md` or `docs/handoff_2026-03-20/STATE.md` only for the subsystem you are touching.
+5. For reviewer-queue, assignment, conflict, or reviewer-truth tasks, read `docs/reviewer_workflow_map.md` before re-deriving the workflow from code.
 
 ## Active Surfaces
 - `apps/expert-annotator/`: React 19 + Vite labeling UI.
@@ -45,6 +46,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - When a task changes the deployable annotator frontend under `apps/expert-annotator/`, deploy it to Vercel in the same task after the validated commit/push unless the user explicitly says not to, and report the production deployment state.
 - Do not use hard-negative veto logic in crawler/ranking relevance decisions. Prefer additive scoring and soft penalties. If a true hard reject seems necessary, stop and discuss it first.
 - When a task changes `apps/expert-annotator/migration.sql` or otherwise changes the live schema, apply that migration to the target database in the same task unless the user explicitly says not to or there is a concrete blocker. Do not stop at the file edit without calling out the DB state.
+- After every meaningful codebase change, review the project documentation and update or rewrite anything that is now stale. Check `BACKLOG.md`, `README.md`, handoff/state notes, and any other affected docs in the same task.
 - Update `BACKLOG.md` when backlog scope changes; delete completed items instead of leaving status notes.
 - Update `README.md` when commands, architecture, or important behavior changes.
 - When a research-protocol, reviewer-role, or benchmark-validity decision changes, write it to the latest handoff/state note in the same task instead of leaving it only in chat.

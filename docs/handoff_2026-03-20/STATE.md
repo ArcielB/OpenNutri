@@ -6,6 +6,10 @@ This is the current high-signal project state after the assignment-driven annota
 - Finish Preliminary Study 3 as fast as possible so the benchmark-quality dataset supports both the TÜBİTAK application and the paper draft.
 - Paper stock is intentionally kept low. Refill happens as labeling progresses so each crawl benefits from newer feedback. The reviewer open-backlog target is now 50 per official reviewer lane.
 
+**Documentation Pointers**
+- `docs/reviewer_sop_en.md` is now the maintained worker-facing English SOP for live reviewer training.
+- `docs/reviewer_workflow_map.md` is now the maintained internal map for reviewer UI, RPC, schema, routing, and refill behavior.
+
 **Research / Team Operating Model**
 - Arciel: developer, official reviewer slot, project manager, cockpit/conflict resolver.
 - Peri: official reviewer slot.

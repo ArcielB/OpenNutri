@@ -16,6 +16,10 @@ Entry points: `apps/expert-annotator/src/main.jsx`, `apps/expert-annotator/src/A
 - `UNIFIED_ARCHIVE_MERGE.md`: Archive merge notes.
 - `home/arciel/`: Empty placeholder directory tree.
 
+**Reviewer Docs**
+- `docs/reviewer_sop_en.md`: Worker-facing English SOP for live paper review.
+- `docs/reviewer_workflow_map.md`: Internal workflow map for the reviewer UI, RPCs, tables, and refill/routing scripts.
+
 **Annotator App (frontend)**
 Location: `apps/expert-annotator/`
 
