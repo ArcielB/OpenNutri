@@ -19,6 +19,7 @@ Entry points: `apps/expert-annotator/src/main.jsx`, `apps/expert-annotator/src/A
 **Reviewer Docs**
 - `docs/reviewer_sop_en.md`: Worker-facing English SOP for live paper review.
 - `docs/reviewer_workflow_map.md`: Internal workflow map for the reviewer UI, RPCs, tables, and refill/routing scripts.
+- `docs/reviewer_sop_en.docx` and `docs/reviewer_workflow_map.docx`: Word exports for human sharing.
 
 **Annotator App (frontend)**
 Location: `apps/expert-annotator/`
