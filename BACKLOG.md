@@ -175,29 +175,6 @@ Apply the improved fuzzy logic from item 6 to highlight matching in the PDF text
 
 
 
-## 10. Add limitless scrolling for papers list (no page clicks)
-
-### Problem
-The papers list requires clicking across pages, which slows navigation and interrupts flow.
-
-### Goal
-Replace paginated navigation with infinite/limitless scrolling.
-
-### Likely technical area
-- `apps/expert-annotator/src/pages/Annotate.jsx`
-- `apps/expert-annotator/src/components/PaperList.jsx` (if present)
-
-### Done when
-- new papers load seamlessly as the user scrolls
-- the current selection state remains stable while loading
-- pagination controls are no longer required
-
-
-
-
-
-
-
 
 
 ## 13. Add conflict resolution table + view
