@@ -83,6 +83,23 @@ Fine-tune a multilingual transformer (XLM-R) for relevance classification and co
 - the model can be swapped in via config
 
 
+## 5. Suggestions changes for admin and user
+
+### Problem
+Suggestion button is displayed for both regular users and admins, and admins do not necessarily need to give suggestions, as they are the ones reviewing it anyway.
+
+### Goal
+- Make it so suggestion button is only displayed for regular users, not admins
+- Add a view/option for regular users to see the status of their suggestions
+
+### Likely technical area
+- `Annotate.jsx`
+- `SuggestionModal.jsx`
+- `index.css`
+
+### Done when
+- Users and admins have different views regarding the suggestion functionality.
+- Users can check their suggestions in a view/option
 
 
 
