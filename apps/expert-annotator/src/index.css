@@ -1243,6 +1243,18 @@ body {
   color: var(--text-primary);
 }
 
+.ai-prefill-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
 .dashboard-page {
   flex: 1;
   overflow-y: auto;

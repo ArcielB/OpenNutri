@@ -365,6 +365,132 @@ class RoutingLogicTests(unittest.TestCase):
             [{"nutrient_id": None, "nutrient_name": "Zinc", "unit": "mg/100g", "value": 1.234568}],
         )
 
+    def test_normalize_ai_payload_accepts_exact_db_ids_when_names_match(self) -> None:
+        payload = normalize_ai_payload(
+            is_useful=True,
+            records=[
+                {
+                    "food_name": "Apple, raw",
+                    "food_fdc_id": "food-apple",
+                    "nutrient_name": "Protein",
+                    "nutrient_id": "nutrient-protein",
+                    "amount": 0.31,
+                    "unit": "g",
+                    "basis": "100g",
+                    "source_citation": "Table 1",
+                    "confidence": 0.9,
+                }
+            ],
+            food_lookup=[
+                {"id": "food-apple", "canonical_name": "Apple, raw"},
+            ],
+            nutrient_lookup=[
+                {"id": "nutrient-protein", "standard_name": "Protein"},
+            ],
+        )
+
+        self.assertEqual(
+            payload,
+            {
+                "decision_kind": "has_data",
+                "food_items": [
+                    {
+                        "food_name": "Apple, raw",
+                        "food_fdc_id": "food-apple",
+                        "is_custom_food": False,
+                        "nutrients": [
+                            {
+                                "nutrient_id": "nutrient-protein",
+                                "nutrient_name": "Protein",
+                                "value": 0.31,
+                                "unit": "g/100g",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+    def test_normalize_ai_payload_rejects_stale_or_mismatched_db_ids(self) -> None:
+        payload = normalize_ai_payload(
+            is_useful=True,
+            records=[
+                {
+                    "food_name": "Apple, raw",
+                    "food_fdc_id": "stale-food-id",
+                    "nutrient_name": "Protein",
+                    "nutrient_id": "nutrient-iron",
+                    "amount": 0.31,
+                    "unit": "g",
+                    "basis": "100g",
+                }
+            ],
+            food_lookup=[
+                {"id": "food-apple", "canonical_name": "Apple, raw"},
+            ],
+            nutrient_lookup=[
+                {"id": "nutrient-protein", "standard_name": "Protein"},
+                {"id": "nutrient-iron", "standard_name": "Iron"},
+            ],
+        )
+
+        food_item = payload["food_items"][0]
+        self.assertEqual(food_item["food_fdc_id"], "food-apple")
+        self.assertFalse(food_item["is_custom_food"])
+        self.assertEqual(food_item["nutrients"][0]["nutrient_id"], "nutrient-protein")
+        self.assertEqual(food_item["nutrients"][0]["nutrient_name"], "Protein")
+
+    def test_normalize_ai_payload_preserves_custom_foods_and_nutrients_without_matches(self) -> None:
+        payload = normalize_ai_payload(
+            is_useful=True,
+            records=[
+                {
+                    "food_name": "Village apricot paste",
+                    "nutrient_name": "Total phenolic compounds",
+                    "amount": 18.2,
+                    "unit": "mg",
+                    "basis": "100g",
+                }
+            ],
+            food_lookup=[
+                {"id": "food-apple", "canonical_name": "Apple, raw"},
+            ],
+            nutrient_lookup=[
+                {"id": "nutrient-protein", "standard_name": "Protein"},
+            ],
+        )
+
+        food_item = payload["food_items"][0]
+        self.assertEqual(food_item["food_name"], "Village apricot paste")
+        self.assertIsNone(food_item["food_fdc_id"])
+        self.assertTrue(food_item["is_custom_food"])
+        self.assertEqual(food_item["nutrients"][0]["nutrient_id"], None)
+        self.assertEqual(food_item["nutrients"][0]["nutrient_name"], "Total phenolic compounds")
+
+    def test_normalized_payload_keeps_raw_metadata_out_of_canonical_contract(self) -> None:
+        payload = normalize_ai_payload(
+            is_useful=True,
+            records=[
+                {
+                    "food_name": "Apple, raw",
+                    "raw_food_name": "Fuji apple",
+                    "nutrient_name": "Protein",
+                    "raw_nutrient_name": "crude protein",
+                    "amount": 0.31,
+                    "unit": "g",
+                    "basis": "100g",
+                    "source_citation": "Table 1, row 2",
+                    "confidence": 0.9,
+                }
+            ],
+        )
+
+        payload_text = json.dumps(payload)
+        self.assertNotIn("raw_food_name", payload_text)
+        self.assertNotIn("raw_nutrient_name", payload_text)
+        self.assertNotIn("source_citation", payload_text)
+        self.assertNotIn("confidence", payload_text)
+
 
 class StockAndFeedbackTests(unittest.TestCase):
     @patch("scripts.ensure_paper_stock.fetch_rows")
@@ -545,6 +671,37 @@ class UnifiedEvaluatorParsingTests(unittest.TestCase):
         self.assertEqual(result.data[0].food_name, "Pear")
         self.assertEqual(result.data[0].basis, "100g")
         self.assertEqual(result.data[0].source_citation, "Table 2")
+
+    def test_db_ids_and_raw_names_are_preserved_on_records(self) -> None:
+        evaluator = self.evaluator_with_response(
+            {
+                "reasoning": "Table contains composition rows.",
+                "is_useful": True,
+                "overall_confidence": 0.9,
+                "data": [
+                    {
+                        "food_name": "Apple, raw",
+                        "food_fdc_id": "food-apple",
+                        "raw_food_name": "Fuji apple",
+                        "nutrient_name": "Vitamin C",
+                        "nutrient_id": "nutrient-vitc",
+                        "raw_nutrient_name": "Ascorbic acid",
+                        "amount": 4.6,
+                        "unit": "mg",
+                        "basis": "100g",
+                        "confidence": 0.8,
+                        "source_citation": "Table 1",
+                    }
+                ],
+            }
+        )
+
+        result = evaluator.evaluate_and_extract({"pmc_id": "paper-3", "title": "Paper", "full_text": "body"})
+
+        self.assertEqual(result.data[0].food_fdc_id, "food-apple")
+        self.assertEqual(result.data[0].raw_food_name, "Fuji apple")
+        self.assertEqual(result.data[0].nutrient_id, "nutrient-vitc")
+        self.assertEqual(result.data[0].raw_nutrient_name, "Ascorbic acid")
 
 
 class QueueAndBackfillTests(unittest.TestCase):

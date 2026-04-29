@@ -85,9 +85,22 @@ def claim_stage_tasks(client: Client, *, stage_key: str, limit: int) -> list[dic
 
 
 def fetch_reference_lookups(client: Client) -> dict[str, list[dict]]:
+    foods = _fetch_all_rows(client, "entities", "id,canonical_name")
+    food_aliases = _fetch_all_rows(client, "entity_aliases", "entity_id,alias_name")
+    aliases_by_food_id: dict[str, list[str]] = {}
+    for row in food_aliases:
+        entity_id = str(row.get("entity_id") or "").strip()
+        alias_name = str(row.get("alias_name") or "").strip()
+        if entity_id and alias_name:
+            aliases_by_food_id.setdefault(entity_id, []).append(alias_name)
+    for row in foods:
+        aliases = aliases_by_food_id.get(str(row.get("id") or "").strip())
+        if aliases:
+            row["alias_names"] = aliases
+
     return {
         "nutrients": _fetch_all_rows(client, "master_nutrients", "id,standard_name"),
-        "foods": _fetch_all_rows(client, "entities", "id,canonical_name"),
+        "foods": foods,
     }
 
 
@@ -514,10 +527,13 @@ def drain_stage_queue(
     stop_on_quota: bool = False,
 ) -> dict[str, object]:
     stage_config = fetch_active_stage_config(client, stage_key or None)
-    evaluator = UnifiedEvaluator(model_name=stage_config.model_name)
+    reference_lookups = fetch_reference_lookups(client)
+    evaluator = UnifiedEvaluator(
+        model_name=stage_config.model_name,
+        nutrient_catalog=reference_lookups.get("nutrients") or [],
+    )
     if evaluator.model is None:
         raise RuntimeError("UnifiedEvaluator could not initialize a Gemini model. Check GEMINI_API_KEY.")
-    reference_lookups = fetch_reference_lookups(client)
     summary = _empty_stage_summary(stage_config.stage_key)
 
     if stop_on_quota:

@@ -61,6 +61,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Relevance filtering currently targets English and Turkish only.
 - The annotator is now assignment-driven:
   every paper gets exactly 2 official reviewer slots and reviewers only see their own queue.
+- Editable reviewer assignments are AI-prefilled verification tasks when a latest `ai_extractions.normalized_payload_json` exists and the reviewer has no saved annotation/draft; never overwrite existing human work with AI data.
 - Official reviewer slots are `arciel`, `peri`, and `aleyna`.
 - The cockpit now includes reviewer-admin controls for creating allowlisted reviewer profiles and managing official/shadow slot membership without SQL.
 - `Daine` belongs inside the Arciel lane for English-only shadow review when her reviewer profile is configured; she does not count as an independent official slot.
@@ -79,6 +80,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Daily ops only refreshes feedback terms when it reaches the crawler/refill path. Existing `human_review_ready` assignment and queued-AI draining do not refresh feedback; `ensure_paper_stock.run_refill_cycle` refreshes terms immediately before DergiPark refresh/search unless `--skip-feedback` is explicitly passed.
 - AI stage task claiming is retry-fair: queued tasks sort by lower `attempt_count`, then higher `priority`, then older creation order. Do not change this back to pure oldest-first, because one repeatedly failing paper can otherwise monopolize the 5-minute automation loop.
 - `UnifiedEvaluator` intentionally accepts Gemini output as the requested JSON object, a top-level array of candidate rows, or nested `food -> nutrients[]` rows; keep these parser variants so shape drift does not become an infinite AI retry loop.
+- `UnifiedEvaluator` should receive the full nutrient catalog in prompt, but not the full food catalog. Deterministic normalization verifies AI-provided food/nutrient IDs against DB rows, then falls back to exact/alias matching and custom rows.
 - Team operating model:
   - Arciel: developer, official reviewer slot, cockpit/conflict resolver.
   - Peri: official reviewer slot.

@@ -1,6 +1,6 @@
 # OpenNutri Reviewer Workflow Map
 
-Last verified: 2026-04-27 against `apps/expert-annotator/src/pages/Annotate.jsx`, `apps/expert-annotator/migration.sql`, `services/data-pipeline/scripts/process_stage_queue.py`, `services/data-pipeline/scripts/refill_assignment_queue.py`, `services/data-pipeline/ai_routing.py`, and `services/data-pipeline/food_paper_crawler/feedback/update_terms.py`.
+Last verified: 2026-04-29 against `apps/expert-annotator/src/pages/Annotate.jsx`, `apps/expert-annotator/migration.sql`, `services/data-pipeline/scripts/process_stage_queue.py`, `services/data-pipeline/scripts/refill_assignment_queue.py`, `services/data-pipeline/ai_routing.py`, and `services/data-pipeline/food_paper_crawler/feedback/update_terms.py`.
 
 This file is the maintained internal map for the reviewer workflow. Future reviewer docs should update this file instead of re-deriving the flow from scratch.
 
@@ -143,6 +143,8 @@ Relevant tables:
 - `paper_stage_tasks`: queued/processing/completed AI work
 - `ai_extractions`: raw AI output plus normalized payload and routing provenance
 
+`UnifiedEvaluator` receives the full `master_nutrients` catalog in the prompt so it can emit exact nutrient IDs and standard names when confident. It does **not** receive the full food catalog; food IDs are enforced deterministically after extraction from the DB reference lookup, with optional prompt-side food candidates reserved for future high-signal narrowing.
+
 ### Normalization contract
 
 `services/data-pipeline/ai_routing.py` normalizes AI rows into the same logical payload contract used by human submissions:
@@ -171,6 +173,8 @@ Unsupported rows are dropped before routing. If every candidate row is dropped, 
 - `decision_kind = no_usable_data`
 - `food_items = []`
 
+The normalizer accepts an AI-provided food or nutrient DB ID only when that ID exists in the fetched reference rows and the row name exactly matches the canonical/standard name or configured aliases. Stale or mismatched IDs are ignored and the normalizer falls back to exact/alias name matching, then custom rows. Raw paper names, source citations, confidence scores, and candidate DB IDs stay in `ai_extractions.raw_data`; they do not enter `normalized_payload_json`.
+
 ### AI outcomes versus human truth
 
 - High-confidence AI finalization writes `paper_review_outcomes` with `resolution_source = 'ai_high_confidence'` and `truth_source_kind = 'ai_model'`.
@@ -198,11 +202,15 @@ Queue loading then splits by mode:
 
 - normal reviewer:
   - select from `paper_user_assignments` where `reviewer_profile_id = current profile`
-  - fetch linked `papers`, `paper_slot_assignments`, and `paper_review_outcomes`
+  - fetch linked `papers`, `paper_slot_assignments`, `paper_review_outcomes`, and latest `ai_extractions`
 - tester:
-  - build a virtual queue from `human_review_ready` papers
+  - build a virtual queue from `human_review_ready` papers and attach latest `ai_extractions`
 - developer training:
-  - build a virtual bilingual queue from papers plus representative live slot assignments
+  - build a virtual bilingual queue from papers plus representative live slot assignments and attach latest `ai_extractions`
+
+When an editable assignment has no saved annotation/draft, the edit form initializes from the latest AI `normalized_payload_json`. If the AI payload is `no_usable_data`, the form stays blank but the AI extraction ID is still tracked as the initialization source. Existing drafts, submitted annotations, resolved/cancelled assignments, and any paper/user annotation rows are never overwritten by AI prefill.
+
+The normal labeler queue shows only compact AI-prefill badges: loaded/available status, AI decision, accepted/rejected row counts, and matched/custom food/nutrient counts. AI reasoning and raw response details remain in cockpit/developer audit views.
 
 ### Worker-facing live actions
 
@@ -215,6 +223,8 @@ Normal live save flow:
 5. Call an assignment RPC:
    - `touch_assignment_workspace()` for drafts
    - `submit_assignment_review()` for final submit
+
+Final submissions that began from AI prefill pass `submission_metadata.initialized_from_ai_extraction_id` to `submit_assignment_review()`. That metadata is outside the canonical payload, so reviewer edits alone determine `payload_json`, `payload_text`, and `payload_hash`.
 
 Global negative flow:
 
@@ -326,6 +336,7 @@ Human final submissions are canonicalized in SQL by `build_annotation_submission
 - `payload_hash = sha256(payload_text)`
 
 The AI normalizer in `ai_routing.py` mirrors the same ordering and rounding contract so human and AI payloads can be compared directly.
+AI prefill metadata is stored only in `paper_assignment_submissions.submission_metadata`; it is not part of the canonical `payload_hash`.
 
 ### Internal slot agreement
 

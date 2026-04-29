@@ -1,6 +1,6 @@
-# OpenNutri Handoff — 2026-04-24 (Europe/Istanbul)
+# OpenNutri Handoff — 2026-04-29 (Europe/Istanbul)
 
-This is the current high-signal project state after the assignment-driven annotator workflow, reviewer-admin cockpit, bilingual queue repair, and staged AI routing implementation landed in code.
+This is the current high-signal project state after the assignment-driven annotator workflow, reviewer-admin cockpit, bilingual queue repair, staged AI routing, and AI-prefilled reviewer verification landed in code.
 
 **Primary Goal**
 - Finish Preliminary Study 3 as fast as possible so the benchmark-quality dataset supports both the TÜBİTAK application and the paper draft.
@@ -25,7 +25,9 @@ This is the current high-signal project state after the assignment-driven annota
 - Upload no longer runs Gemini inline. It enqueues `paper_stage_tasks` and sets paper-level routing state instead.
 - AI extraction remains blind to human labels. The scored AI artifact is now the deterministic DB-shaped `normalized_payload_json`, not the raw LLM JSON or raw `is_useful` boolean.
 - `UnifiedEvaluator` accepts the requested JSON object shape plus top-level candidate-row arrays and nested `food -> nutrients[]` arrays; those variants are flattened before normalization to avoid retry loops from harmless Gemini shape drift.
+- `UnifiedEvaluator` now receives the full `master_nutrients` ID/name catalog in prompt and should return exact nutrient IDs/names when matched. The full food catalog is not sent; food IDs are verified deterministically against DB reference rows after extraction.
 - The DB-shaped AI payload uses the same top-level contract as `build_annotation_submission_payload`: `decision_kind`, `food_items[].food_name`, `food_fdc_id`, `is_custom_food`, and `nutrients[].nutrient_id`, `nutrient_name`, `value`, `unit`.
+- AI-provided food/nutrient IDs are trusted only when the ID exists and the name exactly matches the current canonical/standard name or alias. Otherwise normalization falls back to exact/alias name matching and then custom rows. Raw paper names, citations, confidence, and candidate IDs remain in `ai_extractions.raw_data`, not the canonical payload.
 - AI routing/finalization now follows the normalized payload decision. If the model says useful but all rows are rejected as unsupported or non-100g/non-composition data, the paper routes as `no_usable_data`.
 - For the blind human study, an AI routing threshold of `1.0` is a safety sentinel that disables automatic AI finalization for that decision class, even when the model reports `overall_confidence = 1.0`; threshold values below `1.0` still use normal `>= threshold` routing.
 - Humans may only be assigned papers whose `papers.routing_status = 'human_review_ready'`.
@@ -98,6 +100,8 @@ This is the current high-signal project state after the assignment-driven annota
   - generic tester mode: local-only virtual queue
   - developer-training mode (`tester_access && cockpit_access`): local-only admin/annotation/conflict actions plus a virtual bilingual `My Queue` from the full bilingual training paper pool, with live slot assignments prioritized
 - Queue saves drafts to the workspace tables, then uses RPC submission for final snapshots.
+- Editable assignments with no existing annotation/draft now initialize from the latest AI `normalized_payload_json`; no-data AI payloads leave the form blank. Existing drafts/submissions are never overwritten, and final submissions record `submission_metadata.initialized_from_ai_extraction_id` when the form began from AI prefill.
+- Normal labelers see compact AI-prefill badges for AI decision, loaded/available state, matched/custom food and nutrient counts, and rejected rows. AI reasoning stays out of the labeler queue.
 - Cockpit shows reviewer queue/accuracy summaries, resolved source-yield breakdowns, reviewer-admin controls, and expandable AI details in the cockpit-only `All Papers` screen.
 - The AI detail panel shows model decision, confidence, routing bucket, reasoning, normalized DB payload, rejected/custom row counts, raw response metadata, and later human-outcome comparison status.
 - Reviewer-admin controls can:

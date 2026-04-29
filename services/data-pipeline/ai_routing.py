@@ -236,11 +236,13 @@ def normalize_ai_payload_with_summary(
         primary_name_field="standard_name",
         alias_fields=("aliases", "alias_names"),
     )
+    nutrient_id_resolver = _build_id_resolver(nutrient_lookup or [])
     food_resolver = _build_exact_name_resolver(
         food_lookup or [],
         primary_name_field="canonical_name",
-        alias_fields=(),
+        alias_fields=("aliases", "alias_names"),
     )
+    food_id_resolver = _build_id_resolver(food_lookup or [])
 
     grouped: dict[tuple[str, str, bool], dict] = {}
     accepted_row_count = 0
@@ -268,7 +270,15 @@ def normalize_ai_payload_with_summary(
             _bump_reason(rejection_reasons, "unsupported_unit_or_basis")
             continue
 
-        food_match = _resolve_exact_name(food_resolver, food_name)
+        food_match = _resolve_reference_row(
+            row=row,
+            name_value=food_name,
+            id_fields=("food_fdc_id", "food_id", "entity_id", "db_food_id"),
+            id_resolver=food_id_resolver,
+            name_resolver=food_resolver,
+            primary_name_field="canonical_name",
+            alias_fields=("aliases", "alias_names"),
+        )
         if food_match:
             resolved_food_id = str(food_match["id"])
             resolved_food_name = _normalize_space(food_match.get("canonical_name")) or food_name
@@ -291,7 +301,15 @@ def normalize_ai_payload_with_summary(
             }
             grouped[group_key] = item
 
-        nutrient_match = _resolve_exact_name(nutrient_resolver, nutrient_name)
+        nutrient_match = _resolve_reference_row(
+            row=row,
+            name_value=nutrient_name,
+            id_fields=("nutrient_id", "nutrient_db_id", "master_nutrient_id", "db_nutrient_id"),
+            id_resolver=nutrient_id_resolver,
+            name_resolver=nutrient_resolver,
+            primary_name_field="standard_name",
+            alias_fields=("aliases", "alias_names"),
+        )
         if nutrient_match:
             nutrient_id = str(nutrient_match["id"])
             resolved_nutrient_name = _normalize_space(nutrient_match.get("standard_name")) or nutrient_name
@@ -397,12 +415,71 @@ def _build_exact_name_resolver(
     return resolver
 
 
+def _build_id_resolver(
+    rows: Iterable[Mapping[str, object]],
+) -> dict[str, Mapping[str, object]]:
+    resolver: dict[str, Mapping[str, object]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        row_id = _normalize_identifier(row.get("id"))
+        if row_id:
+            resolver[row_id] = row
+    return resolver
+
+
 def _resolve_exact_name(
     resolver: Mapping[str, Mapping[str, object] | None],
     value: object,
 ) -> Mapping[str, object] | None:
     resolved = resolver.get(_normalize_lookup_text(value))
     return resolved if resolved else None
+
+
+def _resolve_reference_row(
+    *,
+    row: Mapping[str, object],
+    name_value: object,
+    id_fields: tuple[str, ...],
+    id_resolver: Mapping[str, Mapping[str, object]],
+    name_resolver: Mapping[str, Mapping[str, object] | None],
+    primary_name_field: str,
+    alias_fields: tuple[str, ...],
+) -> Mapping[str, object] | None:
+    for field in id_fields:
+        candidate_id = _normalize_identifier(row.get(field))
+        if not candidate_id:
+            continue
+        candidate_row = id_resolver.get(candidate_id)
+        if candidate_row and _reference_row_accepts_name(
+            candidate_row,
+            name_value,
+            primary_name_field=primary_name_field,
+            alias_fields=alias_fields,
+        ):
+            return candidate_row
+        break
+    return _resolve_exact_name(name_resolver, name_value)
+
+
+def _reference_row_accepts_name(
+    row: Mapping[str, object],
+    value: object,
+    *,
+    primary_name_field: str,
+    alias_fields: tuple[str, ...],
+) -> bool:
+    target = _normalize_lookup_text(value)
+    if not target:
+        return False
+    candidate_names = [_normalize_space(row.get(primary_name_field))]
+    for alias_field in alias_fields:
+        aliases = row.get(alias_field)
+        if isinstance(aliases, str):
+            candidate_names.append(aliases)
+        elif isinstance(aliases, IterableABC):
+            candidate_names.extend(str(alias) for alias in aliases)
+    return any(_normalize_lookup_text(name) == target for name in candidate_names)
 
 
 def _standardize_unit(raw_unit: object, raw_basis: object) -> str | None:
@@ -503,6 +580,10 @@ def _normalize_lookup_text(value: object) -> str:
     return _normalize_space(value).replace("µ", "μ").casefold()
 
 
+def _normalize_identifier(value: object) -> str:
+    return str(value or "").strip()
+
+
 def count_payload_nutrient_rows(payload: Mapping[str, object]) -> int:
     food_items = payload.get("food_items")
     if not isinstance(food_items, list):
@@ -543,6 +624,14 @@ def _record_to_mapping(record: object) -> Mapping[str, object]:
         "unit": getattr(record, "unit", None),
         "basis": getattr(record, "basis", None),
         "preparation_state": getattr(record, "preparation_state", None),
+        "food_fdc_id": getattr(record, "food_fdc_id", None),
+        "food_id": getattr(record, "food_id", None),
+        "entity_id": getattr(record, "entity_id", None),
+        "db_food_id": getattr(record, "db_food_id", None),
+        "nutrient_id": getattr(record, "nutrient_id", None),
+        "nutrient_db_id": getattr(record, "nutrient_db_id", None),
+        "master_nutrient_id": getattr(record, "master_nutrient_id", None),
+        "db_nutrient_id": getattr(record, "db_nutrient_id", None),
     }
 
 

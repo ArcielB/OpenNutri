@@ -29,6 +29,16 @@ class NutrientRecord:
     confidence: float  # 0.0-1.0 confidence score for THIS specific record
     source_citation: str  # "Table 2, Row 3" or "Page 5, Results section"
     metadata: Dict[str, Any]
+    raw_food_name: Optional[str] = None
+    raw_nutrient_name: Optional[str] = None
+    food_fdc_id: Optional[str] = None
+    food_id: Optional[str] = None
+    entity_id: Optional[str] = None
+    db_food_id: Optional[str] = None
+    nutrient_id: Optional[str] = None
+    nutrient_db_id: Optional[str] = None
+    master_nutrient_id: Optional[str] = None
+    db_nutrient_id: Optional[str] = None
     flags: List[str] = None  # Plausibility warnings
     
     def __post_init__(self):
@@ -68,6 +78,14 @@ class UnifiedEvaluator:
 4. Assign an overall_confidence score (0.0-1.0) for the paper.
 5. If is_useful is true: Extract ALL candidate food-nutrient composition data from tables.
 6. For each data point, preserve the explicit unit and basis from the paper so downstream validation can standardize it to the database payload.
+7. Use the nutrient catalog below. When a paper nutrient exactly matches a catalog row, output that row's nutrient_id and standard nutrient_name exactly. When no confident exact match exists, set nutrient_id to null and preserve the paper's nutrient name.
+8. Do not invent food IDs. If high-signal food candidates are provided and a paper food exactly matches one, output its food_fdc_id; otherwise set food_fdc_id to null and preserve the paper's food name.
+
+**Nutrient Catalog**:
+{nutrient_catalog}
+
+**Food Candidates**:
+{food_candidates}
 
 **Output Format** (Strict JSON only):
 ```json
@@ -78,7 +96,11 @@ class UnifiedEvaluator:
   "data": [
     {{
       "food_name": "Apple, raw, with skin",
+      "food_fdc_id": null,
+      "raw_food_name": "Fuji apple with skin",
       "nutrient_name": "Vitamin C",
+      "nutrient_id": "00000000-0000-0000-0000-000000000000",
+      "raw_nutrient_name": "Ascorbic acid",
       "amount": 4.6,
       "unit": "mg",
       "basis": "100g",
@@ -101,7 +123,11 @@ class UnifiedEvaluator:
 
 **Field Guidance**:
 - food_name: Specific food name as mentioned in the paper.
-- nutrient_name: Standard nutrient name (e.g., Protein, Iron, Vitamin C).
+- food_fdc_id: Exact provided DB food ID only when a provided food candidate matches; otherwise null.
+- raw_food_name: Food name exactly as written in the paper.
+- nutrient_name: Exact catalog standard_name when matched; otherwise the paper's custom nutrient name.
+- nutrient_id: Exact catalog ID when matched; otherwise null.
+- raw_nutrient_name: Nutrient name exactly as written in the paper.
 - amount: Numeric value (float).
 - unit: Measurement unit (g, mg, kcal, etc.).
 - basis: Reference basis (e.g., "100g", "dry weight basis", "per serving").
@@ -131,9 +157,13 @@ Full Text:
         raw_lake_dir: str = "data/raw_lake",
         api_key: str = None,
         model_name: str = "gemini-3-flash-preview",
+        nutrient_catalog: list[dict] | None = None,
+        food_candidates: list[dict] | None = None,
     ):
         self.raw_lake_dir = raw_lake_dir
         self.model_name = model_name
+        self.nutrient_catalog = list(nutrient_catalog or [])
+        self.food_candidates = list(food_candidates or [])
         
         # Try to get API key from: 1) argument, 2) env var, 3) config.py
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -193,7 +223,9 @@ Full Text:
             
             prompt = self.EXTRACTION_PROMPT.format(
                 title=paper.get("metadata", {}).get("title", paper.get("title", "Unknown Title")),
-                full_text=full_text
+                full_text=full_text,
+                nutrient_catalog=self._format_nutrient_catalog(getattr(self, "nutrient_catalog", [])),
+                food_candidates=self._format_food_candidates(getattr(self, "food_candidates", [])),
             )
             
             response = self.model.generate_content(prompt)
@@ -224,7 +256,17 @@ Full Text:
                     sample_size=item.get("sample_size"),
                     confidence=float(item.get("confidence", 0.5)),
                     source_citation=item.get("source_citation", "Not specified"),
-                    metadata=item.get("metadata", {})
+                    metadata=item.get("metadata", {}),
+                    raw_food_name=item.get("raw_food_name") or item.get("paper_food_name") or item["food_name"],
+                    raw_nutrient_name=item.get("raw_nutrient_name") or item.get("paper_nutrient_name") or item["nutrient_name"],
+                    food_fdc_id=item.get("food_fdc_id"),
+                    food_id=item.get("food_id"),
+                    entity_id=item.get("entity_id"),
+                    db_food_id=item.get("db_food_id"),
+                    nutrient_id=item.get("nutrient_id"),
+                    nutrient_db_id=item.get("nutrient_db_id"),
+                    master_nutrient_id=item.get("master_nutrient_id"),
+                    db_nutrient_id=item.get("db_nutrient_id"),
                 )
                 
                 # Run plausibility checks
@@ -267,6 +309,32 @@ Full Text:
                 "data": parsed_json,
             }
         raise ValueError(f"Expected JSON object or data array, got {type(parsed_json).__name__}")
+
+    def _format_nutrient_catalog(self, rows: list[dict]) -> str:
+        catalog_rows = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            row_id = str(row.get("id") or "").strip()
+            name = str(row.get("standard_name") or row.get("name") or "").strip()
+            if row_id and name:
+                catalog_rows.append({"id": row_id, "standard_name": name})
+        if not catalog_rows:
+            return "[]"
+        return json.dumps(catalog_rows, ensure_ascii=False, separators=(",", ":"))
+
+    def _format_food_candidates(self, rows: list[dict]) -> str:
+        candidate_rows = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            row_id = str(row.get("id") or "").strip()
+            name = str(row.get("canonical_name") or row.get("name") or "").strip()
+            if row_id and name:
+                candidate_rows.append({"id": row_id, "canonical_name": name})
+        if not candidate_rows:
+            return "[]"
+        return json.dumps(candidate_rows, ensure_ascii=False, separators=(",", ":"))
 
     def _confidence_from_rows(self, rows: list) -> float:
         confidences = []

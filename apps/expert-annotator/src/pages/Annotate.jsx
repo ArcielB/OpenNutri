@@ -594,6 +594,111 @@ function groupRowsByPaperId(rows) {
   }, {})
 }
 
+function buildLatestAiExtractionMaps(rows) {
+  const byId = {}
+  const byPaperId = {}
+  for (const row of rows || []) {
+    if (row?.id) {
+      byId[row.id] = row
+    }
+    if (!row?.paper_id) continue
+    const existing = byPaperId[row.paper_id]
+    if (!existing || new Date(row.created_at || 0).getTime() > new Date(existing.created_at || 0).getTime()) {
+      byPaperId[row.paper_id] = row
+    }
+  }
+  return { byId, byPaperId }
+}
+
+function attachLatestAiExtractions(assignments, aiExtractionRows) {
+  const { byId, byPaperId } = buildLatestAiExtractionMaps(aiExtractionRows)
+  return (assignments || []).map((assignment) => {
+    const paper = assignment.paper || {}
+    return {
+      ...assignment,
+      latest_ai_extraction: byId[paper.latest_ai_extraction_id] || byPaperId[assignment.paper_id] || null,
+    }
+  })
+}
+
+function buildFoodItemsFromAiPayload(payload) {
+  if (payload?.decision_kind !== 'has_data') return []
+  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
+  return foodItems
+    .map((item) => {
+      const nutrients = (Array.isArray(item?.nutrients) ? item.nutrients : [])
+        .filter((nutrient) => (
+          (nutrient?.nutrient_name || nutrient?.nutrient_id) &&
+          nutrient?.value !== undefined &&
+          nutrient?.value !== null &&
+          nutrient?.unit
+        ))
+        .map((nutrient) => ({
+          nutrient_id: nutrient.nutrient_id || null,
+          nutrient_name: nutrient.nutrient_name || '',
+          value: Number(nutrient.value),
+          unit: nutrient.unit,
+        }))
+
+      return {
+        food_name: item?.food_name || '',
+        food_fdc_id: item?.food_fdc_id || null,
+        is_custom_food: Boolean(item?.is_custom_food || !item?.food_fdc_id),
+        nutrients,
+      }
+    })
+    .filter(isValidFoodItem)
+}
+
+function getAiPrefillStats(extraction) {
+  const payload = extraction?.normalized_payload_json || {}
+  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
+  const nutrients = foodItems.flatMap((item) => Array.isArray(item?.nutrients) ? item.nutrients : [])
+  const summary = getNormalizationSummary(extraction)
+
+  return {
+    decision_kind: payload.decision_kind || getAiDecisionKind(extraction),
+    matched_food_count: foodItems.filter((item) => item?.food_fdc_id && !item?.is_custom_food).length,
+    custom_food_count: foodItems.filter((item) => !item?.food_fdc_id || item?.is_custom_food).length,
+    matched_nutrient_count: nutrients.filter((nutrient) => nutrient?.nutrient_id).length,
+    custom_nutrient_count: nutrients.filter((nutrient) => !nutrient?.nutrient_id).length,
+    accepted_row_count: summary.accepted_row_count,
+    rejected_row_count: summary.rejected_row_count,
+  }
+}
+
+function clearPrefillSource(previous, assignmentId) {
+  if (!assignmentId || !previous[assignmentId]) return previous
+  const next = { ...previous }
+  delete next[assignmentId]
+  return next
+}
+
+function AiPrefillStatus({ extraction, initializedExtractionId }) {
+  if (!extraction) return null
+  const stats = getAiPrefillStats(extraction)
+  const initialized = Boolean(initializedExtractionId && initializedExtractionId === extraction.id)
+
+  return (
+    <div className="ai-prefill-status">
+      <span className={`status-badge ${initialized ? 'status-done' : 'status-pending'}`}>
+        {initialized ? 'AI Loaded' : 'AI Available'}
+      </span>
+      <span className={`status-badge ${stats.decision_kind === 'has_data' ? 'status-done' : 'status-skipped'}`}>
+        {formatDecisionLabel(stats.decision_kind)}
+      </span>
+      <span className="status-badge status-pending">{stats.accepted_row_count} rows</span>
+      <span className="status-badge status-done">{stats.matched_food_count} DB foods</span>
+      <span className="status-badge status-draft">{stats.custom_food_count} custom foods</span>
+      <span className="status-badge status-done">{stats.matched_nutrient_count} DB nutrients</span>
+      <span className="status-badge status-draft">{stats.custom_nutrient_count} custom nutrients</span>
+      {stats.rejected_row_count > 0 && (
+        <span className="status-badge status-skipped">{stats.rejected_row_count} rejected</span>
+      )}
+    </div>
+  )
+}
+
 function QueueView({
   assignments,
   currentAssignment,
@@ -621,6 +726,7 @@ function QueueView({
   getStatusBadgeClass,
   formatStatusLabel,
   formatDecisionLabel,
+  aiPrefillExtractionId,
 }) {
   return (
     <div className="workspace">
@@ -715,6 +821,10 @@ function QueueView({
                   Final paper outcome: {formatDecisionLabel(currentAssignment.outcome.decision_kind)}
                 </div>
               )}
+              <AiPrefillStatus
+                extraction={currentAssignment.latest_ai_extraction}
+                initializedExtractionId={aiPrefillExtractionId}
+              />
 
               {foodItems.map((item, index) => (
                 <FoodItemForm
@@ -1941,6 +2051,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [assignments, setAssignments] = useState([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null)
   const [foodItems, setFoodItems] = useState([createEmptyFoodItem()])
+  const [aiPrefillSources, setAiPrefillSources] = useState({})
   const [saving, setSaving] = useState(false)
   const [loadingQueue, setLoadingQueue] = useState(true)
   const [loadingCockpit, setLoadingCockpit] = useState(false)
@@ -2010,7 +2121,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         const [paperResponse, slotAssignmentsResponse] = await Promise.all([
           supabase
             .from('papers')
-            .select('id,title,abstract,doi,filename,workflow_language,created_at,routing_status')
+            .select('id,title,abstract,doi,filename,workflow_language,created_at,routing_status,latest_ai_extraction_id')
             .in('workflow_language', SUPPORTED_WORKFLOW_LANGUAGES)
             .order('id', { ascending: false })
             .limit(2000),
@@ -2030,10 +2141,16 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           slotAssignments: slotAssignmentsResponse.data || [],
           reviewerProfileId: reviewerProfile.id,
         })
+        const paperIds = [...new Set(virtualAssignments.map((assignment) => assignment.paper_id).filter(Boolean))]
+        const aiResponse = paperIds.length
+          ? await supabase.from('ai_extractions').select('*').in('paper_id', paperIds).order('created_at', { ascending: false })
+          : { data: [], error: null }
+        if (aiResponse.error) throw aiResponse.error
+        const virtualAssignmentsWithAi = attachLatestAiExtractions(virtualAssignments, aiResponse.data || [])
 
-        setAssignments(virtualAssignments)
-        setSelectedAssignmentId((previousId) => pickDefaultAssignment(virtualAssignments, previousId))
-        return virtualAssignments
+        setAssignments(virtualAssignmentsWithAi)
+        setSelectedAssignmentId((previousId) => pickDefaultAssignment(virtualAssignmentsWithAi, previousId))
+        return virtualAssignmentsWithAi
       }
 
       if (isTesterAccount) {
@@ -2047,10 +2164,16 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         if (paperError) throw paperError
 
         const virtualAssignments = buildGenericTesterAssignments(paperRows || [], reviewerProfile.id)
+        const paperIds = [...new Set(virtualAssignments.map((assignment) => assignment.paper_id).filter(Boolean))]
+        const aiResponse = paperIds.length
+          ? await supabase.from('ai_extractions').select('*').in('paper_id', paperIds).order('created_at', { ascending: false })
+          : { data: [], error: null }
+        if (aiResponse.error) throw aiResponse.error
+        const virtualAssignmentsWithAi = attachLatestAiExtractions(virtualAssignments, aiResponse.data || [])
 
-        setAssignments(virtualAssignments)
-        setSelectedAssignmentId((previousId) => pickDefaultAssignment(virtualAssignments, previousId))
-        return virtualAssignments
+        setAssignments(virtualAssignmentsWithAi)
+        setSelectedAssignmentId((previousId) => pickDefaultAssignment(virtualAssignmentsWithAi, previousId))
+        return virtualAssignmentsWithAi
       }
 
       const { data: assignmentRows, error: assignmentError } = await supabase
@@ -2065,7 +2188,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       const paperIds = [...new Set(orderedAssignments.map((assignment) => assignment.paper_id).filter(Boolean))]
       const slotIds = [...new Set(orderedAssignments.map((assignment) => assignment.paper_slot_assignment_id).filter(Boolean))]
 
-      const [paperResponse, slotResponse, outcomeResponse] = await Promise.all([
+      const [paperResponse, slotResponse, outcomeResponse, aiResponse] = await Promise.all([
         paperIds.length
           ? supabase.from('papers').select('*').in('id', paperIds)
           : Promise.resolve({ data: [], error: null }),
@@ -2075,22 +2198,26 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         paperIds.length
           ? supabase.from('paper_review_outcomes').select('*').in('paper_id', paperIds)
           : Promise.resolve({ data: [], error: null }),
+        paperIds.length
+          ? supabase.from('ai_extractions').select('*').in('paper_id', paperIds).order('created_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
       ])
 
       if (paperResponse.error) throw paperResponse.error
       if (slotResponse.error) throw slotResponse.error
       if (outcomeResponse.error) throw outcomeResponse.error
+      if (aiResponse.error) throw aiResponse.error
 
       const paperMap = buildPaperMap(paperResponse.data || [])
       const slotMap = Object.fromEntries((slotResponse.data || []).map((row) => [row.id, row]))
       const outcomeMap = Object.fromEntries((outcomeResponse.data || []).map((row) => [row.paper_id, row]))
 
-      const mergedAssignments = orderedAssignments.map((assignment) => ({
+      const mergedAssignments = attachLatestAiExtractions(orderedAssignments.map((assignment) => ({
         ...assignment,
         paper: paperMap[assignment.paper_id] || null,
         slot_assignment: slotMap[assignment.paper_slot_assignment_id] || null,
         outcome: outcomeMap[assignment.paper_id] || null,
-      }))
+      })), aiResponse.data || [])
       setAssignments(mergedAssignments)
       setSelectedAssignmentId((previousId) => pickDefaultAssignment(mergedAssignments, previousId))
       return mergedAssignments
@@ -2340,7 +2467,14 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     }
 
     if (currentAssignment.is_virtual) {
-      setFoodItems([createEmptyFoodItem()])
+      const aiExtractionId = currentAssignment.latest_ai_extraction?.id || null
+      const aiFoodItems = buildFoodItemsFromAiPayload(currentAssignment.latest_ai_extraction?.normalized_payload_json)
+      setFoodItems(aiFoodItems.length > 0 ? aiFoodItems : [createEmptyFoodItem()])
+      setAiPrefillSources((previous) => (
+        aiExtractionId
+          ? { ...previous, [currentAssignment.id]: aiExtractionId }
+          : clearPrefillSource(previous, currentAssignment.id)
+      ))
       return
     }
 
@@ -2369,7 +2503,28 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         return
       }
 
-      if (!annotation || !annotation.has_data) {
+      if (!annotation) {
+        if (!cancelled) {
+          const aiExtractionId = currentAssignment.latest_ai_extraction?.id || null
+          const assignmentEditable = OPEN_STATUSES.has(currentAssignment.status)
+          const aiFoodItems = assignmentEditable
+            ? buildFoodItemsFromAiPayload(currentAssignment.latest_ai_extraction?.normalized_payload_json)
+            : []
+          setFoodItems(aiFoodItems.length > 0 ? aiFoodItems : [createEmptyFoodItem()])
+          setAiPrefillSources((previous) => (
+            assignmentEditable && aiExtractionId
+              ? { ...previous, [currentAssignment.id]: aiExtractionId }
+              : clearPrefillSource(previous, currentAssignment.id)
+          ))
+        }
+        return
+      }
+
+      if (!cancelled) {
+        setAiPrefillSources((previous) => clearPrefillSource(previous, currentAssignment.id))
+      }
+
+      if (!annotation.has_data) {
         if (!cancelled) setFoodItems([createEmptyFoodItem()])
         return
       }
@@ -2686,6 +2841,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       : []
     const foodItemCount = validFoodItems.length
     const nutrientValueCount = validFoodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0)
+    const initializedFromAiExtractionId = aiPrefillSources[currentAssignment.id] || null
 
     if (hasData && foodItemCount === 0) {
       showToast('Add at least one valid food item before saving.', 'error')
@@ -2704,6 +2860,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           status,
           food_item_count: foodItemCount,
           nutrient_value_count: nutrientValueCount,
+          initialized_from_ai_extraction_id: initializedFromAiExtractionId,
         })
         setAssignments((previous) => previous.map((assignment) => {
           if (assignment.id !== currentAssignment.id) return assignment
@@ -2801,14 +2958,18 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         if (touchError) throw touchError
         showToast('Draft saved.')
       } else {
+        const submissionMetadata = {
+          source: 'ui',
+          status,
+        }
+        if (initializedFromAiExtractionId) {
+          submissionMetadata.initialized_from_ai_extraction_id = initializedFromAiExtractionId
+        }
         const { error: submitError } = await supabase.rpc('submit_assignment_review', {
           p_paper_user_assignment_id: currentAssignment.id,
           p_annotation_id: annotation.id,
           p_decision_kind: decisionKind,
-          p_submission_metadata: {
-            source: 'ui',
-            status,
-          },
+          p_submission_metadata: submissionMetadata,
         })
         if (submitError) throw submitError
         showToast(status === 'skipped' ? 'No-usable-data submission sent.' : 'Submission sent.')
@@ -2830,6 +2991,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     }
   }, [
     assignments,
+    aiPrefillSources,
     currentAssignment,
     currentPaper,
     foodItems,
@@ -3092,6 +3254,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           getStatusBadgeClass={getStatusBadgeClass}
           formatStatusLabel={formatStatusLabel}
           formatDecisionLabel={formatDecisionLabel}
+          aiPrefillExtractionId={currentAssignment ? aiPrefillSources[currentAssignment.id] : null}
         />
       )}
 
@@ -3167,4 +3330,3 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     </div>
   )
 }
-
