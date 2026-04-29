@@ -32,8 +32,13 @@ Important consequences:
 - Backed by `reviewer_slot_members.member_role = 'shadow'`.
 - Shadow members receive `paper_user_assignments` for the slot when their language flags allow it.
 - They do **not** count toward official slot membership because `counts_toward_official = false`.
+- Shadow members do not receive the destructive `Definitely No Data` UI action, and `mark_assignment_global_no_data()` rejects shadow assignments. If they are unsure or the paper is confusing, they use `Ask for Help`, which keeps the assignment open and creates a cockpit review item.
 - If a slot has multiple non-cancelled members and their latest submission hashes differ, `refresh_paper_resolution_state()` opens an `internal_slot_conflict`.
 - When all members in a slot agree, the slot's `official_submission_id` prefers the primary member's latest submission.
+
+Current shadow roster:
+
+- `dainesalazarromero@gmail.com` (`Daine`) is an English-only shadow member of the `arciel` slot. She receives every English paper assigned to Arciel, but not Arciel's Turkish papers.
 
 ### Tester
 
@@ -225,6 +230,14 @@ Normal live save flow:
    - `submit_assignment_review()` for final submit
 
 Final submissions that began from AI prefill pass `submission_metadata.initialized_from_ai_extraction_id` to `submit_assignment_review()`. That metadata is outside the canonical payload, so reviewer edits alone determine `payload_json`, `payload_text`, and `payload_hash`.
+
+Help request flow:
+
+1. Labeler clicks `Ask for Help` and enters a short note.
+2. UI inserts a `backlog_review_items` row with `item_kind = 'suggestion_review'` and `context.request_kind = 'assignment_help_request'`.
+3. Context stores paper ID/title, assignment ID, slot, member role, workflow language, latest AI extraction ID, and any valid draft food rows.
+4. UI calls `touch_assignment_workspace(..., p_status = 'draft')` so the assignment remains open but visibly started.
+5. Cockpit users triage the request from the Suggestions review queue.
 
 Global negative flow:
 

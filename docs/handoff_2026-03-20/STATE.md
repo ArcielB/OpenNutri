@@ -14,9 +14,9 @@ This is the current high-signal project state after the assignment-driven annota
 - Arciel: developer, official reviewer slot, project manager, cockpit/conflict resolver.
 - Peri: official reviewer slot.
 - Aleyna: official reviewer slot.
-- Daine: English-only shadow helper inside the Arciel lane; cheap ops help, not a standalone official slot.
-- Important implementation caveat:
-  Daine only starts receiving queue items once her real reviewer profile is configured in `reviewer_profiles` + `reviewer_slot_members`.
+- Daine (`dainesalazarromero@gmail.com`): English-only shadow helper inside the Arciel lane; cheap ops help, not a standalone official slot. She receives every English paper assigned to Arciel, but not Arciel's Turkish assignments.
+- Live reviewer config update on April 29, 2026:
+  Daine was allowlisted, configured as an active `arciel` shadow member with `can_review_en=true`, `can_review_tr=false`, `counts_toward_official=false`, and 14 current open English Arciel assignments were backfilled into her queue. Her `auth_user_id` will backfill on first login.
 - Live reviewer config update on April 29, 2026:
   Aleyna's active official slot profile is now `ayseguldogann99@gmail.com`. The old `ozcnaleyna2@gmail.com` profile was deactivated, its active Aleyna primary membership was disabled, and its 19 open assignments were moved to the new profile. The new email is allowlisted for auth and will backfill `auth_user_id` on first login.
 
@@ -104,6 +104,8 @@ This is the current high-signal project state after the assignment-driven annota
 - Queue saves drafts to the workspace tables, then uses RPC submission for final snapshots.
 - Editable assignments with no existing annotation/draft now initialize from the latest AI `normalized_payload_json`; no-data AI payloads leave the form blank. Existing drafts/submissions are never overwritten, and final submissions record `submission_metadata.initialized_from_ai_extraction_id` when the form began from AI prefill.
 - Normal labelers see compact AI-prefill badges for AI decision, loaded/available state, matched/custom food and nutrient counts, and rejected rows. AI reasoning stays out of the labeler queue.
+- Queue view now includes `Ask for Help` for confusing papers. It creates a cockpit-visible `backlog_review_items` row with `context.request_kind = assignment_help_request`, stores paper/assignment/slot/member-role/draft context, and keeps the assignment open as `draft`.
+- Shadow assignments show the `Shadow` badge and do not show the destructive `Definitely No Data` action. The schema source now adds a `mark_assignment_global_no_data()` backstop that rejects shadow assignments; live DDL application was attempted on April 29, 2026, but the pooler connections timed out and the direct DB connection was unavailable from this host, so re-apply the migration when DB connectivity is available.
 - Cockpit shows reviewer queue/accuracy summaries, resolved source-yield breakdowns, reviewer-admin controls, and expandable AI details in the cockpit-only `All Papers` screen.
 - The AI detail panel shows model decision, confidence, routing bucket, reasoning, normalized DB payload, rejected/custom row counts, raw response metadata, and later human-outcome comparison status.
 - Reviewer-admin controls can:

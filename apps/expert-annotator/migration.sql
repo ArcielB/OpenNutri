@@ -1040,13 +1040,17 @@ SELECT
     lower(trim(email)),
     CASE lower(trim(email))
         WHEN 'baezarciel@gmail.com' THEN 'Arciel'
+        WHEN 'dainesalazarromero@gmail.com' THEN 'Daine'
         WHEN 'periacikgoz22@gmail.com' THEN 'Peri'
         WHEN 'ayseguldogann99@gmail.com' THEN 'Aleyna'
         ELSE split_part(lower(trim(email)), '@', 1)
     END,
     TRUE,
     TRUE,
-    TRUE,
+    CASE lower(trim(email))
+        WHEN 'dainesalazarromero@gmail.com' THEN FALSE
+        ELSE TRUE
+    END,
     CASE lower(trim(email))
         WHEN 'baezarciel@gmail.com' THEN 'arciel'
         WHEN 'periacikgoz22@gmail.com' THEN 'peri'
@@ -1104,6 +1108,33 @@ SET
     can_review_en = EXCLUDED.can_review_en,
     can_review_tr = EXCLUDED.can_review_tr,
     counts_toward_official = EXCLUDED.counts_toward_official,
+    active = EXCLUDED.active;
+
+INSERT INTO reviewer_slot_members (
+    slot_key,
+    reviewer_profile_id,
+    member_role,
+    can_review_en,
+    can_review_tr,
+    counts_toward_official,
+    active
+)
+SELECT
+    'arciel',
+    reviewer_profiles.id,
+    'shadow',
+    TRUE,
+    FALSE,
+    FALSE,
+    reviewer_profiles.active
+FROM reviewer_profiles
+WHERE reviewer_profiles.email = 'dainesalazarromero@gmail.com'
+ON CONFLICT (slot_key, reviewer_profile_id) DO UPDATE
+SET
+    member_role = 'shadow',
+    can_review_en = TRUE,
+    can_review_tr = FALSE,
+    counts_toward_official = FALSE,
     active = EXCLUDED.active;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewer_profiles_email_unique
@@ -2288,6 +2319,18 @@ BEGIN
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Assignment not found or not owned by current user';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM paper_slot_assignments psa
+        JOIN reviewer_slot_members rsm
+          ON rsm.slot_key = psa.slot_key
+         AND rsm.reviewer_profile_id = v_assignment.reviewer_profile_id
+        WHERE psa.id = v_assignment.paper_slot_assignment_id
+          AND rsm.member_role = 'shadow'
+    ) THEN
+        RAISE EXCEPTION 'Shadow reviewers cannot mark definitely-no-data; ask for help instead';
     END IF;
 
     SELECT *

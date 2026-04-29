@@ -64,13 +64,13 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Editable reviewer assignments are AI-prefilled verification tasks when a latest `ai_extractions.normalized_payload_json` exists and the reviewer has no saved annotation/draft; never overwrite existing human work with AI data.
 - Official reviewer slots are `arciel`, `peri`, and `aleyna`.
 - The cockpit now includes reviewer-admin controls for creating allowlisted reviewer profiles and managing official/shadow slot membership without SQL.
-- `Daine` belongs inside the Arciel lane for English-only shadow review when her reviewer profile is configured; she does not count as an independent official slot.
+- `Daine` (`dainesalazarromero@gmail.com`) belongs inside the Arciel lane for English-only shadow review; she does not count as an independent official slot and should receive every English paper assigned to Arciel.
 - `Definitely No Data` is now a slot-level global skip: one reviewer lane can mark the paper globally unusable, which cancels the other assignments and records final negative truth immediately.
+- Shadow reviewers are still learning and must not use `Definitely No Data`; the UI hides it and the RPC rejects shadow assignments. They should use the assignment help request button when unsure.
 - Resolved crawler truth now comes from `paper_review_outcomes`; unresolved disagreements must not feed feedback learning.
 - Exact raw-match comparison uses deterministic submission payload snapshots stored in `paper_assignment_submissions`.
 - UI test mode disables DB writes and stores actions locally.
 - Legacy global no-data still exists in the schema for old data, but the active workflow is slot assignment + conflict resolution.
-- Known issue to remember: if Daine’s email is not yet mapped into `reviewer_profiles` / `reviewer_slot_members`, the Arciel lane will behave as Arciel-only until that configuration is completed.
 
 ## Research Ops Notes
 - Current top-level goal: finish Preliminary Study 3 fast enough to publish the paper and support the TÜBİTAK application.

@@ -32,6 +32,7 @@ Features:
 - PDF viewer with table-scoped nutrient-name highlighting and click-to-add popover.
 - Food and nutrient autocomplete with ranking and search logging.
 - Save draft, submit usable-data extraction, or submit no-usable-data.
+- Labelers can send an `Ask for Help` request from an assignment when the data is confusing; this keeps the assignment open as a draft and creates a cockpit-visible review item with paper, slot, role, AI, and draft-food context.
 - `done` / `draft` with `has_data=true` now requires at least one valid food item.
 - Exact-match submission snapshots are stored in `paper_assignment_submissions`.
 - Cockpit users can inspect queue health, reviewer agreement/accuracy, source yield, and conflict queues.
@@ -143,6 +144,7 @@ Key modules:
 - `paper_review_outcomes.truth_source_kind = 'ai_model'` rows are stored for provenance and final paper state, but they are currently excluded from the human-truth feedback export.
 - Uses the latest label per user; a paper only counts as positive when the latest visible `draft`/`done` state also has `has_data=true`, `food_item_count > 0`, and `nutrient_value_count > 0`. Papers turn negative on global skip or 2+ unique skips. Mixed signals across labelers are treated as conflicts and excluded from both sides.
 - In the assignment workflow, `Definitely No Data` is a slot-level global skip: one reviewer lane can mark the paper globally unusable, which cancels the remaining assignments and writes final `global_skip` truth immediately.
+- Shadow reviewers do not see the destructive `Definitely No Data` action, and the global-skip RPC rejects shadow assignments. Daine is configured as an English-only shadow reviewer in Arciel's lane, so she receives Arciel's English assignments but not Turkish assignments and does not count as a standalone official slot.
 - Feedback export now classifies papers into English vs Turkish buckets and writes separate phrase / anchor / weighted-term pools for each workflow.
 - Script: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
   - Requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.

@@ -230,6 +230,25 @@ function formatSuggestionReviewStatus(status) {
   }
 }
 
+function formatReviewItemKind(item) {
+  if (item?.context?.request_kind === 'assignment_help_request') {
+    return 'Assignment Help'
+  }
+  return item?.item_kind === 'suggestion_review' ? 'Suggestion' : item?.item_kind || 'Review Item'
+}
+
+function getHelpRequestContextRows(item) {
+  const context = item?.context || {}
+  if (context.request_kind !== 'assignment_help_request') return []
+  return [
+    ['Paper', context.paper_id ? `#${context.paper_id}` : null],
+    ['Slot', context.slot_key || null],
+    ['Role', context.member_role || null],
+    ['Language', context.workflow_language || null],
+    ['Reviewer', context.reviewer_name || context.reviewer_email || null],
+  ].filter(([, value]) => value)
+}
+
 function formatBytesLabel(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return ''
   if (bytes < 1024) return `${bytes} B`
@@ -610,6 +629,10 @@ function buildLatestAiExtractionMaps(rows) {
   return { byId, byPaperId }
 }
 
+function buildSlotMemberMap(rows) {
+  return Object.fromEntries((rows || []).map((row) => [row.slot_key, row]))
+}
+
 function attachLatestAiExtractions(assignments, aiExtractionRows) {
   const { byId, byPaperId } = buildLatestAiExtractionMaps(aiExtractionRows)
   return (assignments || []).map((assignment) => {
@@ -674,6 +697,33 @@ function clearPrefillSource(previous, assignmentId) {
   return next
 }
 
+function buildAssignmentHelpContext({
+  assignment,
+  paper,
+  reviewerProfile,
+  foodItems,
+  initializedFromAiExtractionId,
+}) {
+  return {
+    request_kind: 'assignment_help_request',
+    paper_id: paper?.id || assignment?.paper_id || null,
+    paper_title: paper?.title || null,
+    paper_filename: paper?.filename || null,
+    paper_doi: paper?.doi || null,
+    workflow_language: assignment?.workflow_language || paper?.workflow_language || null,
+    paper_user_assignment_id: assignment?.id || null,
+    paper_slot_assignment_id: assignment?.paper_slot_assignment_id || null,
+    slot_key: assignment?.slot_assignment?.slot_key || null,
+    member_role: assignment?.slot_member?.member_role || null,
+    reviewer_profile_id: reviewerProfile?.id || assignment?.reviewer_profile_id || null,
+    reviewer_email: reviewerProfile?.email || null,
+    reviewer_name: reviewerProfile?.display_name || null,
+    latest_ai_extraction_id: assignment?.latest_ai_extraction?.id || null,
+    initialized_from_ai_extraction_id: initializedFromAiExtractionId || null,
+    draft_food_items: (foodItems || []).filter(isValidFoodItem).map(normalizeFoodItem),
+  }
+}
+
 function AiPrefillStatus({ extraction, initializedExtractionId }) {
   if (!extraction) return null
   const stats = getAiPrefillStats(extraction)
@@ -695,6 +745,76 @@ function AiPrefillStatus({ extraction, initializedExtractionId }) {
       {stats.rejected_row_count > 0 && (
         <span className="status-badge status-skipped">{stats.rejected_row_count} rejected</span>
       )}
+    </div>
+  )
+}
+
+function HelpRequestModal({
+  assignment,
+  paper,
+  note,
+  setNote,
+  onClose,
+  onSubmit,
+  saving,
+}) {
+  const contextRows = [
+    ['Paper', paper?.id ? `#${paper.id}` : null],
+    ['Slot', assignment?.slot_assignment?.slot_key || null],
+    ['Role', assignment?.slot_member?.member_role || 'primary'],
+    ['Language', assignment?.workflow_language || paper?.workflow_language || null],
+  ].filter(([, value]) => value)
+
+  const submit = (event) => {
+    event.preventDefault()
+    if (saving || !note.trim()) return
+    onSubmit()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
+      <form
+        className="modal-card help-request-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="help-request-title"
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={submit}
+      >
+        <h2 id="help-request-title">Ask for Help</h2>
+        <p>This sends the paper to the cockpit and keeps your assignment open as a draft.</p>
+        {contextRows.length > 0 && (
+          <div className="help-request-context">
+            {contextRows.map(([label, value]) => (
+              <span key={label}>{label}: {value}</span>
+            ))}
+          </div>
+        )}
+        <label className="help-request-label" htmlFor="help-request-note">
+          What is confusing?
+        </label>
+        <textarea
+          id="help-request-note"
+          placeholder="Example: table units conflict, only a chart is available, or the food state is unclear."
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          disabled={saving}
+          autoFocus
+        />
+        <div className="modal-actions">
+          <button type="button" className="btn btn-outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={saving || !note.trim()}
+            style={{ width: 'auto' }}
+          >
+            {saving ? 'Sending...' : 'Send Help Request'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }
@@ -722,11 +842,13 @@ function QueueView({
   updateFoodItem,
   handlePdfNutrientAdd,
   handleGlobalNoData,
+  handleRequestHelp,
   saveAnnotation,
   getStatusBadgeClass,
   formatStatusLabel,
   formatDecisionLabel,
   aiPrefillExtractionId,
+  canUseGlobalNoData,
 }) {
   return (
     <div className="workspace">
@@ -771,6 +893,9 @@ function QueueView({
                     <span className={`status-badge ${getStatusBadgeClass(currentAssignment.status)}`}>
                       {formatStatusLabel(currentAssignment.status)}
                     </span>
+                    {currentAssignment.slot_member?.member_role === 'shadow' && (
+                      <span className="status-badge status-draft">Shadow</span>
+                    )}
                     <span className="status-badge status-pending">{queueStats.open} open</span>
                     <span className="status-badge status-draft">{queueStats.conflict} conflict</span>
                     <span className="status-badge status-done">{queueStats.resolved} resolved</span>
@@ -852,12 +977,21 @@ function QueueView({
         <div className="annotation-actions">
           <div className="action-row">
             <button
-              className="btn btn-danger btn-global-skip"
-              onClick={handleGlobalNoData}
+              className="btn btn-outline"
+              onClick={handleRequestHelp}
               disabled={saving || !isEditable}
             >
-              🛑 Definitely No Data
+              Ask for Help
             </button>
+            {canUseGlobalNoData && (
+              <button
+                className="btn btn-danger btn-global-skip"
+                onClick={handleGlobalNoData}
+                disabled={saving || !isEditable}
+              >
+                🛑 Definitely No Data
+              </button>
+            )}
           </div>
           <div className="action-row">
             <button
@@ -875,14 +1009,15 @@ function QueueView({
               Save Draft
             </button>
           </div>
-          <button
-            className="btn btn-success"
-            onClick={() => saveAnnotation(true, 'done')}
-            disabled={saving || !isEditable}
-            style={{ width: '100%' }}
-          >
-            {saving ? 'Saving...' : 'Submit Final Extraction'}
-          </button>
+          <div className="action-row">
+            <button
+              className="btn btn-success"
+              onClick={() => saveAnnotation(true, 'done')}
+              disabled={saving || !isEditable}
+            >
+              {saving ? 'Saving...' : 'Submit Final Extraction'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1562,12 +1697,13 @@ function SuggestionsReviewView({
               review_note: item.review_note || '',
             }
             const attachments = attachmentLinksByItem[item.id] || normalizeSuggestionAttachments(item.attachments)
+            const contextRows = getHelpRequestContextRows(item)
 
             return (
               <div key={item.id} className="suggestion-review-item">
                 <div className="suggestion-review-header">
                   <div className="suggestion-review-meta">
-                    <span className="status-badge status-pending">{item.item_kind || 'suggestion_review'}</span>
+                    <span className="status-badge status-pending">{formatReviewItemKind(item)}</span>
                     <span className="status-badge status-draft">{formatSuggestionReviewStatus(item.status)}</span>
                     <span>{item.created_at ? new Date(item.created_at).toLocaleString() : '-'}</span>
                   </div>
@@ -1575,6 +1711,14 @@ function SuggestionsReviewView({
                     {(item.submitted_by_name || '').trim() || item.submitted_by_email || item.submitted_by_auth_user_id || 'Unknown submitter'}
                   </div>
                 </div>
+
+                {contextRows.length > 0 && (
+                  <div className="suggestion-review-context">
+                    {contextRows.map(([label, value]) => (
+                      <span key={`${item.id}-${label}`}>{label}: {value}</span>
+                    ))}
+                  </div>
+                )}
 
                 <div className="suggestion-review-body">{item.suggestion_text}</div>
                 {attachments.length > 0 && (
@@ -2057,6 +2201,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [loadingCockpit, setLoadingCockpit] = useState(false)
   const [toast, setToast] = useState(null)
   const [showSuggestion, setShowSuggestion] = useState(false)
+  const [showHelpRequest, setShowHelpRequest] = useState(false)
+  const [helpRequestNote, setHelpRequestNote] = useState('')
   const [showPaperList, setShowPaperList] = useState(false)
   const [allNutrients, setAllNutrients] = useState([])
   const [allFoods, setAllFoods] = useState([])
@@ -2098,6 +2244,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     cancelled: assignments.filter((assignment) => assignment.status === 'cancelled').length,
   }
   const isEditable = currentAssignment ? OPEN_STATUSES.has(currentAssignment.status) : false
+  const isShadowAssignment = currentAssignment?.slot_member?.member_role === 'shadow'
+  const canUseGlobalNoData = Boolean(currentAssignment && isEditable && !isShadowAssignment)
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type })
@@ -2211,11 +2359,22 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       const paperMap = buildPaperMap(paperResponse.data || [])
       const slotMap = Object.fromEntries((slotResponse.data || []).map((row) => [row.id, row]))
       const outcomeMap = Object.fromEntries((outcomeResponse.data || []).map((row) => [row.paper_id, row]))
+      const slotKeys = [...new Set((slotResponse.data || []).map((row) => row.slot_key).filter(Boolean))]
+      const memberResponse = slotKeys.length
+        ? await supabase
+            .from('reviewer_slot_members')
+            .select('*')
+            .eq('reviewer_profile_id', reviewerProfile.id)
+            .in('slot_key', slotKeys)
+        : { data: [], error: null }
+      if (memberResponse.error) throw memberResponse.error
+      const memberMap = buildSlotMemberMap(memberResponse.data || [])
 
       const mergedAssignments = attachLatestAiExtractions(orderedAssignments.map((assignment) => ({
         ...assignment,
         paper: paperMap[assignment.paper_id] || null,
         slot_assignment: slotMap[assignment.paper_slot_assignment_id] || null,
+        slot_member: memberMap[slotMap[assignment.paper_slot_assignment_id]?.slot_key] || null,
         outcome: outcomeMap[assignment.paper_id] || null,
       })), aiResponse.data || [])
       setAssignments(mergedAssignments)
@@ -3004,8 +3163,110 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     ensureAssignmentStillEditable,
   ])
 
+  const handleRequestHelp = useCallback(() => {
+    if (!currentAssignment || !currentPaper || !isEditable) return
+    setHelpRequestNote('')
+    setShowHelpRequest(true)
+  }, [currentAssignment, currentPaper, isEditable])
+
+  const submitHelpRequest = useCallback(async () => {
+    if (!currentAssignment || !currentPaper || !isEditable) return
+    const note = helpRequestNote.trim()
+    if (!note) {
+      showToast('Help request cancelled: note required.', 'error')
+      return
+    }
+
+    const initializedFromAiExtractionId = aiPrefillSources[currentAssignment.id] || null
+    const context = buildAssignmentHelpContext({
+      assignment: currentAssignment,
+      paper: currentPaper,
+      reviewerProfile,
+      foodItems,
+      initializedFromAiExtractionId,
+    })
+
+    setSaving(true)
+    try {
+      if (testMode) {
+        appendTestEvent({
+          type: 'assignment_help_request',
+          assignment_id: currentAssignment.id,
+          paper_id: currentPaper.id,
+          user_id: user.id,
+          note,
+          context,
+        })
+        setAssignments((previous) => previous.map((assignment) => (
+          assignment.id === currentAssignment.id ? { ...assignment, status: 'draft' } : assignment
+        )))
+        setShowHelpRequest(false)
+        setHelpRequestNote('')
+        showToast('Help request stored locally (test mode).')
+        return
+      }
+
+      const stillEditable = await ensureAssignmentStillEditable()
+      if (!stillEditable) return
+
+      const { error: insertError } = await supabase
+        .from('backlog_review_items')
+        .insert({
+          item_kind: 'suggestion_review',
+          status: 'new',
+          submitted_by_auth_user_id: user.id,
+          submitted_by_email: user.email || reviewerProfile?.email || null,
+          submitted_by_name: reviewerProfile?.display_name || user.email || null,
+          suggestion_text: note,
+          context,
+          attachments: [],
+          follow_up_required: true,
+        })
+      if (insertError) throw insertError
+
+      const { error: touchError } = await supabase.rpc('touch_assignment_workspace', {
+        p_paper_user_assignment_id: currentAssignment.id,
+        p_annotation_id: null,
+        p_status: 'draft',
+      })
+      if (touchError) throw touchError
+
+      await refreshQueue()
+      if (reviewerProfile?.cockpit_access) {
+        await refreshCockpit()
+      }
+      setShowHelpRequest(false)
+      setHelpRequestNote('')
+      showToast('Help request sent.')
+    } catch (error) {
+      console.error('Help request failed:', error)
+      showToast(`Failed to send help request: ${error.message}`, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [
+    aiPrefillSources,
+    currentAssignment,
+    currentPaper,
+    ensureAssignmentStillEditable,
+    foodItems,
+    helpRequestNote,
+    isEditable,
+    refreshCockpit,
+    refreshQueue,
+    reviewerProfile,
+    showToast,
+    testMode,
+    user.email,
+    user.id,
+  ])
+
   const handleGlobalNoData = useCallback(async () => {
     if (!currentAssignment || !currentPaper || !isEditable) return
+    if (isShadowAssignment) {
+      showToast('Shadow reviewers should use Ask for Help instead of Definitely No Data.', 'error')
+      return
+    }
     const confirmed = typeof window !== 'undefined'
       ? window.confirm('Mark this paper as definitely no data for everyone? This will cancel the other assignments for this paper.')
       : false
@@ -3075,6 +3336,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     currentPaper,
     ensureAssignmentStillEditable,
     isEditable,
+    isShadowAssignment,
     refreshCockpit,
     refreshQueue,
     reviewerProfile?.cockpit_access,
@@ -3250,11 +3512,13 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           updateFoodItem={updateFoodItem}
           handlePdfNutrientAdd={handlePdfNutrientAdd}
           handleGlobalNoData={handleGlobalNoData}
+          handleRequestHelp={handleRequestHelp}
           saveAnnotation={saveAnnotation}
           getStatusBadgeClass={getStatusBadgeClass}
           formatStatusLabel={formatStatusLabel}
           formatDecisionLabel={formatDecisionLabel}
           aiPrefillExtractionId={currentAssignment ? aiPrefillSources[currentAssignment.id] : null}
+          canUseGlobalNoData={canUseGlobalNoData}
         />
       )}
 
@@ -3325,6 +3589,21 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           onClose={() => setShowSuggestion(false)}
           testMode={testMode}
           persistInTestMode={isDeveloperTrainingMode}
+        />
+      )}
+
+      {showHelpRequest && (
+        <HelpRequestModal
+          assignment={currentAssignment}
+          paper={currentPaper}
+          note={helpRequestNote}
+          setNote={setHelpRequestNote}
+          onClose={() => {
+            setShowHelpRequest(false)
+            setHelpRequestNote('')
+          }}
+          onSubmit={submitHelpRequest}
+          saving={saving}
         />
       )}
     </div>

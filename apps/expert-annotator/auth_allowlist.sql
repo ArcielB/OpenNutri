@@ -13,6 +13,7 @@ VALUES
     ('ayseguldogann99@gmail.com'),
     ('ayseguldogan2706@gmail.com'),
     ('baezarciel@gmail.com'),
+    ('dainesalazarromero@gmail.com'),
     ('mcraft160105@gmail.com'),
     ('periacikgoz22@gmail.com')
 ON CONFLICT (email) DO NOTHING;

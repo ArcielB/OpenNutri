@@ -1864,6 +1864,22 @@ body {
   font-size: 13px;
 }
 
+.suggestion-review-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.suggestion-review-context span {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
 .suggestion-review-body {
   white-space: pre-wrap;
   color: var(--text-primary);
@@ -2107,6 +2123,34 @@ body {
 
 .modal-card textarea::placeholder {
   color: var(--text-muted);
+}
+
+.help-request-modal {
+  width: 520px;
+}
+
+.help-request-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.help-request-context span {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.help-request-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .suggestion-attachment-panel {
