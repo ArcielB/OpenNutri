@@ -10,10 +10,10 @@ CREATE TABLE IF NOT EXISTS public.allowed_auth_emails (
 
 INSERT INTO public.allowed_auth_emails (email)
 VALUES
+    ('ayseguldogann99@gmail.com'),
     ('ayseguldogan2706@gmail.com'),
     ('baezarciel@gmail.com'),
     ('mcraft160105@gmail.com'),
-    ('ozcnaleyna2@gmail.com'),
     ('periacikgoz22@gmail.com')
 ON CONFLICT (email) DO NOTHING;
 

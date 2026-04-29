@@ -1041,7 +1041,7 @@ SELECT
     CASE lower(trim(email))
         WHEN 'baezarciel@gmail.com' THEN 'Arciel'
         WHEN 'periacikgoz22@gmail.com' THEN 'Peri'
-        WHEN 'ozcnaleyna2@gmail.com' THEN 'Aleyna'
+        WHEN 'ayseguldogann99@gmail.com' THEN 'Aleyna'
         ELSE split_part(lower(trim(email)), '@', 1)
     END,
     TRUE,
@@ -1050,7 +1050,7 @@ SELECT
     CASE lower(trim(email))
         WHEN 'baezarciel@gmail.com' THEN 'arciel'
         WHEN 'periacikgoz22@gmail.com' THEN 'peri'
-        WHEN 'ozcnaleyna2@gmail.com' THEN 'aleyna'
+        WHEN 'ayseguldogann99@gmail.com' THEN 'aleyna'
         ELSE NULL
     END,
     CASE lower(trim(email))
@@ -1063,7 +1063,7 @@ SELECT
     END,
     CASE lower(trim(email))
         WHEN 'periacikgoz22@gmail.com' THEN 1.3
-        WHEN 'ozcnaleyna2@gmail.com' THEN 1.3
+        WHEN 'ayseguldogann99@gmail.com' THEN 1.3
         ELSE 1.0
     END
 FROM allowed_auth_emails

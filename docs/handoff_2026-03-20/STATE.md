@@ -17,6 +17,8 @@ This is the current high-signal project state after the assignment-driven annota
 - Daine: English-only shadow helper inside the Arciel lane; cheap ops help, not a standalone official slot.
 - Important implementation caveat:
   Daine only starts receiving queue items once her real reviewer profile is configured in `reviewer_profiles` + `reviewer_slot_members`.
+- Live reviewer config update on April 29, 2026:
+  Aleyna's active official slot profile is now `ayseguldogann99@gmail.com`. The old `ozcnaleyna2@gmail.com` profile was deactivated, its active Aleyna primary membership was disabled, and its 19 open assignments were moved to the new profile. The new email is allowlisted for auth and will backfill `auth_user_id` on first login.
 
 **Workflow Now**
 - New ingest gate:
