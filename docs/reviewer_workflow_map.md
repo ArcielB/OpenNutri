@@ -27,6 +27,14 @@ Important consequences:
   - `peri`
   - `aleyna`
 
+### Independent full-coverage labeler
+
+- `ayseguldogann99@gmail.com` is Aysegul, not Aleyna.
+- Source schema models Aysegul with the non-official `aysegul` lane.
+- `refill_assignment_queue.py` attaches the `aysegul` lane to each newly assigned paper in addition to the two official slots.
+- The `aysegul` lane is excluded from the two-official-slot truth calculation; her work is independent review signal, not a substitute for Aleyna.
+- `Definitely No Data` is limited to official reviewer lanes. Non-official lanes should use normal no-usable-data submission or `Ask for Help`.
+
 ### Shadow member
 
 - Backed by `reviewer_slot_members.member_role = 'shadow'`.
@@ -92,6 +100,8 @@ Each paper is assigned to exactly two official slots, chosen from:
 - Higher current slot load increases penalty.
 - Assignments that help more reviewer deficits get a strong reward.
 - Overflow beyond a reviewer's target open backlog adds penalty.
+
+After the two official slots are selected, the non-official `aysegul` lane is added to the same paper when its active profile can review that paper's language.
 
 ### Row creation and reuse
 
@@ -397,6 +407,7 @@ The UI's reviewer-accuracy summary also compares `paper_assignment_submissions.p
 - Only `human_review_ready` papers may be assigned to humans.
   - enforced by `enforce_human_review_ready_assignment()` triggers on both assignment tables
 - Reviewers work from `paper_user_assignments`, not from a global paper list.
+- Official resolved truth uses only `reviewer_slots.is_official = true` lanes; the `aysegul` independent lane does not decide `paper_review_outcomes`.
 - Drafts stay editable; resolved/cancelled assignments do not.
 - Tester accounts are read-only.
 - Cockpit writes require both `cockpit_access` and non-tester status.

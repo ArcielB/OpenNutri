@@ -63,10 +63,12 @@ Do not spend tokens on these unless the task explicitly needs them:
   every paper gets exactly 2 official reviewer slots and reviewers only see their own queue.
 - Editable reviewer assignments are AI-prefilled verification tasks when a latest `ai_extractions.normalized_payload_json` exists and the reviewer has no saved annotation/draft; never overwrite existing human work with AI data.
 - Official reviewer slots are `arciel`, `peri`, and `aleyna`.
+- `Aysegul` (`ayseguldogann99@gmail.com`) is a separate full-coverage labeler, not Aleyna and not a substitute for Aleyna. Source schema models her as the non-official `aysegul` independent lane so every newly assigned paper can also be assigned to her without changing the two-official-slot truth contract.
+- The live DB has the `aysegul` lane applied as `reviewer_slots.is_official = false`; Aysegul's membership must keep `counts_toward_official = false`.
 - The cockpit now includes reviewer-admin controls for creating allowlisted reviewer profiles and managing official/shadow slot membership without SQL.
 - `Daine` (`dainesalazarromero@gmail.com`) belongs inside the Arciel lane for English-only shadow review; she does not count as an independent official slot and should receive every English paper assigned to Arciel.
 - `Definitely No Data` is now a slot-level global skip: one reviewer lane can mark the paper globally unusable, which cancels the other assignments and records final negative truth immediately.
-- Shadow reviewers are still learning and must not use `Definitely No Data`; the UI hides it and the RPC rejects shadow assignments. They should use the assignment help request button when unsure.
+- Non-official lanes and shadow reviewers must not use `Definitely No Data`; the UI hides it and the RPC source rejects non-official/shadow assignments. They should use the assignment help request button when unsure.
 - Resolved crawler truth now comes from `paper_review_outcomes`; unresolved disagreements must not feed feedback learning.
 - Exact raw-match comparison uses deterministic submission payload snapshots stored in `paper_assignment_submissions`.
 - UI test mode disables DB writes and stores actions locally.
@@ -85,6 +87,7 @@ Do not spend tokens on these unless the task explicitly needs them:
   - Arciel: developer, official reviewer slot, cockpit/conflict resolver.
   - Peri: official reviewer slot.
   - Aleyna: official reviewer slot.
+  - Aysegul: independent full-coverage labeler, not part of the official two-slot truth calculation.
   - Daine: cheap English-only shadow helper under Arciel lane, ops-only until formally configured; not an official standalone reviewer slot.
 
 ## Common Commands

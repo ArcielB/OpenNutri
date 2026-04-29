@@ -14,11 +14,16 @@ This is the current high-signal project state after the assignment-driven annota
 - Arciel: developer, official reviewer slot, project manager, cockpit/conflict resolver.
 - Peri: official reviewer slot.
 - Aleyna: official reviewer slot.
+- Aysegul (`ayseguldogann99@gmail.com`): independent full-coverage labeler, not Aleyna and not a substitute for Aleyna. Source schema models her as the non-official `aysegul` lane so every newly assigned paper can also go to her without changing the two-official-slot truth calculation.
 - Daine (`dainesalazarromero@gmail.com`): English-only shadow helper inside the Arciel lane; cheap ops help, not a standalone official slot. She receives every English paper assigned to Arciel, but not Arciel's Turkish assignments.
 - Live reviewer config update on April 29, 2026:
   Daine was allowlisted, configured as an active `arciel` shadow member with `can_review_en=true`, `can_review_tr=false`, `counts_toward_official=false`, and 14 current open English Arciel assignments were backfilled into her queue. Her `auth_user_id` will backfill on first login.
 - Live reviewer config update on April 29, 2026:
-  Aleyna's active official slot profile is now `ayseguldogann99@gmail.com`. The old `ozcnaleyna2@gmail.com` profile was deactivated, its active Aleyna primary membership was disabled, and its 19 open assignments were moved to the new profile. The new email is allowlisted for auth and will backfill `auth_user_id` on first login.
+  The earlier configuration that treated `ayseguldogann99@gmail.com` as Aleyna was wrong. Aleyna should remain `ozcnaleyna2@gmail.com`; Aysegul is separate. Live data was corrected over the Supabase REST API: Aleyna is active on the `aleyna` official slot again, Aysegul is active with no official slot, and Aysegul's mistaken Aleyna membership is inactive.
+- Live AI reset on April 29, 2026:
+  All 34 existing papers were reset to `routing_status = queued_for_ai`, `route_destination = blocked`, and `latest_ai_extraction_id = null`; 55 `ai_extractions` rows and 59 old `paper_stage_tasks` rows were deleted; 34 fresh `gemini_flash_db_payload_v2` queued tasks were inserted; 60 slot assignments, 75 user assignments, and 2 open conflicts were cancelled. Existing human submissions/annotations were not deleted.
+- Live schema update on April 29, 2026:
+  After the pooler recovered, the annotator migration was applied successfully. Live `reviewer_slots` now includes `aysegul` with `is_official = false`, and Aysegul has an active `aysegul` primary membership with `counts_toward_official = false`.
 
 **Workflow Now**
 - New ingest gate:
@@ -38,6 +43,7 @@ This is the current high-signal project state after the assignment-driven annota
 - The shared paper list is gone.
 - Every paper is assigned to exactly 2 official reviewer slots:
   `arciel`, `peri`, `aleyna`.
+- Aysegul's non-official `aysegul` lane is added to newly assigned papers as independent full-coverage review signal and is excluded from `paper_review_outcomes`.
 - Users only see their own `paper_user_assignments`.
 - Final submissions are frozen as canonical payload snapshots in `paper_assignment_submissions`.
 - Exact raw match is based on deterministic payload serialization + `payload_hash`.
@@ -105,7 +111,7 @@ This is the current high-signal project state after the assignment-driven annota
 - Editable assignments with no existing annotation/draft now initialize from the latest AI `normalized_payload_json`; no-data AI payloads leave the form blank. Existing drafts/submissions are never overwritten, and final submissions record `submission_metadata.initialized_from_ai_extraction_id` when the form began from AI prefill.
 - Normal labelers see compact AI-prefill badges for AI decision, loaded/available state, matched/custom food and nutrient counts, and rejected rows. AI reasoning stays out of the labeler queue.
 - Queue view now includes `Ask for Help` for confusing papers. It creates a cockpit-visible `backlog_review_items` row with `context.request_kind = assignment_help_request`, stores paper/assignment/slot/member-role/draft context, and keeps the assignment open as `draft`.
-- Shadow assignments show the `Shadow` badge and do not show the destructive `Definitely No Data` action. The schema source now adds a `mark_assignment_global_no_data()` backstop that rejects shadow assignments; live DDL application was attempted on April 29, 2026, but the pooler connections timed out and the direct DB connection was unavailable from this host, so re-apply the migration when DB connectivity is available.
+- Shadow/non-official assignments do not show the destructive `Definitely No Data` action. The live `mark_assignment_global_no_data()` RPC now rejects shadow and non-official assignments as a backstop.
 - Cockpit shows reviewer queue/accuracy summaries, resolved source-yield breakdowns, reviewer-admin controls, and expandable AI details in the cockpit-only `All Papers` screen.
 - The AI detail panel shows model decision, confidence, routing bucket, reasoning, normalized DB payload, rejected/custom row counts, raw response metadata, and later human-outcome comparison status.
 - Reviewer-admin controls can:

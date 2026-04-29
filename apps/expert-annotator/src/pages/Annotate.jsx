@@ -2245,7 +2245,12 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   }
   const isEditable = currentAssignment ? OPEN_STATUSES.has(currentAssignment.status) : false
   const isShadowAssignment = currentAssignment?.slot_member?.member_role === 'shadow'
-  const canUseGlobalNoData = Boolean(currentAssignment && isEditable && !isShadowAssignment)
+  const canUseGlobalNoData = Boolean(
+    currentAssignment
+    && isEditable
+    && !isShadowAssignment
+    && currentAssignment.slot_member?.counts_toward_official === true,
+  )
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type })
@@ -3263,8 +3268,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
   const handleGlobalNoData = useCallback(async () => {
     if (!currentAssignment || !currentPaper || !isEditable) return
-    if (isShadowAssignment) {
-      showToast('Shadow reviewers should use Ask for Help instead of Definitely No Data.', 'error')
+    if (!canUseGlobalNoData) {
+      showToast('Only official reviewer slots should use Definitely No Data. Use Ask for Help instead.', 'error')
       return
     }
     const confirmed = typeof window !== 'undefined'
@@ -3334,9 +3339,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     assignments,
     currentAssignment,
     currentPaper,
+    canUseGlobalNoData,
     ensureAssignmentStillEditable,
     isEditable,
-    isShadowAssignment,
     refreshCockpit,
     refreshQueue,
     reviewerProfile?.cockpit_access,

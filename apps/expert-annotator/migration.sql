@@ -485,11 +485,29 @@ END $$;
 
 CREATE TABLE IF NOT EXISTS reviewer_slots (
     slot_key TEXT PRIMARY KEY
-        CHECK (slot_key IN ('arciel', 'peri', 'aleyna')),
+        CHECK (slot_key IN ('arciel', 'peri', 'aleyna', 'aysegul')),
     display_name TEXT NOT NULL,
     is_official BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'reviewer_slots'
+          AND constraint_name = 'reviewer_slots_slot_key_check'
+    ) THEN
+        ALTER TABLE reviewer_slots
+            DROP CONSTRAINT reviewer_slots_slot_key_check;
+    END IF;
+
+    ALTER TABLE reviewer_slots
+        ADD CONSTRAINT reviewer_slots_slot_key_check
+        CHECK (slot_key IN ('arciel', 'peri', 'aleyna', 'aysegul'));
+END $$;
 
 CREATE TABLE IF NOT EXISTS reviewer_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1019,7 +1037,8 @@ INSERT INTO reviewer_slots (slot_key, display_name, is_official)
 VALUES
     ('arciel', 'Arciel Lane', TRUE),
     ('peri', 'Peri', TRUE),
-    ('aleyna', 'Aleyna', TRUE)
+    ('aleyna', 'Aleyna', TRUE),
+    ('aysegul', 'Aysegul Independent', FALSE)
 ON CONFLICT (slot_key) DO UPDATE
 SET
     display_name = EXCLUDED.display_name,
@@ -1040,9 +1059,10 @@ SELECT
     lower(trim(email)),
     CASE lower(trim(email))
         WHEN 'baezarciel@gmail.com' THEN 'Arciel'
+        WHEN 'ayseguldogann99@gmail.com' THEN 'Aysegul'
         WHEN 'dainesalazarromero@gmail.com' THEN 'Daine'
         WHEN 'periacikgoz22@gmail.com' THEN 'Peri'
-        WHEN 'ayseguldogann99@gmail.com' THEN 'Aleyna'
+        WHEN 'ozcnaleyna2@gmail.com' THEN 'Aleyna'
         ELSE split_part(lower(trim(email)), '@', 1)
     END,
     TRUE,
@@ -1054,7 +1074,8 @@ SELECT
     CASE lower(trim(email))
         WHEN 'baezarciel@gmail.com' THEN 'arciel'
         WHEN 'periacikgoz22@gmail.com' THEN 'peri'
-        WHEN 'ayseguldogann99@gmail.com' THEN 'aleyna'
+        WHEN 'ozcnaleyna2@gmail.com' THEN 'aleyna'
+        WHEN 'ayseguldogann99@gmail.com' THEN 'aysegul'
         ELSE NULL
     END,
     CASE lower(trim(email))
@@ -1067,7 +1088,7 @@ SELECT
     END,
     CASE lower(trim(email))
         WHEN 'periacikgoz22@gmail.com' THEN 1.3
-        WHEN 'ayseguldogann99@gmail.com' THEN 1.3
+        WHEN 'ozcnaleyna2@gmail.com' THEN 1.3
         ELSE 1.0
     END
 FROM allowed_auth_emails
@@ -1098,9 +1119,11 @@ SELECT
     'primary',
     reviewer_profiles.can_review_en,
     reviewer_profiles.can_review_tr,
-    TRUE,
+    reviewer_slots.is_official,
     reviewer_profiles.active
 FROM reviewer_profiles
+JOIN reviewer_slots
+    ON reviewer_slots.slot_key = reviewer_profiles.official_slot
 WHERE reviewer_profiles.official_slot IS NOT NULL
 ON CONFLICT (slot_key, reviewer_profile_id) DO UPDATE
 SET
@@ -1899,16 +1922,28 @@ BEGIN
 
     SELECT *
     INTO v_slot_one
-    FROM paper_slot_assignments
-    WHERE paper_id = p_paper_id
-    ORDER BY slot_key
+    FROM paper_slot_assignments psa
+    WHERE psa.paper_id = p_paper_id
+      AND EXISTS (
+          SELECT 1
+          FROM reviewer_slots rs
+          WHERE rs.slot_key = psa.slot_key
+            AND rs.is_official IS TRUE
+      )
+    ORDER BY psa.slot_key
     LIMIT 1;
 
     SELECT *
     INTO v_slot_two
-    FROM paper_slot_assignments
-    WHERE paper_id = p_paper_id
-    ORDER BY slot_key
+    FROM paper_slot_assignments psa
+    WHERE psa.paper_id = p_paper_id
+      AND EXISTS (
+          SELECT 1
+          FROM reviewer_slots rs
+          WHERE rs.slot_key = psa.slot_key
+            AND rs.is_official IS TRUE
+      )
+    ORDER BY psa.slot_key
     OFFSET 1
     LIMIT 1;
 
@@ -1996,14 +2031,28 @@ BEGIN
         SET
             status = 'resolved',
             resolved_at = NOW()
-        WHERE paper_id = p_paper_id;
+        WHERE paper_id = p_paper_id
+          AND EXISTS (
+              SELECT 1
+              FROM reviewer_slots
+              WHERE reviewer_slots.slot_key = paper_slot_assignments.slot_key
+                AND reviewer_slots.is_official IS TRUE
+          );
 
         UPDATE paper_user_assignments
         SET
             status = 'resolved',
             resolved_at = NOW()
         WHERE paper_id = p_paper_id
-          AND status <> 'cancelled';
+          AND status <> 'cancelled'
+          AND EXISTS (
+              SELECT 1
+              FROM paper_slot_assignments
+              JOIN reviewer_slots
+                ON reviewer_slots.slot_key = paper_slot_assignments.slot_key
+              WHERE paper_slot_assignments.id = paper_user_assignments.paper_slot_assignment_id
+                AND reviewer_slots.is_official IS TRUE
+          );
 
         UPDATE paper_conflicts
         SET
@@ -2094,21 +2143,41 @@ BEGIN
         SET
             status = 'resolved',
             resolved_at = NOW()
-        WHERE paper_id = p_paper_id;
+        WHERE paper_id = p_paper_id
+          AND EXISTS (
+              SELECT 1
+              FROM reviewer_slots
+              WHERE reviewer_slots.slot_key = paper_slot_assignments.slot_key
+                AND reviewer_slots.is_official IS TRUE
+          );
 
         UPDATE paper_user_assignments
         SET
             status = 'resolved',
             resolved_at = NOW()
         WHERE paper_id = p_paper_id
-          AND status <> 'cancelled';
+          AND status <> 'cancelled'
+          AND EXISTS (
+              SELECT 1
+              FROM paper_slot_assignments
+              JOIN reviewer_slots
+                ON reviewer_slots.slot_key = paper_slot_assignments.slot_key
+              WHERE paper_slot_assignments.id = paper_user_assignments.paper_slot_assignment_id
+                AND reviewer_slots.is_official IS TRUE
+          );
         RETURN;
     END IF;
 
     UPDATE paper_slot_assignments
     SET status = 'conflict'
     WHERE paper_id = p_paper_id
-      AND status <> 'cancelled';
+      AND status <> 'cancelled'
+      AND EXISTS (
+          SELECT 1
+          FROM reviewer_slots
+          WHERE reviewer_slots.slot_key = paper_slot_assignments.slot_key
+            AND reviewer_slots.is_official IS TRUE
+      );
 
     SELECT id
     INTO v_open_external_conflict_id
@@ -2327,10 +2396,16 @@ BEGIN
         JOIN reviewer_slot_members rsm
           ON rsm.slot_key = psa.slot_key
          AND rsm.reviewer_profile_id = v_assignment.reviewer_profile_id
+        JOIN reviewer_slots rs
+          ON rs.slot_key = psa.slot_key
         WHERE psa.id = v_assignment.paper_slot_assignment_id
-          AND rsm.member_role = 'shadow'
+          AND (
+              rsm.member_role = 'shadow'
+              OR rsm.counts_toward_official IS NOT TRUE
+              OR rs.is_official IS NOT TRUE
+          )
     ) THEN
-        RAISE EXCEPTION 'Shadow reviewers cannot mark definitely-no-data; ask for help instead';
+        RAISE EXCEPTION 'Only official reviewer slots can mark definitely-no-data; ask for help instead';
     END IF;
 
     SELECT *

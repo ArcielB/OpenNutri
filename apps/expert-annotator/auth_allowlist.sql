@@ -15,6 +15,7 @@ VALUES
     ('baezarciel@gmail.com'),
     ('dainesalazarromero@gmail.com'),
     ('mcraft160105@gmail.com'),
+    ('ozcnaleyna2@gmail.com'),
     ('periacikgoz22@gmail.com')
 ON CONFLICT (email) DO NOTHING;
 

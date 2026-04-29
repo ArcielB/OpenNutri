@@ -23,6 +23,7 @@ OFFICIAL_SLOT_PAIRS = (
     ("arciel", "aleyna"),
     ("peri", "aleyna"),
 )
+INDEPENDENT_ALWAYS_ASSIGN_SLOTS = ("aysegul",)
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,7 @@ def targetable_profiles(slot_members: Iterable[dict], profiles: dict[str, Review
         member["reviewer_profile_id"]
         for member in slot_members
         if member.get("reviewer_profile_id") in profiles
+        and bool(member.get("counts_toward_official"))
     }
     return {
         profile_id: profiles[profile_id]
@@ -370,6 +372,7 @@ def fetch_state(client: Client) -> dict[str, list[dict]]:
         "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at,routing_updated_at,routing_status"),
         "global_labels": fetch_all(client, "paper_global_labels", "paper_id,label"),
         "review_outcomes": fetch_all(client, "paper_review_outcomes", "paper_id,decision_kind"),
+        "reviewer_slots": fetch_all(client, "reviewer_slots", "slot_key,is_official"),
         "slot_assignments": fetch_all(client, "paper_slot_assignments", "id,paper_id,slot_key,status,workflow_language"),
         "user_assignments": fetch_all(
             client,
@@ -443,6 +446,16 @@ def compute_assignment_context(
         state["review_outcomes"],
         state["global_labels"],
     )
+    nonofficial_slots = {
+        str(row.get("slot_key") or "")
+        for row in state.get("reviewer_slots", [])
+        if row.get("slot_key") and not bool(row.get("is_official", True))
+    }
+    independent_slot_keys = tuple(
+        slot_key
+        for slot_key in INDEPENDENT_ALWAYS_ASSIGN_SLOTS
+        if slot_key in nonofficial_slots and slot_members_by_slot.get(slot_key)
+    )
     return {
         "profiles": profiles,
         "slot_members_by_slot": slot_members_by_slot,
@@ -450,6 +463,7 @@ def compute_assignment_context(
         "slot_loads": slot_loads,
         "deficits": deficits,
         "open_available": open_available,
+        "independent_slot_keys": independent_slot_keys,
     }
 
 
@@ -487,6 +501,7 @@ def assign_ready_papers(
     slot_loads: dict[str, int] = context["slot_loads"]  # type: ignore[assignment]
     deficits: dict[str, int] = context["deficits"]  # type: ignore[assignment]
     open_available: list[dict] = context["open_available"]  # type: ignore[assignment]
+    independent_slot_keys: tuple[str, ...] = context["independent_slot_keys"]  # type: ignore[assignment]
     deficits_before = dict(deficits)
     rng = random.Random(seed)
 
@@ -532,9 +547,10 @@ def assign_ready_papers(
         if slot_pair is None:
             continue
 
+        assignment_slots = tuple(dict.fromkeys((*slot_pair, *independent_slot_keys)))
         next_slot_rows, next_slot_updates, next_user_rows, next_user_updates = build_assignment_changes(
             paper,
-            slot_pair,
+            assignment_slots,
             slot_members_by_slot,
             profiles,
             existing_slot_by_paper_slot=existing_slot_by_paper_slot,
@@ -559,12 +575,13 @@ def assign_ready_papers(
         for row in next_user_updates:
             existing_user_by_slot_profile[(str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"]))] = row
 
-        for slot_key in slot_pair:
+        for slot_key in assignment_slots:
             slot_loads[slot_key] += 1
         for row in [*next_user_rows, *next_user_updates]:
             profile_id = row["reviewer_profile_id"]
             open_counts[profile_id] += 1
-            deficits[profile_id] = max(0, target_open - open_counts[profile_id])
+            if profile_id in deficits:
+                deficits[profile_id] = max(0, target_open - open_counts[profile_id])
 
     made_progress = bool(slot_inserts or slot_updates or user_inserts or user_updates)
     if made_progress:

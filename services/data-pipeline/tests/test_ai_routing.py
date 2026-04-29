@@ -600,6 +600,135 @@ class StockAndFeedbackTests(unittest.TestCase):
         self.assertEqual(user_updates[0]["id"], "user-existing")
         self.assertEqual(user_updates[0]["payload"]["status"], "assigned")
 
+    def test_assignment_refill_adds_aysegul_without_counting_as_official_deficit(self) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 101,
+                        "title": "Paper",
+                        "doi": None,
+                        "filename": "paper.pdf",
+                        "workflow_language": "en",
+                        "created_at": "2026-04-01T00:00:00+00:00",
+                        "routing_updated_at": "2026-04-01T00:00:00+00:00",
+                        "routing_status": "human_review_ready",
+                    }
+                ],
+                "paper_global_labels": [],
+                "paper_review_outcomes": [],
+                "paper_slot_assignments": [],
+                "paper_user_assignments": [],
+                "reviewer_slots": [
+                    {"slot_key": "arciel", "is_official": True},
+                    {"slot_key": "peri", "is_official": True},
+                    {"slot_key": "aleyna", "is_official": True},
+                    {"slot_key": "aysegul", "is_official": False},
+                ],
+                "reviewer_profiles": [
+                    {
+                        "id": "profile-arciel",
+                        "email": "baezarciel@gmail.com",
+                        "auth_user_id": "auth-arciel",
+                        "display_name": "Arciel",
+                        "active": True,
+                        "can_review_en": True,
+                        "can_review_tr": True,
+                        "tester_access": False,
+                        "official_slot": "arciel",
+                    },
+                    {
+                        "id": "profile-peri",
+                        "email": "periacikgoz22@gmail.com",
+                        "auth_user_id": "auth-peri",
+                        "display_name": "Peri",
+                        "active": True,
+                        "can_review_en": True,
+                        "can_review_tr": True,
+                        "tester_access": False,
+                        "official_slot": "peri",
+                    },
+                    {
+                        "id": "profile-aleyna",
+                        "email": "ozcnaleyna2@gmail.com",
+                        "auth_user_id": "auth-aleyna",
+                        "display_name": "Aleyna",
+                        "active": True,
+                        "can_review_en": True,
+                        "can_review_tr": True,
+                        "tester_access": False,
+                        "official_slot": "aleyna",
+                    },
+                    {
+                        "id": "profile-aysegul",
+                        "email": "ayseguldogann99@gmail.com",
+                        "auth_user_id": "auth-aysegul",
+                        "display_name": "Aysegul",
+                        "active": True,
+                        "can_review_en": True,
+                        "can_review_tr": True,
+                        "tester_access": False,
+                        "official_slot": "aysegul",
+                    },
+                ],
+                "reviewer_slot_members": [
+                    {
+                        "slot_key": "arciel",
+                        "reviewer_profile_id": "profile-arciel",
+                        "member_role": "primary",
+                        "can_review_en": True,
+                        "can_review_tr": True,
+                        "counts_toward_official": True,
+                        "active": True,
+                    },
+                    {
+                        "slot_key": "peri",
+                        "reviewer_profile_id": "profile-peri",
+                        "member_role": "primary",
+                        "can_review_en": True,
+                        "can_review_tr": True,
+                        "counts_toward_official": True,
+                        "active": True,
+                    },
+                    {
+                        "slot_key": "aleyna",
+                        "reviewer_profile_id": "profile-aleyna",
+                        "member_role": "primary",
+                        "can_review_en": True,
+                        "can_review_tr": True,
+                        "counts_toward_official": True,
+                        "active": True,
+                    },
+                    {
+                        "slot_key": "aysegul",
+                        "reviewer_profile_id": "profile-aysegul",
+                        "member_role": "primary",
+                        "can_review_en": True,
+                        "can_review_tr": True,
+                        "counts_toward_official": False,
+                        "active": True,
+                    },
+                ],
+            }
+        )
+
+        summary = refill_assignment_queue.assign_ready_papers(
+            client,
+            target_open=1,
+            seed=20260413,
+            dry_run=False,
+            verbose=False,
+        )
+
+        inserted_slots = client.inserts[0][1]
+        inserted_users = client.inserts[1][1]
+        self.assertIn("aysegul", {row["slot_key"] for row in inserted_slots})
+        self.assertIn("profile-aysegul", {row["reviewer_profile_id"] for row in inserted_users})
+        self.assertEqual(summary["planned_slot_assignments"], 3)
+        self.assertEqual(summary["planned_user_assignments"], 3)
+        self.assertNotIn("Aysegul", summary["deficits_before"])
+        self.assertNotIn("Aysegul", summary["deficits_after"])
+
     def test_build_labels_excludes_ai_model_outcomes(self) -> None:
         good_ids, bad_ids, conflict_ids = build_labels(
             review_outcomes=[

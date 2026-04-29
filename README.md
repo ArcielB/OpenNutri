@@ -101,6 +101,8 @@ AI routing thresholds use `1.0` as an explicit blind-study safety setting: `posi
 Daily ops are designed as a recursive top-up loop:
 `assign existing human-ready papers -> process already queued AI papers -> crawl/upload only if reviewer deficits remain -> process the new AI queue -> repeat`.
 The official reviewer backlog target is 50 open assignments each for Arciel, Peri, and Aleyna.
+Aysegul (`ayseguldogann99@gmail.com`) is separate from Aleyna: the source schema gives her a non-official `aysegul` independent lane that is attached to every newly assigned paper but excluded from the two-official-slot truth calculation.
+The live database has the `aysegul` lane applied as `reviewer_slots.is_official = false`.
 Each orchestrator iteration stops with a machine-readable `stopped_reason` and `terminal` flag.
 Terminal stop reasons are: all reviewer queues are full (`queues_full`), the first AI paper in an iteration immediately hits quota (`ai_first_task_quota_limited`), no eligible refill need exists, or dry-run exit.
 Non-terminal stop reasons, such as `ai_run_budget_exhausted`, `ai_quota_limited_after_progress`, and `max_cycles`, make the GitHub Actions controller sleep 5 minutes and invoke the recursive runner again.
@@ -144,7 +146,7 @@ Key modules:
 - `paper_review_outcomes.truth_source_kind = 'ai_model'` rows are stored for provenance and final paper state, but they are currently excluded from the human-truth feedback export.
 - Uses the latest label per user; a paper only counts as positive when the latest visible `draft`/`done` state also has `has_data=true`, `food_item_count > 0`, and `nutrient_value_count > 0`. Papers turn negative on global skip or 2+ unique skips. Mixed signals across labelers are treated as conflicts and excluded from both sides.
 - In the assignment workflow, `Definitely No Data` is a slot-level global skip: one reviewer lane can mark the paper globally unusable, which cancels the remaining assignments and writes final `global_skip` truth immediately.
-- Shadow reviewers do not see the destructive `Definitely No Data` action, and the global-skip RPC rejects shadow assignments. Daine is configured as an English-only shadow reviewer in Arciel's lane, so she receives Arciel's English assignments but not Turkish assignments and does not count as a standalone official slot.
+- Non-official lanes and shadow reviewers do not see the destructive `Definitely No Data` action, and the global-skip RPC source rejects non-official/shadow assignments. Daine is configured as an English-only shadow reviewer in Arciel's lane, so she receives Arciel's English assignments but not Turkish assignments and does not count as a standalone official slot.
 - Feedback export now classifies papers into English vs Turkish buckets and writes separate phrase / anchor / weighted-term pools for each workflow.
 - Script: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
   - Requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
@@ -229,6 +231,7 @@ GitHub Actions daily ops requires repository secrets with these same names:
 - Supabase is used for auth and application data.
 - Reviewer workflow is now slot-based:
   `arciel`, `peri`, and `aleyna` are the official reviewer slots.
+  `aysegul` is a non-official independent full-coverage lane for `ayseguldogann99@gmail.com`; do not use it as Aleyna's slot.
   The cockpit can now create reviewer profiles, assign official slots, and add/remove shadow slot memberships without direct SQL edits.
   `tester_access` keeps an account read-only, while `tester_access + cockpit_access` creates a read-only developer-training account with admin visibility and a virtual bilingual queue.
   Daine should be configured there as an English-only shadow member inside the Arciel slot when her actual reviewer profile is available.
