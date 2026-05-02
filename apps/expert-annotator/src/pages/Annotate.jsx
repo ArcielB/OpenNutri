@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
@@ -133,6 +133,38 @@ function formatStatusLabel(status) {
   }
 }
 
+function formatRoutingStatusLabel(status) {
+  switch (status) {
+    case 'queued_for_ai':
+      return 'Queued For AI'
+    case 'ai_processing':
+      return 'AI Processing'
+    case 'ai_failed':
+      return 'AI Failed'
+    case 'human_review_ready':
+      return 'Human Review Ready'
+    case 'ai_finalized_has_data':
+      return 'AI Finalized: Has Data'
+    case 'ai_finalized_no_usable_data':
+      return 'AI Finalized: No Data'
+    default:
+      return status || 'Unknown'
+  }
+}
+
+function formatRouteDestinationLabel(destination) {
+  switch (destination) {
+    case 'human_review':
+      return 'Human Review'
+    case 'finalized':
+      return 'Finalized'
+    case 'blocked':
+      return 'Blocked'
+    default:
+      return destination || 'Pending'
+  }
+}
+
 function formatDate(value) {
   return value ? new Date(value).toLocaleString() : '-'
 }
@@ -155,17 +187,28 @@ function getPayloadRowCount(payload) {
   return foods.reduce((sum, food) => sum + (Array.isArray(food?.nutrients) ? food.nutrients.length : 0), 0)
 }
 
+function getNormalizationSummary(extraction) {
+  const rawSummary = extraction?.raw_data?.normalization_summary || {}
+  const payload = extraction?.normalized_payload_json || {}
+  const accepted = Number(rawSummary.accepted_row_count ?? getPayloadRowCount(payload)) || 0
+  const input = Number(rawSummary.input_row_count ?? accepted) || 0
+  return {
+    accepted_row_count: accepted,
+    rejected_row_count: Number(rawSummary.rejected_row_count ?? Math.max(0, input - accepted)) || 0,
+    input_row_count: input,
+    rejection_reasons: rawSummary.rejection_reasons || {},
+  }
+}
+
 function getAiPrefillStats(extraction) {
   const payload = extraction?.normalized_payload_json || {}
   const foods = Array.isArray(payload?.food_items) ? payload.food_items : []
   const nutrients = foods.flatMap((food) => Array.isArray(food?.nutrients) ? food.nutrients : [])
-  const rawSummary = extraction?.raw_data?.normalization_summary || {}
-  const accepted = Number(rawSummary.accepted_row_count ?? getPayloadRowCount(payload)) || 0
-  const input = Number(rawSummary.input_row_count ?? accepted) || 0
+  const summary = getNormalizationSummary(extraction)
   return {
     decision_kind: payload.decision_kind || getAiDecisionKind(extraction),
-    accepted_row_count: accepted,
-    rejected_row_count: Number(rawSummary.rejected_row_count ?? Math.max(0, input - accepted)) || 0,
+    accepted_row_count: summary.accepted_row_count,
+    rejected_row_count: summary.rejected_row_count,
     matched_food_count: foods.filter((food) => food?.food_fdc_id && !food?.is_custom_food).length,
     custom_food_count: foods.filter((food) => !food?.food_fdc_id || food?.is_custom_food).length,
     matched_nutrient_count: nutrients.filter((nutrient) => nutrient?.nutrient_id && !nutrient?.is_custom_nutrient).length,
@@ -807,15 +850,129 @@ function DashboardView({ cockpitData, reviewerById, paperById, onRefresh }) {
   )
 }
 
+function AiDetailPanel({ extraction }) {
+  const payload = extraction?.normalized_payload_json || { decision_kind: getAiDecisionKind(extraction), food_items: [] }
+  const stats = getAiPrefillStats(extraction)
+  const summary = getNormalizationSummary(extraction)
+  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
+  const rejectionReasons = Object.entries(summary.rejection_reasons || {})
+
+  return (
+    <div className="ai-detail-panel">
+      <div className="ai-detail-header">
+        <div>
+          <div className="ai-detail-title">AI Extraction Detail</div>
+          <div className="table-secondary-line">
+            {extraction?.stage_key || 'No stage'} · {extraction?.prompt_version || 'No prompt version'}
+          </div>
+        </div>
+        <div className="reviewer-admin-badges">
+          <span className={`status-badge ${stats.decision_kind === 'has_data' ? 'status-done' : 'status-skipped'}`}>
+            {formatDecisionLabel(stats.decision_kind)}
+          </span>
+          <span className={`status-badge ${extraction?.audit_sampled ? 'status-draft' : 'status-pending'}`}>
+            {extraction?.audit_sampled ? 'AUDIT' : 'LIVE'}
+          </span>
+        </div>
+      </div>
+
+      <div className="ai-detail-grid">
+        <div className="ai-detail-metric">
+          <span>Confidence</span>
+          <strong>{extraction?.overall_confidence == null ? '-' : Number(extraction.overall_confidence).toFixed(3)}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Rows</span>
+          <strong>{summary.accepted_row_count}/{summary.input_row_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>DB Foods</span>
+          <strong>{stats.matched_food_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Custom Foods</span>
+          <strong>{stats.custom_food_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>DB Nutrients</span>
+          <strong>{stats.matched_nutrient_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Custom Nutrients</span>
+          <strong>{stats.custom_nutrient_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Rejected</span>
+          <strong>{summary.rejected_row_count}</strong>
+        </div>
+        <div className="ai-detail-metric">
+          <span>Destination</span>
+          <strong>{formatRouteDestinationLabel(extraction?.route_destination)}</strong>
+        </div>
+      </div>
+
+      {rejectionReasons.length > 0 && (
+        <div className="ai-detail-section">
+          <div className="ai-detail-section-title">Rejected Rows</div>
+          <div className="ai-rejection-list">
+            {rejectionReasons.map(([reason, count]) => (
+              <span key={reason} className="status-badge status-skipped">{reason}: {count}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="ai-detail-section">
+        <div className="ai-detail-section-title">DB-Compliant Extracted Rows</div>
+        <div className="payload-scroll">
+          {foodItems.length === 0 ? (
+            <div className="empty-panel">No food rows are present in the normalized AI payload.</div>
+          ) : foodItems.map((foodItem, index) => (
+            <div key={`${extraction?.id || 'ai'}-${index}`} className="payload-food-block">
+              <div className="payload-food-title">
+                {foodItem.food_name || 'Unnamed food'}
+                {foodItem.food_fdc_id && <span className="payload-food-id">{foodItem.food_fdc_id}</span>}
+                {foodItem.is_custom_food && <span className="status-badge status-draft">Custom</span>}
+              </div>
+              <div className="payload-nutrients">
+                {(foodItem.nutrients || []).length === 0 ? (
+                  <span className="payload-empty-line">No nutrient rows.</span>
+                ) : (foodItem.nutrients || []).map((nutrient, nutrientIndex) => (
+                  <div key={`${index}-${nutrientIndex}`} className="payload-nutrient-row">
+                    <span>
+                      {nutrient.nutrient_name || 'Unnamed nutrient'}
+                      {nutrient.nutrient_id && <span className="payload-food-id"> {nutrient.nutrient_id}</span>}
+                    </span>
+                    <span>{nutrient.value ?? '-'} {nutrient.unit || ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="ai-detail-section">
+        <div className="ai-detail-section-title">Normalized DB Payload</div>
+        <pre className="ai-json-block">{JSON.stringify(payload, null, 2)}</pre>
+      </div>
+    </div>
+  )
+}
+
 function AllPapersView({ cockpitData, reviewerById, onRefresh }) {
+  const [expandedAiPaperId, setExpandedAiPaperId] = useState(null)
   const submissionsByPaperId = groupRowsByPaperId(cockpitData.labelSubmissions)
   const approvalsByPaperId = Object.fromEntries((cockpitData.labelApprovals || []).map((row) => [row.paper_id, row]))
   const outcomeByPaperId = Object.fromEntries((cockpitData.outcomes || []).map((row) => [row.paper_id, row]))
+  const latestAiExtractionById = Object.fromEntries((cockpitData.aiExtractions || []).map((row) => [row.id, row]))
+  const { byPaperId: latestAiExtractionByPaperId } = buildLatestAiExtractionMaps(cockpitData.aiExtractions || [])
   const rows = (cockpitData.papers || []).map((paper) => ({
     paper,
     submissions: submissionsByPaperId[paper.id] || [],
     approval: approvalsByPaperId[paper.id] || null,
     outcome: outcomeByPaperId[paper.id] || null,
+    latestAiExtraction: latestAiExtractionById[paper.latest_ai_extraction_id] || latestAiExtractionByPaperId[paper.id] || null,
   }))
 
   return (
@@ -835,43 +992,88 @@ function AllPapersView({ cockpitData, reviewerById, onRefresh }) {
               <tr>
                 <th>Paper</th>
                 <th>Routing</th>
+                <th>Latest AI</th>
                 <th>Submissions</th>
                 <th>Approval</th>
                 <th>Final Outcome</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ paper, submissions, approval, outcome }) => (
-                <tr key={paper.id}>
-                  <td className="table-title-cell">
-                    <div className="table-primary-line">{paper.title || paper.filename || `Paper ${paper.id}`}</div>
-                    <div className="table-secondary-line">
-                      Paper {paper.id}
-                      {paper.workflow_language && ` · ${paper.workflow_language.toUpperCase()}`}
-                      {paper.doi && ` · DOI: ${paper.doi}`}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="table-cell-stack">
-                      <span>{paper.routing_status || 'Unknown'}</span>
-                      <span className="table-secondary-line">{paper.routing_bucket || '-'}</span>
-                    </div>
-                  </td>
-                  <td>
-                    {submissions.length === 0 ? '-' : (
-                      <div className="table-cell-stack">
-                        {submissions.map((submission) => (
-                          <span key={submission.id}>
-                            {reviewerById[submission.reviewer_profile_id]?.display_name || 'Labeler'} · {formatStatusLabel(submission.status)}
-                          </span>
-                        ))}
-                      </div>
+              {rows.length === 0 ? (
+                <tr><td colSpan="6">No papers found.</td></tr>
+              ) : rows.map(({ paper, submissions, approval, outcome, latestAiExtraction }) => {
+                const aiExpanded = Boolean(latestAiExtraction && expandedAiPaperId === paper.id)
+                return (
+                  <Fragment key={paper.id}>
+                    <tr>
+                      <td className="table-title-cell">
+                        <div className="table-primary-line">{paper.title || paper.filename || `Paper ${paper.id}`}</div>
+                        <div className="table-secondary-line">
+                          Paper {paper.id}
+                          {paper.workflow_language && ` · ${paper.workflow_language.toUpperCase()}`}
+                          {paper.doi && ` · DOI: ${paper.doi}`}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="table-cell-stack">
+                          <div className="table-detail-line">
+                            <span>{formatRoutingStatusLabel(paper.routing_status)}</span>
+                            <span className={`status-badge ${paper.route_destination === 'finalized' ? 'status-done' : paper.route_destination === 'blocked' ? 'status-skipped' : 'status-pending'}`}>
+                              {formatRouteDestinationLabel(paper.route_destination)}
+                            </span>
+                          </div>
+                          <span className="table-secondary-line">{paper.routing_bucket || '-'}</span>
+                        </div>
+                      </td>
+                      <td>
+                        {latestAiExtraction ? (
+                          <div className="table-cell-stack">
+                            <div className="table-detail-line">
+                              <span>{formatDecisionLabel(getAiDecisionKind(latestAiExtraction))}</span>
+                              <span className={`status-badge ${latestAiExtraction.audit_sampled ? 'status-draft' : 'status-pending'}`}>
+                                {latestAiExtraction.audit_sampled ? 'AUDIT' : 'LIVE'}
+                              </span>
+                            </div>
+                            <span className="table-secondary-line">
+                              conf {latestAiExtraction.overall_confidence == null ? '-' : Number(latestAiExtraction.overall_confidence).toFixed(2)}
+                              {' · '}
+                              {formatRouteDestinationLabel(latestAiExtraction.route_destination)}
+                            </span>
+                            <button
+                              className="nav-btn ai-detail-toggle"
+                              onClick={() => setExpandedAiPaperId(aiExpanded ? null : paper.id)}
+                            >
+                              {aiExpanded ? 'Hide Details' : 'Details'}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="table-secondary-line">No AI extraction yet.</span>
+                        )}
+                      </td>
+                      <td>
+                        {submissions.length === 0 ? '-' : (
+                          <div className="table-cell-stack">
+                            {submissions.map((submission) => (
+                              <span key={submission.id}>
+                                {reviewerById[submission.reviewer_profile_id]?.display_name || 'Labeler'} · {formatStatusLabel(submission.status)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td>{approval ? `${formatDecisionLabel(approval.decision_kind)} · ${formatDate(approval.approved_at)}` : '-'}</td>
+                      <td>{outcome ? `${formatDecisionLabel(outcome.decision_kind)} · ${outcome.resolution_source}` : 'Pending'}</td>
+                    </tr>
+                    {aiExpanded && (
+                      <tr className="ai-detail-row">
+                        <td colSpan="6">
+                          <AiDetailPanel extraction={latestAiExtraction} />
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                  <td>{approval ? `${formatDecisionLabel(approval.decision_kind)} · ${formatDate(approval.approved_at)}` : '-'}</td>
-                  <td>{outcome ? `${formatDecisionLabel(outcome.decision_kind)} · ${outcome.resolution_source}` : 'Pending'}</td>
-                </tr>
-              ))}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>

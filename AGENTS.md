@@ -41,6 +41,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Reproduce bugs first when feasible.
 - Edit source files, not generated artifacts.
 - Prefer small, testable changes.
+- Preserve existing user-visible behavior unless the task explicitly asks to change it. When touching the annotator workflow, check for previously documented affordances such as AI prefill, Details panels, approval visibility, tester read-only mode, and queue removal rules before replacing or simplifying UI.
 - Commit every change you make once it is in a known working state.
 - Push every working commit soon after it is validated; do not leave validated local-only commits sitting around.
 - When a task changes the deployable annotator frontend under `apps/expert-annotator/`, deploy it to Vercel in the same task after the validated commit/push unless the user explicitly says not to, and report the production deployment state.
@@ -67,6 +68,8 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Arciel's own submissions auto-accept into `paper_label_approvals` and `paper_review_outcomes`; non-Arciel submissions remain `pending_approval` until Arciel edits/approves them.
 - The approval page is visible to cockpit/tester/developer accounts but mutation RPCs require `current_user_can_approve_labels()`, which excludes testers.
 - Labeler performance and correction details come from `paper_label_submissions`, `paper_label_approvals.correction_diff_json`, and `paper_review_outcomes`.
+- Labeling queue papers with no saved annotation must open with the latest AI `normalized_payload_json` prefilled as editable food/nutrient rows when available. Labelers review and correct the DB-compliant AI extraction; the queue must not show AI reasoning.
+- Cockpit All Papers must keep a per-paper AI Details affordance for the latest AI extraction. Details should show the normalized DB-compliant payload and row/normalization summary, not the model reasoning.
 - Old slot tables (`reviewer_slots`, `reviewer_slot_members`, `paper_slot_assignments`, `paper_user_assignments`, `paper_assignment_submissions`, `paper_conflicts`) are preserved as legacy audit/history only and should not drive new workflow work.
 - Resolved crawler truth now comes from `paper_review_outcomes`; pending/superseded submissions must not feed feedback learning.
 - Exact raw-match comparison uses deterministic payload snapshots stored in `paper_label_submissions` and accepted reviewer payloads in `paper_label_approvals`.

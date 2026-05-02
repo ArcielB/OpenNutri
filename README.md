@@ -28,7 +28,7 @@ Features:
 - Supabase auth (email/password + Google).
 - Shared general labeling queue: active labelers see the same available `human_review_ready` papers, and a paper leaves the queue after the first general submission.
 - Drafts do not claim papers; stale in-progress duplicate submissions are allowed until reviewer approval finalizes the paper, and each exact payload is retained in `paper_label_submissions`.
-- Editable queue papers with no saved annotation open as AI-prefilled verification tasks from the latest `ai_extractions.normalized_payload_json`; existing drafts/submissions are never overwritten, and labelers see only compact matched/custom/rejected row badges, not AI reasoning.
+- Editable queue papers with no saved annotation open as AI-prefilled verification tasks from the latest `ai_extractions.normalized_payload_json`; the AI output is preloaded into editable food/nutrient rows, existing drafts/submissions are never overwritten, and labelers see only DB-compliant extraction rows plus compact matched/custom/rejected row badges, not AI reasoning.
 - Reviewer approval workflow: Arciel currently has `can_approve_labels=true`; Arciel submissions auto-accept, while non-Arciel submissions go to an approver-only Approval page where Arciel can edit and accept final truth.
 - Read-only tester/developer cockpit accounts can inspect Approval, Dashboard, and All Papers views but cannot approve or mutate live rows.
 - PDF viewer with table-scoped nutrient-name highlighting and click-to-add popover.
@@ -38,8 +38,8 @@ Features:
 - Final `has_data=true` submissions now require at least one valid food item with at least one nutrient row.
 - Exact-match general submission snapshots are stored in `paper_label_submissions`; accepted/corrected reviewer payloads and mistake diffs are stored in `paper_label_approvals`.
 - Cockpit users can inspect general queue health, pending approval, labeler performance, source yield, and detailed correction history.
-- Cockpit users can also inspect AI-routing state, edit stage thresholds (`positive_threshold`, `negative_threshold`, `audit_rate`), and review per-paper AI provenance from the `All Papers` screen.
-- The cockpit-only `All Papers` view shows paper routing state, general submissions, approval status, and final outcomes.
+- Cockpit users can also inspect AI-routing state, edit stage thresholds (`positive_threshold`, `negative_threshold`, `audit_rate`), and review each paper's latest normalized AI extraction from the `All Papers` screen.
+- The cockpit-only `All Papers` view shows paper routing state, latest AI extraction details, general submissions, approval status, and final outcomes.
 - Cockpit write actions remain restricted to non-tester cockpit users through `current_user_has_cockpit_write_access()`.
 - Test mode toggle to disable DB writes and store actions locally.
 - Suggestions modal now writes `suggestion_review` records into `backlog_review_items`, supports image attachments with validation, and cockpit reviewers triage them in the Suggestions tab (including attachment previews).

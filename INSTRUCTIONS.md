@@ -22,4 +22,5 @@ This file captures standing instructions and should be updated whenever new inst
 - Do not add fallback behavior for missing dependencies; fail fast with an error and install missing dependencies.
 - If something is not installed, install it.
 - You may rewrite files instead of patching if that yields better results.
+- Preserve existing user-visible behavior unless a task explicitly asks to change it; when changing the annotator, check documented affordances such as AI prefill, Details panels, approval visibility, tester read-only mode, and queue removal rules before simplifying UI.
 - Do not implement hard-negative veto logic in crawler/ranking relevance decisions. Use additive or penalty-based scoring instead, and discuss any proposed true hard reject with the user before adding it.

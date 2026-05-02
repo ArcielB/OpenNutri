@@ -65,7 +65,7 @@ Core RPCs:
 - The Queue calls `get_general_queue_papers()`.
 - Labelers only see available papers and their own draft content.
 - Labelers do not see other labeler names, submission counts, or approval status.
-- If a paper has no saved annotation, the form initializes from `ai_extractions.normalized_payload_json` when available.
+- If a paper has no saved annotation, the form initializes from the latest `ai_extractions.normalized_payload_json` when available. The AI output appears as editable DB-compliant food/nutrient rows; AI reasoning is not shown in the labeling queue.
 - `Save Draft` writes only the user's annotation/food/nutrient rows.
 - `Submit Final Extraction` or `No Usable Data` writes annotation rows, inserts a `paper_label_events` audit row, then calls `submit_general_label()`.
 - `Ask for Help` inserts a `backlog_review_items` row with `context.request_kind = general_queue_help_request`.
@@ -83,6 +83,11 @@ Core RPCs:
 - Built from `paper_label_submissions`, `paper_label_approvals`, and `paper_review_outcomes`.
 - Summarizes submitted, pending, accepted, corrected, superseded, and correction-item counts per labeler.
 - Detail rows show the original decision/payload count, final decision/payload count, correction count, decision changes, and approval notes.
+
+### All Papers
+
+- Cockpit viewers can inspect the latest AI extraction for each paper from the `Latest AI` column.
+- The `Details` affordance must show the normalized DB-compliant AI payload and normalization row summary. Do not replace it with raw model reasoning or hide the extracted rows.
 
 ## Truth And Feedback Rules
 

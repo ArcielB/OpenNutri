@@ -78,10 +78,10 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 
 `apps/expert-annotator/src/pages/Annotate.jsx` now exposes:
 
-- `Queue`: shared available paper list, AI prefill, draft save, final submit, no-usable-data submit, ask-for-help.
+- `Queue`: shared available paper list, AI prefill from latest `ai_extractions.normalized_payload_json`, draft save, final submit, no-usable-data submit, ask-for-help. AI-prefilled rows are editable DB-compliant extracted data; AI reasoning is not shown to labelers.
 - `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers.
 - `Dashboard`: labeler performance and detailed correction history.
-- `All Papers`: global paper/submission/approval/outcome state.
+- `All Papers`: global paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload.
 - `Reviewers`: admin table for active/tester/cockpit/approval flags.
 - `Suggestions`: suggestion and general queue help triage.
 
@@ -95,6 +95,7 @@ Frontend validation currently passes with:
 - Active stage remains `gemini_flash_db_payload_v2`.
 - Upload enqueues `paper_stage_tasks` instead of running Gemini inline.
 - AI extraction stores deterministic `normalized_payload_json` using the same top-level contract as human payloads, including DB/custom food identity, raw food name, preparation state, DB/custom nutrient identity, raw nutrient name, value, unit, basis, sample size, confidence, source citation, and row metadata.
+- The annotator treats that payload as the reviewer-facing AI output: it preloads editable queue rows when there is no saved annotation, and cockpit Details shows the normalized payload/normalization summary without model reasoning.
 - `UnifiedEvaluator` accepts requested JSON object output, top-level candidate-row arrays, and nested `food -> nutrients[]` arrays.
 - Prompt should include the full nutrient catalog plus high-signal food candidates matched from the paper text, but not the full food catalog.
 - AI-provided DB IDs are verified against current DB rows before acceptance.

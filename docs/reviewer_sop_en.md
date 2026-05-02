@@ -2,7 +2,7 @@
 
 Use this guide while reviewing papers in the OpenNutri annotator.
 
-Your job is simple: read the paper, find real food composition data, and enter only the values that the paper clearly reports.
+Your job is simple: read the paper, review the prefilled AI extraction when it appears, correct it, and keep only the values that the paper clearly reports.
 
 ## The Standard
 
@@ -19,7 +19,7 @@ Everyone works from the same available paper list. Once someone submits a paper,
 1. Open a paper from `Queue`.
 2. Read the title, abstract if needed, and the PDF tables.
 3. Decide whether the paper has usable food composition data.
-4. If it does, enter the food items and nutrient rows.
+4. If AI-prefilled food items and nutrient rows appear, review and edit them. If no AI rows appear, enter the usable rows yourself.
 5. Use `Save Draft` if you are not finished.
 6. Use `Submit Final Extraction` only when the extraction is complete.
 7. Use `No Usable Data` only when the paper has no usable rows.
