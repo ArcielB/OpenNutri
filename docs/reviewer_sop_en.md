@@ -12,18 +12,20 @@ Your job is simple: read the paper, find real food composition data, and enter o
 - Do not use outside sources to add data.
 - If the table is unclear, ask instead of improvising.
 
-Two reviewers may label the same paper. Small differences matter, so be strict and literal.
+Everyone works from the same available paper list. Once someone submits a paper, it leaves the visible queue and Arciel reviews the submitted result.
 
 ## Basic Workflow
 
-1. Open a paper from `My Queue`.
+1. Open a paper from `Queue`.
 2. Read the title, abstract if needed, and the PDF tables.
 3. Decide whether the paper has usable food composition data.
 4. If it does, enter the food items and nutrient rows.
 5. Use `Save Draft` if you are not finished.
 6. Use `Submit Final Extraction` only when the extraction is complete.
 7. Use `No Usable Data` only when the paper has no usable rows.
-8. Use `Definitely No Data` only when the whole paper is clearly impossible to label.
+8. After you submit, Arciel reviews and accepts the final version. Your original submission is kept for performance review.
+
+You do not need to cross-check another labeler. Arciel handles final approval and corrections.
 
 ## What Counts as Usable Data
 
@@ -132,15 +134,11 @@ Use this when the paper has usable data and all usable rows have been entered.
 
 Use this when the paper does not contain any rows you can safely enter.
 
-`Definitely No Data`
-
-Use this only for obvious cases where the whole paper is not usable for OpenNutri. Examples: clinical trial, review article with no original table, wrong file, non-food topic, or paper with only methods/assays and no composition table.
-
 If you are unsure, use `Save Draft` and ask.
 
 ## When to Ask
 
-Ask Arciel before submitting when:
+Use `Ask for Help` before submitting when:
 
 - you would need to convert units or basis
 - you are unsure whether a table is food composition data

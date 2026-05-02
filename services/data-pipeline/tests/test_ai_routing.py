@@ -500,9 +500,11 @@ class StockAndFeedbackTests(unittest.TestCase):
                 {"id": 1, "workflow_language": "en", "routing_status": "human_review_ready"},
                 {"id": 2, "workflow_language": "tr", "routing_status": "queued_for_ai"},
                 {"id": 3, "workflow_language": "tr", "routing_status": "human_review_ready"},
+                {"id": 4, "workflow_language": "en", "routing_status": "human_review_ready"},
             ],
             [],
             [],
+            [{"paper_id": 4, "status": "pending_approval"}],
             [{"paper_id": 3, "status": "pending"}],
         ]
 
@@ -559,48 +561,25 @@ class StockAndFeedbackTests(unittest.TestCase):
 
         self.assertEqual([paper["id"] for paper in available], [2, 3, 1])
 
-    def test_assignment_changes_reuse_cancelled_rows(self) -> None:
-        profile = refill_assignment_queue.ReviewerProfile(
-            id="profile-peri",
-            display_name="Peri",
-            active=True,
-            can_review_en=True,
-            can_review_tr=True,
-            tester_access=False,
-            official_slot="peri",
-            auth_user_id="auth-peri",
+    def test_available_papers_excludes_pending_general_submissions(self) -> None:
+        papers = [
+            {"id": 1, "workflow_language": "en", "routing_status": "human_review_ready"},
+            {"id": 2, "workflow_language": "tr", "routing_status": "human_review_ready"},
+            {"id": 3, "workflow_language": "en", "routing_status": "human_review_ready"},
+        ]
+        available = refill_assignment_queue.available_papers(
+            papers,
+            slot_assignments=[],
+            review_outcomes=[],
+            global_labels=[],
+            label_submissions=[
+                {"paper_id": 1, "status": "pending_approval"},
+                {"paper_id": 2, "status": "superseded"},
+            ],
         )
-        existing_slot = {
-            "id": "slot-existing",
-            "paper_id": 26,
-            "slot_key": "peri",
-            "status": "cancelled",
-        }
-        existing_user = {
-            "id": "user-existing",
-            "paper_slot_assignment_id": "slot-existing",
-            "paper_id": 26,
-            "reviewer_profile_id": "profile-peri",
-            "status": "cancelled",
-        }
+        self.assertEqual([paper["id"] for paper in available], [2, 3])
 
-        slot_inserts, slot_updates, user_inserts, user_updates = refill_assignment_queue.build_assignment_changes(
-            {"id": 26, "workflow_language": "en"},
-            ("peri",),
-            {"peri": [{"reviewer_profile_id": "profile-peri", "can_review_en": True, "can_review_tr": True}]},
-            {"profile-peri": profile},
-            existing_slot_by_paper_slot={(26, "peri"): existing_slot},
-            existing_user_by_slot_profile={("slot-existing", "profile-peri"): existing_user},
-        )
-
-        self.assertEqual(slot_inserts, [])
-        self.assertEqual(user_inserts, [])
-        self.assertEqual(slot_updates[0]["id"], "slot-existing")
-        self.assertEqual(slot_updates[0]["payload"]["status"], "pending")
-        self.assertEqual(user_updates[0]["id"], "user-existing")
-        self.assertEqual(user_updates[0]["payload"]["status"], "assigned")
-
-    def test_assignment_refill_adds_aysegul_without_counting_as_official_deficit(self) -> None:
+    def test_general_queue_stock_does_not_create_reviewer_assignments(self) -> None:
         client = FakeSupabaseClient(
             tables={
                 "papers": [
@@ -617,14 +596,8 @@ class StockAndFeedbackTests(unittest.TestCase):
                 ],
                 "paper_global_labels": [],
                 "paper_review_outcomes": [],
+                "paper_label_submissions": [],
                 "paper_slot_assignments": [],
-                "paper_user_assignments": [],
-                "reviewer_slots": [
-                    {"slot_key": "arciel", "is_official": True},
-                    {"slot_key": "peri", "is_official": True},
-                    {"slot_key": "aleyna", "is_official": True},
-                    {"slot_key": "aysegul", "is_official": False},
-                ],
                 "reviewer_profiles": [
                     {
                         "id": "profile-arciel",
@@ -636,77 +609,7 @@ class StockAndFeedbackTests(unittest.TestCase):
                         "can_review_tr": True,
                         "tester_access": False,
                         "official_slot": "arciel",
-                    },
-                    {
-                        "id": "profile-peri",
-                        "email": "periacikgoz22@gmail.com",
-                        "auth_user_id": "auth-peri",
-                        "display_name": "Peri",
-                        "active": True,
-                        "can_review_en": True,
-                        "can_review_tr": True,
-                        "tester_access": False,
-                        "official_slot": "peri",
-                    },
-                    {
-                        "id": "profile-aleyna",
-                        "email": "ozcnaleyna2@gmail.com",
-                        "auth_user_id": "auth-aleyna",
-                        "display_name": "Aleyna",
-                        "active": True,
-                        "can_review_en": True,
-                        "can_review_tr": True,
-                        "tester_access": False,
-                        "official_slot": "aleyna",
-                    },
-                    {
-                        "id": "profile-aysegul",
-                        "email": "ayseguldogann99@gmail.com",
-                        "auth_user_id": "auth-aysegul",
-                        "display_name": "Aysegul",
-                        "active": True,
-                        "can_review_en": True,
-                        "can_review_tr": True,
-                        "tester_access": False,
-                        "official_slot": "aysegul",
-                    },
-                ],
-                "reviewer_slot_members": [
-                    {
-                        "slot_key": "arciel",
-                        "reviewer_profile_id": "profile-arciel",
-                        "member_role": "primary",
-                        "can_review_en": True,
-                        "can_review_tr": True,
-                        "counts_toward_official": True,
-                        "active": True,
-                    },
-                    {
-                        "slot_key": "peri",
-                        "reviewer_profile_id": "profile-peri",
-                        "member_role": "primary",
-                        "can_review_en": True,
-                        "can_review_tr": True,
-                        "counts_toward_official": True,
-                        "active": True,
-                    },
-                    {
-                        "slot_key": "aleyna",
-                        "reviewer_profile_id": "profile-aleyna",
-                        "member_role": "primary",
-                        "can_review_en": True,
-                        "can_review_tr": True,
-                        "counts_toward_official": True,
-                        "active": True,
-                    },
-                    {
-                        "slot_key": "aysegul",
-                        "reviewer_profile_id": "profile-aysegul",
-                        "member_role": "primary",
-                        "can_review_en": True,
-                        "can_review_tr": True,
-                        "counts_toward_official": False,
-                        "active": True,
+                        "can_approve_labels": True,
                     },
                 ],
             }
@@ -720,14 +623,11 @@ class StockAndFeedbackTests(unittest.TestCase):
             verbose=False,
         )
 
-        inserted_slots = client.inserts[0][1]
-        inserted_users = client.inserts[1][1]
-        self.assertIn("aysegul", {row["slot_key"] for row in inserted_slots})
-        self.assertIn("profile-aysegul", {row["reviewer_profile_id"] for row in inserted_users})
-        self.assertEqual(summary["planned_slot_assignments"], 3)
-        self.assertEqual(summary["planned_user_assignments"], 3)
-        self.assertNotIn("Aysegul", summary["deficits_before"])
-        self.assertNotIn("Aysegul", summary["deficits_after"])
+        self.assertEqual(client.inserts, [])
+        self.assertTrue(summary["satisfied"])
+        self.assertEqual(summary["planned_slot_assignments"], 0)
+        self.assertEqual(summary["planned_user_assignments"], 0)
+        self.assertEqual(summary["planned_general_queue_papers"], 1)
 
     def test_build_labels_excludes_ai_model_outcomes(self) -> None:
         good_ids, bad_ids, conflict_ids = build_labels(
@@ -1010,6 +910,7 @@ class QueueAndBackfillTests(unittest.TestCase):
             tables={
                 "papers": [{"id": 1, "filter_score": 0.76, "routing_status": "human_review_ready"}],
                 "paper_assignment_submissions": [{"paper_id": 1}],
+                "paper_label_submissions": [{"paper_id": 3}],
                 "paper_review_outcomes": [{"paper_id": 2, "truth_source_kind": "human_review"}],
                 "paper_slot_assignments": [{"id": "slot-1", "paper_id": 1, "status": "pending"}],
                 "paper_user_assignments": [{"id": "user-1", "paper_id": 1, "status": "assigned"}],

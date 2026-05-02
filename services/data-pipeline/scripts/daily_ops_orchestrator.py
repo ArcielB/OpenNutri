@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the daily recursive OpenNutri queue operation loop."
     )
-    parser.add_argument("--target-open", type=int, default=50, help="Target open assignments per active reviewer")
+    parser.add_argument("--target-open", type=int, default=50, help="Target visible papers in the shared general queue")
     parser.add_argument("--max-cycles", type=int, default=8, help="Maximum assign/AI/crawl cycles to run")
     parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum AI tasks to process across this whole run")
     parser.add_argument("--refill-step-en", type=int, default=4, help="New English papers to request when needed")
@@ -71,27 +71,18 @@ def _need_by_language(
 ) -> dict[str, Any]:
     state = refill_assignment_queue.fetch_state(client)
     context = refill_assignment_queue.compute_assignment_context(state, target_open=target_open)
-    profiles: dict[str, refill_assignment_queue.ReviewerProfile] = context["profiles"]  # type: ignore[assignment]
-    deficits: dict[str, int] = context["deficits"]  # type: ignore[assignment]
+    deficits: dict[str, int] = context["language_deficits"]  # type: ignore[assignment]
     open_available: list[dict] = context["open_available"]  # type: ignore[assignment]
 
-    need_en = any(
-        deficit > 0 and profile.can_review_en
-        for profile_id, deficit in deficits.items()
-        if (profile := profiles.get(profile_id))
-    )
-    need_tr = any(
-        deficit > 0 and profile.can_review_tr
-        for profile_id, deficit in deficits.items()
-        if (profile := profiles.get(profile_id))
-    )
+    need_en = deficits.get("en", 0) > 0
+    need_tr = deficits.get("tr", 0) > 0
     requested = {
         "en": max(0, int(refill_step_en)) if need_en else 0,
         "tr": max(0, int(refill_step_tr)) if need_tr else 0,
     }
     return {
         "requested": requested,
-        "deficits": refill_assignment_queue.deficits_by_name(deficits, profiles),
+        "deficits": refill_assignment_queue.deficits_by_name(deficits),
         "available": refill_assignment_queue.assignment_stock_counts(open_available),
     }
 

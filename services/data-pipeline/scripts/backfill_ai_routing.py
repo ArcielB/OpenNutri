@@ -99,10 +99,16 @@ def _priority_for_filter_score(filter_score: object) -> int:
 
 def _human_work_blockers(client) -> dict[str, set[int]]:
     submissions = _fetch_rows(client, "paper_assignment_submissions", "paper_id")
+    general_submissions = _fetch_rows(client, "paper_label_submissions", "paper_id")
     outcomes = _fetch_rows(client, "paper_review_outcomes", "paper_id,truth_source_kind")
     submitted_paper_ids = {
         int(row["paper_id"])
         for row in submissions
+        if row.get("paper_id") is not None
+    }
+    general_submission_paper_ids = {
+        int(row["paper_id"])
+        for row in general_submissions
         if row.get("paper_id") is not None
     }
     human_outcome_paper_ids = {
@@ -113,6 +119,7 @@ def _human_work_blockers(client) -> dict[str, set[int]]:
     }
     return {
         "assignment_submissions": submitted_paper_ids,
+        "general_label_submissions": general_submission_paper_ids,
         "human_review_outcomes": human_outcome_paper_ids,
     }
 

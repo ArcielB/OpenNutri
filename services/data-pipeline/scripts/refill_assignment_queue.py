@@ -3,27 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import random
 import subprocess
 import sys
-import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict
 
 from supabase import Client, create_client
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SUPPORTED_LANGUAGES = ("en", "tr")
-OFFICIAL_SLOT_PAIRS = (
-    ("arciel", "peri"),
-    ("arciel", "aleyna"),
-    ("peri", "aleyna"),
-)
-INDEPENDENT_ALWAYS_ASSIGN_SLOTS = ("aysegul",)
 
 
 @dataclass(frozen=True)
@@ -36,17 +28,18 @@ class ReviewerProfile:
     tester_access: bool
     official_slot: str | None
     auth_user_id: str | None
+    can_approve_labels: bool = False
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Top up reviewer-specific annotation queues.")
-    parser.add_argument("--target-open", type=int, default=50, help="Minimum open personal backlog per active reviewer")
-    parser.add_argument("--max-cycles", type=int, default=8, help="Maximum assign/refill cycles to run")
-    parser.add_argument("--refill-step-en", type=int, default=4, help="How many new EN papers to request when queue stock is exhausted")
-    parser.add_argument("--refill-step-tr", type=int, default=4, help="How many new TR papers to request when queue stock is exhausted")
+    parser = argparse.ArgumentParser(description="Inspect and maintain general queue paper stock.")
+    parser.add_argument("--target-open", type=int, default=50, help="Minimum visible papers in the shared general queue")
+    parser.add_argument("--max-cycles", type=int, default=8, help="Maximum stock/AI/refill cycles to run")
+    parser.add_argument("--refill-step-en", type=int, default=4, help="How many new EN papers to request when queue stock is low")
+    parser.add_argument("--refill-step-tr", type=int, default=4, help="How many new TR papers to request when queue stock is low")
     parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum queued AI tasks to process during this run")
-    parser.add_argument("--seed", type=int, default=20260413, help="Random seed for balanced pair selection")
-    parser.add_argument("--dry-run", action="store_true", help="Report planned assignments without writing to Supabase")
+    parser.add_argument("--seed", type=int, default=20260413, help="Retained for caller compatibility; no longer used")
+    parser.add_argument("--dry-run", action="store_true", help="Report planned stock actions without writing to Supabase")
     return parser
 
 
@@ -75,77 +68,17 @@ def fetch_all(client: Client, table: str, select: str, batch_size: int = 1000) -
 
 
 def open_status(status: str) -> bool:
-    return status in {"assigned", "draft"}
+    return status in {"available", "draft", "pending_approval"}
 
 
 def unresolved_slot_status(status: str) -> bool:
     return status not in {"resolved", "cancelled"}
 
 
-def profile_can_review_language(profile: ReviewerProfile, language: str) -> bool:
-    if profile.tester_access:
-        return False
-    return profile.can_review_en if language == "en" else profile.can_review_tr
-
-
-def build_slot_member_map(slot_members: list[dict], profiles: dict[str, ReviewerProfile]) -> dict[str, list[dict]]:
-    result: dict[str, list[dict]] = defaultdict(list)
-    for member in slot_members:
-        profile_id = member.get("reviewer_profile_id")
-        slot_key = member.get("slot_key")
-        if not profile_id or not slot_key or profile_id not in profiles:
-            continue
-        profile = profiles[profile_id]
-        if not profile.active or not bool(member.get("active", True)):
-            continue
-        result[slot_key].append(member)
-    return result
-
-
-def targetable_profiles(slot_members: Iterable[dict], profiles: dict[str, ReviewerProfile]) -> dict[str, ReviewerProfile]:
-    ids = {
-        member["reviewer_profile_id"]
-        for member in slot_members
-        if member.get("reviewer_profile_id") in profiles
-        and bool(member.get("counts_toward_official"))
-    }
+def assignment_stock_counts(open_available: list[dict]) -> dict[str, int]:
     return {
-        profile_id: profiles[profile_id]
-        for profile_id in ids
-        if profiles[profile_id].active and not profiles[profile_id].tester_access
-    }
-
-
-def compute_open_counts(assignments: Iterable[dict]) -> dict[str, int]:
-    counts: dict[str, int] = defaultdict(int)
-    for assignment in assignments:
-        if open_status(str(assignment.get("status") or "").strip().lower()):
-            profile_id = assignment.get("reviewer_profile_id")
-            if profile_id:
-                counts[profile_id] += 1
-    return counts
-
-
-def compute_slot_load(slot_assignments: Iterable[dict]) -> dict[str, int]:
-    loads: dict[str, int] = defaultdict(int)
-    for assignment in slot_assignments:
-        status = str(assignment.get("status") or "").strip().lower()
-        slot_key = assignment.get("slot_key")
-        if slot_key and unresolved_slot_status(status):
-            loads[slot_key] += 1
-    return loads
-
-
-def compute_deficits(
-    profiles: dict[str, ReviewerProfile],
-    slot_members: list[dict],
-    open_counts: dict[str, int],
-    target_open: int,
-) -> dict[str, int]:
-    target_profiles = targetable_profiles(slot_members, profiles)
-    return {
-        profile_id: max(0, target_open - open_counts.get(profile_id, 0))
-        for profile_id in target_profiles
+        "en": sum(1 for paper in open_available if paper.get("workflow_language") == "en"),
+        "tr": sum(1 for paper in open_available if paper.get("workflow_language") == "tr"),
     }
 
 
@@ -154,13 +87,9 @@ def available_papers(
     slot_assignments: list[dict],
     review_outcomes: list[dict],
     global_labels: list[dict],
+    label_submissions: list[dict] | None = None,
 ) -> list[dict]:
     blocked_ids = {
-        row.get("paper_id")
-        for row in slot_assignments
-        if row.get("paper_id") is not None and unresolved_slot_status(str(row.get("status") or "").strip().lower())
-    }
-    blocked_ids |= {
         row.get("paper_id")
         for row in review_outcomes
         if row.get("paper_id") is not None
@@ -169,6 +98,18 @@ def available_papers(
         row.get("paper_id")
         for row in global_labels
         if row.get("paper_id") is not None and row.get("label") == "definitely_no_data"
+    }
+    blocked_ids |= {
+        row.get("paper_id")
+        for row in label_submissions or []
+        if row.get("paper_id") is not None
+        and str(row.get("status") or "").strip().lower() in {"pending_approval", "accepted"}
+    }
+    blocked_ids |= {
+        row.get("paper_id")
+        for row in slot_assignments
+        if row.get("paper_id") is not None
+        and unresolved_slot_status(str(row.get("status") or "").strip().lower())
     }
 
     def waiting_order(row: dict) -> tuple[str, int]:
@@ -188,228 +129,18 @@ def available_papers(
     ]
 
 
-def pair_preference_penalty(language: str, slot_pair: tuple[str, str]) -> float:
-    slot_set = set(slot_pair)
-    if language == "en":
-        return 0.0 if "arciel" in slot_set else 0.85
-    return 0.0 if slot_set == {"peri", "aleyna"} else 0.7
-
-
-def choose_slot_pair(
-    *,
-    language: str,
-    rng: random.Random,
-    slot_loads: dict[str, int],
-    slot_members_by_slot: dict[str, list[dict]],
-    profiles: dict[str, ReviewerProfile],
-    deficits: dict[str, int],
-    open_counts: dict[str, int],
-    target_open: int,
-) -> tuple[str, str] | None:
-    best_pair: tuple[str, str] | None = None
-    best_score: float | None = None
-
-    for pair in OFFICIAL_SLOT_PAIRS:
-        eligible_members_by_slot = {
-            slot_key: [
-                member
-                for member in slot_members_by_slot.get(slot_key, [])
-                if bool(member.get("can_review_en", True) if language == "en" else member.get("can_review_tr", True))
-                and profiles.get(member.get("reviewer_profile_id"))
-                and profile_can_review_language(profiles[member["reviewer_profile_id"]], language)
-            ]
-            for slot_key in pair
-        }
-        if any(not members for members in eligible_members_by_slot.values()):
-            continue
-        eligible_members = [member for members in eligible_members_by_slot.values() for member in members]
-
-        helpful_profiles = {
-            member["reviewer_profile_id"]
-            for member in eligible_members
-            if deficits.get(member["reviewer_profile_id"], 0) > 0
-        }
-        improvement = len(helpful_profiles)
-        overflow_penalty = sum(
-            max(open_counts.get(member["reviewer_profile_id"], 0) + 1 - target_open, 0)
-            for member in eligible_members
-        ) * 0.35
-        slot_penalty = sum(slot_loads.get(slot_key, 0) for slot_key in pair) * 0.45
-        preference_penalty = pair_preference_penalty(language, pair)
-        score = (
-            preference_penalty
-            + slot_penalty
-            + overflow_penalty
-            - (improvement * 4.0)
-            + rng.random() * 0.2
-        )
-        if best_score is None or score < best_score:
-            best_score = score
-            best_pair = pair
-    return best_pair
-
-
-def build_assignment_changes(
-    paper: dict,
-    slot_pair: tuple[str, str],
-    slot_members_by_slot: dict[str, list[dict]],
-    profiles: dict[str, ReviewerProfile],
-    existing_slot_by_paper_slot: dict[tuple[int, str], dict] | None = None,
-    existing_user_by_slot_profile: dict[tuple[str, str], dict] | None = None,
-) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
-    paper_id = paper["id"]
-    language = str(paper.get("workflow_language") or "").strip().lower()
-    existing_slot_by_paper_slot = existing_slot_by_paper_slot or {}
-    existing_user_by_slot_profile = existing_user_by_slot_profile or {}
-    slot_rows: list[dict] = []
-    slot_updates: list[dict] = []
-    user_rows: list[dict] = []
-    user_updates: list[dict] = []
-    now = utcnow_iso()
-
-    for slot_key in slot_pair:
-        existing_slot = existing_slot_by_paper_slot.get((paper_id, slot_key))
-        if existing_slot:
-            existing_slot_status = str(existing_slot.get("status") or "").strip().lower()
-            if existing_slot_status != "cancelled":
-                return [], [], [], []
-            slot_assignment_id = str(existing_slot["id"])
-            slot_updates.append(
-                {
-                    "id": slot_assignment_id,
-                    "paper_id": paper_id,
-                    "slot_key": slot_key,
-                    "payload": {
-                        "workflow_language": language,
-                        "status": "pending",
-                        "official_submission_id": None,
-                        "submitted_at": None,
-                        "resolved_at": None,
-                        "assigned_at": now,
-                    },
-                }
-            )
-        else:
-            slot_assignment_id = str(uuid.uuid4())
-            slot_rows.append(
-                {
-                    "id": slot_assignment_id,
-                    "paper_id": paper_id,
-                    "slot_key": slot_key,
-                    "workflow_language": language,
-                    "status": "pending",
-                }
-            )
-        before_user_count = len(user_rows)
-        before_user_update_count = len(user_updates)
-
-        for member in slot_members_by_slot.get(slot_key, []):
-            profile_id = member["reviewer_profile_id"]
-            profile = profiles.get(profile_id)
-            if profile is None or not profile.active:
-                continue
-            can_review = bool(member.get("can_review_en", True) if language == "en" else member.get("can_review_tr", True))
-            if not can_review or not profile_can_review_language(profile, language):
-                continue
-            existing_user = existing_user_by_slot_profile.get((slot_assignment_id, profile_id))
-            if existing_user:
-                existing_user_status = str(existing_user.get("status") or "").strip().lower()
-                if existing_user_status != "cancelled":
-                    return [], [], [], []
-                user_updates.append(
-                    {
-                        "id": existing_user["id"],
-                        "paper_slot_assignment_id": slot_assignment_id,
-                        "paper_id": paper_id,
-                        "reviewer_profile_id": profile_id,
-                        "payload": {
-                            "auth_user_id": profile.auth_user_id,
-                            "workflow_language": language,
-                            "status": "assigned",
-                            "last_annotation_id": None,
-                            "latest_submission_id": None,
-                            "last_saved_at": None,
-                            "submitted_at": None,
-                            "resolved_at": None,
-                            "assigned_at": now,
-                        },
-                    }
-                )
-            else:
-                user_rows.append(
-                    {
-                        "id": str(uuid.uuid4()),
-                        "paper_slot_assignment_id": slot_assignment_id,
-                        "paper_id": paper_id,
-                        "reviewer_profile_id": profile_id,
-                        "auth_user_id": profile.auth_user_id,
-                        "workflow_language": language,
-                        "status": "assigned",
-                    }
-                )
-        if len(user_rows) == before_user_count and len(user_updates) == before_user_update_count:
-            return [], [], [], []
-    return slot_rows, slot_updates, user_rows, user_updates
-
-
-def build_assignment_rows(
-    paper: dict,
-    slot_pair: tuple[str, str],
-    slot_members_by_slot: dict[str, list[dict]],
-    profiles: dict[str, ReviewerProfile],
-) -> tuple[list[dict], list[dict]]:
-    slot_rows, _slot_updates, user_rows, _user_updates = build_assignment_changes(
-        paper,
-        slot_pair,
-        slot_members_by_slot,
-        profiles,
-    )
-    return slot_rows, user_rows
-
-
 def fetch_state(client: Client) -> dict[str, list[dict]]:
     return {
         "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at,routing_updated_at,routing_status"),
         "global_labels": fetch_all(client, "paper_global_labels", "paper_id,label"),
         "review_outcomes": fetch_all(client, "paper_review_outcomes", "paper_id,decision_kind"),
-        "reviewer_slots": fetch_all(client, "reviewer_slots", "slot_key,is_official"),
-        "slot_assignments": fetch_all(client, "paper_slot_assignments", "id,paper_id,slot_key,status,workflow_language"),
-        "user_assignments": fetch_all(
-            client,
-            "paper_user_assignments",
-            "id,paper_slot_assignment_id,paper_id,reviewer_profile_id,auth_user_id,status,workflow_language",
-        ),
+        "paper_label_submissions": fetch_all(client, "paper_label_submissions", "paper_id,status"),
+        "paper_slot_assignments": fetch_all(client, "paper_slot_assignments", "paper_id,status"),
         "reviewer_profiles": fetch_all(
             client,
             "reviewer_profiles",
-            "id,email,auth_user_id,display_name,active,can_review_en,can_review_tr,tester_access,official_slot",
+            "id,email,auth_user_id,display_name,active,can_review_en,can_review_tr,tester_access,official_slot,can_approve_labels",
         ),
-        "slot_members": fetch_all(
-            client,
-            "reviewer_slot_members",
-            "slot_key,reviewer_profile_id,member_role,can_review_en,can_review_tr,counts_toward_official,active",
-        ),
-    }
-
-
-def reviewer_open_counts_by_name(open_counts: dict[str, int], profiles: dict[str, ReviewerProfile]) -> dict[str, int]:
-    return {
-        profiles[profile_id].display_name: int(open_counts.get(profile_id, 0))
-        for profile_id in sorted(profiles, key=lambda value: profiles[value].display_name.lower())
-    }
-
-
-def deficits_by_name(deficits: dict[str, int], profiles: dict[str, ReviewerProfile]) -> dict[str, int]:
-    return {
-        profiles[profile_id].display_name: int(deficit)
-        for profile_id, deficit in sorted(deficits.items(), key=lambda item: profiles[item[0]].display_name.lower())
-    }
-
-
-def assignment_stock_counts(open_available: list[dict]) -> dict[str, int]:
-    return {
-        "en": sum(1 for paper in open_available if paper.get("workflow_language") == "en"),
-        "tr": sum(1 for paper in open_available if paper.get("workflow_language") == "tr"),
     }
 
 
@@ -424,9 +155,38 @@ def build_profiles(state: dict[str, list[dict]]) -> dict[str, ReviewerProfile]:
             tester_access=bool(row.get("tester_access", False)),
             official_slot=row.get("official_slot"),
             auth_user_id=row.get("auth_user_id"),
+            can_approve_labels=bool(row.get("can_approve_labels", False)),
         )
-        for row in state["reviewer_profiles"]
+        for row in state.get("reviewer_profiles", [])
         if row.get("id")
+    }
+
+
+def language_deficits_for(open_available: list[dict], target_open: int) -> dict[str, int]:
+    counts = assignment_stock_counts(open_available)
+    target_open = max(0, int(target_open))
+    target_en = target_open // 2
+    target_tr = target_open - target_en
+    return {
+        "en": max(0, target_en - counts["en"]),
+        "tr": max(0, target_tr - counts["tr"]),
+    }
+
+
+def deficits_by_name(deficits: dict[str, int], profiles: dict[str, ReviewerProfile] | None = None) -> dict[str, int]:
+    if set(deficits).issubset(set(SUPPORTED_LANGUAGES)):
+        return {language.upper(): int(deficits.get(language, 0)) for language in SUPPORTED_LANGUAGES}
+    profiles = profiles or {}
+    return {
+        profiles[profile_id].display_name if profile_id in profiles else profile_id: int(deficit)
+        for profile_id, deficit in sorted(deficits.items())
+    }
+
+
+def reviewer_open_counts_by_name(open_counts: dict[str, int], profiles: dict[str, ReviewerProfile]) -> dict[str, int]:
+    return {
+        profiles[profile_id].display_name: int(open_counts.get(profile_id, 0))
+        for profile_id in sorted(profiles, key=lambda value: profiles[value].display_name.lower())
     }
 
 
@@ -436,53 +196,22 @@ def compute_assignment_context(
     target_open: int,
 ) -> dict[str, object]:
     profiles = build_profiles(state)
-    slot_members_by_slot = build_slot_member_map(state["slot_members"], profiles)
-    open_counts = compute_open_counts(state["user_assignments"])
-    slot_loads = compute_slot_load(state["slot_assignments"])
-    deficits = compute_deficits(profiles, state["slot_members"], open_counts, target_open)
     open_available = available_papers(
-        state["papers"],
-        state["slot_assignments"],
-        state["review_outcomes"],
-        state["global_labels"],
+        state.get("papers", []),
+        state.get("paper_slot_assignments", state.get("slot_assignments", [])),
+        state.get("review_outcomes", []),
+        state.get("global_labels", []),
+        state.get("paper_label_submissions", []),
     )
-    nonofficial_slots = {
-        str(row.get("slot_key") or "")
-        for row in state.get("reviewer_slots", [])
-        if row.get("slot_key") and not bool(row.get("is_official", True))
-    }
-    independent_slot_keys = tuple(
-        slot_key
-        for slot_key in INDEPENDENT_ALWAYS_ASSIGN_SLOTS
-        if slot_key in nonofficial_slots and slot_members_by_slot.get(slot_key)
-    )
+    counts = assignment_stock_counts(open_available)
+    language_deficits = language_deficits_for(open_available, target_open)
     return {
         "profiles": profiles,
-        "slot_members_by_slot": slot_members_by_slot,
-        "open_counts": open_counts,
-        "slot_loads": slot_loads,
-        "deficits": deficits,
         "open_available": open_available,
-        "independent_slot_keys": independent_slot_keys,
+        "available_counts": counts,
+        "deficits": language_deficits,
+        "language_deficits": language_deficits,
     }
-
-
-def apply_assignment_changes(
-    client: Client,
-    *,
-    slot_inserts: list[dict],
-    slot_updates: list[dict],
-    user_inserts: list[dict],
-    user_updates: list[dict],
-) -> None:
-    for row in slot_updates:
-        client.table("paper_slot_assignments").update(row["payload"]).eq("id", row["id"]).execute()
-    if slot_inserts:
-        client.table("paper_slot_assignments").insert(slot_inserts).execute()
-    for row in user_updates:
-        client.table("paper_user_assignments").update(row["payload"]).eq("id", row["id"]).execute()
-    if user_inserts:
-        client.table("paper_user_assignments").insert(user_inserts).execute()
 
 
 def assign_ready_papers(
@@ -493,123 +222,33 @@ def assign_ready_papers(
     dry_run: bool = False,
     verbose: bool = True,
 ) -> dict[str, object]:
+    del seed
+    del dry_run
     state = fetch_state(client)
     context = compute_assignment_context(state, target_open=target_open)
-    profiles: dict[str, ReviewerProfile] = context["profiles"]  # type: ignore[assignment]
-    slot_members_by_slot = context["slot_members_by_slot"]  # type: ignore[assignment]
-    open_counts: dict[str, int] = context["open_counts"]  # type: ignore[assignment]
-    slot_loads: dict[str, int] = context["slot_loads"]  # type: ignore[assignment]
-    deficits: dict[str, int] = context["deficits"]  # type: ignore[assignment]
     open_available: list[dict] = context["open_available"]  # type: ignore[assignment]
-    independent_slot_keys: tuple[str, ...] = context["independent_slot_keys"]  # type: ignore[assignment]
-    deficits_before = dict(deficits)
-    rng = random.Random(seed)
+    counts: dict[str, int] = context["available_counts"]  # type: ignore[assignment]
+    language_deficits: dict[str, int] = context["language_deficits"]  # type: ignore[assignment]
+    available_total = len(open_available)
+    stock_deficit = max(0, int(target_open) - available_total)
 
     if verbose:
-        for profile_id, deficit in sorted(deficits.items(), key=lambda item: profiles[item[0]].display_name.lower()):
-            profile = profiles[profile_id]
-            print(
-                f"  {profile.display_name}: open={open_counts.get(profile_id, 0)} "
-                f"target={target_open} deficit={deficit}"
-            )
-        stock_counts = assignment_stock_counts(open_available)
-        print(f"  Unassigned queue stock: EN={stock_counts['en']} TR={stock_counts['tr']}")
-
-    slot_inserts: list[dict] = []
-    slot_updates: list[dict] = []
-    user_inserts: list[dict] = []
-    user_updates: list[dict] = []
-    existing_slot_by_paper_slot = {
-        (int(row["paper_id"]), str(row["slot_key"])): row
-        for row in state["slot_assignments"]
-        if row.get("paper_id") is not None and row.get("slot_key") and row.get("id")
-    }
-    existing_user_by_slot_profile = {
-        (str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"])): row
-        for row in state["user_assignments"]
-        if row.get("paper_slot_assignment_id") and row.get("reviewer_profile_id") and row.get("id")
-    }
-
-    for paper in open_available:
-        if not any(deficits.values()):
-            break
-        language = str(paper.get("workflow_language") or "").strip().lower()
-        slot_pair = choose_slot_pair(
-            language=language,
-            rng=rng,
-            slot_loads=slot_loads,
-            slot_members_by_slot=slot_members_by_slot,
-            profiles=profiles,
-            deficits=deficits,
-            open_counts=open_counts,
-            target_open=target_open,
-        )
-        if slot_pair is None:
-            continue
-
-        assignment_slots = tuple(dict.fromkeys((*slot_pair, *independent_slot_keys)))
-        next_slot_rows, next_slot_updates, next_user_rows, next_user_updates = build_assignment_changes(
-            paper,
-            assignment_slots,
-            slot_members_by_slot,
-            profiles,
-            existing_slot_by_paper_slot=existing_slot_by_paper_slot,
-            existing_user_by_slot_profile=existing_user_by_slot_profile,
-        )
-        if not next_user_rows and not next_user_updates:
-            continue
-
-        slot_inserts.extend(next_slot_rows)
-        slot_updates.extend(next_slot_updates)
-        user_inserts.extend(next_user_rows)
-        user_updates.extend(next_user_updates)
-        for row in next_slot_rows:
-            existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))] = row
-        for row in next_slot_updates:
-            existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))] = {
-                **existing_slot_by_paper_slot[(int(row["paper_id"]), str(row["slot_key"]))],
-                **row["payload"],
-            }
-        for row in next_user_rows:
-            existing_user_by_slot_profile[(str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"]))] = row
-        for row in next_user_updates:
-            existing_user_by_slot_profile[(str(row["paper_slot_assignment_id"]), str(row["reviewer_profile_id"]))] = row
-
-        for slot_key in assignment_slots:
-            slot_loads[slot_key] += 1
-        for row in [*next_user_rows, *next_user_updates]:
-            profile_id = row["reviewer_profile_id"]
-            open_counts[profile_id] += 1
-            if profile_id in deficits:
-                deficits[profile_id] = max(0, target_open - open_counts[profile_id])
-
-    made_progress = bool(slot_inserts or slot_updates or user_inserts or user_updates)
-    if made_progress:
-        if verbose:
-            print(f"  Planned slot assignments: {len(slot_inserts) + len(slot_updates)}")
-            print(f"  Planned user assignments: {len(user_inserts) + len(user_updates)}")
-        if not dry_run:
-            apply_assignment_changes(
-                client,
-                slot_inserts=slot_inserts,
-                slot_updates=slot_updates,
-                user_inserts=user_inserts,
-                user_updates=user_updates,
-            )
-            if verbose:
-                print("  Inserted assignments into Supabase.")
+        print(f"  General queue stock: EN={counts['en']} TR={counts['tr']} total={available_total}")
+        print(f"  Target visible stock: {int(target_open)} deficit={stock_deficit}")
 
     return {
         "target_open": int(target_open),
-        "made_progress": made_progress,
-        "satisfied": not any(deficits.values()),
-        "open_counts": reviewer_open_counts_by_name(open_counts, profiles),
-        "deficits_before": deficits_by_name(deficits_before, profiles),
-        "deficits_after": deficits_by_name(deficits, profiles),
-        "available_before": assignment_stock_counts(open_available),
-        "planned_slot_assignments": len(slot_inserts) + len(slot_updates),
-        "planned_user_assignments": len(user_inserts) + len(user_updates),
-        "dry_run": bool(dry_run),
+        "made_progress": False,
+        "satisfied": stock_deficit <= 0,
+        "available_before": counts,
+        "open_counts": {"General Queue": available_total},
+        "deficits_before": deficits_by_name(language_deficits),
+        "deficits_after": deficits_by_name(language_deficits),
+        "stock_deficit": stock_deficit,
+        "planned_slot_assignments": 0,
+        "planned_user_assignments": 0,
+        "planned_general_queue_papers": available_total,
+        "dry_run": False,
     }
 
 
@@ -629,7 +268,7 @@ def drain_ai_queue(*, dry_run: bool, max_tasks: int) -> bool:
         "--stop-on-quota",
         "--json-summary",
     ]
-    print("Queue stock exhausted; attempting to drain queued AI routing tasks first.")
+    print("General queue stock is low; attempting to drain queued AI routing tasks first.")
     if dry_run:
         print("[dry-run] " + " ".join(cmd))
         return True
@@ -666,21 +305,15 @@ def refill_stock(
     refill_step_tr: int,
     dry_run: bool,
 ) -> bool:
-    need_en = any(
-        deficit > 0 and profile.can_review_en
-        for profile_id, deficit in deficits.items()
-        if (profile := profiles.get(profile_id))
-    )
-    need_tr = any(
-        deficit > 0 and profile.can_review_tr
-        for profile_id, deficit in deficits.items()
-        if (profile := profiles.get(profile_id))
-    )
+    del profiles
+    del target_open
     current_counts = defaultdict(int)
     for paper in current_available:
         language = str(paper.get("workflow_language") or "").strip().lower()
         current_counts[language] += 1
 
+    need_en = deficits.get("en", 0) > 0
+    need_tr = deficits.get("tr", 0) > 0
     target_en = current_counts["en"] + (refill_step_en if need_en else 0)
     target_tr = current_counts["tr"] + (refill_step_tr if need_tr else 0)
     if target_en <= current_counts["en"] and target_tr <= current_counts["tr"]:
@@ -694,7 +327,7 @@ def refill_stock(
         "--target-tr",
         str(target_tr),
     ]
-    print(f"Queue stock exhausted; requesting new papers EN={target_en} TR={target_tr}")
+    print(f"General queue stock is low; requesting new papers EN={target_en} TR={target_tr}")
     if dry_run:
         print("[dry-run] " + " ".join(cmd))
         return True
@@ -712,27 +345,19 @@ def main() -> None:
 
     for cycle in range(1, args.max_cycles + 1):
         print(f"\nCycle {cycle}")
-        assignment_summary = assign_ready_papers(
+        stock_summary = assign_ready_papers(
             client,
             target_open=args.target_open,
             seed=args.seed,
             dry_run=args.dry_run,
             verbose=True,
         )
-        if assignment_summary["satisfied"]:
-            print("All active reviewers already meet the open-backlog target.")
+        if stock_summary["satisfied"]:
+            print("General queue stock already meets the target.")
             return
-        if assignment_summary["made_progress"]:
-            if args.dry_run:
-                return
-            continue
 
         state = fetch_state(client)
         context = compute_assignment_context(state, target_open=args.target_open)
-        profiles = context["profiles"]
-        deficits = context["deficits"]
-        open_available = context["open_available"]
-
         if has_queued_ai_work(state["papers"]):
             if drain_ai_queue(dry_run=args.dry_run, max_tasks=args.max_ai_tasks):
                 if args.dry_run:
@@ -740,9 +365,9 @@ def main() -> None:
                 continue
 
         if not refill_stock(
-            current_available=open_available,
-            deficits=deficits,
-            profiles=profiles,
+            current_available=context["open_available"],  # type: ignore[arg-type]
+            deficits=context["language_deficits"],  # type: ignore[arg-type]
+            profiles=context["profiles"],  # type: ignore[arg-type]
             target_open=args.target_open,
             refill_step_en=args.refill_step_en,
             refill_step_tr=args.refill_step_tr,
@@ -750,7 +375,7 @@ def main() -> None:
         ):
             break
 
-    raise SystemExit("Could not satisfy target open backlog before hitting the cycle limit.")
+    raise SystemExit("Could not satisfy general queue stock target before hitting the cycle limit.")
 
 
 if __name__ == "__main__":

@@ -1,9 +1,25 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
 import SuggestionModal from '../components/SuggestionModal'
 import { appendTestEvent, isTestModeEnabled, setTestModeEnabled } from '../utils/testMode'
+
+const SUPPORTED_WORKFLOW_LANGUAGES = ['en', 'tr']
+const SUGGESTION_REVIEW_STATUSES = ['new', 'triaged', 'planned', 'dismissed', 'done']
+
+const EMPTY_COCKPIT_DATA = {
+  reviewerProfiles: [],
+  slotMembers: [],
+  papers: [],
+  aiExtractions: [],
+  routingStageConfigs: [],
+  searchHits: [],
+  suggestionReviewItems: [],
+  labelSubmissions: [],
+  labelApprovals: [],
+  outcomes: [],
+}
 
 function parseUnitFromDescription(desc) {
   if (!desc) return 'G'
@@ -26,234 +42,137 @@ function isValidFoodItem(item) {
 
 function normalizeFoodItem(item) {
   return {
-    ...item,
     food_name: (item?.food_name || '').trim(),
+    food_fdc_id: item?.food_fdc_id || null,
+    is_custom_food: Boolean(item?.is_custom_food || !item?.food_fdc_id),
+    nutrients: (item?.nutrients || [])
+      .filter((nutrient) => (
+        (nutrient?.nutrient_name || nutrient?.nutrient_id) &&
+        nutrient?.value !== undefined &&
+        nutrient?.value !== null &&
+        nutrient?.unit
+      ))
+      .map((nutrient) => ({
+        nutrient_id: nutrient.nutrient_id || null,
+        nutrient_name: (nutrient.nutrient_name || '').trim(),
+        value: Number(nutrient.value),
+        unit: nutrient.unit,
+      })),
   }
 }
 
-const OPEN_STATUSES = new Set(['assigned', 'draft'])
-const FINAL_STATUSES = new Set(['submitted', 'conflict', 'resolved', 'cancelled'])
-const SUGGESTION_REVIEW_STATUSES = ['new', 'triaged', 'planned', 'dismissed', 'done']
-const SUPPORTED_WORKFLOW_LANGUAGES = ['en', 'tr']
-const LIVE_TRAINING_SLOT_STATUSES = new Set(['pending', 'submitted', 'conflict'])
-const EMPTY_COCKPIT_DATA = {
-  reviewerProfiles: [],
-  reviewerSlots: [],
-  slotMembers: [],
-  slotAssignments: [],
-  userAssignments: [],
-  submissions: [],
-  outcomes: [],
-  conflicts: [],
-  derivedConflicts: [],
-  papers: [],
-  aiExtractions: [],
-  routingStageConfigs: [],
-  searchHits: [],
-  suggestionReviewItems: [],
+function buildFoodItemsFromPayload(payload) {
+  if (payload?.decision_kind !== 'has_data') return []
+  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
+  return foodItems
+    .map((item) => normalizeFoodItem({
+      food_name: item?.food_name || '',
+      food_fdc_id: item?.food_fdc_id || null,
+      is_custom_food: Boolean(item?.is_custom_food || !item?.food_fdc_id),
+      nutrients: Array.isArray(item?.nutrients) ? item.nutrients : [],
+    }))
+    .filter(isValidFoodItem)
 }
 
-function buildSlotMembersByProfile(rows) {
-  return (rows || []).reduce((accumulator, row) => {
-    if (!row?.reviewer_profile_id) return accumulator
-    if (!accumulator[row.reviewer_profile_id]) {
-      accumulator[row.reviewer_profile_id] = []
-    }
-    accumulator[row.reviewer_profile_id].push(row)
-    return accumulator
-  }, {})
+function getPublicPdfUrl(filename) {
+  if (!filename) return null
+  return supabase.storage.from('papers').getPublicUrl(filename).data.publicUrl
 }
 
-function createReviewerDraft(profile = null, slotMembers = []) {
-  const shadowSlots = (slotMembers || [])
-    .filter((row) => row?.member_role === 'shadow' && row?.active !== false)
-    .map((row) => row.slot_key)
-    .filter(Boolean)
-    .sort()
-
-  return {
-    email: profile?.email || '',
-    display_name: profile?.display_name || '',
-    active: profile?.active ?? true,
-    can_review_en: profile?.can_review_en ?? true,
-    can_review_tr: profile?.can_review_tr ?? true,
-    tester_access: profile?.tester_access ?? false,
-    official_slot: profile?.official_slot || '',
-    shadow_slots: shadowSlots,
-    cockpit_access: profile?.cockpit_access ?? false,
-    priority_weight_en: profile?.priority_weight_en ?? 1,
-    priority_weight_tr: profile?.priority_weight_tr ?? 1,
-    notes: profile?.notes || '',
-  }
-}
-
-function createEmptyReviewerDraft() {
-  return createReviewerDraft()
-}
-
-function toggleShadowSlot(shadowSlots, slotKey) {
-  if (!slotKey) return shadowSlots || []
-  if ((shadowSlots || []).includes(slotKey)) {
-    return shadowSlots.filter((value) => value !== slotKey)
-  }
-  return [...(shadowSlots || []), slotKey].sort()
-}
-
-function buildReviewerAdminPayload(draft) {
-  return {
-    p_email: (draft?.email || '').trim().toLowerCase(),
-    p_display_name: (draft?.display_name || '').trim(),
-    p_active: Boolean(draft?.active),
-    p_can_review_en: Boolean(draft?.can_review_en),
-    p_can_review_tr: Boolean(draft?.can_review_tr),
-    p_tester_access: Boolean(draft?.tester_access),
-    p_official_slot: draft?.official_slot || null,
-    p_shadow_slots: [...new Set((draft?.shadow_slots || []).filter(Boolean))].sort(),
-    p_cockpit_access: Boolean(draft?.cockpit_access),
-    p_priority_weight_en: Number(draft?.priority_weight_en ?? 1) || 1,
-    p_priority_weight_tr: Number(draft?.priority_weight_tr ?? 1) || 1,
-    p_notes: (draft?.notes || '').trim() || null,
-  }
-}
-
-function describeMemberships(draft, reviewerSlots) {
-  const labels = []
-  if (draft?.official_slot) {
-    labels.push(`official:${draft.official_slot}`)
-  }
-  for (const slotKey of draft?.shadow_slots || []) {
-    labels.push(`shadow:${slotKey}`)
-  }
-  if (!labels.length) return 'No active slot membership.'
-  const slotLabelByKey = Object.fromEntries((reviewerSlots || []).map((slot) => [slot.slot_key, slot.display_name || slot.slot_key]))
-  return labels
-    .map((value) => {
-      const [kind, slotKey] = value.split(':')
-      return `${kind === 'official' ? 'Official' : 'Shadow'} ${slotLabelByKey[slotKey] || slotKey}`
-    })
-    .join(' · ')
-}
-
-function sortAssignments(assignments) {
-  const statusRank = {
-    assigned: 0,
-    draft: 1,
-    submitted: 2,
-    conflict: 3,
-    resolved: 4,
-    cancelled: 5,
-  }
-  return [...assignments].sort((a, b) => {
-    const rankDiff = (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99)
-    if (rankDiff !== 0) return rankDiff
-    return new Date(a.assigned_at || 0).getTime() - new Date(b.assigned_at || 0).getTime()
-  })
-}
-
-function getStatusBadgeClass(status) {
-  if (status === 'draft') return 'status-draft'
-  if (status === 'submitted' || status === 'resolved') return 'status-done'
-  if (status === 'conflict') return 'status-conflict'
-  if (status === 'cancelled') return 'status-skipped'
-  return 'status-pending'
+function formatDecisionLabel(decisionKind) {
+  if (decisionKind === 'has_data') return 'Usable Data'
+  if (decisionKind === 'no_usable_data') return 'No Usable Data'
+  return 'Unknown'
 }
 
 function formatStatusLabel(status) {
   switch (status) {
-    case 'assigned':
-      return 'Assigned'
     case 'draft':
       return 'Draft'
-    case 'submitted':
-      return 'Submitted'
-    case 'conflict':
-      return 'Conflict'
-    case 'resolved':
-      return 'Resolved'
-    case 'cancelled':
-      return 'Cancelled'
-    default:
-      return status || 'Unknown'
-  }
-}
-
-function formatDecisionLabel(decisionKind) {
-  return decisionKind === 'has_data' ? 'Usable Data' : 'No Usable Data'
-}
-
-function formatRoutingStatusLabel(status) {
-  switch (status) {
-    case 'queued_for_ai':
-      return 'Queued For AI'
-    case 'ai_processing':
-      return 'AI Processing'
-    case 'ai_failed':
-      return 'AI Failed'
-    case 'human_review_ready':
-      return 'Human Review Ready'
-    case 'ai_finalized_has_data':
-      return 'AI Finalized: Has Data'
-    case 'ai_finalized_no_usable_data':
-      return 'AI Finalized: No Data'
-    default:
-      return status || 'Unknown'
-  }
-}
-
-function formatRouteDestinationLabel(destination) {
-  switch (destination) {
-    case 'human_review':
-      return 'Human Review'
-    case 'finalized':
-      return 'Finalized'
-    case 'blocked':
-      return 'Blocked'
-    default:
-      return destination || 'Unknown'
-  }
-}
-
-function formatSuggestionReviewStatus(status) {
-  switch (status) {
-    case 'new':
-      return 'New'
-    case 'triaged':
-      return 'Triaged'
-    case 'planned':
-      return 'Planned'
-    case 'dismissed':
-      return 'Dismissed'
+    case 'pending_approval':
+      return 'Pending Approval'
+    case 'accepted':
+      return 'Accepted'
+    case 'superseded':
+      return 'Superseded'
     case 'done':
       return 'Done'
+    case 'skipped':
+      return 'Skipped'
     default:
-      return status || 'Unknown'
+      return status || 'Available'
   }
 }
 
-function formatReviewItemKind(item) {
-  if (item?.context?.request_kind === 'assignment_help_request') {
-    return 'Assignment Help'
+function formatDate(value) {
+  return value ? new Date(value).toLocaleString() : '-'
+}
+
+function getStatusBadgeClass(status) {
+  if (status === 'draft') return 'status-draft'
+  if (status === 'accepted' || status === 'done') return 'status-done'
+  if (status === 'superseded' || status === 'skipped') return 'status-skipped'
+  if (status === 'pending_approval') return 'status-conflict'
+  return 'status-pending'
+}
+
+function getAiDecisionKind(extraction) {
+  if (extraction?.normalized_payload_json?.decision_kind) return extraction.normalized_payload_json.decision_kind
+  return extraction?.is_useful ? 'has_data' : 'no_usable_data'
+}
+
+function getPayloadRowCount(payload) {
+  const foods = Array.isArray(payload?.food_items) ? payload.food_items : []
+  return foods.reduce((sum, food) => sum + (Array.isArray(food?.nutrients) ? food.nutrients.length : 0), 0)
+}
+
+function getAiPrefillStats(extraction) {
+  const payload = extraction?.normalized_payload_json || {}
+  const foods = Array.isArray(payload?.food_items) ? payload.food_items : []
+  const nutrients = foods.flatMap((food) => Array.isArray(food?.nutrients) ? food.nutrients : [])
+  const rawSummary = extraction?.raw_data?.normalization_summary || {}
+  const accepted = Number(rawSummary.accepted_row_count ?? getPayloadRowCount(payload)) || 0
+  const input = Number(rawSummary.input_row_count ?? accepted) || 0
+  return {
+    decision_kind: payload.decision_kind || getAiDecisionKind(extraction),
+    accepted_row_count: accepted,
+    rejected_row_count: Number(rawSummary.rejected_row_count ?? Math.max(0, input - accepted)) || 0,
+    matched_food_count: foods.filter((food) => food?.food_fdc_id && !food?.is_custom_food).length,
+    custom_food_count: foods.filter((food) => !food?.food_fdc_id || food?.is_custom_food).length,
+    matched_nutrient_count: nutrients.filter((nutrient) => nutrient?.nutrient_id).length,
+    custom_nutrient_count: nutrients.filter((nutrient) => !nutrient?.nutrient_id).length,
   }
-  return item?.item_kind === 'suggestion_review' ? 'Suggestion' : item?.item_kind || 'Review Item'
 }
 
-function getHelpRequestContextRows(item) {
-  const context = item?.context || {}
-  if (context.request_kind !== 'assignment_help_request') return []
-  return [
-    ['Paper', context.paper_id ? `#${context.paper_id}` : null],
-    ['Slot', context.slot_key || null],
-    ['Role', context.member_role || null],
-    ['Language', context.workflow_language || null],
-    ['Reviewer', context.reviewer_name || context.reviewer_email || null],
-  ].filter(([, value]) => value)
+function buildLatestAiExtractionMaps(rows) {
+  const byId = {}
+  const byPaperId = {}
+  for (const row of rows || []) {
+    if (row?.id) byId[row.id] = row
+    if (!row?.paper_id) continue
+    const existing = byPaperId[row.paper_id]
+    if (!existing || new Date(row.created_at || 0).getTime() > new Date(existing.created_at || 0).getTime()) {
+      byPaperId[row.paper_id] = row
+    }
+  }
+  return { byId, byPaperId }
 }
 
-function formatBytesLabel(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return ''
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+function buildPaperMap(rows) {
+  return Object.fromEntries((rows || []).map((row) => [row.id, row]))
+}
+
+function buildReviewerMap(rows) {
+  return Object.fromEntries((rows || []).map((row) => [row.id, row]))
+}
+
+function groupRowsByPaperId(rows) {
+  return (rows || []).reduce((accumulator, row) => {
+    if (!row?.paper_id) return accumulator
+    if (!accumulator[row.paper_id]) accumulator[row.paper_id] = []
+    accumulator[row.paper_id].push(row)
+    return accumulator
+  }, {})
 }
 
 function normalizeSuggestionAttachments(rawValue) {
@@ -268,457 +187,41 @@ function normalizeSuggestionAttachments(rawValue) {
       const fileSize = Number(row.file_size || row.size || 0) || 0
       const mimeType = String(row.mime_type || row.type || '').trim() || null
       if (!path && !directUrl) return null
-      return {
-        bucket,
-        path,
-        directUrl,
-        fileName,
-        fileSize,
-        mimeType,
-      }
+      return { bucket, path, directUrl, fileName, fileSize, mimeType }
     })
     .filter(Boolean)
 }
 
-function getPublicPdfUrl(filename) {
-  if (!filename) return null
-  return supabase.storage.from('papers').getPublicUrl(filename).data.publicUrl
+function formatBytesLabel(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function pickDefaultAssignment(assignments, previousId = null) {
-  if (!assignments.length) return null
-  if (previousId && assignments.some((assignment) => assignment.id === previousId)) {
-    return previousId
-  }
-  const firstOpen = assignments.find((assignment) => OPEN_STATUSES.has(assignment.status))
-  return firstOpen?.id || assignments[0].id
-}
-
-function nextOpenAssignmentId(assignments, currentId) {
-  const currentIndex = assignments.findIndex((assignment) => assignment.id === currentId)
-  for (let index = currentIndex + 1; index < assignments.length; index += 1) {
-    if (OPEN_STATUSES.has(assignments[index].status)) return assignments[index].id
-  }
-  for (let index = 0; index < currentIndex; index += 1) {
-    if (OPEN_STATUSES.has(assignments[index].status)) return assignments[index].id
-  }
-  return pickDefaultAssignment(assignments, currentId)
-}
-
-function buildPaperMap(rows) {
-  return Object.fromEntries((rows || []).map((row) => [row.id, row]))
-}
-
-function buildReviewerMap(rows) {
-  return Object.fromEntries((rows || []).map((row) => [row.id, row]))
-}
-
-function normalizeWorkflowLanguage(value) {
-  const normalized = String(value || '').trim().toLowerCase()
-  return SUPPORTED_WORKFLOW_LANGUAGES.includes(normalized) ? normalized : null
-}
-
-function interleaveRows(primaryRows, secondaryRows) {
-  const result = []
-  const maxLength = Math.max(primaryRows.length, secondaryRows.length)
-  for (let index = 0; index < maxLength; index += 1) {
-    if (primaryRows[index]) result.push(primaryRows[index])
-    if (secondaryRows[index]) result.push(secondaryRows[index])
-  }
-  return result
-}
-
-function compareTrainingPapers(left, right) {
-  const leftTime = new Date(left.representativeSlot?.assigned_at || left.paper?.created_at || 0).getTime()
-  const rightTime = new Date(right.representativeSlot?.assigned_at || right.paper?.created_at || 0).getTime()
-  if (rightTime !== leftTime) return rightTime - leftTime
-  return (right.paper?.id || 0) - (left.paper?.id || 0)
-}
-
-function pickTrainingRepresentativeSlot(slotAssignments) {
-  const statusRank = {
-    conflict: 0,
-    submitted: 1,
-    pending: 2,
-    resolved: 3,
-    cancelled: 4,
-  }
-
-  return [...(slotAssignments || [])].sort((left, right) => {
-    const rankDiff = (statusRank[left?.status] ?? 99) - (statusRank[right?.status] ?? 99)
-    if (rankDiff !== 0) return rankDiff
-    const leftTime = new Date(left?.assigned_at || left?.created_at || 0).getTime()
-    const rightTime = new Date(right?.assigned_at || right?.created_at || 0).getTime()
-    if (rightTime !== leftTime) return rightTime - leftTime
-    return String(left?.slot_key || '').localeCompare(String(right?.slot_key || ''))
-  })[0] || null
-}
-
-function buildVirtualQueueItem({ paper, reviewerProfileId, assignmentIdPrefix, representativeSlot = null, isTraining = false }) {
-  return {
-    id: `${assignmentIdPrefix}:${paper.id}`,
-    paper_id: paper.id,
-    reviewer_profile_id: reviewerProfileId,
-    workflow_language: normalizeWorkflowLanguage(paper.workflow_language),
-    status: 'assigned',
-    assigned_at: representativeSlot?.assigned_at || paper.created_at || null,
-    paper_slot_assignment_id: representativeSlot?.id || null,
-    latest_submission_id: null,
-    is_virtual: true,
-    is_training: isTraining,
-    paper,
-    slot_assignment: representativeSlot,
-    outcome: null,
-  }
-}
-
-function buildGenericTesterAssignments(papers, reviewerProfileId) {
-  const orderedPapers = [...(papers || [])].sort((left, right) => {
-    const leftLanguage = normalizeWorkflowLanguage(left?.workflow_language)
-    const rightLanguage = normalizeWorkflowLanguage(right?.workflow_language)
-    if (leftLanguage !== rightLanguage) {
-      if (leftLanguage === 'en') return -1
-      if (rightLanguage === 'en') return 1
-      if (leftLanguage === 'tr') return -1
-      if (rightLanguage === 'tr') return 1
-    }
-    return (right?.id || 0) - (left?.id || 0)
-  })
-
-  return orderedPapers.map((paper) => buildVirtualQueueItem({
-    paper,
-    reviewerProfileId,
-    assignmentIdPrefix: 'tester',
-  }))
-}
-
-function buildDeveloperTrainingAssignments({ papers, slotAssignments, reviewerProfileId }) {
-  const slotAssignmentsByPaperId = groupRowsByPaperId(slotAssignments)
-  const rankedPapers = (papers || [])
-    .filter((paper) => normalizeWorkflowLanguage(paper?.workflow_language))
-    .map((paper) => {
-      const paperSlotAssignments = slotAssignmentsByPaperId[paper.id] || []
-      const liveSlotAssignments = paperSlotAssignments.filter((assignment) =>
-        LIVE_TRAINING_SLOT_STATUSES.has(String(assignment?.status || '').trim().toLowerCase())
-      )
-
-      return {
-        paper,
-        language: normalizeWorkflowLanguage(paper.workflow_language),
-        hasLiveSlotAssignments: liveSlotAssignments.length > 0,
-        representativeSlot: pickTrainingRepresentativeSlot(liveSlotAssignments.length ? liveSlotAssignments : paperSlotAssignments),
-      }
-    })
-
-  const liveEn = rankedPapers
-    .filter((row) => row.hasLiveSlotAssignments && row.language === 'en')
-    .sort(compareTrainingPapers)
-  const liveTr = rankedPapers
-    .filter((row) => row.hasLiveSlotAssignments && row.language === 'tr')
-    .sort(compareTrainingPapers)
-  const backlogEn = rankedPapers
-    .filter((row) => !row.hasLiveSlotAssignments && row.language === 'en')
-    .sort(compareTrainingPapers)
-  const backlogTr = rankedPapers
-    .filter((row) => !row.hasLiveSlotAssignments && row.language === 'tr')
-    .sort(compareTrainingPapers)
-
-  return [...interleaveRows(liveEn, liveTr), ...interleaveRows(backlogEn, backlogTr)].map((row) =>
-    buildVirtualQueueItem({
-      paper: row.paper,
-      reviewerProfileId,
-      assignmentIdPrefix: 'training',
-      representativeSlot: row.representativeSlot,
-      isTraining: true,
-    })
+function countCorrectionItems(diff) {
+  if (!diff || typeof diff !== 'object') return 0
+  return (
+    (diff.decision_changed ? 1 : 0) +
+    (Array.isArray(diff.missing_foods) ? diff.missing_foods.length : 0) +
+    (Array.isArray(diff.added_foods) ? diff.added_foods.length : 0) +
+    (Array.isArray(diff.missing_nutrient_rows) ? diff.missing_nutrient_rows.length : 0) +
+    (Array.isArray(diff.added_nutrient_rows) ? diff.added_nutrient_rows.length : 0)
   )
 }
 
-function computeReviewerMetrics(cockpitData) {
-  const reviewerById = buildReviewerMap(cockpitData.reviewerProfiles)
-  const outcomeByPaperId = Object.fromEntries((cockpitData.outcomes || []).map((row) => [row.paper_id, row]))
-  const submissionsById = Object.fromEntries((cockpitData.submissions || []).map((row) => [row.id, row]))
-  const metrics = (cockpitData.reviewerProfiles || []).map((profile) => ({
-    ...profile,
-    open: 0,
-    draft: 0,
-    submitted: 0,
-    conflict: 0,
-    resolved: 0,
-    accuracyNumerator: 0,
-    accuracyDenominator: 0,
-  }))
-  const metricsById = Object.fromEntries(metrics.map((row) => [row.id, row]))
-
-  for (const assignment of cockpitData.userAssignments || []) {
-    const metric = metricsById[assignment.reviewer_profile_id]
-    if (!metric) continue
-    metric[assignment.status] = (metric[assignment.status] || 0) + 1
-    if (OPEN_STATUSES.has(assignment.status)) {
-      metric.open += 1
-    }
-    const submission = submissionsById[assignment.latest_submission_id]
-    const outcome = outcomeByPaperId[assignment.paper_id]
-    if (!submission || !outcome) continue
-    metric.accuracyDenominator += 1
-    if (submission.payload_hash === outcome.payload_hash) {
-      metric.accuracyNumerator += 1
-    }
-  }
-
-  return metrics.map((row) => ({
-    ...row,
-    accuracy:
-      row.accuracyDenominator > 0
-        ? Math.round((row.accuracyNumerator / row.accuracyDenominator) * 100)
-        : null,
-    reviewer: reviewerById[row.id] || row,
-  }))
-}
-
-function computeSourceBreakdown(cockpitData) {
-  const outcomeByPaperId = Object.fromEntries((cockpitData.outcomes || []).map((row) => [row.paper_id, row]))
-  const aggregate = new Map()
-
-  for (const hit of cockpitData.searchHits || []) {
-    const outcome = outcomeByPaperId[hit.paper_id]
-    if (!outcome) continue
-    const key = `${hit.source || 'unknown'}|${hit.template_id || 'unknown'}|${hit.source_term || ''}`
-    if (!aggregate.has(key)) {
-      aggregate.set(key, {
-        source: hit.source || 'unknown',
-        template_id: hit.template_id || 'unknown',
-        source_term: hit.source_term || '',
-        positive: 0,
-        negative: 0,
-      })
-    }
-    const row = aggregate.get(key)
-    if (outcome.decision_kind === 'has_data') row.positive += 1
-    if (outcome.decision_kind === 'no_usable_data') row.negative += 1
-  }
-
-  return [...aggregate.values()]
-    .sort((a, b) => (b.positive - a.positive) || (a.negative - b.negative) || a.source.localeCompare(b.source))
-    .slice(0, 10)
-}
-
-function computeRoutingCounts(papers) {
-  const counts = {
-    queued_for_ai: 0,
-    ai_processing: 0,
-    ai_failed: 0,
-    human_review_ready: 0,
-    ai_finalized_has_data: 0,
-    ai_finalized_no_usable_data: 0,
-  }
-
-  for (const paper of papers || []) {
-    const status = String(paper?.routing_status || '').trim().toLowerCase()
-    if (status in counts) {
-      counts[status] += 1
-    }
-  }
-
-  return counts
-}
-
-function countPayloadRows(payload) {
-  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
-  return foodItems.reduce((total, item) => total + (Array.isArray(item?.nutrients) ? item.nutrients.length : 0), 0)
-}
-
-function normalizeForStableJson(value) {
-  if (Array.isArray(value)) {
-    return value.map(normalizeForStableJson)
-  }
-  if (value && typeof value === 'object') {
-    return Object.keys(value).sort().reduce((accumulator, key) => {
-      accumulator[key] = normalizeForStableJson(value[key])
-      return accumulator
-    }, {})
-  }
-  return value
-}
-
-function stableJson(value) {
-  return JSON.stringify(normalizeForStableJson(value ?? null))
-}
-
-function getAiDecisionKind(extraction) {
-  const decisionKind = extraction?.normalized_payload_json?.decision_kind
-  if (decisionKind) return decisionKind
-  return extraction?.is_useful ? 'has_data' : 'no_usable_data'
-}
-
-function getAiComparisonStatus(extraction, outcome) {
-  if (!extraction || !outcome) return null
-  const truthSource = String(outcome.truth_source_kind || 'human_review').trim().toLowerCase()
-  if (truthSource === 'ai_model') return null
-
-  const aiPayload = extraction.normalized_payload_json || null
-  const outcomePayload = outcome.payload_json || null
-  if (aiPayload && outcomePayload && stableJson(aiPayload) === stableJson(outcomePayload)) {
-    return { label: 'Exact DB Payload Match', badgeClass: 'status-done' }
-  }
-  if (getAiDecisionKind(extraction) === outcome.decision_kind) {
-    return { label: 'Decision-Only Match', badgeClass: 'status-draft' }
-  }
-  return { label: 'Mismatch', badgeClass: 'status-conflict' }
-}
-
-function getNormalizationSummary(extraction) {
-  const rawSummary = extraction?.raw_data?.normalization_summary || {}
-  const payload = extraction?.normalized_payload_json || {}
-  const accepted = Number(rawSummary.accepted_row_count ?? countPayloadRows(payload)) || 0
-  const input = Number(rawSummary.input_row_count ?? extraction?.raw_data?.parsed_result?.data?.length ?? accepted) || 0
+function buildGeneralHelpContext({ item, paper, reviewerProfile, foodItems, initializedFromAiExtractionId }) {
   return {
-    accepted_row_count: accepted,
-    rejected_row_count: Number(rawSummary.rejected_row_count ?? Math.max(0, input - accepted)) || 0,
-    unmapped_food_count: Number(rawSummary.unmapped_food_count ?? 0) || 0,
-    unmapped_nutrient_count: Number(rawSummary.unmapped_nutrient_count ?? 0) || 0,
-    input_row_count: input,
-    rejection_reasons: rawSummary.rejection_reasons || {},
-  }
-}
-
-function getAiRawMetadata(extraction) {
-  const rawData = extraction?.raw_data || {}
-  return {
-    extraction_id: extraction?.id || null,
-    stage_key: extraction?.stage_key || null,
-    prompt_version: extraction?.prompt_version || null,
-    model_name: extraction?.model_name || null,
-    input_hash: extraction?.input_hash || null,
-    status: extraction?.status || null,
-    route_destination: extraction?.route_destination || null,
-    audit_sampled: Boolean(extraction?.audit_sampled),
-    finalized_without_human: Boolean(extraction?.finalized_without_human),
-    positive_threshold_snapshot: extraction?.positive_threshold_snapshot ?? null,
-    negative_threshold_snapshot: extraction?.negative_threshold_snapshot ?? null,
-    parsed_data_rows: Array.isArray(rawData?.parsed_result?.data) ? rawData.parsed_result.data.length : null,
-    raw_response_chars: typeof rawData?.raw_response_text === 'string' ? rawData.raw_response_text.length : null,
-    created_at: extraction?.created_at || null,
-  }
-}
-
-function groupRowsByPaperId(rows) {
-  return (rows || []).reduce((accumulator, row) => {
-    if (!row?.paper_id) return accumulator
-    if (!accumulator[row.paper_id]) {
-      accumulator[row.paper_id] = []
-    }
-    accumulator[row.paper_id].push(row)
-    return accumulator
-  }, {})
-}
-
-function buildLatestAiExtractionMaps(rows) {
-  const byId = {}
-  const byPaperId = {}
-  for (const row of rows || []) {
-    if (row?.id) {
-      byId[row.id] = row
-    }
-    if (!row?.paper_id) continue
-    const existing = byPaperId[row.paper_id]
-    if (!existing || new Date(row.created_at || 0).getTime() > new Date(existing.created_at || 0).getTime()) {
-      byPaperId[row.paper_id] = row
-    }
-  }
-  return { byId, byPaperId }
-}
-
-function buildSlotMemberMap(rows) {
-  return Object.fromEntries((rows || []).map((row) => [row.slot_key, row]))
-}
-
-function attachLatestAiExtractions(assignments, aiExtractionRows) {
-  const { byId, byPaperId } = buildLatestAiExtractionMaps(aiExtractionRows)
-  return (assignments || []).map((assignment) => {
-    const paper = assignment.paper || {}
-    return {
-      ...assignment,
-      latest_ai_extraction: byId[paper.latest_ai_extraction_id] || byPaperId[assignment.paper_id] || null,
-    }
-  })
-}
-
-function buildFoodItemsFromAiPayload(payload) {
-  if (payload?.decision_kind !== 'has_data') return []
-  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
-  return foodItems
-    .map((item) => {
-      const nutrients = (Array.isArray(item?.nutrients) ? item.nutrients : [])
-        .filter((nutrient) => (
-          (nutrient?.nutrient_name || nutrient?.nutrient_id) &&
-          nutrient?.value !== undefined &&
-          nutrient?.value !== null &&
-          nutrient?.unit
-        ))
-        .map((nutrient) => ({
-          nutrient_id: nutrient.nutrient_id || null,
-          nutrient_name: nutrient.nutrient_name || '',
-          value: Number(nutrient.value),
-          unit: nutrient.unit,
-        }))
-
-      return {
-        food_name: item?.food_name || '',
-        food_fdc_id: item?.food_fdc_id || null,
-        is_custom_food: Boolean(item?.is_custom_food || !item?.food_fdc_id),
-        nutrients,
-      }
-    })
-    .filter(isValidFoodItem)
-}
-
-function getAiPrefillStats(extraction) {
-  const payload = extraction?.normalized_payload_json || {}
-  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
-  const nutrients = foodItems.flatMap((item) => Array.isArray(item?.nutrients) ? item.nutrients : [])
-  const summary = getNormalizationSummary(extraction)
-
-  return {
-    decision_kind: payload.decision_kind || getAiDecisionKind(extraction),
-    matched_food_count: foodItems.filter((item) => item?.food_fdc_id && !item?.is_custom_food).length,
-    custom_food_count: foodItems.filter((item) => !item?.food_fdc_id || item?.is_custom_food).length,
-    matched_nutrient_count: nutrients.filter((nutrient) => nutrient?.nutrient_id).length,
-    custom_nutrient_count: nutrients.filter((nutrient) => !nutrient?.nutrient_id).length,
-    accepted_row_count: summary.accepted_row_count,
-    rejected_row_count: summary.rejected_row_count,
-  }
-}
-
-function clearPrefillSource(previous, assignmentId) {
-  if (!assignmentId || !previous[assignmentId]) return previous
-  const next = { ...previous }
-  delete next[assignmentId]
-  return next
-}
-
-function buildAssignmentHelpContext({
-  assignment,
-  paper,
-  reviewerProfile,
-  foodItems,
-  initializedFromAiExtractionId,
-}) {
-  return {
-    request_kind: 'assignment_help_request',
-    paper_id: paper?.id || assignment?.paper_id || null,
+    request_kind: 'general_queue_help_request',
+    paper_id: paper?.id || item?.paper_id || null,
     paper_title: paper?.title || null,
     paper_filename: paper?.filename || null,
     paper_doi: paper?.doi || null,
-    workflow_language: assignment?.workflow_language || paper?.workflow_language || null,
-    paper_user_assignment_id: assignment?.id || null,
-    paper_slot_assignment_id: assignment?.paper_slot_assignment_id || null,
-    slot_key: assignment?.slot_assignment?.slot_key || null,
-    member_role: assignment?.slot_member?.member_role || null,
-    reviewer_profile_id: reviewerProfile?.id || assignment?.reviewer_profile_id || null,
+    workflow_language: item?.workflow_language || paper?.workflow_language || null,
+    reviewer_profile_id: reviewerProfile?.id || null,
     reviewer_email: reviewerProfile?.email || null,
     reviewer_name: reviewerProfile?.display_name || null,
-    latest_ai_extraction_id: assignment?.latest_ai_extraction?.id || null,
+    latest_ai_extraction_id: item?.latest_ai_extraction?.id || null,
     initialized_from_ai_extraction_id: initializedFromAiExtractionId || null,
     draft_food_items: (foodItems || []).filter(isValidFoodItem).map(normalizeFoodItem),
   }
@@ -749,68 +252,71 @@ function AiPrefillStatus({ extraction, initializedExtractionId }) {
   )
 }
 
-function HelpRequestModal({
-  assignment,
-  paper,
-  note,
-  setNote,
-  onClose,
-  onSubmit,
-  saving,
-}) {
-  const contextRows = [
-    ['Paper', paper?.id ? `#${paper.id}` : null],
-    ['Slot', assignment?.slot_assignment?.slot_key || null],
-    ['Role', assignment?.slot_member?.member_role || 'primary'],
-    ['Language', assignment?.workflow_language || paper?.workflow_language || null],
-  ].filter(([, value]) => value)
-
-  const submit = (event) => {
-    event.preventDefault()
-    if (saving || !note.trim()) return
-    onSubmit()
-  }
+function PayloadSummary({ submission, reviewer, title = null }) {
+  const payload = submission?.payload_json || {}
+  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
 
   return (
-    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-      <form
-        className="modal-card help-request-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="help-request-title"
-        onClick={(event) => event.stopPropagation()}
-        onSubmit={submit}
-      >
-        <h2 id="help-request-title">Ask for Help</h2>
-        <p>This sends the paper to the cockpit and keeps your assignment open as a draft.</p>
-        {contextRows.length > 0 && (
-          <div className="help-request-context">
-            {contextRows.map(([label, value]) => (
-              <span key={label}>{label}: {value}</span>
-            ))}
+    <div className="payload-card">
+      <div className="payload-card-header">
+        <div>
+          <h3>{title || reviewer?.display_name || reviewer?.email || 'Unknown Labeler'}</h3>
+          <p>{formatDecisionLabel(submission?.decision_kind)}</p>
+        </div>
+      </div>
+      <div className="payload-meta">
+        <span className={`status-badge ${getStatusBadgeClass(submission?.status)}`}>{formatStatusLabel(submission?.status)}</span>
+        <span className="status-badge status-pending">{formatDate(submission?.submitted_at)}</span>
+        <span className="status-badge status-draft">{foodItems.length} foods</span>
+      </div>
+      <div className="payload-scroll">
+        {foodItems.length === 0 ? (
+          <div className="empty-panel">No extracted foods stored in this submission.</div>
+        ) : foodItems.map((foodItem, index) => (
+          <div key={`${submission?.id || 'payload'}-${index}`} className="payload-food-block">
+            <div className="payload-food-title">
+              {foodItem.food_name || 'Unnamed food'}
+              {foodItem.food_fdc_id && <span className="payload-food-id">{foodItem.food_fdc_id}</span>}
+            </div>
+            <div className="payload-nutrients">
+              {(foodItem.nutrients || []).length === 0 ? (
+                <span className="payload-empty-line">No nutrient rows.</span>
+              ) : (foodItem.nutrients || []).map((nutrient, nutrientIndex) => (
+                <div key={`${index}-${nutrientIndex}`} className="payload-nutrient-row">
+                  <span>{nutrient.nutrient_name || 'Unnamed nutrient'}</span>
+                  <span>{nutrient.value ?? '-'} {nutrient.unit || ''}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        )}
-        <label className="help-request-label" htmlFor="help-request-note">
-          What is confusing?
-        </label>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HelpRequestModal({ note, setNote, onClose, onSubmit, saving }) {
+  return (
+    <div className="modal-backdrop">
+      <form
+        className="help-modal"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSubmit()
+        }}
+      >
+        <h2>Ask for Help</h2>
+        <p>This sends the paper to Arciel with your current draft context.</p>
         <textarea
-          id="help-request-note"
-          placeholder="Example: table units conflict, only a chart is available, or the food state is unclear."
           value={note}
+          placeholder="What is confusing?"
           onChange={(event) => setNote(event.target.value)}
           disabled={saving}
           autoFocus
         />
         <div className="modal-actions">
-          <button type="button" className="btn btn-outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={saving || !note.trim()}
-            style={{ width: 'auto' }}
-          >
+          <button type="button" className="btn btn-outline" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={saving || !note.trim()} style={{ width: 'auto' }}>
             {saving ? 'Sending...' : 'Send Help Request'}
           </button>
         </div>
@@ -820,140 +326,108 @@ function HelpRequestModal({
 }
 
 function QueueView({
-  assignments,
-  currentAssignment,
-  currentPaperIndex,
+  items,
+  currentItem,
+  currentIndex,
   pdfUrl,
   theme,
   allNutrients,
-  foodItems,
   allFoods,
   foodsLoaded,
   user,
-  queueStats,
+  foodItems,
   isEditable,
   saving,
   showPaperList,
   setShowPaperList,
   paperListRef,
-  setSelectedAssignmentId,
+  setSelectedQueueId,
   addFoodItem,
   removeFoodItem,
   updateFoodItem,
   handlePdfNutrientAdd,
-  handleGlobalNoData,
   handleRequestHelp,
   saveAnnotation,
-  getStatusBadgeClass,
-  formatStatusLabel,
-  formatDecisionLabel,
   aiPrefillExtractionId,
-  canUseGlobalNoData,
 }) {
   return (
     <div className="workspace">
-      <PdfViewer
-        pdfUrl={pdfUrl}
-        allNutrients={allNutrients}
-        onAddNutrient={handlePdfNutrientAdd}
-        theme={theme}
-      />
+      <PdfViewer pdfUrl={pdfUrl} allNutrients={allNutrients} onAddNutrient={handlePdfNutrientAdd} theme={theme} />
 
       <div className="annotation-panel">
         <div className="queue-assignment-header">
-          {currentAssignment ? (
-            <>
-              <div className="queue-assignment-toolbar">
-                <div className="queue-toolbar-group">
-                  <div className="paper-list-toggle" ref={paperListRef}>
-                    <button className="nav-btn" onClick={() => setShowPaperList((open) => !open)}>
-                      {currentPaperIndex >= 0 ? `Assignment ${currentPaperIndex + 1}/${assignments.length}` : 'Queue'} ▾
-                    </button>
-                    {showPaperList && (
-                      <div className="paper-list-dropdown">
-                        {assignments.map((assignment, index) => (
-                          <div
-                            key={assignment.id}
-                            className={`paper-list-item ${assignment.id === currentAssignment.id ? 'active' : ''}`}
-                            onClick={() => {
-                              setSelectedAssignmentId(assignment.id)
-                              setShowPaperList(false)
-                            }}
-                          >
-                            <span className="paper-id">{index + 1}</span>
-                            <span className="paper-title">{assignment.paper?.title || assignment.paper?.filename || `Paper ${assignment.paper_id}`}</span>
-                            <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="queue-mini-stats">
-                    <span className={`status-badge ${getStatusBadgeClass(currentAssignment.status)}`}>
-                      {formatStatusLabel(currentAssignment.status)}
-                    </span>
-                    {currentAssignment.slot_member?.member_role === 'shadow' && (
-                      <span className="status-badge status-draft">Shadow</span>
-                    )}
-                    <span className="status-badge status-pending">{queueStats.open} open</span>
-                    <span className="status-badge status-draft">{queueStats.conflict} conflict</span>
-                    <span className="status-badge status-done">{queueStats.resolved} resolved</span>
-                    {!!queueStats.cancelled && <span className="status-badge status-skipped">{queueStats.cancelled} cancelled</span>}
-                  </div>
+          {currentItem ? (
+            <div className="queue-assignment-toolbar">
+              <div className="queue-toolbar-group">
+                <div className="paper-list-toggle" ref={paperListRef}>
+                  <button className="nav-btn" onClick={() => setShowPaperList((open) => !open)}>
+                    {currentIndex >= 0 ? `Paper ${currentIndex + 1}/${items.length}` : 'Queue'} ▾
+                  </button>
+                  {showPaperList && (
+                    <div className="paper-list-dropdown">
+                      {items.map((item, index) => (
+                        <div
+                          key={item.id}
+                          className={`paper-list-item ${item.id === currentItem.id ? 'active' : ''}`}
+                          onClick={() => {
+                            setSelectedQueueId(item.id)
+                            setShowPaperList(false)
+                          }}
+                        >
+                          <span className="paper-id">{index + 1}</span>
+                          <span className="paper-title">{item.paper?.title || item.paper?.filename || `Paper ${item.paper_id}`}</span>
+                          <span className={`status-badge ${getStatusBadgeClass(item.status)}`}>{formatStatusLabel(item.status)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-
-                <div className="queue-nav-buttons">
-                  <button
-                    className="nav-btn"
-                    disabled={currentPaperIndex <= 0}
-                    onClick={() => setSelectedAssignmentId(assignments[Math.max(currentPaperIndex - 1, 0)]?.id || null)}
-                  >
-                    ← Prev
-                  </button>
-                  <button
-                    className="nav-btn"
-                    disabled={currentPaperIndex < 0 || currentPaperIndex >= assignments.length - 1}
-                    onClick={() => setSelectedAssignmentId(assignments[Math.min(currentPaperIndex + 1, assignments.length - 1)]?.id || null)}
-                  >
-                    Next →
-                  </button>
+                <div className="queue-mini-stats">
+                  <span className={`status-badge ${getStatusBadgeClass(currentItem.status)}`}>
+                    {formatStatusLabel(currentItem.status)}
+                  </span>
+                  <span className="status-badge status-pending">{items.length} available</span>
+                  {currentItem.workflow_language && (
+                    <span className="status-badge status-draft">{currentItem.workflow_language.toUpperCase()}</span>
+                  )}
                 </div>
               </div>
-            </>
+              <div className="queue-nav-buttons">
+                <button
+                  className="nav-btn"
+                  disabled={currentIndex <= 0}
+                  onClick={() => setSelectedQueueId(items[Math.max(currentIndex - 1, 0)]?.id || null)}
+                >
+                  Prev
+                </button>
+                <button
+                  className="nav-btn"
+                  disabled={currentIndex < 0 || currentIndex >= items.length - 1}
+                  onClick={() => setSelectedQueueId(items[Math.min(currentIndex + 1, items.length - 1)]?.id || null)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           ) : (
-            <div className="empty-panel">No assigned papers yet. Run the refill job to top the queue back up.</div>
+            <div className="empty-panel">No papers are currently available in the general queue.</div>
           )}
         </div>
 
         <div className="annotation-scroll">
-          {!currentAssignment ? (
-            <div className="empty-panel">Your queue is empty.</div>
+          {!currentItem ? (
+            <div className="empty-panel">The queue is empty.</div>
           ) : (
             <>
-              {currentAssignment.is_training && (
-                <div className="outcome-banner">
-                  Developer training mode is read-only for annotation and admin actions. Suggestions still sync to the live review queue.
-                </div>
-              )}
               {!isEditable && (
                 <div className="review-lock-banner">
-                  This assignment is finalized. You can inspect it here, but new edits will not be saved.
+                  This account is read-only for live labeling.
                 </div>
               )}
-              {currentAssignment.outcome && (
-                <div className="outcome-banner">
-                  Final paper outcome: {formatDecisionLabel(currentAssignment.outcome.decision_kind)}
-                </div>
-              )}
-              <AiPrefillStatus
-                extraction={currentAssignment.latest_ai_extraction}
-                initializedExtractionId={aiPrefillExtractionId}
-              />
-
+              <AiPrefillStatus extraction={currentItem.latest_ai_extraction} initializedExtractionId={aiPrefillExtractionId} />
               {foodItems.map((item, index) => (
                 <FoodItemForm
-                  key={`${currentAssignment.id}-${index}`}
+                  key={`${currentItem.id}-${index}`}
                   index={index}
                   data={item}
                   onChange={(updated) => updateFoodItem(index, updated)}
@@ -964,11 +438,8 @@ function QueueView({
                   userId={user.id}
                 />
               ))}
-
               {isEditable && (
-                <button className="add-food-btn" onClick={addFoodItem}>
-                  + Add Another Food Item
-                </button>
+                <button className="add-food-btn" onClick={addFoodItem}>+ Add Another Food Item</button>
               )}
             </>
           )}
@@ -976,45 +447,16 @@ function QueueView({
 
         <div className="annotation-actions">
           <div className="action-row">
-            <button
-              className="btn btn-outline"
-              onClick={handleRequestHelp}
-              disabled={saving || !isEditable}
-            >
-              Ask for Help
+            <button className="btn btn-outline" onClick={handleRequestHelp} disabled={saving || !isEditable}>Ask for Help</button>
+            <button className="btn btn-skip" onClick={() => saveAnnotation(false, 'skipped')} disabled={saving || !isEditable}>
+              No Usable Data
             </button>
-            {canUseGlobalNoData && (
-              <button
-                className="btn btn-danger btn-global-skip"
-                onClick={handleGlobalNoData}
-                disabled={saving || !isEditable}
-              >
-                🛑 Definitely No Data
-              </button>
-            )}
-          </div>
-          <div className="action-row">
-            <button
-              className="btn btn-skip"
-              onClick={() => saveAnnotation(false, 'skipped')}
-              disabled={saving || !isEditable}
-            >
-              ⊘ No Usable Data
-            </button>
-            <button
-              className="btn btn-outline"
-              onClick={() => saveAnnotation(true, 'draft')}
-              disabled={saving || !isEditable}
-            >
+            <button className="btn btn-outline" onClick={() => saveAnnotation(true, 'draft')} disabled={saving || !isEditable}>
               Save Draft
             </button>
           </div>
           <div className="action-row">
-            <button
-              className="btn btn-success"
-              onClick={() => saveAnnotation(true, 'done')}
-              disabled={saving || !isEditable}
-            >
+            <button className="btn btn-success" onClick={() => saveAnnotation(true, 'done')} disabled={saving || !isEditable}>
               {saving ? 'Saving...' : 'Submit Final Extraction'}
             </button>
           </div>
@@ -1024,552 +466,258 @@ function QueueView({
   )
 }
 
-function PayloadSummary({ submission, reviewer, highlighted, onResolve }) {
-  const payload = submission?.payload_json || null
-  const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
-
-  return (
-    <div className={`payload-card ${highlighted ? 'payload-card-highlighted' : ''}`}>
-      <div className="payload-card-header">
-        <div>
-          <h3>{reviewer?.display_name || reviewer?.email || 'Unknown Reviewer'}</h3>
-          <p>{formatDecisionLabel(submission?.decision_kind)}</p>
-        </div>
-        {onResolve && (
-          <button className="btn btn-primary payload-resolve-btn" onClick={onResolve}>
-            Choose This
-          </button>
-        )}
-      </div>
-      <div className="payload-meta">
-        <span className="status-badge status-pending">{submission?.submitted_at ? new Date(submission.submitted_at).toLocaleString() : 'No timestamp'}</span>
-        <span className="status-badge status-draft">{foodItems.length} foods</span>
-      </div>
-      <div className="payload-scroll">
-        {foodItems.length === 0 ? (
-          <div className="empty-panel">No extracted foods stored in this submission.</div>
-        ) : (
-          foodItems.map((foodItem, index) => (
-            <div key={`${submission?.id || 'submission'}-${index}`} className="payload-food-block">
-              <div className="payload-food-title">
-                {foodItem.food_name || 'Unnamed food'}
-                {foodItem.food_fdc_id && <span className="payload-food-id">{foodItem.food_fdc_id}</span>}
-              </div>
-              <div className="payload-nutrients">
-                {(foodItem.nutrients || []).length === 0 ? (
-                  <span className="payload-empty-line">No nutrient rows.</span>
-                ) : (
-                  (foodItem.nutrients || []).map((nutrient, nutrientIndex) => (
-                    <div key={`${index}-${nutrientIndex}`} className="payload-nutrient-row">
-                      <span>{nutrient.nutrient_name || 'Unnamed nutrient'}</span>
-                      <span>{nutrient.value ?? '—'} {nutrient.unit || ''}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  )
-}
-
-function ReviewerEditor({
-  title,
-  subtitle,
-  draft,
-  reviewerSlots,
-  authLinked,
+function ApprovalView({
+  pendingSubmissions,
+  selectedSubmission,
+  selectedPaper,
+  reviewerById,
+  pdfUrl,
+  theme,
+  allNutrients,
+  allFoods,
+  foodsLoaded,
+  user,
+  approvalFoodItems,
+  approvalDecision,
+  setApprovalDecision,
+  approvalNote,
+  setApprovalNote,
+  canApprove,
   saving,
-  isNew,
-  onChange,
-  onToggleShadowSlot,
-  onSave,
-  onReset,
+  setSelectedApprovalId,
+  addApprovalFoodItem,
+  removeApprovalFoodItem,
+  updateApprovalFoodItem,
+  handleApprovalPdfNutrientAdd,
+  approveSelectedSubmission,
 }) {
-  return (
-    <div className={`reviewer-admin-card ${isNew ? 'reviewer-admin-card-new' : ''}`}>
-      <div className="reviewer-admin-header">
-        <div>
-          <h3>{title}</h3>
-          <p>{subtitle}</p>
-        </div>
-        <div className="reviewer-admin-badges">
-          <span className={`status-badge ${draft.active ? 'status-done' : 'status-skipped'}`}>
-            {draft.active ? 'Active' : 'Inactive'}
-          </span>
-          {!isNew && (
-            <span className={`status-badge ${authLinked ? 'status-pending' : 'status-draft'}`}>
-              {authLinked ? 'Auth linked' : 'Awaiting first login'}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="reviewer-admin-grid">
-        <label className="form-group">
-          <span>Email</span>
-          <input
-            value={draft.email}
-            onChange={(event) => onChange('email', event.target.value)}
-            placeholder="reviewer@example.com"
-            readOnly={!isNew}
-          />
-        </label>
-
-        <label className="form-group">
-          <span>Display name</span>
-          <input
-            value={draft.display_name}
-            onChange={(event) => onChange('display_name', event.target.value)}
-            placeholder="Reviewer name"
-          />
-        </label>
-
-        <label className="form-group">
-          <span>Official slot</span>
-          <select
-            value={draft.official_slot}
-            onChange={(event) => onChange('official_slot', event.target.value)}
-          >
-            <option value="">No official slot</option>
-            {(reviewerSlots || []).map((slot) => (
-              <option key={slot.slot_key} value={slot.slot_key}>
-                {slot.display_name || slot.slot_key}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="form-group">
-          <span>Notes</span>
-          <textarea
-            value={draft.notes}
-            onChange={(event) => onChange('notes', event.target.value)}
-            placeholder="Optional reviewer note"
-            rows={2}
-          />
-        </label>
-      </div>
-
-      <div className="reviewer-toggle-row">
-        <label className="reviewer-toggle">
-          <input
-            type="checkbox"
-            checked={draft.active}
-            onChange={(event) => onChange('active', event.target.checked)}
-          />
-          <span>Active</span>
-        </label>
-        <label className="reviewer-toggle">
-          <input
-            type="checkbox"
-            checked={draft.can_review_en}
-            onChange={(event) => onChange('can_review_en', event.target.checked)}
-          />
-          <span>English</span>
-        </label>
-        <label className="reviewer-toggle">
-          <input
-            type="checkbox"
-            checked={draft.can_review_tr}
-            onChange={(event) => onChange('can_review_tr', event.target.checked)}
-          />
-          <span>Turkish</span>
-        </label>
-        <label className="reviewer-toggle">
-          <input
-            type="checkbox"
-            checked={draft.tester_access}
-            onChange={(event) => onChange('tester_access', event.target.checked)}
-          />
-          <span>Tester (read-only)</span>
-        </label>
-        <label className="reviewer-toggle">
-          <input
-            type="checkbox"
-            checked={draft.cockpit_access}
-            onChange={(event) => onChange('cockpit_access', event.target.checked)}
-          />
-          <span>Cockpit</span>
-        </label>
-      </div>
-
-      <div className="reviewer-shadow-block">
-        <div className="reviewer-shadow-header">
-          <strong>Shadow memberships</strong>
-          <span>{describeMemberships(draft, reviewerSlots)}</span>
-        </div>
-        <div className="reviewer-shadow-slots">
-          {(reviewerSlots || []).map((slot) => {
-            const disabled = draft.official_slot === slot.slot_key
-            const selected = !disabled && draft.shadow_slots.includes(slot.slot_key)
-            return (
-              <button
-                key={slot.slot_key}
-                type="button"
-                className={`slot-chip ${selected ? 'slot-chip-active' : ''}`}
-                onClick={() => onToggleShadowSlot(slot.slot_key)}
-                disabled={disabled}
-              >
-                {slot.display_name || slot.slot_key}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="reviewer-admin-actions">
-        <button className="btn btn-outline" onClick={onReset} disabled={saving}>
-          {isNew ? 'Clear' : 'Reset'}
-        </button>
-        <button className="btn btn-primary reviewer-save-btn" onClick={onSave} disabled={saving}>
-          {saving ? 'Saving...' : isNew ? 'Add reviewer' : 'Save reviewer'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function ReviewerAdminPanel({
-  cockpitData,
-  reviewerDrafts,
-  newReviewerDraft,
-  savingReviewerTarget,
-  onChangeDraft,
-  onToggleDraftShadowSlot,
-  onSaveDraft,
-  onResetDraft,
-  onChangeNewDraft,
-  onToggleNewShadowSlot,
-  onCreateReviewer,
-  onResetNewReviewer,
-}) {
-  const slotMembersByProfile = buildSlotMembersByProfile(cockpitData.slotMembers)
-  const reviewerSlots = cockpitData.reviewerSlots || []
-  const reviewerProfiles = cockpitData.reviewerProfiles || []
+  const submitter = selectedSubmission ? reviewerById[selectedSubmission.reviewer_profile_id] : null
+  const approvalHasFood = approvalFoodItems.filter(isValidFoodItem).length > 0
 
   return (
-    <div className="dashboard-card reviewer-admin-shell">
-      <div className="reviewer-admin-shell-header">
-        <div>
-          <div className="dashboard-card-title">Reviewer Admin</div>
-          <p>Create reviewers, assign official slots, and manage shadow members without direct SQL edits.</p>
+    <div className="workspace conflict-workspace">
+      <div className="conflict-sidebar">
+        <div className="conflict-sidebar-header">
+          <h2>Approval</h2>
+          <p>{pendingSubmissions.length} pending</p>
         </div>
-        <span className="status-badge status-pending">{reviewerProfiles.length} profiles</span>
-      </div>
-
-      <div className="reviewer-admin-stack">
-        <ReviewerEditor
-          title="Add Reviewer"
-          subtitle="New reviewers are allowlisted automatically and can be wired into a slot before first login."
-          draft={newReviewerDraft}
-          reviewerSlots={reviewerSlots}
-          authLinked={false}
-          saving={savingReviewerTarget === '__new__'}
-          isNew
-          onChange={onChangeNewDraft}
-          onToggleShadowSlot={onToggleNewShadowSlot}
-          onSave={onCreateReviewer}
-          onReset={onResetNewReviewer}
-        />
-
-        {reviewerProfiles.map((profile) => {
-          const draft = reviewerDrafts[profile.id] || createReviewerDraft(profile, slotMembersByProfile[profile.id] || [])
-          return (
-            <ReviewerEditor
-              key={profile.id}
-              title={profile.display_name || profile.email || profile.id}
-              subtitle={profile.email || 'No email yet'}
-              draft={draft}
-              reviewerSlots={reviewerSlots}
-              authLinked={Boolean(profile.auth_user_id)}
-              saving={savingReviewerTarget === profile.id}
-              isNew={false}
-              onChange={(field, value) => onChangeDraft(profile.id, field, value)}
-              onToggleShadowSlot={(slotKey) => onToggleDraftShadowSlot(profile.id, slotKey)}
-              onSave={() => onSaveDraft(profile.id)}
-              onReset={() => onResetDraft(profile.id)}
-            />
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function RoutingStagePanel({
-  stageConfigs,
-  routingCounts,
-  routingConfigDrafts,
-  savingStageKey,
-  onChangeDraft,
-  onSaveDraft,
-}) {
-  return (
-    <div className="dashboard-card reviewer-admin-shell">
-      <div className="reviewer-admin-shell-header">
-        <div>
-          <div className="dashboard-card-title">AI Routing</div>
-          <p>Active-stage thresholds gate every paper before human assignment.</p>
-        </div>
-        <span className="status-badge status-pending">{stageConfigs.length} stages</span>
-      </div>
-
-      <div className="dashboard-grid dashboard-grid-summary">
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Queued</div>
-          <div className="dashboard-card-value">{routingCounts.queued_for_ai}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Processing</div>
-          <div className="dashboard-card-value">{routingCounts.ai_processing}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Failed</div>
-          <div className="dashboard-card-value">{routingCounts.ai_failed}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Human Ready</div>
-          <div className="dashboard-card-value">{routingCounts.human_review_ready}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">AI Final Has Data</div>
-          <div className="dashboard-card-value">{routingCounts.ai_finalized_has_data}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">AI Final No Data</div>
-          <div className="dashboard-card-value">{routingCounts.ai_finalized_no_usable_data}</div>
+        <div className="conflict-list">
+          {pendingSubmissions.length === 0 ? (
+            <div className="empty-panel">No submissions are waiting for approval.</div>
+          ) : pendingSubmissions.map((submission) => (
+            <button
+              key={submission.id}
+              className={`conflict-list-item ${selectedSubmission?.id === submission.id ? 'active' : ''}`}
+              onClick={() => setSelectedApprovalId(submission.id)}
+            >
+              <span>{formatDecisionLabel(submission.decision_kind)}</span>
+              <strong>{reviewerById[submission.reviewer_profile_id]?.display_name || 'Labeler'}</strong>
+              <small>Paper {submission.paper_id} · {formatDate(submission.submitted_at)}</small>
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="reviewer-admin-stack">
-        {(stageConfigs || []).map((stage) => {
-          const draft = routingConfigDrafts[stage.stage_key] || {
-            positive_threshold: stage.positive_threshold ?? 1,
-            negative_threshold: stage.negative_threshold ?? 1,
-            audit_rate: stage.audit_rate ?? 0.05,
-          }
-          return (
-            <div key={stage.stage_key} className="reviewer-editor-card">
-              <div className="reviewer-editor-header">
-                <div>
-                  <h3>{stage.display_name || stage.stage_key}</h3>
-                  <p>{stage.model_name} · prompt {stage.prompt_version}</p>
-                </div>
-                <div className="reviewer-editor-badges">
-                  <span className={`status-badge ${stage.active ? 'status-done' : 'status-draft'}`}>
-                    {stage.active ? 'ACTIVE' : 'INACTIVE'}
-                  </span>
-                </div>
+      <PdfViewer pdfUrl={pdfUrl} allNutrients={allNutrients} onAddNutrient={handleApprovalPdfNutrientAdd} theme={theme} />
+
+      <div className="annotation-panel conflict-panel">
+        {!selectedSubmission ? (
+          <div className="annotation-scroll">
+            <div className="empty-panel">Select a submission to review.</div>
+          </div>
+        ) : (
+          <>
+            <div className="conflict-header">
+              <div>
+                <h2>{selectedPaper?.title || `Paper ${selectedSubmission.paper_id}`}</h2>
+                <p>{submitter?.display_name || submitter?.email || 'Unknown labeler'} submitted {formatDate(selectedSubmission.submitted_at)}</p>
               </div>
-
-              <div className="reviewer-editor-grid">
-                <label className="form-group">
-                  <span>Has Data Threshold</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={draft.positive_threshold}
-                    onChange={(event) => onChangeDraft(stage.stage_key, 'positive_threshold', event.target.value)}
-                  />
-                </label>
-
-                <label className="form-group">
-                  <span>No Data Threshold</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={draft.negative_threshold}
-                    onChange={(event) => onChangeDraft(stage.stage_key, 'negative_threshold', event.target.value)}
-                  />
-                </label>
-
-                <label className="form-group">
-                  <span>Audit Rate</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={draft.audit_rate}
-                    onChange={(event) => onChangeDraft(stage.stage_key, 'audit_rate', event.target.value)}
-                  />
-                </label>
-              </div>
-
-              <div className="reviewer-admin-actions">
-                <button
-                  className="btn btn-primary reviewer-save-btn"
-                  onClick={() => onSaveDraft(stage.stage_key)}
-                  disabled={savingStageKey === stage.stage_key}
-                >
-                  {savingStageKey === stage.stage_key ? 'Saving...' : 'Save routing policy'}
-                </button>
+              <div className={`status-badge ${getStatusBadgeClass(selectedSubmission.status)}`}>
+                {formatStatusLabel(selectedSubmission.status)}
               </div>
             </div>
-          )
-        })}
+
+            <div className="annotation-scroll conflict-scroll">
+              <div className="payload-grid">
+                <PayloadSummary submission={selectedSubmission} reviewer={submitter} title="Original Submission" />
+                <div className="payload-card">
+                  <div className="payload-card-header">
+                    <div>
+                      <h3>Reviewer Final Payload</h3>
+                      <p>{canApprove ? 'Edit before approving when needed.' : 'Read-only preview.'}</p>
+                    </div>
+                  </div>
+                  <div
+                    className="annotation-scroll"
+                    style={{ maxHeight: 620, pointerEvents: canApprove ? 'auto' : 'none', opacity: canApprove ? 1 : 0.85 }}
+                    aria-disabled={!canApprove}
+                  >
+                    <label className="form-group" style={{ display: 'block', marginBottom: 12 }}>
+                      <span style={{ display: 'block', marginBottom: 6, color: 'var(--text-secondary)', fontSize: 13 }}>Decision</span>
+                      <select
+                        value={approvalDecision}
+                        onChange={(event) => setApprovalDecision(event.target.value)}
+                        disabled={!canApprove || saving}
+                      >
+                        <option value="has_data">Usable Data</option>
+                        <option value="no_usable_data">No Usable Data</option>
+                      </select>
+                    </label>
+                    {approvalDecision === 'has_data' ? (
+                      <>
+                        {approvalFoodItems.map((item, index) => (
+                          <FoodItemForm
+                            key={`${selectedSubmission.id}-${index}`}
+                            index={index}
+                            data={item}
+                            onChange={(updated) => updateApprovalFoodItem(index, updated)}
+                            onDelete={() => removeApprovalFoodItem(index)}
+                            allNutrients={allNutrients}
+                            allFoods={allFoods}
+                            foodsLoaded={foodsLoaded}
+                            userId={user.id}
+                          />
+                        ))}
+                        {canApprove && (
+                          <button className="add-food-btn" onClick={addApprovalFoodItem}>+ Add Another Food Item</button>
+                        )}
+                      </>
+                    ) : (
+                      <div className="empty-panel">The accepted final decision will be no usable data.</div>
+                    )}
+                    <label className="form-group" style={{ display: 'block', marginTop: 12 }}>
+                      <span style={{ display: 'block', marginBottom: 6, color: 'var(--text-secondary)', fontSize: 13 }}>Approval note</span>
+                      <textarea
+                        value={approvalNote}
+                        onChange={(event) => setApprovalNote(event.target.value)}
+                        disabled={!canApprove || saving}
+                        placeholder="Correction or approval note"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="annotation-actions">
+              <button
+                className="btn btn-success"
+                onClick={approveSelectedSubmission}
+                disabled={!canApprove || saving || (approvalDecision === 'has_data' && !approvalHasFood)}
+              >
+                {saving ? 'Approving...' : 'Approve Final Payload'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
 }
 
-function CockpitView({
-  cockpitData,
-  onRefresh,
-  reviewerDrafts,
-  newReviewerDraft,
-  savingReviewerTarget,
-  routingConfigDrafts,
-  savingRoutingStageKey,
-  onChangeDraft,
-  onToggleDraftShadowSlot,
-  onSaveDraft,
-  onResetDraft,
-  onChangeNewDraft,
-  onToggleNewShadowSlot,
-  onCreateReviewer,
-  onResetNewReviewer,
-  onChangeRoutingConfig,
-  onSaveRoutingConfig,
-}) {
-  const reviewerMetrics = computeReviewerMetrics(cockpitData)
-  const sourceBreakdown = computeSourceBreakdown(cockpitData)
-  const routingCounts = computeRoutingCounts(cockpitData.papers)
-  const openConflicts = (cockpitData.conflicts || []).filter((row) => row.status === 'open')
-  const openAssignments = (cockpitData.userAssignments || []).filter((row) => OPEN_STATUSES.has(row.status))
+function DashboardView({ cockpitData, reviewerById, paperById, onRefresh }) {
+  const submissionById = Object.fromEntries((cockpitData.labelSubmissions || []).map((row) => [row.id, row]))
+  const metricsByReviewer = {}
+
+  for (const profile of cockpitData.reviewerProfiles || []) {
+    metricsByReviewer[profile.id] = {
+      id: profile.id,
+      display_name: profile.display_name || profile.email,
+      submitted: 0,
+      pending: 0,
+      accepted: 0,
+      corrected: 0,
+      superseded: 0,
+      correction_items: 0,
+    }
+  }
+
+  for (const submission of cockpitData.labelSubmissions || []) {
+    if (!metricsByReviewer[submission.reviewer_profile_id]) {
+      metricsByReviewer[submission.reviewer_profile_id] = {
+        id: submission.reviewer_profile_id,
+        display_name: reviewerById[submission.reviewer_profile_id]?.display_name || 'Unknown',
+        submitted: 0,
+        pending: 0,
+        accepted: 0,
+        corrected: 0,
+        superseded: 0,
+        correction_items: 0,
+      }
+    }
+    const metric = metricsByReviewer[submission.reviewer_profile_id]
+    metric.submitted += 1
+    if (submission.status === 'pending_approval') metric.pending += 1
+    if (submission.status === 'superseded') metric.superseded += 1
+    if (submission.status === 'accepted') metric.accepted += 1
+  }
+
+  for (const approval of cockpitData.labelApprovals || []) {
+    const submission = submissionById[approval.label_submission_id]
+    const metric = submission ? metricsByReviewer[submission.reviewer_profile_id] : null
+    if (!metric) continue
+    const correctionItems = countCorrectionItems(approval.correction_diff_json)
+    metric.correction_items += correctionItems
+    if (correctionItems > 0) metric.corrected += 1
+  }
+
+  const metrics = Object.values(metricsByReviewer).sort((left, right) => left.display_name.localeCompare(right.display_name))
+  const approvalBySubmissionId = Object.fromEntries((cockpitData.labelApprovals || []).map((row) => [row.label_submission_id, row]))
 
   return (
     <div className="dashboard-page">
       <div className="dashboard-header">
         <div>
-          <h2>Cockpit</h2>
-          <p>Queue health, agreement metrics, and conflict pressure across the project.</p>
+          <h2>Labeler Dashboard</h2>
+          <p>Submission ownership, approval outcomes, and correction history.</p>
         </div>
         <button className="btn btn-outline" onClick={onRefresh}>Refresh</button>
       </div>
 
       <div className="dashboard-grid dashboard-grid-summary">
         <div className="dashboard-card">
-          <div className="dashboard-card-label">Open Personal Queue</div>
-          <div className="dashboard-card-value">{openAssignments.length}</div>
+          <div className="dashboard-card-label">General Submissions</div>
+          <div className="dashboard-card-value">{cockpitData.labelSubmissions.length}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Pending Approval</div>
+          <div className="dashboard-card-value">{cockpitData.labelSubmissions.filter((row) => row.status === 'pending_approval').length}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="dashboard-card-label">Approved Outcomes</div>
+          <div className="dashboard-card-value">{cockpitData.labelApprovals.length}</div>
         </div>
         <div className="dashboard-card">
           <div className="dashboard-card-label">Resolved Papers</div>
           <div className="dashboard-card-value">{cockpitData.outcomes.length}</div>
         </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Open Conflicts</div>
-          <div className="dashboard-card-value">{openConflicts.length}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Final Submissions</div>
-          <div className="dashboard-card-value">{cockpitData.submissions.length}</div>
-        </div>
-      </div>
-
-      <RoutingStagePanel
-        stageConfigs={cockpitData.routingStageConfigs || []}
-        routingCounts={routingCounts}
-        routingConfigDrafts={routingConfigDrafts}
-        savingStageKey={savingRoutingStageKey}
-        onChangeDraft={onChangeRoutingConfig}
-        onSaveDraft={onSaveRoutingConfig}
-      />
-
-      <div className="dashboard-grid dashboard-grid-main">
-        <div className="dashboard-card dashboard-card-table">
-          <div className="dashboard-card-title">Reviewer Accuracy</div>
-          <div className="table-scroll">
-            <table className="dashboard-table">
-              <thead>
-                <tr>
-                  <th>Reviewer</th>
-                  <th>Open</th>
-                  <th>Submitted</th>
-                  <th>Conflicts</th>
-                  <th>Resolved</th>
-                  <th>Accuracy</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reviewerMetrics.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.display_name}</td>
-                    <td>{row.open}</td>
-                    <td>{row.submitted}</td>
-                    <td>{row.conflict}</td>
-                    <td>{row.resolved}</td>
-                    <td>{row.accuracy == null ? '—' : `${row.accuracy}%`}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="dashboard-card dashboard-card-table">
-          <div className="dashboard-card-title">Resolved Source Yield</div>
-          <div className="table-scroll">
-            <table className="dashboard-table">
-              <thead>
-                <tr>
-                  <th>Source</th>
-                  <th>Template</th>
-                  <th>Term</th>
-                  <th>Positive</th>
-                  <th>Negative</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sourceBreakdown.length === 0 ? (
-                  <tr>
-                    <td colSpan="5">No resolved outcome history yet.</td>
-                  </tr>
-                ) : sourceBreakdown.map((row) => (
-                  <tr key={`${row.source}|${row.template_id}|${row.source_term}`}>
-                    <td>{row.source}</td>
-                    <td>{row.template_id}</td>
-                    <td>{row.source_term || '—'}</td>
-                    <td>{row.positive}</td>
-                    <td>{row.negative}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
 
       <div className="dashboard-card dashboard-card-table">
-        <div className="dashboard-card-title">Open Conflicts</div>
+        <div className="dashboard-card-title">Performance By Labeler</div>
         <div className="table-scroll">
           <table className="dashboard-table">
             <thead>
               <tr>
-                <th>Paper ID</th>
-                <th>Type</th>
-                <th>Slot</th>
-                <th>Created</th>
+                <th>Labeler</th>
+                <th>Submitted</th>
+                <th>Pending</th>
+                <th>Accepted</th>
+                <th>Corrected</th>
+                <th>Superseded</th>
+                <th>Correction Items</th>
               </tr>
             </thead>
             <tbody>
-              {openConflicts.length === 0 ? (
-                <tr>
-                  <td colSpan="4">No open conflicts.</td>
-                </tr>
-              ) : openConflicts.map((conflict) => (
-                <tr key={conflict.id}>
-                  <td>{conflict.paper_id}</td>
-                  <td>{conflict.conflict_type}</td>
-                  <td>{conflict.slot_key || 'cross-slot'}</td>
-                  <td>{conflict.created_at ? new Date(conflict.created_at).toLocaleString() : '—'}</td>
+              {metrics.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.display_name}</td>
+                  <td>{row.submitted}</td>
+                  <td>{row.pending}</td>
+                  <td>{row.accepted}</td>
+                  <td>{row.corrected}</td>
+                  <td>{row.superseded}</td>
+                  <td>{row.correction_items}</td>
                 </tr>
               ))}
             </tbody>
@@ -1577,507 +725,49 @@ function CockpitView({
         </div>
       </div>
 
-      <ReviewerAdminPanel
-        cockpitData={cockpitData}
-        reviewerDrafts={reviewerDrafts}
-        newReviewerDraft={newReviewerDraft}
-        savingReviewerTarget={savingReviewerTarget}
-        onChangeDraft={onChangeDraft}
-        onToggleDraftShadowSlot={onToggleDraftShadowSlot}
-        onSaveDraft={onSaveDraft}
-        onResetDraft={onResetDraft}
-        onChangeNewDraft={onChangeNewDraft}
-        onToggleNewShadowSlot={onToggleNewShadowSlot}
-        onCreateReviewer={onCreateReviewer}
-        onResetNewReviewer={onResetNewReviewer}
-      />
-    </div>
-  )
-}
-
-function SuggestionsReviewView({
-  suggestionItems = [],
-  onRefresh,
-  onSaveReview,
-  savingSuggestionId,
-}) {
-  const [drafts, setDrafts] = useState({})
-  const [attachmentLinksByItem, setAttachmentLinksByItem] = useState({})
-
-  const updateDraft = useCallback((itemId, field, value) => {
-    setDrafts((previous) => ({
-      ...previous,
-      [itemId]: {
-        ...(previous[itemId] || {}),
-        [field]: value,
-      },
-    }))
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function resolveAttachmentLinks() {
-      const nextLinksByItem = {}
-      await Promise.all((suggestionItems || []).map(async (item) => {
-        const attachments = normalizeSuggestionAttachments(item.attachments)
-        if (!attachments.length) {
-          nextLinksByItem[item.id] = []
-          return
-        }
-
-        const resolvedAttachments = await Promise.all(attachments.map(async (attachment) => {
-          if (attachment.directUrl) {
-            return {
-              ...attachment,
-              resolvedUrl: attachment.directUrl,
-            }
-          }
-
-          if (!attachment.path) {
-            return {
-              ...attachment,
-              resolvedUrl: null,
-            }
-          }
-
-          const { data, error } = await supabase.storage
-            .from(attachment.bucket)
-            .createSignedUrl(attachment.path, 60 * 60 * 24 * 7)
-
-          if (error) {
-            console.error(`Failed to create signed URL for ${attachment.path}:`, error)
-            return {
-              ...attachment,
-              resolvedUrl: null,
-            }
-          }
-
-          return {
-            ...attachment,
-            resolvedUrl: data?.signedUrl || null,
-          }
-        }))
-
-        nextLinksByItem[item.id] = resolvedAttachments
-      }))
-
-      if (!cancelled) {
-        setAttachmentLinksByItem(nextLinksByItem)
-      }
-    }
-
-    resolveAttachmentLinks()
-
-    return () => {
-      cancelled = true
-    }
-  }, [suggestionItems])
-
-  return (
-    <div className="dashboard-page">
-      <div className="dashboard-header">
-        <div>
-          <h2>Suggestion Review Queue</h2>
-          <p>Incoming user suggestions are captured here as unapproved backlog review items.</p>
-        </div>
-        <button className="btn btn-outline" onClick={onRefresh}>Refresh</button>
-      </div>
-
-      <div className="dashboard-card">
-        <div className="dashboard-card-title">Review Items</div>
-        <div className="suggestion-review-list">
-          {!suggestionItems.length ? (
-            <div className="empty-panel">No suggestion review items yet.</div>
-          ) : suggestionItems.map((item) => {
-            const draft = drafts[item.id] || {
-              status: item.status || 'new',
-              follow_up_required: Boolean(item.follow_up_required),
-              follow_up_note: item.follow_up_note || '',
-              review_note: item.review_note || '',
-            }
-            const attachments = attachmentLinksByItem[item.id] || normalizeSuggestionAttachments(item.attachments)
-            const contextRows = getHelpRequestContextRows(item)
-
-            return (
-              <div key={item.id} className="suggestion-review-item">
-                <div className="suggestion-review-header">
-                  <div className="suggestion-review-meta">
-                    <span className="status-badge status-pending">{formatReviewItemKind(item)}</span>
-                    <span className="status-badge status-draft">{formatSuggestionReviewStatus(item.status)}</span>
-                    <span>{item.created_at ? new Date(item.created_at).toLocaleString() : '-'}</span>
-                  </div>
-                  <div className="suggestion-review-author">
-                    {(item.submitted_by_name || '').trim() || item.submitted_by_email || item.submitted_by_auth_user_id || 'Unknown submitter'}
-                  </div>
-                </div>
-
-                {contextRows.length > 0 && (
-                  <div className="suggestion-review-context">
-                    {contextRows.map(([label, value]) => (
-                      <span key={`${item.id}-${label}`}>{label}: {value}</span>
-                    ))}
-                  </div>
-                )}
-
-                <div className="suggestion-review-body">{item.suggestion_text}</div>
-                {attachments.length > 0 && (
-                  <div className="suggestion-review-attachments">
-                    <div className="suggestion-review-attachments-title">Attachments ({attachments.length})</div>
-                    <div className="suggestion-review-attachment-grid">
-                      {attachments.map((attachment, index) => (
-                        <div key={`${item.id}-attachment-${index}`} className="suggestion-review-attachment-item">
-                          {attachment.resolvedUrl ? (
-                            <a href={attachment.resolvedUrl} target="_blank" rel="noreferrer">
-                              <img
-                                className="suggestion-review-attachment-thumb"
-                                src={attachment.resolvedUrl}
-                                alt={attachment.fileName || `Attachment ${index + 1}`}
-                                loading="lazy"
-                              />
-                            </a>
-                          ) : (
-                            <div className="suggestion-review-attachment-unavailable">Preview unavailable</div>
-                          )}
-                          <div className="suggestion-review-attachment-meta">
-                            {attachment.resolvedUrl ? (
-                              <a href={attachment.resolvedUrl} target="_blank" rel="noreferrer">
-                                {attachment.fileName || `Attachment ${index + 1}`}
-                              </a>
-                            ) : (
-                              <span>{attachment.fileName || `Attachment ${index + 1}`}</span>
-                            )}
-                            <span>{formatBytesLabel(attachment.fileSize)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="suggestion-review-controls">
-                  <label className="form-group">
-                    <span>Status</span>
-                    <select
-                      value={draft.status}
-                      onChange={(event) => updateDraft(item.id, 'status', event.target.value)}
-                    >
-                      {SUGGESTION_REVIEW_STATUSES.map((status) => (
-                        <option key={status} value={status}>{formatSuggestionReviewStatus(status)}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="reviewer-toggle">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(draft.follow_up_required)}
-                      onChange={(event) => updateDraft(item.id, 'follow_up_required', event.target.checked)}
-                    />
-                    Follow-up needed
-                  </label>
-                </div>
-
-                <label className="form-group">
-                  <span>Follow-up note</span>
-                  <input
-                    value={draft.follow_up_note}
-                    onChange={(event) => updateDraft(item.id, 'follow_up_note', event.target.value)}
-                    placeholder="Optional follow-up plan"
-                  />
-                </label>
-
-                <label className="form-group">
-                  <span>Review note</span>
-                  <textarea
-                    value={draft.review_note}
-                    onChange={(event) => updateDraft(item.id, 'review_note', event.target.value)}
-                    placeholder="Optional triage context"
-                  />
-                </label>
-
-                <div className="suggestion-review-actions">
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => onSaveReview(item.id, draft)}
-                    disabled={savingSuggestionId === item.id}
-                  >
-                    {savingSuggestionId === item.id ? 'Saving...' : 'Save Review Status'}
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AiDetailPanel({ extraction, outcome }) {
-  const payload = extraction?.normalized_payload_json || { decision_kind: getAiDecisionKind(extraction), food_items: [] }
-  const summary = getNormalizationSummary(extraction)
-  const comparison = getAiComparisonStatus(extraction, outcome)
-  const metadata = getAiRawMetadata(extraction)
-  const rejectionReasons = Object.entries(summary.rejection_reasons || {})
-
-  return (
-    <div className="ai-detail-panel">
-      <div className="ai-detail-header">
-        <div>
-          <div className="ai-detail-title">AI Extraction Detail</div>
-          <div className="table-secondary-line">
-            {extraction?.stage_key || 'No stage'} · {extraction?.prompt_version || 'No prompt version'}
-          </div>
-        </div>
-        <div className="reviewer-admin-badges">
-          <span className={`status-badge ${payload.decision_kind === 'has_data' ? 'status-done' : 'status-skipped'}`}>
-            {formatDecisionLabel(payload.decision_kind)}
-          </span>
-          {comparison && <span className={`status-badge ${comparison.badgeClass}`}>{comparison.label}</span>}
-        </div>
-      </div>
-
-      <div className="ai-detail-grid">
-        <div className="ai-detail-metric">
-          <span>Model Decision</span>
-          <strong>{extraction?.is_useful ? 'Has Data' : 'No Data'}</strong>
-        </div>
-        <div className="ai-detail-metric">
-          <span>Confidence</span>
-          <strong>{extraction?.overall_confidence == null ? '—' : Number(extraction.overall_confidence).toFixed(3)}</strong>
-        </div>
-        <div className="ai-detail-metric">
-          <span>Routing Bucket</span>
-          <strong>{extraction?.routing_bucket || '—'}</strong>
-        </div>
-        <div className="ai-detail-metric">
-          <span>Rows</span>
-          <strong>{summary.accepted_row_count}/{summary.input_row_count}</strong>
-        </div>
-        <div className="ai-detail-metric">
-          <span>Rejected</span>
-          <strong>{summary.rejected_row_count}</strong>
-        </div>
-        <div className="ai-detail-metric">
-          <span>Custom Foods</span>
-          <strong>{summary.unmapped_food_count}</strong>
-        </div>
-        <div className="ai-detail-metric">
-          <span>Custom Nutrients</span>
-          <strong>{summary.unmapped_nutrient_count}</strong>
-        </div>
-        <div className="ai-detail-metric">
-          <span>Destination</span>
-          <strong>{formatRouteDestinationLabel(extraction?.route_destination)}</strong>
-        </div>
-      </div>
-
-      <div className="ai-detail-section">
-        <div className="ai-detail-section-title">Reasoning</div>
-        <div className="ai-reasoning">{extraction?.reasoning || 'No reasoning stored.'}</div>
-      </div>
-
-      {rejectionReasons.length > 0 && (
-        <div className="ai-detail-section">
-          <div className="ai-detail-section-title">Rejected Rows</div>
-          <div className="ai-rejection-list">
-            {rejectionReasons.map(([reason, count]) => (
-              <span key={reason} className="status-badge status-skipped">{reason}: {count}</span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="ai-json-grid">
-        <div className="ai-detail-section">
-          <div className="ai-detail-section-title">Normalized DB Payload</div>
-          <pre className="ai-json-block">{JSON.stringify(payload, null, 2)}</pre>
-        </div>
-        <div className="ai-detail-section">
-          <div className="ai-detail-section-title">Raw Response Metadata</div>
-          <pre className="ai-json-block">{JSON.stringify(metadata, null, 2)}</pre>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AllPapersView({ cockpitData, onRefresh }) {
-  const [expandedAiPaperId, setExpandedAiPaperId] = useState(null)
-  const reviewerById = buildReviewerMap(cockpitData.reviewerProfiles)
-  const slotAssignmentsByPaperId = groupRowsByPaperId(cockpitData.slotAssignments)
-  const userAssignmentsByPaperId = groupRowsByPaperId(cockpitData.userAssignments)
-  const outcomeByPaperId = Object.fromEntries((cockpitData.outcomes || []).map((row) => [row.paper_id, row]))
-  const latestAiExtractionById = Object.fromEntries((cockpitData.aiExtractions || []).map((row) => [row.id, row]))
-  const latestAiExtractionByPaperId = {}
-  for (const row of cockpitData.aiExtractions || []) {
-    if (!row?.paper_id) continue
-    const existing = latestAiExtractionByPaperId[row.paper_id]
-    if (!existing || new Date(row.created_at || 0).getTime() > new Date(existing.created_at || 0).getTime()) {
-      latestAiExtractionByPaperId[row.paper_id] = row
-    }
-  }
-  const rows = (cockpitData.papers || []).map((paper) => ({
-    paper,
-    slotAssignments: (slotAssignmentsByPaperId[paper.id] || []).slice().sort((left, right) => left.slot_key.localeCompare(right.slot_key)),
-    userAssignments: (userAssignmentsByPaperId[paper.id] || []).slice().sort((left, right) => {
-      const leftName = reviewerById[left.reviewer_profile_id]?.display_name || reviewerById[left.reviewer_profile_id]?.email || ''
-      const rightName = reviewerById[right.reviewer_profile_id]?.display_name || reviewerById[right.reviewer_profile_id]?.email || ''
-      return leftName.localeCompare(rightName)
-    }),
-    outcome: outcomeByPaperId[paper.id] || null,
-    latestAiExtraction: latestAiExtractionById[paper.latest_ai_extraction_id] || latestAiExtractionByPaperId[paper.id] || null,
-  }))
-  const unresolvedCount = rows.filter((row) => !row.outcome).length
-  const openAssignmentCount = (cockpitData.userAssignments || []).filter((row) => OPEN_STATUSES.has(row.status)).length
-
-  return (
-    <div className="dashboard-page">
-      <div className="dashboard-header">
-        <div>
-          <h2>All Papers</h2>
-          <p>Global paper and assignment overview. This is the admin screen for project-wide visibility.</p>
-        </div>
-        <button className="btn btn-outline" onClick={onRefresh}>Refresh</button>
-      </div>
-
-      <div className="dashboard-grid dashboard-grid-summary">
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Tracked Papers</div>
-          <div className="dashboard-card-value">{rows.length}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Resolved Papers</div>
-          <div className="dashboard-card-value">{cockpitData.outcomes.length}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Without Final Outcome</div>
-          <div className="dashboard-card-value">{unresolvedCount}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Open User Assignments</div>
-          <div className="dashboard-card-value">{openAssignmentCount}</div>
-        </div>
-      </div>
-
       <div className="dashboard-card dashboard-card-table">
-        <div className="dashboard-card-title">Paper Workflow Overview</div>
+        <div className="dashboard-card-title">Submission Detail</div>
         <div className="table-scroll">
           <table className="dashboard-table">
             <thead>
               <tr>
                 <th>Paper</th>
-                <th>Routing</th>
-                <th>Latest AI</th>
-                <th>Official Slots</th>
-                <th>Reviewer Tasks</th>
-                <th>Final Outcome</th>
+                <th>Labeler</th>
+                <th>Submitted</th>
+                <th>Status</th>
+                <th>Original</th>
+                <th>Final</th>
+                <th>Mistake Detail</th>
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan="6">No papers found.</td>
-                </tr>
-              ) : rows.map(({ paper, slotAssignments, userAssignments, outcome, latestAiExtraction }) => {
-                const aiExpanded = Boolean(latestAiExtraction && expandedAiPaperId === paper.id)
+              {cockpitData.labelSubmissions.length === 0 ? (
+                <tr><td colSpan="7">No general submissions yet.</td></tr>
+              ) : cockpitData.labelSubmissions.map((submission) => {
+                const approval = approvalBySubmissionId[submission.id]
+                const diff = approval?.correction_diff_json || {}
+                const paper = paperById[submission.paper_id]
                 return (
-                  <Fragment key={paper.id}>
-                    <tr>
-                      <td className="table-title-cell">
-                        <div className="table-primary-line">{paper.title || paper.filename || `Paper ${paper.id}`}</div>
-                        <div className="table-secondary-line">
-                          Paper {paper.id}
-                          {paper.workflow_language && ` · ${paper.workflow_language.toUpperCase()}`}
-                          {paper.doi && ` · DOI: ${paper.doi}`}
-                        </div>
-                      </td>
-                      <td>
+                  <tr key={submission.id}>
+                    <td className="table-title-cell">
+                      <div className="table-primary-line">{paper?.title || paper?.filename || `Paper ${submission.paper_id}`}</div>
+                      <div className="table-secondary-line">Paper {submission.paper_id}</div>
+                    </td>
+                    <td>{reviewerById[submission.reviewer_profile_id]?.display_name || reviewerById[submission.reviewer_profile_id]?.email || 'Unknown'}</td>
+                    <td>{formatDate(submission.submitted_at)}</td>
+                    <td><span className={`status-badge ${getStatusBadgeClass(submission.status)}`}>{formatStatusLabel(submission.status)}</span></td>
+                    <td>{formatDecisionLabel(submission.decision_kind)} · {getPayloadRowCount(submission.payload_json)} rows</td>
+                    <td>{approval ? `${formatDecisionLabel(approval.decision_kind)} · ${getPayloadRowCount(approval.payload_json)} rows` : '-'}</td>
+                    <td>
+                      {approval ? (
                         <div className="table-cell-stack">
-                          <div className="table-detail-line">
-                            <span>{formatRoutingStatusLabel(paper.routing_status)}</span>
-                            <span className={`status-badge ${paper.route_destination === 'finalized' ? 'status-done' : paper.route_destination === 'blocked' ? 'status-skipped' : 'status-pending'}`}>
-                              {formatRouteDestinationLabel(paper.route_destination)}
-                            </span>
-                          </div>
-                          <span className="table-secondary-line">{paper.routing_bucket || 'No bucket yet'}</span>
+                          <span>{countCorrectionItems(diff)} correction items</span>
+                          {diff.decision_changed && <span className="table-secondary-line">Decision changed</span>}
+                          {!!approval.approval_note && <span className="table-secondary-line">{approval.approval_note}</span>}
                         </div>
-                      </td>
-                      <td>
-                        {latestAiExtraction ? (
-                          <div className="table-cell-stack">
-                            <div className="table-detail-line">
-                              <span>{latestAiExtraction.is_useful ? 'Has Data' : 'No Data'}</span>
-                              <span className={`status-badge ${latestAiExtraction.audit_sampled ? 'status-draft' : 'status-pending'}`}>
-                                {latestAiExtraction.audit_sampled ? 'AUDIT' : 'LIVE'}
-                              </span>
-                            </div>
-                            <span className="table-secondary-line">
-                              conf {latestAiExtraction.overall_confidence == null ? '—' : Number(latestAiExtraction.overall_confidence).toFixed(2)}
-                              {' · '}
-                              {formatRouteDestinationLabel(latestAiExtraction.route_destination)}
-                            </span>
-                            <button
-                              className="nav-btn ai-detail-toggle"
-                              onClick={() => setExpandedAiPaperId(aiExpanded ? null : paper.id)}
-                            >
-                              {aiExpanded ? 'Hide Details' : 'Details'}
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="table-secondary-line">No AI extraction yet.</span>
-                        )}
-                      </td>
-                      <td>
-                        <div className="table-cell-stack">
-                          {slotAssignments.length === 0 ? (
-                            <span className="table-secondary-line">No slot assignments.</span>
-                          ) : slotAssignments.map((assignment) => (
-                            <div key={assignment.id} className="table-detail-line">
-                              <span>{assignment.slot_key}</span>
-                              <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="table-cell-stack">
-                          {userAssignments.length === 0 ? (
-                            <span className="table-secondary-line">No user assignments.</span>
-                          ) : userAssignments.map((assignment) => {
-                            const reviewer = reviewerById[assignment.reviewer_profile_id]
-                            return (
-                              <div key={assignment.id} className="table-detail-line">
-                                <span>{reviewer?.display_name || reviewer?.email || assignment.reviewer_profile_id}</span>
-                                <span className={`status-badge ${getStatusBadgeClass(assignment.status)}`}>{formatStatusLabel(assignment.status)}</span>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </td>
-                      <td>
-                        {outcome ? (
-                          <div className="table-cell-stack">
-                            <div className="table-detail-line">
-                              <span>{formatDecisionLabel(outcome.decision_kind)}</span>
-                              <span className="status-badge status-done">{outcome.resolution_source || 'resolved'}</span>
-                            </div>
-                            <span className="table-secondary-line">{outcome.resolved_at ? new Date(outcome.resolved_at).toLocaleString() : 'No timestamp'}</span>
-                          </div>
-                        ) : (
-                          <span className="status-badge status-pending">Pending</span>
-                        )}
-                      </td>
-                    </tr>
-                    {aiExpanded && (
-                      <tr className="ai-detail-row">
-                        <td colSpan="6">
-                          <AiDetailPanel extraction={latestAiExtraction} outcome={outcome} />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                      ) : '-'}
+                    </td>
+                  </tr>
                 )
               })}
             </tbody>
@@ -2088,113 +778,243 @@ function AllPapersView({ cockpitData, onRefresh }) {
   )
 }
 
-function ConflictsView({
-  conflicts,
-  selectedConflictId,
-  setSelectedConflictId,
-  papersById,
-  submissionsById,
-  reviewerById,
-  resolutionNote,
-  setResolutionNote,
-  onResolve,
-  allNutrients,
-  theme,
-}) {
-  const openConflicts = conflicts.filter((row) => {
-    const status = String(row?.resolution_status || 'open').trim().toLowerCase()
-    return status !== 'resolved' && status !== 'dismissed'
-  })
-  const selectedConflict =
-    openConflicts.find((row) => row.conflict_key === selectedConflictId) || openConflicts[0] || null
-  const conflictSubmissionIds = Array.isArray(selectedConflict?.submission_ids) ? selectedConflict.submission_ids : []
-  const conflictSubmissions = conflictSubmissionIds
-    .map((submissionId) => submissionsById[submissionId])
-    .filter(Boolean)
-  const paper = selectedConflict ? papersById[selectedConflict.paper_id] : null
-  const pdfUrl = paper ? getPublicPdfUrl(paper.filename) : null
+function AllPapersView({ cockpitData, reviewerById, onRefresh }) {
+  const submissionsByPaperId = groupRowsByPaperId(cockpitData.labelSubmissions)
+  const approvalsByPaperId = Object.fromEntries((cockpitData.labelApprovals || []).map((row) => [row.paper_id, row]))
+  const outcomeByPaperId = Object.fromEntries((cockpitData.outcomes || []).map((row) => [row.paper_id, row]))
+  const rows = (cockpitData.papers || []).map((paper) => ({
+    paper,
+    submissions: submissionsByPaperId[paper.id] || [],
+    approval: approvalsByPaperId[paper.id] || null,
+    outcome: outcomeByPaperId[paper.id] || null,
+  }))
 
   return (
-    <div className="workspace conflict-workspace">
-      <div className="conflict-sidebar">
-        <div className="conflict-sidebar-header">
-          <h2>Conflicts</h2>
-          <p>{openConflicts.length} open</p>
+    <div className="dashboard-page">
+      <div className="dashboard-header">
+        <div>
+          <h2>All Papers</h2>
+          <p>Global paper state under the general queue and approval workflow.</p>
         </div>
-        <div className="conflict-list">
-          {openConflicts.length === 0 ? (
-            <div className="empty-panel">No open conflicts right now.</div>
-          ) : openConflicts.map((conflict) => (
-            <button
-              key={conflict.conflict_key}
-              className={`conflict-list-item ${selectedConflict?.conflict_key === conflict.conflict_key ? 'active' : ''}`}
-              onClick={() => setSelectedConflictId(conflict.conflict_key)}
-            >
-              <span>{conflict.conflict_kind || 'Conflict'}</span>
-              <strong>Paper {conflict.paper_id}</strong>
-              <small>{conflict.submission_count || 0} submissions</small>
-            </button>
-          ))}
-        </div>
+        <button className="btn btn-outline" onClick={onRefresh}>Refresh</button>
       </div>
-
-      <PdfViewer
-        pdfUrl={pdfUrl}
-        allNutrients={allNutrients}
-        onAddNutrient={() => {}}
-        theme={theme}
-      />
-
-      <div className="annotation-panel conflict-panel">
-        {!selectedConflict ? (
-          <div className="annotation-scroll">
-            <div className="empty-panel">Select a conflict to compare all submissions.</div>
-          </div>
-        ) : (
-          <>
-            <div className="conflict-header">
-              <div>
-                <h2>{paper?.title || `Paper ${selectedConflict.paper_id}`}</h2>
-                <p>{selectedConflict.conflict_kind || 'conflict'} - {selectedConflict.submission_count || 0} submissions</p>
-              </div>
-              <div className="status-badge status-conflict">Needs decision</div>
-            </div>
-            <div className="annotation-scroll conflict-scroll">
-              <div className="payload-grid">
-                {conflictSubmissions.map((submission) => (
-                  <PayloadSummary
-                    key={submission.id}
-                    submission={submission}
-                    reviewer={reviewerById[submission?.reviewer_profile_id]}
-                    highlighted={false}
-                    onResolve={() => onResolve(selectedConflict, submission.id)}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="annotation-actions">
-              <label className="form-group" style={{ marginBottom: 0 }}>
-                <span style={{ display: 'block', marginBottom: 6, color: 'var(--text-secondary)', fontSize: 13 }}>Resolution note</span>
-                <input
-                  value={resolutionNote}
-                  onChange={(event) => setResolutionNote(event.target.value)}
-                  placeholder="Why this submission wins"
-                />
-              </label>
-            </div>
-          </>
-        )}
+      <div className="dashboard-card dashboard-card-table">
+        <div className="dashboard-card-title">Paper Workflow Overview</div>
+        <div className="table-scroll">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Paper</th>
+                <th>Routing</th>
+                <th>Submissions</th>
+                <th>Approval</th>
+                <th>Final Outcome</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ paper, submissions, approval, outcome }) => (
+                <tr key={paper.id}>
+                  <td className="table-title-cell">
+                    <div className="table-primary-line">{paper.title || paper.filename || `Paper ${paper.id}`}</div>
+                    <div className="table-secondary-line">
+                      Paper {paper.id}
+                      {paper.workflow_language && ` · ${paper.workflow_language.toUpperCase()}`}
+                      {paper.doi && ` · DOI: ${paper.doi}`}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="table-cell-stack">
+                      <span>{paper.routing_status || 'Unknown'}</span>
+                      <span className="table-secondary-line">{paper.routing_bucket || '-'}</span>
+                    </div>
+                  </td>
+                  <td>
+                    {submissions.length === 0 ? '-' : (
+                      <div className="table-cell-stack">
+                        {submissions.map((submission) => (
+                          <span key={submission.id}>
+                            {reviewerById[submission.reviewer_profile_id]?.display_name || 'Labeler'} · {formatStatusLabel(submission.status)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td>{approval ? `${formatDecisionLabel(approval.decision_kind)} · ${formatDate(approval.approved_at)}` : '-'}</td>
+                  <td>{outcome ? `${formatDecisionLabel(outcome.decision_kind)} · ${outcome.resolution_source}` : 'Pending'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )
 }
+
+function SuggestionsReviewView({ suggestionItems, onRefresh, onSaveReview, savingSuggestionId }) {
+  const [expandedAttachment, setExpandedAttachment] = useState(null)
+
+  return (
+    <div className="dashboard-page">
+      <div className="dashboard-header">
+        <div>
+          <h2>Suggestions</h2>
+          <p>Incoming suggestions and help requests.</p>
+        </div>
+        <button className="btn btn-outline" onClick={onRefresh}>Refresh</button>
+      </div>
+      <div className="dashboard-card dashboard-card-table">
+        <div className="table-scroll">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Submitted By</th>
+                <th>Status</th>
+                <th>Text</th>
+                <th>Attachments</th>
+                <th>Update</th>
+              </tr>
+            </thead>
+            <tbody>
+              {suggestionItems.length === 0 ? (
+                <tr><td colSpan="6">No suggestions or help requests.</td></tr>
+              ) : suggestionItems.map((item) => {
+                const attachments = normalizeSuggestionAttachments(item.attachments)
+                return (
+                  <tr key={item.id}>
+                    <td>{item.context?.request_kind === 'general_queue_help_request' ? 'Help Request' : item.item_kind}</td>
+                    <td>{item.submitted_by_name || item.submitted_by_email || '-'}</td>
+                    <td><span className={`status-badge ${getStatusBadgeClass(item.status)}`}>{formatStatusLabel(item.status)}</span></td>
+                    <td>{item.suggestion_text}</td>
+                    <td>
+                      {attachments.length === 0 ? '-' : attachments.map((attachment, index) => (
+                        <button
+                          key={`${item.id}-${attachment.path || index}`}
+                          className="nav-btn"
+                          onClick={() => setExpandedAttachment(expandedAttachment === `${item.id}:${index}` ? null : `${item.id}:${index}`)}
+                        >
+                          {attachment.fileName} {formatBytesLabel(attachment.fileSize)}
+                        </button>
+                      ))}
+                    </td>
+                    <td>
+                      <select
+                        value={item.status || 'new'}
+                        disabled={savingSuggestionId === item.id}
+                        onChange={(event) => onSaveReview(item.id, { status: event.target.value })}
+                      >
+                        {SUGGESTION_REVIEW_STATUSES.map((status) => (
+                          <option key={status} value={status}>{formatStatusLabel(status)}</option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ReviewerAdminView({ cockpitData, reviewerDrafts, onChangeDraft, onSaveDraft, savingReviewerTarget }) {
+  return (
+    <div className="dashboard-page">
+      <div className="dashboard-header">
+        <div>
+          <h2>Reviewer Admin</h2>
+          <p>Manage reviewer access, read-only tester mode, cockpit visibility, and approval authority.</p>
+        </div>
+      </div>
+      <div className="dashboard-card dashboard-card-table">
+        <div className="table-scroll">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Reviewer</th>
+                <th>Languages</th>
+                <th>Active</th>
+                <th>Tester</th>
+                <th>Cockpit</th>
+                <th>Can Approve</th>
+                <th>Save</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(cockpitData.reviewerProfiles || []).map((profile) => {
+                const draft = reviewerDrafts[profile.id] || profile
+                return (
+                  <tr key={profile.id}>
+                    <td className="table-title-cell">
+                      <div className="table-primary-line">{profile.display_name || profile.email}</div>
+                      <div className="table-secondary-line">{profile.email}</div>
+                    </td>
+                    <td>
+                      <div className="reviewer-toggle-row">
+                        <label className="reviewer-toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(draft.can_review_en)}
+                            onChange={(event) => onChangeDraft(profile.id, 'can_review_en', event.target.checked)}
+                          />
+                          EN
+                        </label>
+                        <label className="reviewer-toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(draft.can_review_tr)}
+                            onChange={(event) => onChangeDraft(profile.id, 'can_review_tr', event.target.checked)}
+                          />
+                          TR
+                        </label>
+                      </div>
+                    </td>
+                    {['active', 'tester_access', 'cockpit_access', 'can_approve_labels'].map((field) => (
+                      <td key={field}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(draft[field])}
+                          onChange={(event) => onChangeDraft(profile.id, field, event.target.checked)}
+                        />
+                      </td>
+                    ))}
+                    <td>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => onSaveDraft(profile.id)}
+                        disabled={savingReviewerTarget === profile.id}
+                      >
+                        {savingReviewerTarget === profile.id ? 'Saving...' : 'Save'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [reviewerProfile, setReviewerProfile] = useState(null)
   const [profileError, setProfileError] = useState(null)
   const [activeView, setActiveView] = useState('queue')
-  const [assignments, setAssignments] = useState([])
-  const [selectedAssignmentId, setSelectedAssignmentId] = useState(null)
+  const [queueItems, setQueueItems] = useState([])
+  const [selectedQueueId, setSelectedQueueId] = useState(null)
   const [foodItems, setFoodItems] = useState([createEmptyFoodItem()])
+  const [approvalFoodItems, setApprovalFoodItems] = useState([createEmptyFoodItem()])
+  const [approvalDecision, setApprovalDecision] = useState('has_data')
+  const [approvalNote, setApprovalNote] = useState('')
+  const [selectedApprovalId, setSelectedApprovalId] = useState(null)
+  const [allNutrients, setAllNutrients] = useState([])
+  const [allFoods, setAllFoods] = useState([])
+  const [foodsLoaded, setFoodsLoaded] = useState(false)
   const [aiPrefillSources, setAiPrefillSources] = useState({})
   const [saving, setSaving] = useState(false)
   const [loadingQueue, setLoadingQueue] = useState(true)
@@ -2203,188 +1023,89 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [showSuggestion, setShowSuggestion] = useState(false)
   const [showHelpRequest, setShowHelpRequest] = useState(false)
   const [helpRequestNote, setHelpRequestNote] = useState('')
-  const [showPaperList, setShowPaperList] = useState(false)
-  const [allNutrients, setAllNutrients] = useState([])
-  const [allFoods, setAllFoods] = useState([])
-  const [foodsLoaded, setFoodsLoaded] = useState(false)
   const [testMode, setTestMode] = useState(() => isTestModeEnabled())
+  const [showPaperList, setShowPaperList] = useState(false)
   const [cockpitData, setCockpitData] = useState(EMPTY_COCKPIT_DATA)
   const [reviewerDrafts, setReviewerDrafts] = useState({})
-  const [routingConfigDrafts, setRoutingConfigDrafts] = useState({})
-  const [newReviewerDraft, setNewReviewerDraft] = useState(() => createEmptyReviewerDraft())
   const [savingReviewerTarget, setSavingReviewerTarget] = useState(null)
-  const [savingRoutingStageKey, setSavingRoutingStageKey] = useState(null)
   const [savingSuggestionId, setSavingSuggestionId] = useState(null)
-  const [selectedConflictId, setSelectedConflictId] = useState(null)
-  const [resolutionNote, setResolutionNote] = useState('')
-  const undoTimerRef = useRef(null)
   const paperListRef = useRef(null)
 
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (paperListRef.current && !paperListRef.current.contains(e.target)) {
-        setShowPaperList(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  const currentAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) || null
-  const currentPaper = currentAssignment?.paper || null
-  const currentPaperIndex = assignments.findIndex((assignment) => assignment.id === selectedAssignmentId)
-  const pdfUrl = currentPaper ? getPublicPdfUrl(currentPaper.filename) : null
+  const reviewerById = useMemo(() => buildReviewerMap(cockpitData.reviewerProfiles), [cockpitData.reviewerProfiles])
+  const paperById = useMemo(() => buildPaperMap(cockpitData.papers), [cockpitData.papers])
+  const currentItem = queueItems.find((item) => item.id === selectedQueueId) || null
+  const currentPaper = currentItem?.paper || null
+  const currentIndex = queueItems.findIndex((item) => item.id === selectedQueueId)
+  const currentPdfUrl = getPublicPdfUrl(currentPaper?.filename)
   const isTesterAccount = Boolean(reviewerProfile?.tester_access)
-  const isDeveloperTrainingMode = Boolean(reviewerProfile?.tester_access && reviewerProfile?.cockpit_access)
-  const queueStats = {
-    open: assignments.filter((assignment) => OPEN_STATUSES.has(assignment.status)).length,
-    final: assignments.filter((assignment) => FINAL_STATUSES.has(assignment.status)).length,
-    conflict: assignments.filter((assignment) => assignment.status === 'conflict').length,
-    resolved: assignments.filter((assignment) => assignment.status === 'resolved').length,
-    cancelled: assignments.filter((assignment) => assignment.status === 'cancelled').length,
-  }
-  const isEditable = currentAssignment ? OPEN_STATUSES.has(currentAssignment.status) : false
-  const isShadowAssignment = currentAssignment?.slot_member?.member_role === 'shadow'
-  const canUseGlobalNoData = Boolean(
-    currentAssignment
-    && isEditable
-    && !isShadowAssignment
-    && currentAssignment.slot_member?.counts_toward_official === true,
+  const canApproveLabels = Boolean(reviewerProfile?.can_approve_labels && !reviewerProfile?.tester_access && !testMode)
+  const canSeeCockpit = Boolean(reviewerProfile?.cockpit_access || reviewerProfile?.can_approve_labels)
+  const isEditable = Boolean(currentItem && !isTesterAccount)
+  const pendingSubmissions = useMemo(
+    () => (cockpitData.labelSubmissions || [])
+      .filter((row) => row.status === 'pending_approval')
+      .sort((left, right) => new Date(left.submitted_at || 0).getTime() - new Date(right.submitted_at || 0).getTime()),
+    [cockpitData.labelSubmissions]
   )
+  const selectedSubmission = pendingSubmissions.find((row) => row.id === selectedApprovalId) || pendingSubmissions[0] || null
+  const selectedApprovalPaper = selectedSubmission ? paperById[selectedSubmission.paper_id] : null
+  const selectedApprovalPdfUrl = getPublicPdfUrl(selectedApprovalPaper?.filename)
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type })
-    if (undoTimerRef.current) {
-      clearTimeout(undoTimerRef.current)
-    }
-    undoTimerRef.current = setTimeout(() => setToast(null), 3000)
+    window.clearTimeout(showToast.timer)
+    showToast.timer = window.setTimeout(() => setToast(null), 3200)
   }, [])
 
   const refreshQueue = useCallback(async () => {
     if (!reviewerProfile?.id) {
-      setAssignments([])
-      setSelectedAssignmentId(null)
+      setQueueItems([])
+      setSelectedQueueId(null)
       setLoadingQueue(false)
       return []
     }
 
     setLoadingQueue(true)
     try {
-      if (isDeveloperTrainingMode) {
-        const [paperResponse, slotAssignmentsResponse] = await Promise.all([
-          supabase
-            .from('papers')
-            .select('id,title,abstract,doi,filename,workflow_language,created_at,routing_status,latest_ai_extraction_id')
-            .in('workflow_language', SUPPORTED_WORKFLOW_LANGUAGES)
-            .order('id', { ascending: false })
-            .limit(2000),
-          supabase
-            .from('paper_slot_assignments')
-            .select('id,paper_id,slot_key,workflow_language,status,assigned_at,submitted_at,resolved_at,created_at')
-            .in('workflow_language', SUPPORTED_WORKFLOW_LANGUAGES)
-            .order('assigned_at', { ascending: false })
-            .limit(4000),
-        ])
+      const { data: paperRows, error: paperError } = await supabase.rpc('get_general_queue_papers', { p_limit: 250 })
+      if (paperError) throw paperError
 
-        if (paperResponse.error) throw paperResponse.error
-        if (slotAssignmentsResponse.error) throw slotAssignmentsResponse.error
-
-        const virtualAssignments = buildDeveloperTrainingAssignments({
-          papers: paperResponse.data || [],
-          slotAssignments: slotAssignmentsResponse.data || [],
-          reviewerProfileId: reviewerProfile.id,
-        })
-        const paperIds = [...new Set(virtualAssignments.map((assignment) => assignment.paper_id).filter(Boolean))]
-        const aiResponse = paperIds.length
-          ? await supabase.from('ai_extractions').select('*').in('paper_id', paperIds).order('created_at', { ascending: false })
-          : { data: [], error: null }
-        if (aiResponse.error) throw aiResponse.error
-        const virtualAssignmentsWithAi = attachLatestAiExtractions(virtualAssignments, aiResponse.data || [])
-
-        setAssignments(virtualAssignmentsWithAi)
-        setSelectedAssignmentId((previousId) => pickDefaultAssignment(virtualAssignmentsWithAi, previousId))
-        return virtualAssignmentsWithAi
-      }
-
-      if (isTesterAccount) {
-        const { data: paperRows, error: paperError } = await supabase
-          .from('papers')
-          .select('*')
-          .eq('routing_status', 'human_review_ready')
-          .order('id', { ascending: false })
-          .limit(250)
-
-        if (paperError) throw paperError
-
-        const virtualAssignments = buildGenericTesterAssignments(paperRows || [], reviewerProfile.id)
-        const paperIds = [...new Set(virtualAssignments.map((assignment) => assignment.paper_id).filter(Boolean))]
-        const aiResponse = paperIds.length
-          ? await supabase.from('ai_extractions').select('*').in('paper_id', paperIds).order('created_at', { ascending: false })
-          : { data: [], error: null }
-        if (aiResponse.error) throw aiResponse.error
-        const virtualAssignmentsWithAi = attachLatestAiExtractions(virtualAssignments, aiResponse.data || [])
-
-        setAssignments(virtualAssignmentsWithAi)
-        setSelectedAssignmentId((previousId) => pickDefaultAssignment(virtualAssignmentsWithAi, previousId))
-        return virtualAssignmentsWithAi
-      }
-
-      const { data: assignmentRows, error: assignmentError } = await supabase
-        .from('paper_user_assignments')
-        .select('*')
-        .eq('reviewer_profile_id', reviewerProfile.id)
-        .order('assigned_at', { ascending: true })
-
-      if (assignmentError) throw assignmentError
-
-      const orderedAssignments = sortAssignments(assignmentRows || [])
-      const paperIds = [...new Set(orderedAssignments.map((assignment) => assignment.paper_id).filter(Boolean))]
-      const slotIds = [...new Set(orderedAssignments.map((assignment) => assignment.paper_slot_assignment_id).filter(Boolean))]
-
-      const [paperResponse, slotResponse, outcomeResponse, aiResponse] = await Promise.all([
-        paperIds.length
-          ? supabase.from('papers').select('*').in('id', paperIds)
-          : Promise.resolve({ data: [], error: null }),
-        slotIds.length
-          ? supabase.from('paper_slot_assignments').select('*').in('id', slotIds)
-          : Promise.resolve({ data: [], error: null }),
-        paperIds.length
-          ? supabase.from('paper_review_outcomes').select('*').in('paper_id', paperIds)
-          : Promise.resolve({ data: [], error: null }),
+      const papers = (paperRows || []).filter((paper) => SUPPORTED_WORKFLOW_LANGUAGES.includes(paper.workflow_language))
+      const paperIds = papers.map((paper) => paper.id)
+      const [aiResponse, annotationResponse] = await Promise.all([
         paperIds.length
           ? supabase.from('ai_extractions').select('*').in('paper_id', paperIds).order('created_at', { ascending: false })
           : Promise.resolve({ data: [], error: null }),
+        paperIds.length
+          ? supabase.from('annotations').select('*').eq('user_id', user.id).in('paper_id', paperIds)
+          : Promise.resolve({ data: [], error: null }),
       ])
-
-      if (paperResponse.error) throw paperResponse.error
-      if (slotResponse.error) throw slotResponse.error
-      if (outcomeResponse.error) throw outcomeResponse.error
       if (aiResponse.error) throw aiResponse.error
+      if (annotationResponse.error) throw annotationResponse.error
 
-      const paperMap = buildPaperMap(paperResponse.data || [])
-      const slotMap = Object.fromEntries((slotResponse.data || []).map((row) => [row.id, row]))
-      const outcomeMap = Object.fromEntries((outcomeResponse.data || []).map((row) => [row.paper_id, row]))
-      const slotKeys = [...new Set((slotResponse.data || []).map((row) => row.slot_key).filter(Boolean))]
-      const memberResponse = slotKeys.length
-        ? await supabase
-            .from('reviewer_slot_members')
-            .select('*')
-            .eq('reviewer_profile_id', reviewerProfile.id)
-            .in('slot_key', slotKeys)
-        : { data: [], error: null }
-      if (memberResponse.error) throw memberResponse.error
-      const memberMap = buildSlotMemberMap(memberResponse.data || [])
+      const { byId, byPaperId } = buildLatestAiExtractionMaps(aiResponse.data || [])
+      const annotationByPaperId = Object.fromEntries((annotationResponse.data || []).map((row) => [row.paper_id, row]))
+      const nextItems = papers.map((paper) => {
+        const annotation = annotationByPaperId[paper.id] || null
+        return {
+          id: `general:${paper.id}`,
+          paper_id: paper.id,
+          reviewer_profile_id: reviewerProfile.id,
+          workflow_language: paper.workflow_language,
+          status: annotation?.status === 'draft' ? 'draft' : 'available',
+          assigned_at: paper.routing_updated_at || paper.created_at,
+          paper,
+          annotation,
+          latest_ai_extraction: byId[paper.latest_ai_extraction_id] || byPaperId[paper.id] || null,
+        }
+      })
 
-      const mergedAssignments = attachLatestAiExtractions(orderedAssignments.map((assignment) => ({
-        ...assignment,
-        paper: paperMap[assignment.paper_id] || null,
-        slot_assignment: slotMap[assignment.paper_slot_assignment_id] || null,
-        slot_member: memberMap[slotMap[assignment.paper_slot_assignment_id]?.slot_key] || null,
-        outcome: outcomeMap[assignment.paper_id] || null,
-      })), aiResponse.data || [])
-      setAssignments(mergedAssignments)
-      setSelectedAssignmentId((previousId) => pickDefaultAssignment(mergedAssignments, previousId))
-      return mergedAssignments
+      setQueueItems(nextItems)
+      setSelectedQueueId((previousId) => {
+        if (previousId && nextItems.some((item) => item.id === previousId)) return previousId
+        return nextItems[0]?.id || null
+      })
+      return nextItems
     } catch (error) {
       console.error('Queue refresh failed:', error)
       showToast(`Failed to load queue: ${error.message}`, 'error')
@@ -2392,84 +1113,67 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     } finally {
       setLoadingQueue(false)
     }
-  }, [isDeveloperTrainingMode, isTesterAccount, reviewerProfile?.id, showToast])
+  }, [reviewerProfile?.id, showToast, user.id])
 
   const refreshCockpit = useCallback(async () => {
-    if (!reviewerProfile?.cockpit_access) return
+    if (!canSeeCockpit) return
     setLoadingCockpit(true)
     try {
       const [
-        reviewerSlotsResponse,
-        reviewerProfilesResponse,
+        profilesResponse,
         slotMembersResponse,
-        slotAssignmentsResponse,
-        userAssignmentsResponse,
-        submissionsResponse,
-        outcomesResponse,
-        conflictsResponse,
-        derivedConflictsResponse,
         papersResponse,
         aiExtractionsResponse,
         routingStageConfigsResponse,
         searchHitsResponse,
         suggestionReviewItemsResponse,
+        labelSubmissionsResponse,
+        labelApprovalsResponse,
+        outcomesResponse,
       ] = await Promise.all([
-        supabase.from('reviewer_slots').select('*').order('slot_key', { ascending: true }),
         supabase.from('reviewer_profiles').select('*').order('display_name', { ascending: true }),
         supabase.from('reviewer_slot_members').select('*').order('slot_key', { ascending: true }),
-        supabase.from('paper_slot_assignments').select('*').order('assigned_at', { ascending: true }),
-        supabase.from('paper_user_assignments').select('*').order('assigned_at', { ascending: true }),
-        supabase.from('paper_assignment_submissions').select('*').order('submitted_at', { ascending: false }),
-        supabase.from('paper_review_outcomes').select('*').order('resolved_at', { ascending: false }),
-        supabase.from('paper_conflicts').select('*').order('created_at', { ascending: false }),
-        supabase.from('paper_conflict_candidates').select('*').order('latest_submitted_at', { ascending: false }),
-        supabase.from('papers').select('id,title,doi,filename,workflow_language,routing_status,routing_bucket,route_destination,current_stage_key,latest_ai_extraction_id,routing_updated_at').order('id', { ascending: false }),
+        supabase.from('papers').select('id,title,doi,filename,workflow_language,routing_status,routing_bucket,route_destination,current_stage_key,latest_ai_extraction_id,routing_updated_at,created_at').order('id', { ascending: false }),
         supabase.from('ai_extractions').select('*').order('created_at', { ascending: false }).limit(5000),
         supabase.from('routing_stage_configs').select('*').order('display_name', { ascending: true }),
         supabase.from('paper_search_hits').select('paper_id,source,template_id,source_term,query_phrase,workflow_language'),
         supabase.from('backlog_review_items').select('*').order('created_at', { ascending: false }),
+        supabase.from('paper_label_submissions').select('*').order('submitted_at', { ascending: false }),
+        supabase.from('paper_label_approvals').select('*').order('approved_at', { ascending: false }),
+        supabase.from('paper_review_outcomes').select('*').order('resolved_at', { ascending: false }),
       ])
 
-      if (reviewerSlotsResponse.error) throw reviewerSlotsResponse.error
-      if (reviewerProfilesResponse.error) throw reviewerProfilesResponse.error
-      if (slotMembersResponse.error) throw slotMembersResponse.error
-      if (slotAssignmentsResponse.error) throw slotAssignmentsResponse.error
-      if (userAssignmentsResponse.error) throw userAssignmentsResponse.error
-      if (submissionsResponse.error) throw submissionsResponse.error
-      if (outcomesResponse.error) throw outcomesResponse.error
-      if (conflictsResponse.error) throw conflictsResponse.error
-      if (derivedConflictsResponse.error) throw derivedConflictsResponse.error
-      if (papersResponse.error) throw papersResponse.error
-      if (aiExtractionsResponse.error) throw aiExtractionsResponse.error
-      if (routingStageConfigsResponse.error) throw routingStageConfigsResponse.error
-      if (searchHitsResponse.error) throw searchHitsResponse.error
-      if (suggestionReviewItemsResponse.error) throw suggestionReviewItemsResponse.error
+      for (const response of [
+        profilesResponse,
+        slotMembersResponse,
+        papersResponse,
+        aiExtractionsResponse,
+        routingStageConfigsResponse,
+        searchHitsResponse,
+        suggestionReviewItemsResponse,
+        labelSubmissionsResponse,
+        labelApprovalsResponse,
+        outcomesResponse,
+      ]) {
+        if (response.error) throw response.error
+      }
 
       setCockpitData({
-        reviewerSlots: reviewerSlotsResponse.data || [],
-        reviewerProfiles: reviewerProfilesResponse.data || [],
+        reviewerProfiles: profilesResponse.data || [],
         slotMembers: slotMembersResponse.data || [],
-        slotAssignments: slotAssignmentsResponse.data || [],
-        userAssignments: userAssignmentsResponse.data || [],
-        submissions: submissionsResponse.data || [],
-        outcomes: outcomesResponse.data || [],
-        conflicts: conflictsResponse.data || [],
-        derivedConflicts: derivedConflictsResponse.data || [],
         papers: papersResponse.data || [],
         aiExtractions: aiExtractionsResponse.data || [],
         routingStageConfigs: routingStageConfigsResponse.data || [],
         searchHits: searchHitsResponse.data || [],
         suggestionReviewItems: suggestionReviewItemsResponse.data || [],
+        labelSubmissions: labelSubmissionsResponse.data || [],
+        labelApprovals: labelApprovalsResponse.data || [],
+        outcomes: outcomesResponse.data || [],
       })
-
-      setSelectedConflictId((previousId) => {
-        const openConflicts = (derivedConflictsResponse.data || []).filter((row) => {
-          const status = String(row?.resolution_status || 'open').trim().toLowerCase()
-          return status !== 'resolved' && status !== 'dismissed'
-        })
-        if (!openConflicts.length) return null
-        if (previousId && openConflicts.some((row) => row.conflict_key === previousId)) return previousId
-        return openConflicts[0].conflict_key
+      setSelectedApprovalId((previousId) => {
+        const pending = (labelSubmissionsResponse.data || []).filter((row) => row.status === 'pending_approval')
+        if (previousId && pending.some((row) => row.id === previousId)) return previousId
+        return pending[0]?.id || null
       })
     } catch (error) {
       console.error('Cockpit refresh failed:', error)
@@ -2477,11 +1181,10 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     } finally {
       setLoadingCockpit(false)
     }
-  }, [reviewerProfile?.cockpit_access, showToast])
+  }, [canSeeCockpit, showToast])
 
   useEffect(() => {
     let cancelled = false
-
     async function bootstrap() {
       try {
         const { data, error } = await supabase.rpc('sync_reviewer_profile')
@@ -2494,7 +1197,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
             setTestMode(true)
             setTestModeEnabled(true)
           }
-          if (!(nextProfile?.cockpit_access)) {
+          if (!(nextProfile?.cockpit_access || nextProfile?.can_approve_labels)) {
             setActiveView('queue')
           }
         }
@@ -2506,7 +1209,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         }
       }
     }
-
     bootstrap()
     return () => {
       cancelled = true
@@ -2516,44 +1218,19 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   useEffect(() => {
     if (!reviewerProfile) return
     refreshQueue()
-    if (reviewerProfile.cockpit_access) {
-      refreshCockpit()
-    }
-  }, [refreshCockpit, refreshQueue, reviewerProfile])
+    if (canSeeCockpit) refreshCockpit()
+  }, [canSeeCockpit, refreshCockpit, refreshQueue, reviewerProfile])
 
   useEffect(() => {
-    if (reviewerProfile && !reviewerProfile.cockpit_access && activeView !== 'queue') {
+    if (reviewerProfile && !canSeeCockpit && activeView !== 'queue') {
       setActiveView('queue')
     }
-  }, [activeView, reviewerProfile])
+  }, [activeView, canSeeCockpit, reviewerProfile])
 
   useEffect(() => {
-    if (!reviewerProfile?.cockpit_access) return
-    const slotMembersByProfile = buildSlotMembersByProfile(cockpitData.slotMembers)
-    const nextDrafts = Object.fromEntries(
-      (cockpitData.reviewerProfiles || []).map((profile) => [
-        profile.id,
-        createReviewerDraft(profile, slotMembersByProfile[profile.id] || []),
-      ])
-    )
-    setReviewerDrafts(nextDrafts)
-    setNewReviewerDraft(createEmptyReviewerDraft())
-  }, [cockpitData.reviewerProfiles, cockpitData.slotMembers, reviewerProfile?.cockpit_access])
-
-  useEffect(() => {
-    if (!reviewerProfile?.cockpit_access) return
-    const nextDrafts = Object.fromEntries(
-      (cockpitData.routingStageConfigs || []).map((stage) => [
-        stage.stage_key,
-        {
-          positive_threshold: stage.positive_threshold ?? 1,
-          negative_threshold: stage.negative_threshold ?? 1,
-          audit_rate: stage.audit_rate ?? 0.05,
-        },
-      ])
-    )
-    setRoutingConfigDrafts(nextDrafts)
-  }, [cockpitData.routingStageConfigs, reviewerProfile?.cockpit_access])
+    if (!canSeeCockpit) return
+    setReviewerDrafts(Object.fromEntries((cockpitData.reviewerProfiles || []).map((profile) => [profile.id, { ...profile }])))
+  }, [canSeeCockpit, cockpitData.reviewerProfiles])
 
   useEffect(() => {
     async function fetchNutrients() {
@@ -2561,12 +1238,10 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         .from('master_nutrients')
         .select('id, standard_name, description')
         .order('standard_name', { ascending: true })
-
       if (error) {
         console.error('Error fetching nutrients:', error)
         return
       }
-
       setAllNutrients((data || []).map((nutrient) => ({
         id: nutrient.id,
         name: nutrient.standard_name,
@@ -2574,33 +1249,27 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         rank: 99999,
       })))
     }
-
     fetchNutrients()
   }, [])
 
   useEffect(() => {
     let cancelled = false
-
     async function fetchFoods() {
       const batchSize = 1000
       let from = 0
       const rows = []
-
       try {
         while (!cancelled) {
           const { data, error } = await supabase
             .from('entities')
             .select('id, canonical_name, category')
             .range(from, from + batchSize - 1)
-
           if (error) throw error
-
           const batch = data || []
           rows.push(...batch)
           if (batch.length < batchSize) break
           from += batchSize
         }
-
         if (!cancelled) {
           setAllFoods(rows)
           setFoodsLoaded(true)
@@ -2609,11 +1278,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         console.error('Error fetching foods:', error)
       }
     }
-
     const idleId = typeof window !== 'undefined' && 'requestIdleCallback' in window
       ? window.requestIdleCallback(() => void fetchFoods(), { timeout: 1500 })
       : window.setTimeout(() => void fetchFoods(), 300)
-
     return () => {
       cancelled = true
       if (typeof window !== 'undefined' && 'cancelIdleCallback' in window && typeof idleId === 'number') {
@@ -2625,97 +1292,53 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   }, [])
 
   useEffect(() => {
-    if (!currentAssignment) {
+    if (!currentItem) {
       setFoodItems([createEmptyFoodItem()])
       return
     }
-
-    if (currentAssignment.is_virtual) {
-      const aiExtractionId = currentAssignment.latest_ai_extraction?.id || null
-      const aiFoodItems = buildFoodItemsFromAiPayload(currentAssignment.latest_ai_extraction?.normalized_payload_json)
-      setFoodItems(aiFoodItems.length > 0 ? aiFoodItems : [createEmptyFoodItem()])
-      setAiPrefillSources((previous) => (
-        aiExtractionId
-          ? { ...previous, [currentAssignment.id]: aiExtractionId }
-          : clearPrefillSource(previous, currentAssignment.id)
-      ))
-      return
-    }
-
     let cancelled = false
-
     async function loadAnnotation() {
-      const assignmentScoped = await supabase
+      const { data: annotation, error } = await supabase
         .from('annotations')
         .select('*')
-        .eq('paper_user_assignment_id', currentAssignment.id)
+        .eq('paper_id', currentItem.paper_id)
+        .eq('user_id', user.id)
         .maybeSingle()
-
-      const fallback = assignmentScoped.data
-        ? assignmentScoped
-        : await supabase
-            .from('annotations')
-            .select('*')
-            .eq('paper_id', currentAssignment.paper_id)
-            .eq('user_id', user.id)
-            .maybeSingle()
-
-      const annotation = fallback.data
-      if (fallback.error) {
-        console.error('Annotation load failed:', fallback.error)
+      if (error) {
+        console.error('Annotation load failed:', error)
         if (!cancelled) setFoodItems([createEmptyFoodItem()])
         return
       }
-
       if (!annotation) {
+        const aiExtractionId = currentItem.latest_ai_extraction?.id || null
+        const aiFoodItems = buildFoodItemsFromPayload(currentItem.latest_ai_extraction?.normalized_payload_json)
         if (!cancelled) {
-          const aiExtractionId = currentAssignment.latest_ai_extraction?.id || null
-          const assignmentEditable = OPEN_STATUSES.has(currentAssignment.status)
-          const aiFoodItems = assignmentEditable
-            ? buildFoodItemsFromAiPayload(currentAssignment.latest_ai_extraction?.normalized_payload_json)
-            : []
           setFoodItems(aiFoodItems.length > 0 ? aiFoodItems : [createEmptyFoodItem()])
-          setAiPrefillSources((previous) => (
-            assignmentEditable && aiExtractionId
-              ? { ...previous, [currentAssignment.id]: aiExtractionId }
-              : clearPrefillSource(previous, currentAssignment.id)
-          ))
+          setAiPrefillSources((previous) => aiExtractionId ? { ...previous, [currentItem.id]: aiExtractionId } : previous)
         }
         return
       }
-
-      if (!cancelled) {
-        setAiPrefillSources((previous) => clearPrefillSource(previous, currentAssignment.id))
-      }
-
       if (!annotation.has_data) {
         if (!cancelled) setFoodItems([createEmptyFoodItem()])
         return
       }
-
       const { data: itemRows, error: itemError } = await supabase
         .from('food_items')
         .select('*')
         .eq('annotation_id', annotation.id)
         .order('id', { ascending: true })
-
       if (itemError) {
         console.error('Food item load failed:', itemError)
         if (!cancelled) setFoodItems([createEmptyFoodItem()])
         return
       }
-
-      const loadedFoodItems = await Promise.all((itemRows || []).map(async (itemRow) => {
+      const loaded = await Promise.all((itemRows || []).map(async (itemRow) => {
         const { data: nutrientRows, error: nutrientError } = await supabase
           .from('annotation_nutrient_values')
           .select('*')
           .eq('food_item_id', itemRow.id)
           .order('id', { ascending: true })
-
-        if (nutrientError) {
-          console.error('Nutrient row load failed:', nutrientError)
-        }
-
+        if (nutrientError) console.error('Nutrient row load failed:', nutrientError)
         return {
           food_name: itemRow.food_name,
           food_fdc_id: itemRow.food_fdc_id,
@@ -2728,284 +1351,93 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           })),
         }
       }))
-
-      if (!cancelled) {
-        setFoodItems(loadedFoodItems.length > 0 ? loadedFoodItems : [createEmptyFoodItem()])
-      }
+      if (!cancelled) setFoodItems(loaded.length > 0 ? loaded : [createEmptyFoodItem()])
     }
-
     loadAnnotation()
     return () => {
       cancelled = true
     }
-  }, [currentAssignment, user.id])
+  }, [currentItem, user.id])
 
-  const handleToggleTestMode = useCallback(() => {
-    if (reviewerProfile?.tester_access) {
-      setTestMode(true)
-      setTestModeEnabled(true)
-      showToast('Tester accounts are always in test mode.', 'error')
+  useEffect(() => {
+    if (!selectedSubmission) {
+      setApprovalFoodItems([createEmptyFoodItem()])
+      setApprovalDecision('has_data')
+      setApprovalNote('')
       return
     }
-    const next = !testMode
-    const message = next
-      ? 'Enable test mode? This will disable all database writes and store actions locally.'
-      : 'Disable test mode? Database writes will resume.'
-    if (typeof window !== 'undefined' && !window.confirm(message)) return
-    setTestMode(next)
-    setTestModeEnabled(next)
-    showToast(next ? 'Test mode enabled — no DB writes.' : 'Test mode disabled.')
-  }, [reviewerProfile?.tester_access, showToast, testMode])
+    const payloadItems = buildFoodItemsFromPayload(selectedSubmission.payload_json)
+    setApprovalFoodItems(payloadItems.length > 0 ? payloadItems : [createEmptyFoodItem()])
+    setApprovalDecision(selectedSubmission.decision_kind || 'has_data')
+    setApprovalNote('')
+  }, [selectedSubmission])
 
-  const updateReviewerDraft = useCallback((profileId, field, value) => {
-    setReviewerDrafts((previous) => {
-      const existing = previous[profileId]
-      if (!existing) return previous
-      const next = {
-        ...existing,
-        [field]: value,
+  useEffect(() => {
+    function handleClick(event) {
+      if (paperListRef.current && !paperListRef.current.contains(event.target)) {
+        setShowPaperList(false)
       }
-      if (field === 'official_slot' && value) {
-        next.shadow_slots = (next.shadow_slots || []).filter((slotKey) => slotKey !== value)
-      }
-      return {
-        ...previous,
-        [profileId]: next,
-      }
-    })
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const toggleReviewerDraftShadowSlot = useCallback((profileId, slotKey) => {
-    setReviewerDrafts((previous) => {
-      const existing = previous[profileId]
-      if (!existing || existing.official_slot === slotKey) return previous
-      return {
-        ...previous,
-        [profileId]: {
-          ...existing,
-          shadow_slots: toggleShadowSlot(existing.shadow_slots, slotKey),
+  const saveAnnotationRows = useCallback(async ({ paperId, hasData, status, items }) => {
+    const validFoodItems = hasData ? items.filter(isValidFoodItem).map(normalizeFoodItem) : []
+    const { data: annotation, error: annotationError } = await supabase
+      .from('annotations')
+      .upsert(
+        {
+          paper_id: paperId,
+          user_id: user.id,
+          has_data: hasData,
+          status,
+          updated_at: new Date().toISOString(),
         },
+        { onConflict: 'paper_id,user_id' }
+      )
+      .select()
+      .single()
+    if (annotationError) throw annotationError
+
+    const { error: deleteError } = await supabase.from('food_items').delete().eq('annotation_id', annotation.id)
+    if (deleteError) throw deleteError
+
+    for (const item of validFoodItems) {
+      const { data: insertedItem, error: itemError } = await supabase
+        .from('food_items')
+        .insert({
+          annotation_id: annotation.id,
+          food_name: item.food_name,
+          food_fdc_id: item.food_fdc_id,
+          is_custom_food: item.is_custom_food || false,
+        })
+        .select()
+        .single()
+      if (itemError) throw itemError
+
+      if (item.nutrients?.length) {
+        const nutrientRows = item.nutrients.map((nutrient) => ({
+          food_item_id: insertedItem.id,
+          nutrient_id: nutrient.nutrient_id,
+          nutrient_name: nutrient.nutrient_name,
+          value: nutrient.value,
+          unit: nutrient.unit,
+        }))
+        const { error: nutrientError } = await supabase.from('annotation_nutrient_values').insert(nutrientRows)
+        if (nutrientError) throw nutrientError
       }
-    })
-  }, [])
-
-  const resetReviewerDraft = useCallback((profileId) => {
-    const slotMembersByProfile = buildSlotMembersByProfile(cockpitData.slotMembers)
-    const profile = (cockpitData.reviewerProfiles || []).find((row) => row.id === profileId)
-    if (!profile) return
-    setReviewerDrafts((previous) => ({
-      ...previous,
-      [profileId]: createReviewerDraft(profile, slotMembersByProfile[profile.id] || []),
-    }))
-  }, [cockpitData.reviewerProfiles, cockpitData.slotMembers])
-
-  const updateNewReviewerDraft = useCallback((field, value) => {
-    setNewReviewerDraft((previous) => {
-      const next = {
-        ...previous,
-        [field]: value,
-      }
-      if (field === 'official_slot' && value) {
-        next.shadow_slots = (next.shadow_slots || []).filter((slotKey) => slotKey !== value)
-      }
-      return next
-    })
-  }, [])
-
-  const toggleNewReviewerShadowSlot = useCallback((slotKey) => {
-    setNewReviewerDraft((previous) => {
-      if (previous.official_slot === slotKey) return previous
-      return {
-        ...previous,
-        shadow_slots: toggleShadowSlot(previous.shadow_slots, slotKey),
-      }
-    })
-  }, [])
-
-  const resetNewReviewerDraft = useCallback(() => {
-    setNewReviewerDraft(createEmptyReviewerDraft())
-  }, [])
-
-  const persistReviewerDraft = useCallback(async (draft, targetKey) => {
-    const payload = buildReviewerAdminPayload(draft)
-    if (!payload.p_email) {
-      showToast('Reviewer email is required.', 'error')
-      return
-    }
-    if (!payload.p_display_name) {
-      showToast('Reviewer display name is required.', 'error')
-      return
     }
 
-    if (testMode) {
-      appendTestEvent({
-        type: 'reviewer_admin_save',
-        target: targetKey,
-        payload,
-      })
-      if (targetKey === '__new__') {
-        setNewReviewerDraft(createEmptyReviewerDraft())
-      }
-      showToast('Reviewer config stored locally (test mode).')
-      return
-    }
-
-    setSavingReviewerTarget(targetKey)
-    try {
-      const { data, error } = await supabase.rpc('upsert_reviewer_admin_config', payload)
-      if (error) throw error
-      const nextProfile = Array.isArray(data) ? data[0] : data
-      if (nextProfile?.id && nextProfile.id === reviewerProfile?.id) {
-        setReviewerProfile(nextProfile)
-      }
-      if (targetKey === '__new__') {
-        setNewReviewerDraft(createEmptyReviewerDraft())
-      }
-      await refreshQueue()
-      if (!nextProfile || nextProfile.id !== reviewerProfile?.id || nextProfile.cockpit_access) {
-        await refreshCockpit()
-      }
-      showToast(targetKey === '__new__' ? 'Reviewer created.' : 'Reviewer settings saved.')
-    } catch (error) {
-      console.error('Reviewer config save failed:', error)
-      showToast(`Failed to save reviewer: ${error.message}`, 'error')
-    } finally {
-      setSavingReviewerTarget(null)
-    }
-  }, [refreshCockpit, refreshQueue, reviewerProfile?.id, showToast, testMode])
-
-  const saveReviewerDraft = useCallback(async (profileId) => {
-    const draft = reviewerDrafts[profileId]
-    if (!draft) return
-    await persistReviewerDraft(draft, profileId)
-  }, [persistReviewerDraft, reviewerDrafts])
-
-  const createReviewer = useCallback(async () => {
-    await persistReviewerDraft(newReviewerDraft, '__new__')
-  }, [newReviewerDraft, persistReviewerDraft])
-
-  const updateRoutingConfigDraft = useCallback((stageKey, field, value) => {
-    setRoutingConfigDrafts((previous) => ({
-      ...previous,
-      [stageKey]: {
-        ...(previous[stageKey] || {}),
-        [field]: value,
-      },
-    }))
-  }, [])
-
-  const saveRoutingConfigDraft = useCallback(async (stageKey) => {
-    const draft = routingConfigDrafts[stageKey]
-    if (!draft) return
-
-    const payload = {
-      positive_threshold: Number(draft.positive_threshold),
-      negative_threshold: Number(draft.negative_threshold),
-      audit_rate: Number(draft.audit_rate),
-    }
-    if (Object.values(payload).some((value) => Number.isNaN(value) || value < 0 || value > 1)) {
-      showToast('Routing thresholds and audit rate must stay between 0 and 1.', 'error')
-      return
-    }
-
-    if (testMode) {
-      appendTestEvent({
-        type: 'routing_stage_config_save',
-        stage_key: stageKey,
-        payload,
-      })
-      showToast('Routing config stored locally (test mode).')
-      return
-    }
-
-    setSavingRoutingStageKey(stageKey)
-    try {
-      const { error } = await supabase
-        .from('routing_stage_configs')
-        .update(payload)
-        .eq('stage_key', stageKey)
-      if (error) throw error
-      await refreshCockpit()
-      showToast('Routing policy saved.')
-    } catch (error) {
-      console.error('Routing policy save failed:', error)
-      showToast(`Failed to save routing policy: ${error.message}`, 'error')
-    } finally {
-      setSavingRoutingStageKey(null)
-    }
-  }, [refreshCockpit, routingConfigDrafts, showToast, testMode])
-
-  const saveSuggestionReview = useCallback(async (itemId, draft) => {
-    if (!itemId || !draft) return
-    const nowIso = new Date().toISOString()
-    const payload = {
-      status: draft.status || 'new',
-      follow_up_required: Boolean(draft.follow_up_required),
-      follow_up_note: (draft.follow_up_note || '').trim() || null,
-      review_note: (draft.review_note || '').trim() || null,
-      reviewed_by_auth_user_id: user?.id || null,
-      reviewed_at: nowIso,
-      updated_at: nowIso,
-    }
-
-    if (testMode) {
-      appendTestEvent({
-        type: 'suggestion_review_status_update',
-        suggestion_review_item_id: itemId,
-        ...payload,
-      })
-      setCockpitData((previous) => ({
-        ...previous,
-        suggestionReviewItems: (previous.suggestionReviewItems || []).map((item) =>
-          item.id === itemId ? { ...item, ...payload } : item
-        ),
-      }))
-      showToast('Suggestion review status stored locally (test mode).')
-      return
-    }
-
-    setSavingSuggestionId(itemId)
-    try {
-      const { error } = await supabase
-        .from('backlog_review_items')
-        .update(payload)
-        .eq('id', itemId)
-      if (error) throw error
-      await refreshCockpit()
-      showToast('Suggestion review status saved.')
-    } catch (error) {
-      console.error('Suggestion review update failed:', error)
-      showToast(`Failed to save suggestion review: ${error.message}`, 'error')
-    } finally {
-      setSavingSuggestionId(null)
-    }
-  }, [refreshCockpit, showToast, testMode, user?.id])
-
-  const ensureAssignmentStillEditable = useCallback(async () => {
-    if (!currentAssignment) return false
-    const { data, error } = await supabase
-      .from('paper_user_assignments')
-      .select('status')
-      .eq('id', currentAssignment.id)
-      .maybeSingle()
-
-    if (error) throw error
-    if (!data || !OPEN_STATUSES.has(data.status)) {
-      await refreshQueue()
-      showToast('This assignment changed on the server. The queue has been refreshed.', 'error')
-      return false
-    }
-    return true
-  }, [currentAssignment, refreshQueue, showToast])
+    return { annotation, validFoodItems }
+  }, [user.id])
 
   const saveAnnotation = useCallback(async (hasData, status) => {
-    if (!currentAssignment || !currentPaper) return
-    const validFoodItems = hasData
-      ? foodItems.filter(isValidFoodItem).map(normalizeFoodItem)
-      : []
+    if (!currentItem || !currentPaper) return
+    const validFoodItems = hasData ? foodItems.filter(isValidFoodItem).map(normalizeFoodItem) : []
     const foodItemCount = validFoodItems.length
     const nutrientValueCount = validFoodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0)
-    const initializedFromAiExtractionId = aiPrefillSources[currentAssignment.id] || null
+    const initializedFromAiExtractionId = aiPrefillSources[currentItem.id] || null
 
     if (hasData && foodItemCount === 0) {
       showToast('Add at least one valid food item before saving.', 'error')
@@ -3016,9 +1448,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     try {
       if (testMode) {
         appendTestEvent({
-          type: 'assignment_save',
+          type: 'general_label_save',
           paper_id: currentPaper.id,
-          assignment_id: currentAssignment.id,
           user_id: user.id,
           has_data: hasData,
           status,
@@ -3026,127 +1457,47 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           nutrient_value_count: nutrientValueCount,
           initialized_from_ai_extraction_id: initializedFromAiExtractionId,
         })
-        setAssignments((previous) => previous.map((assignment) => {
-          if (assignment.id !== currentAssignment.id) return assignment
-          return {
-            ...assignment,
-            status: status === 'draft' ? 'draft' : 'submitted',
-          }
-        }))
-        const label = status === 'draft' ? 'Draft saved' : 'Stored locally'
-        showToast(`${label} (test mode).`)
+        showToast(status === 'draft' ? 'Draft stored locally (test mode).' : 'Submission stored locally (test mode).')
         return
       }
 
-      const stillEditable = await ensureAssignmentStillEditable()
-      if (!stillEditable) return
-
-      const { data: annotation, error: annotationError } = await supabase
-        .from('annotations')
-        .upsert(
-          {
-            paper_id: currentPaper.id,
-            user_id: user.id,
-            paper_user_assignment_id: currentAssignment.id,
-            has_data: hasData,
-            status,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'paper_id,user_id' }
-        )
-        .select()
-        .single()
-
-      if (annotationError) throw annotationError
-
-      await supabase
-        .from('food_items')
-        .delete()
-        .eq('annotation_id', annotation.id)
-
-      if (hasData && validFoodItems.length > 0) {
-        for (const item of validFoodItems) {
-          const { data: insertedItem, error: itemError } = await supabase
-            .from('food_items')
-            .insert({
-              annotation_id: annotation.id,
-              food_name: item.food_name,
-              food_fdc_id: item.food_fdc_id,
-              is_custom_food: item.is_custom_food || false,
-            })
-            .select()
-            .single()
-
-          if (itemError) throw itemError
-
-          if (item.nutrients?.length) {
-            const nutrientRows = item.nutrients.map((nutrient) => ({
-              food_item_id: insertedItem.id,
-              nutrient_id: nutrient.nutrient_id,
-              nutrient_name: nutrient.nutrient_name,
-              value: nutrient.value,
-              unit: nutrient.unit,
-            }))
-            const { error: nutrientError } = await supabase
-              .from('annotation_nutrient_values')
-              .insert(nutrientRows)
-            if (nutrientError) throw nutrientError
-          }
-        }
-      }
+      const { annotation } = await saveAnnotationRows({
+        paperId: currentPaper.id,
+        hasData,
+        status,
+        items: foodItems,
+      })
 
       const decisionKind = hasData ? 'has_data' : 'no_usable_data'
-      const { error: labelEventError } = await supabase
-        .from('paper_label_events')
-        .insert({
-          paper_id: currentPaper.id,
-          annotation_id: annotation.id,
-          paper_user_assignment_id: currentAssignment.id,
-          paper_slot_assignment_id: currentAssignment.paper_slot_assignment_id,
-          user_id: user.id,
-          has_data: hasData,
-          status,
-          decision_kind: decisionKind,
-          food_item_count: foodItemCount,
-          nutrient_value_count: nutrientValueCount,
-          source: 'ui',
-        })
-      if (labelEventError) throw labelEventError
+      const { error: eventError } = await supabase.from('paper_label_events').insert({
+        paper_id: currentPaper.id,
+        annotation_id: annotation.id,
+        user_id: user.id,
+        has_data: hasData,
+        status,
+        decision_kind: decisionKind,
+        food_item_count: foodItemCount,
+        nutrient_value_count: nutrientValueCount,
+        source: 'general_queue_ui',
+      })
+      if (eventError) throw eventError
 
       if (status === 'draft') {
-        const { error: touchError } = await supabase.rpc('touch_assignment_workspace', {
-          p_paper_user_assignment_id: currentAssignment.id,
-          p_annotation_id: annotation.id,
-          p_status: 'draft',
-        })
-        if (touchError) throw touchError
         showToast('Draft saved.')
       } else {
-        const submissionMetadata = {
-          source: 'ui',
-          status,
-        }
-        if (initializedFromAiExtractionId) {
-          submissionMetadata.initialized_from_ai_extraction_id = initializedFromAiExtractionId
-        }
-        const { error: submitError } = await supabase.rpc('submit_assignment_review', {
-          p_paper_user_assignment_id: currentAssignment.id,
+        const submissionMetadata = { source: 'general_queue_ui', status }
+        if (initializedFromAiExtractionId) submissionMetadata.initialized_from_ai_extraction_id = initializedFromAiExtractionId
+        const { error: submitError } = await supabase.rpc('submit_general_label', {
           p_annotation_id: annotation.id,
           p_decision_kind: decisionKind,
           p_submission_metadata: submissionMetadata,
         })
         if (submitError) throw submitError
-        showToast(status === 'skipped' ? 'No-usable-data submission sent.' : 'Submission sent.')
+        showToast(reviewerProfile?.can_approve_labels ? 'Reviewer submission accepted.' : 'Submission sent for approval.')
       }
 
       await refreshQueue()
-      if (reviewerProfile?.cockpit_access) {
-        await refreshCockpit()
-      }
-
-      if (status !== 'draft') {
-        setSelectedAssignmentId((previousId) => nextOpenAssignmentId(sortAssignments(assignments), previousId))
-      }
+      if (canSeeCockpit) await refreshCockpit()
     } catch (error) {
       console.error('Save failed:', error)
       showToast(`Failed to save: ${error.message}`, 'error')
@@ -3154,92 +1505,57 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       setSaving(false)
     }
   }, [
-    assignments,
     aiPrefillSources,
-    currentAssignment,
+    canSeeCockpit,
+    currentItem,
     currentPaper,
     foodItems,
     refreshCockpit,
     refreshQueue,
-    reviewerProfile?.cockpit_access,
+    reviewerProfile?.can_approve_labels,
+    saveAnnotationRows,
     showToast,
     testMode,
     user.id,
-    ensureAssignmentStillEditable,
   ])
 
-  const handleRequestHelp = useCallback(() => {
-    if (!currentAssignment || !currentPaper || !isEditable) return
-    setHelpRequestNote('')
-    setShowHelpRequest(true)
-  }, [currentAssignment, currentPaper, isEditable])
-
   const submitHelpRequest = useCallback(async () => {
-    if (!currentAssignment || !currentPaper || !isEditable) return
+    if (!currentItem || !currentPaper || !isEditable) return
     const note = helpRequestNote.trim()
     if (!note) {
       showToast('Help request cancelled: note required.', 'error')
       return
     }
-
-    const initializedFromAiExtractionId = aiPrefillSources[currentAssignment.id] || null
-    const context = buildAssignmentHelpContext({
-      assignment: currentAssignment,
+    const initializedFromAiExtractionId = aiPrefillSources[currentItem.id] || null
+    const context = buildGeneralHelpContext({
+      item: currentItem,
       paper: currentPaper,
       reviewerProfile,
       foodItems,
       initializedFromAiExtractionId,
     })
-
     setSaving(true)
     try {
       if (testMode) {
-        appendTestEvent({
-          type: 'assignment_help_request',
-          assignment_id: currentAssignment.id,
-          paper_id: currentPaper.id,
-          user_id: user.id,
-          note,
-          context,
-        })
-        setAssignments((previous) => previous.map((assignment) => (
-          assignment.id === currentAssignment.id ? { ...assignment, status: 'draft' } : assignment
-        )))
+        appendTestEvent({ type: 'general_queue_help_request', paper_id: currentPaper.id, user_id: user.id, note, context })
         setShowHelpRequest(false)
         setHelpRequestNote('')
         showToast('Help request stored locally (test mode).')
         return
       }
-
-      const stillEditable = await ensureAssignmentStillEditable()
-      if (!stillEditable) return
-
-      const { error: insertError } = await supabase
-        .from('backlog_review_items')
-        .insert({
-          item_kind: 'suggestion_review',
-          status: 'new',
-          submitted_by_auth_user_id: user.id,
-          submitted_by_email: user.email || reviewerProfile?.email || null,
-          submitted_by_name: reviewerProfile?.display_name || user.email || null,
-          suggestion_text: note,
-          context,
-          attachments: [],
-          follow_up_required: true,
-        })
-      if (insertError) throw insertError
-
-      const { error: touchError } = await supabase.rpc('touch_assignment_workspace', {
-        p_paper_user_assignment_id: currentAssignment.id,
-        p_annotation_id: null,
-        p_status: 'draft',
+      const { error } = await supabase.from('backlog_review_items').insert({
+        item_kind: 'suggestion_review',
+        status: 'new',
+        submitted_by_auth_user_id: user.id,
+        submitted_by_email: user.email || reviewerProfile?.email || null,
+        submitted_by_name: reviewerProfile?.display_name || user.email || null,
+        suggestion_text: note,
+        context,
+        attachments: [],
+        follow_up_required: true,
       })
-      if (touchError) throw touchError
-
-      await refreshQueue()
-      if (reviewerProfile?.cockpit_access) {
-        await refreshCockpit()
-      }
+      if (error) throw error
+      if (canSeeCockpit) await refreshCockpit()
       setShowHelpRequest(false)
       setHelpRequestNote('')
       showToast('Help request sent.')
@@ -3251,14 +1567,13 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     }
   }, [
     aiPrefillSources,
-    currentAssignment,
+    canSeeCockpit,
+    currentItem,
     currentPaper,
-    ensureAssignmentStillEditable,
     foodItems,
     helpRequestNote,
     isEditable,
     refreshCockpit,
-    refreshQueue,
     reviewerProfile,
     showToast,
     testMode,
@@ -3266,162 +1581,205 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     user.id,
   ])
 
-  const handleGlobalNoData = useCallback(async () => {
-    if (!currentAssignment || !currentPaper || !isEditable) return
-    if (!canUseGlobalNoData) {
-      showToast('Only official reviewer slots should use Definitely No Data. Use Ask for Help instead.', 'error')
+  const approveSelectedSubmission = useCallback(async () => {
+    if (!selectedSubmission || !selectedApprovalPaper || !canApproveLabels) return
+    const hasData = approvalDecision === 'has_data'
+    const validFoodItems = hasData ? approvalFoodItems.filter(isValidFoodItem).map(normalizeFoodItem) : []
+    if (hasData && validFoodItems.length === 0) {
+      showToast('Add at least one valid food item before approval.', 'error')
       return
     }
-    const confirmed = typeof window !== 'undefined'
-      ? window.confirm('Mark this paper as definitely no data for everyone? This will cancel the other assignments for this paper.')
-      : false
-    if (!confirmed) return
-
-    const reason = typeof window !== 'undefined'
-      ? window.prompt('Reason for definitely no data (required):', '')
-      : ''
-    if (!reason || !reason.trim()) {
-      showToast('Definitely-no-data cancelled: reason required.', 'error')
-      return
-    }
-
     setSaving(true)
     try {
-      if (testMode) {
-        appendTestEvent({
-          type: 'global_no_data',
-          assignment_id: currentAssignment.id,
-          paper_id: currentPaper.id,
-          user_id: user.id,
-          reason: reason.trim(),
-        })
-        setAssignments((previous) => previous.map((assignment) => (
-          assignment.paper_id === currentPaper.id
-            ? {
-                ...assignment,
-                status: 'cancelled',
-                outcome: {
-                  ...(assignment.outcome || {}),
-                  paper_id: assignment.paper_id,
-                  decision_kind: 'no_usable_data',
-                  resolution_source: 'global_skip',
-                },
-              }
-            : assignment
-        )))
-        setSelectedAssignmentId((previousId) => nextOpenAssignmentId(sortAssignments(assignments), previousId))
-        showToast('Definitely-no-data recorded locally (test mode).')
-        return
-      }
+      const { annotation } = await saveAnnotationRows({
+        paperId: selectedSubmission.paper_id,
+        hasData,
+        status: hasData ? 'done' : 'skipped',
+        items: approvalFoodItems,
+      })
 
-      const stillEditable = await ensureAssignmentStillEditable()
-      if (!stillEditable) return
+      const { error: eventError } = await supabase.from('paper_label_events').insert({
+        paper_id: selectedSubmission.paper_id,
+        annotation_id: annotation.id,
+        user_id: user.id,
+        has_data: hasData,
+        status: hasData ? 'done' : 'skipped',
+        decision_kind: approvalDecision,
+        food_item_count: validFoodItems.length,
+        nutrient_value_count: validFoodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0),
+        source: 'approval_ui',
+      })
+      if (eventError) throw eventError
 
-      const { error } = await supabase.rpc('mark_assignment_global_no_data', {
-        p_paper_user_assignment_id: currentAssignment.id,
-        p_reason: reason.trim(),
+      const { error } = await supabase.rpc('approve_label_submission', {
+        p_label_submission_id: selectedSubmission.id,
+        p_approval_annotation_id: annotation.id,
+        p_decision_kind: approvalDecision,
+        p_approval_note: approvalNote.trim() || null,
       })
       if (error) throw error
-
+      showToast('Submission approved and final truth saved.')
+      await refreshCockpit()
       await refreshQueue()
-      if (reviewerProfile?.cockpit_access) {
-        await refreshCockpit()
-      }
-      setSelectedAssignmentId((previousId) => nextOpenAssignmentId(sortAssignments(assignments), previousId))
-      showToast('Paper marked as definitely no data.')
     } catch (error) {
-      console.error('Global no-data failed:', error)
-      showToast(`Failed to mark definitely no data: ${error.message}`, 'error')
+      console.error('Approval failed:', error)
+      showToast(`Failed to approve: ${error.message}`, 'error')
     } finally {
       setSaving(false)
     }
   }, [
-    assignments,
-    currentAssignment,
-    currentPaper,
-    canUseGlobalNoData,
-    ensureAssignmentStillEditable,
-    isEditable,
+    approvalDecision,
+    approvalFoodItems,
+    approvalNote,
+    canApproveLabels,
     refreshCockpit,
     refreshQueue,
-    reviewerProfile?.cockpit_access,
+    saveAnnotationRows,
+    selectedApprovalPaper,
+    selectedSubmission,
     showToast,
-    testMode,
     user.id,
   ])
 
-  const updateFoodItem = (index, updatedItem) => {
-    if (!isEditable) return
-    setFoodItems((items) => items.map((item, itemIndex) => (itemIndex === index ? updatedItem : item)))
-  }
-
-  const removeFoodItem = (index) => {
-    if (!isEditable) return
-    setFoodItems((items) => {
-      const nextItems = items.filter((_, itemIndex) => itemIndex !== index)
-      return nextItems.length > 0 ? nextItems : [createEmptyFoodItem()]
-    })
-  }
-
-  const addFoodItem = () => {
-    if (!isEditable) return
-    setFoodItems((items) => [...items, createEmptyFoodItem()])
-  }
-  const handlePdfNutrientAdd = (nutrientEntry) => {
-    if (!isEditable) return
-    setFoodItems((items) => {
-      if (!items.length) return [{ ...createEmptyFoodItem(), nutrients: [nutrientEntry] }]
-      const targetIndex = items.length - 1
-      return items.map((item, index) => {
-        if (index !== targetIndex) return item
-        if (nutrientEntry.nutrient_id && item.nutrients.some((nutrient) => nutrient.nutrient_id === nutrientEntry.nutrient_id)) {
-          return item
-        }
-        return {
-          ...item,
-          nutrients: [...item.nutrients, nutrientEntry],
-        }
-      })
-    })
-  }
-
-  const handleResolveConflict = useCallback(async (conflict, submissionId) => {
-    if (!conflict || !submissionId) return
-    if (testMode) {
-      appendTestEvent({
-        type: 'resolve_conflict',
-        paper_id: conflict.paper_id,
-        conflict_key: conflict.conflict_key,
-        submission_id: submissionId,
-      })
-      showToast('Conflict resolution stored locally (test mode).')
+  const handleToggleTestMode = useCallback(() => {
+    if (reviewerProfile?.tester_access) {
+      setTestMode(true)
+      setTestModeEnabled(true)
+      showToast('Tester accounts are always in test mode.', 'error')
       return
     }
-    setSaving(true)
+    const next = !testMode
+    const message = next
+      ? 'Enable test mode? This will disable database writes and store actions locally.'
+      : 'Disable test mode? Database writes will resume.'
+    if (typeof window !== 'undefined' && !window.confirm(message)) return
+    setTestMode(next)
+    setTestModeEnabled(next)
+    showToast(next ? 'Test mode enabled.' : 'Test mode disabled.')
+  }, [reviewerProfile?.tester_access, showToast, testMode])
+
+  const updateReviewerDraft = useCallback((profileId, field, value) => {
+    setReviewerDrafts((previous) => ({
+      ...previous,
+      [profileId]: {
+        ...(previous[profileId] || {}),
+        [field]: value,
+      },
+    }))
+  }, [])
+
+  const saveReviewerDraft = useCallback(async (profileId) => {
+    const draft = reviewerDrafts[profileId]
+    if (!draft) return
+    const slotMembers = (cockpitData.slotMembers || []).filter((row) => row.reviewer_profile_id === profileId && row.active !== false)
+    const shadowSlots = slotMembers.filter((row) => row.member_role === 'shadow').map((row) => row.slot_key).filter(Boolean)
+    setSavingReviewerTarget(profileId)
     try {
-      const { error } = await supabase.rpc('resolve_paper_conflict_case', {
-        p_paper_id: conflict.paper_id,
-        p_winning_submission_id: submissionId,
-        p_resolution_note: resolutionNote || null,
+      if (testMode) {
+        appendTestEvent({ type: 'reviewer_admin_save', profile_id: profileId, draft })
+        showToast('Reviewer settings stored locally (test mode).')
+        return
+      }
+      const { error } = await supabase.rpc('upsert_reviewer_admin_config', {
+        p_email: draft.email,
+        p_display_name: draft.display_name,
+        p_active: Boolean(draft.active),
+        p_can_review_en: Boolean(draft.can_review_en),
+        p_can_review_tr: Boolean(draft.can_review_tr),
+        p_tester_access: Boolean(draft.tester_access),
+        p_official_slot: draft.official_slot || null,
+        p_shadow_slots: shadowSlots,
+        p_cockpit_access: Boolean(draft.cockpit_access),
+        p_can_approve_labels: Boolean(draft.can_approve_labels),
+        p_priority_weight_en: Number(draft.priority_weight_en ?? 1) || 1,
+        p_priority_weight_tr: Number(draft.priority_weight_tr ?? 1) || 1,
+        p_notes: draft.notes || null,
       })
       if (error) throw error
-      setResolutionNote('')
-      await refreshQueue()
       await refreshCockpit()
-      showToast('Conflict resolved.')
+      showToast('Reviewer settings saved.')
     } catch (error) {
-      console.error('Conflict resolution failed:', error)
-      showToast(`Failed to resolve conflict: ${error.message}`, 'error')
+      console.error('Reviewer save failed:', error)
+      showToast(`Failed to save reviewer: ${error.message}`, 'error')
     } finally {
-      setSaving(false)
+      setSavingReviewerTarget(null)
     }
-  }, [refreshCockpit, refreshQueue, resolutionNote, showToast, testMode])
+  }, [cockpitData.slotMembers, refreshCockpit, reviewerDrafts, showToast, testMode])
 
-  const reviewerById = buildReviewerMap(cockpitData.reviewerProfiles)
-  const papersById = buildPaperMap(cockpitData.papers)
-  const submissionsById = Object.fromEntries((cockpitData.submissions || []).map((row) => [row.id, row]))
+  const saveSuggestionReview = useCallback(async (itemId, changes) => {
+    const payload = {
+      ...changes,
+      reviewed_by_auth_user_id: user.id,
+      reviewed_at: new Date().toISOString(),
+    }
+    if (testMode) {
+      appendTestEvent({ type: 'suggestion_review_update', item_id: itemId, payload })
+      showToast('Suggestion review stored locally (test mode).')
+      return
+    }
+    setSavingSuggestionId(itemId)
+    try {
+      const { error } = await supabase.from('backlog_review_items').update(payload).eq('id', itemId)
+      if (error) throw error
+      await refreshCockpit()
+      showToast('Suggestion review saved.')
+    } catch (error) {
+      console.error('Suggestion review update failed:', error)
+      showToast(`Failed to save suggestion review: ${error.message}`, 'error')
+    } finally {
+      setSavingSuggestionId(null)
+    }
+  }, [refreshCockpit, showToast, testMode, user.id])
 
-  if (loadingQueue && !assignments.length) {
+  const updateFoodItem = (index, updatedItem) => {
+    setFoodItems((previous) => previous.map((item, itemIndex) => (itemIndex === index ? updatedItem : item)))
+  }
+  const removeFoodItem = (index) => {
+    setFoodItems((previous) => {
+      const next = previous.filter((_, itemIndex) => itemIndex !== index)
+      return next.length > 0 ? next : [createEmptyFoodItem()]
+    })
+  }
+  const addFoodItem = () => setFoodItems((previous) => [...previous, createEmptyFoodItem()])
+  const handlePdfNutrientAdd = (nutrientEntry) => {
+    setFoodItems((previous) => {
+      const next = [...previous]
+      const target = next[0] || createEmptyFoodItem()
+      const nutrients = target.nutrients || []
+      if (nutrientEntry.nutrient_id && nutrients.some((row) => row.nutrient_id === nutrientEntry.nutrient_id)) return previous
+      next[0] = { ...target, nutrients: [...nutrients, nutrientEntry] }
+      return next
+    })
+  }
+
+  const updateApprovalFoodItem = (index, updatedItem) => {
+    if (!canApproveLabels) return
+    setApprovalFoodItems((previous) => previous.map((item, itemIndex) => (itemIndex === index ? updatedItem : item)))
+  }
+  const removeApprovalFoodItem = (index) => {
+    if (!canApproveLabels) return
+    setApprovalFoodItems((previous) => {
+      const next = previous.filter((_, itemIndex) => itemIndex !== index)
+      return next.length > 0 ? next : [createEmptyFoodItem()]
+    })
+  }
+  const addApprovalFoodItem = () => {
+    if (!canApproveLabels) return
+    setApprovalFoodItems((previous) => [...previous, createEmptyFoodItem()])
+  }
+  const handleApprovalPdfNutrientAdd = (nutrientEntry) => {
+    if (!canApproveLabels) return
+    setApprovalFoodItems((previous) => {
+      const next = [...previous]
+      const target = next[0] || createEmptyFoodItem()
+      const nutrients = target.nutrients || []
+      if (nutrientEntry.nutrient_id && nutrients.some((row) => row.nutrient_id === nutrientEntry.nutrient_id)) return previous
+      next[0] = { ...target, nutrients: [...nutrients, nutrientEntry] }
+      return next
+    })
+  }
+
+  if (loadingQueue && !queueItems.length) {
     return (
       <div className="login-page">
         <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading queue...</div>
@@ -3435,30 +1793,18 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         <div className="top-bar-left">
           <span className="app-name">OpenNutri</span>
           {testMode && <span className="test-mode-pill">TEST MODE</span>}
-          {isDeveloperTrainingMode && <span className="status-badge status-draft">DEV TRAINING</span>}
-          {reviewerProfile?.official_slot && (
-            <span className="status-badge status-pending">{reviewerProfile.official_slot}</span>
-          )}
+          {reviewerProfile?.can_approve_labels && <span className="status-badge status-done">APPROVER</span>}
         </div>
 
         <div className="top-bar-center view-tabs">
-          <button className={`nav-btn ${activeView === 'queue' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('queue')}>
-            My Queue
-          </button>
-          {reviewerProfile?.cockpit_access && (
+          <button className={`nav-btn ${activeView === 'queue' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('queue')}>Queue</button>
+          {canSeeCockpit && (
             <>
-              <button className={`nav-btn ${activeView === 'all-papers' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('all-papers')}>
-                All Papers
-              </button>
-              <button className={`nav-btn ${activeView === 'cockpit' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('cockpit')}>
-                Cockpit
-              </button>
-              <button className={`nav-btn ${activeView === 'conflicts' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('conflicts')}>
-                Conflicts
-              </button>
-              <button className={`nav-btn ${activeView === 'suggestions' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('suggestions')}>
-                Suggestions
-              </button>
+              <button className={`nav-btn ${activeView === 'approval' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('approval')}>Approval</button>
+              <button className={`nav-btn ${activeView === 'dashboard' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('dashboard')}>Dashboard</button>
+              <button className={`nav-btn ${activeView === 'all-papers' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('all-papers')}>All Papers</button>
+              <button className={`nav-btn ${activeView === 'reviewers' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('reviewers')}>Reviewers</button>
+              <button className={`nav-btn ${activeView === 'suggestions' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('suggestions')}>Suggestions</button>
             </>
           )}
         </div>
@@ -3466,113 +1812,104 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         <div className="top-bar-right">
           {activeView === 'queue' && (
             <div className="progress-pill">
-              <span className="count">{queueStats.open}</span> open
-              <div className="progress-bar-mini">
-                <div
-                  className="fill"
-                  style={{ width: assignments.length ? `${(queueStats.final / assignments.length) * 100}%` : '0%' }}
-                />
-              </div>
+              <span className="count">{queueItems.length}</span> available
             </div>
           )}
-          <button className="suggestion-btn" onClick={() => setShowSuggestion(true)} title="Send a suggestion">💡</button>
-          <button className={`test-mode-toggle ${testMode ? 'active' : ''}`} onClick={handleToggleTestMode}>
-            Test Mode
-          </button>
+          {activeView === 'approval' && (
+            <div className="progress-pill">
+              <span className="count">{pendingSubmissions.length}</span> pending
+            </div>
+          )}
+          <button className="suggestion-btn" onClick={() => setShowSuggestion(true)} title="Send a suggestion">?</button>
+          <button className={`test-mode-toggle ${testMode ? 'active' : ''}`} onClick={handleToggleTestMode}>Test Mode</button>
           <button className="theme-toggle" onClick={toggleTheme} title="Toggle light/dark mode">
-            {theme === 'dark' ? '☀️' : '🌙'}
+            {theme === 'dark' ? 'Light' : 'Dark'}
           </button>
           <span className="user-name">{reviewerProfile?.display_name || user.email}</span>
           <button className="btn btn-outline" onClick={onLogout}>Logout</button>
         </div>
       </div>
 
-      {profileError && (
-        <div className="profile-warning">
-          Reviewer profile sync failed: {profileError}
-        </div>
-      )}
+      {profileError && <div className="profile-warning">Reviewer profile sync failed: {profileError}</div>}
 
       {activeView === 'queue' && (
         <QueueView
-          assignments={assignments}
-          currentAssignment={currentAssignment}
-          currentPaperIndex={currentPaperIndex}
-          pdfUrl={pdfUrl}
+          items={queueItems}
+          currentItem={currentItem}
+          currentIndex={currentIndex}
+          pdfUrl={currentPdfUrl}
           theme={theme}
           allNutrients={allNutrients}
           foodItems={foodItems}
           allFoods={allFoods}
           foodsLoaded={foodsLoaded}
           user={user}
-          queueStats={queueStats}
           isEditable={isEditable}
           saving={saving}
           showPaperList={showPaperList}
           setShowPaperList={setShowPaperList}
           paperListRef={paperListRef}
-          setSelectedAssignmentId={setSelectedAssignmentId}
+          setSelectedQueueId={setSelectedQueueId}
           addFoodItem={addFoodItem}
           removeFoodItem={removeFoodItem}
           updateFoodItem={updateFoodItem}
           handlePdfNutrientAdd={handlePdfNutrientAdd}
-          handleGlobalNoData={handleGlobalNoData}
-          handleRequestHelp={handleRequestHelp}
+          handleRequestHelp={() => {
+            setHelpRequestNote('')
+            setShowHelpRequest(true)
+          }}
           saveAnnotation={saveAnnotation}
-          getStatusBadgeClass={getStatusBadgeClass}
-          formatStatusLabel={formatStatusLabel}
-          formatDecisionLabel={formatDecisionLabel}
-          aiPrefillExtractionId={currentAssignment ? aiPrefillSources[currentAssignment.id] : null}
-          canUseGlobalNoData={canUseGlobalNoData}
+          aiPrefillExtractionId={currentItem ? aiPrefillSources[currentItem.id] : null}
         />
       )}
 
-      {activeView === 'all-papers' && (
-        <AllPapersView
-          cockpitData={cockpitData}
-          onRefresh={refreshCockpit}
-        />
-      )}
-
-      {activeView === 'cockpit' && (
-        <CockpitView
-          cockpitData={cockpitData}
-          onRefresh={refreshCockpit}
-          reviewerDrafts={reviewerDrafts}
-          newReviewerDraft={newReviewerDraft}
-          savingReviewerTarget={savingReviewerTarget}
-          routingConfigDrafts={routingConfigDrafts}
-          savingRoutingStageKey={savingRoutingStageKey}
-          onChangeDraft={updateReviewerDraft}
-          onToggleDraftShadowSlot={toggleReviewerDraftShadowSlot}
-          onSaveDraft={saveReviewerDraft}
-          onResetDraft={resetReviewerDraft}
-          onChangeNewDraft={updateNewReviewerDraft}
-          onToggleNewShadowSlot={toggleNewReviewerShadowSlot}
-          onCreateReviewer={createReviewer}
-          onResetNewReviewer={resetNewReviewerDraft}
-          onChangeRoutingConfig={updateRoutingConfigDraft}
-          onSaveRoutingConfig={saveRoutingConfigDraft}
-        />
-      )}
-
-      {activeView === 'conflicts' && (
-        <ConflictsView
-          conflicts={cockpitData.derivedConflicts || []}
-          selectedConflictId={selectedConflictId}
-          setSelectedConflictId={setSelectedConflictId}
-          papersById={papersById}
-          submissionsById={submissionsById}
+      {activeView === 'approval' && canSeeCockpit && (
+        <ApprovalView
+          pendingSubmissions={pendingSubmissions}
+          selectedSubmission={selectedSubmission}
+          selectedPaper={selectedApprovalPaper}
           reviewerById={reviewerById}
-          resolutionNote={resolutionNote}
-          setResolutionNote={setResolutionNote}
-          onResolve={handleResolveConflict}
-          allNutrients={allNutrients}
+          pdfUrl={selectedApprovalPdfUrl}
           theme={theme}
+          allNutrients={allNutrients}
+          allFoods={allFoods}
+          foodsLoaded={foodsLoaded}
+          user={user}
+          approvalFoodItems={approvalFoodItems}
+          approvalDecision={approvalDecision}
+          setApprovalDecision={setApprovalDecision}
+          approvalNote={approvalNote}
+          setApprovalNote={setApprovalNote}
+          canApprove={canApproveLabels}
+          saving={saving}
+          setSelectedApprovalId={setSelectedApprovalId}
+          addApprovalFoodItem={addApprovalFoodItem}
+          removeApprovalFoodItem={removeApprovalFoodItem}
+          updateApprovalFoodItem={updateApprovalFoodItem}
+          handleApprovalPdfNutrientAdd={handleApprovalPdfNutrientAdd}
+          approveSelectedSubmission={approveSelectedSubmission}
         />
       )}
 
-      {activeView === 'suggestions' && reviewerProfile?.cockpit_access && (
+      {activeView === 'dashboard' && canSeeCockpit && (
+        <DashboardView cockpitData={cockpitData} reviewerById={reviewerById} paperById={paperById} onRefresh={refreshCockpit} />
+      )}
+
+      {activeView === 'all-papers' && canSeeCockpit && (
+        <AllPapersView cockpitData={cockpitData} reviewerById={reviewerById} onRefresh={refreshCockpit} />
+      )}
+
+      {activeView === 'reviewers' && canSeeCockpit && (
+        <ReviewerAdminView
+          cockpitData={cockpitData}
+          reviewerDrafts={reviewerDrafts}
+          onChangeDraft={updateReviewerDraft}
+          onSaveDraft={saveReviewerDraft}
+          savingReviewerTarget={savingReviewerTarget}
+        />
+      )}
+
+      {activeView === 'suggestions' && canSeeCockpit && (
         <SuggestionsReviewView
           suggestionItems={cockpitData.suggestionReviewItems || []}
           onRefresh={refreshCockpit}
@@ -3581,10 +1918,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         />
       )}
 
-      {loadingCockpit && reviewerProfile?.cockpit_access && (
-        <div className="floating-loading">Refreshing cockpit…</div>
-      )}
-
+      {loadingCockpit && canSeeCockpit && <div className="floating-loading">Refreshing cockpit...</div>}
       {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}
 
       {showSuggestion && (
@@ -3593,20 +1927,18 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           reviewerProfile={reviewerProfile}
           onClose={() => setShowSuggestion(false)}
           testMode={testMode}
-          persistInTestMode={isDeveloperTrainingMode}
+          onSubmitted={() => {
+            setShowSuggestion(false)
+            if (canSeeCockpit) refreshCockpit()
+          }}
         />
       )}
 
       {showHelpRequest && (
         <HelpRequestModal
-          assignment={currentAssignment}
-          paper={currentPaper}
           note={helpRequestNote}
           setNote={setHelpRequestNote}
-          onClose={() => {
-            setShowHelpRequest(false)
-            setHelpRequestNote('')
-          }}
+          onClose={() => setShowHelpRequest(false)}
           onSubmit={submitHelpRequest}
           saving={saving}
         />

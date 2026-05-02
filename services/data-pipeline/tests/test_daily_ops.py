@@ -182,25 +182,15 @@ class DailyOpsTests(unittest.TestCase):
         fetch_state_mock.return_value = {
             "papers": [],
             "reviewer_profiles": [],
-            "slot_members": [],
-            "user_assignments": [],
-            "slot_assignments": [],
+            "paper_label_submissions": [],
+            "paper_slot_assignments": [],
             "review_outcomes": [],
             "global_labels": [],
         }
-        profile = refill_assignment_queue.ReviewerProfile(
-            id="profile-arciel",
-            display_name="Arciel",
-            active=True,
-            can_review_en=True,
-            can_review_tr=False,
-            tester_access=False,
-            official_slot="arciel",
-            auth_user_id="auth-arciel",
-        )
         context_mock.return_value = {
-            "profiles": {"profile-arciel": profile},
-            "deficits": {"profile-arciel": 4},
+            "profiles": {},
+            "deficits": {"en": 4, "tr": 0},
+            "language_deficits": {"en": 4, "tr": 0},
             "open_available": [],
         }
         drain_mock.return_value = {
@@ -238,25 +228,15 @@ class DailyOpsTests(unittest.TestCase):
         fetch_state_mock.return_value = {
             "papers": [],
             "reviewer_profiles": [],
-            "slot_members": [],
-            "user_assignments": [],
-            "slot_assignments": [],
+            "paper_label_submissions": [],
+            "paper_slot_assignments": [],
             "review_outcomes": [],
             "global_labels": [],
         }
-        profile = refill_assignment_queue.ReviewerProfile(
-            id="profile-arciel",
-            display_name="Arciel",
-            active=True,
-            can_review_en=True,
-            can_review_tr=False,
-            tester_access=False,
-            official_slot="arciel",
-            auth_user_id="auth-arciel",
-        )
         context_mock.return_value = {
-            "profiles": {"profile-arciel": profile},
-            "deficits": {"profile-arciel": 4},
+            "profiles": {},
+            "deficits": {"en": 4, "tr": 0},
+            "language_deficits": {"en": 4, "tr": 0},
             "open_available": [],
         }
         drain_mock.return_value = {

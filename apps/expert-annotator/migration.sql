@@ -520,6 +520,7 @@ CREATE TABLE IF NOT EXISTS reviewer_profiles (
     tester_access BOOLEAN NOT NULL DEFAULT FALSE,
     official_slot TEXT REFERENCES reviewer_slots(slot_key) ON DELETE SET NULL,
     cockpit_access BOOLEAN NOT NULL DEFAULT FALSE,
+    can_approve_labels BOOLEAN NOT NULL DEFAULT FALSE,
     priority_weight_en REAL NOT NULL DEFAULT 1.0,
     priority_weight_tr REAL NOT NULL DEFAULT 1.0,
     notes TEXT,
@@ -528,7 +529,8 @@ CREATE TABLE IF NOT EXISTS reviewer_profiles (
 );
 
 ALTER TABLE reviewer_profiles
-    ADD COLUMN IF NOT EXISTS tester_access BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN IF NOT EXISTS tester_access BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS can_approve_labels BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS reviewer_slot_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -595,6 +597,43 @@ CREATE TABLE IF NOT EXISTS paper_assignment_submissions (
     payload_hash TEXT NOT NULL,
     submission_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS paper_label_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    reviewer_profile_id UUID NOT NULL REFERENCES reviewer_profiles(id) ON DELETE RESTRICT,
+    auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    annotation_id INTEGER REFERENCES annotations(id) ON DELETE SET NULL,
+    decision_kind TEXT NOT NULL
+        CHECK (decision_kind IN ('has_data', 'no_usable_data')),
+    payload_json JSONB NOT NULL,
+    payload_text TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    submission_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'pending_approval'
+        CHECK (status IN ('pending_approval', 'accepted', 'superseded')),
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS paper_label_approvals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    paper_id INTEGER NOT NULL UNIQUE REFERENCES papers(id) ON DELETE CASCADE,
+    label_submission_id UUID NOT NULL REFERENCES paper_label_submissions(id) ON DELETE RESTRICT,
+    approver_profile_id UUID NOT NULL REFERENCES reviewer_profiles(id) ON DELETE RESTRICT,
+    approver_auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    approval_annotation_id INTEGER REFERENCES annotations(id) ON DELETE SET NULL,
+    decision_kind TEXT NOT NULL
+        CHECK (decision_kind IN ('has_data', 'no_usable_data')),
+    payload_json JSONB NOT NULL,
+    payload_text TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    correction_diff_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    approval_note TEXT,
+    approved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS paper_conflicts (
@@ -993,7 +1032,9 @@ ALTER TABLE paper_review_outcomes
     ADD COLUMN IF NOT EXISTS source_stage_key TEXT,
     ADD COLUMN IF NOT EXISTS source_model_name TEXT,
     ADD COLUMN IF NOT EXISTS source_confidence REAL,
-    ADD COLUMN IF NOT EXISTS training_weight REAL DEFAULT 1.0;
+    ADD COLUMN IF NOT EXISTS training_weight REAL DEFAULT 1.0,
+    ADD COLUMN IF NOT EXISTS label_submission_id UUID REFERENCES paper_label_submissions(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS label_approval_id UUID REFERENCES paper_label_approvals(id) ON DELETE SET NULL;
 
 UPDATE paper_review_outcomes
 SET training_weight = 1.0
@@ -1027,7 +1068,14 @@ END $$;
 
 ALTER TABLE paper_review_outcomes
     ADD CONSTRAINT paper_review_outcomes_resolution_source_check
-    CHECK (resolution_source IN ('slot_agreement', 'conflict_resolution', 'global_skip', 'ai_high_confidence'));
+    CHECK (resolution_source IN (
+        'slot_agreement',
+        'conflict_resolution',
+        'global_skip',
+        'ai_high_confidence',
+        'reviewer_direct_submit',
+        'reviewer_approval'
+    ));
 
 ALTER TABLE paper_review_outcomes
     ADD CONSTRAINT paper_review_outcomes_truth_source_kind_check
@@ -1052,6 +1100,7 @@ INSERT INTO reviewer_profiles (
     can_review_tr,
     official_slot,
     cockpit_access,
+    can_approve_labels,
     priority_weight_en,
     priority_weight_tr
 )
@@ -1083,6 +1132,10 @@ SELECT
         ELSE FALSE
     END,
     CASE lower(trim(email))
+        WHEN 'baezarciel@gmail.com' THEN TRUE
+        ELSE FALSE
+    END,
+    CASE lower(trim(email))
         WHEN 'baezarciel@gmail.com' THEN 1.35
         ELSE 1.0
     END,
@@ -1100,6 +1153,7 @@ SET
     can_review_tr = EXCLUDED.can_review_tr,
     official_slot = COALESCE(EXCLUDED.official_slot, reviewer_profiles.official_slot),
     cockpit_access = reviewer_profiles.cockpit_access OR EXCLUDED.cockpit_access,
+    can_approve_labels = reviewer_profiles.can_approve_labels OR EXCLUDED.can_approve_labels,
     priority_weight_en = EXCLUDED.priority_weight_en,
     priority_weight_tr = EXCLUDED.priority_weight_tr,
     updated_at = NOW();
@@ -1180,6 +1234,11 @@ CREATE INDEX IF NOT EXISTS idx_paper_user_assignments_paper ON paper_user_assign
 CREATE INDEX IF NOT EXISTS idx_paper_assignment_submissions_assignment ON paper_assignment_submissions(paper_user_assignment_id, submitted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_paper_assignment_submissions_paper ON paper_assignment_submissions(paper_id, submitted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_paper_assignment_submissions_hash ON paper_assignment_submissions(payload_hash);
+CREATE INDEX IF NOT EXISTS idx_paper_label_submissions_paper_status ON paper_label_submissions(paper_id, status, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_paper_label_submissions_reviewer_status ON paper_label_submissions(reviewer_profile_id, status, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_paper_label_submissions_hash ON paper_label_submissions(payload_hash);
+CREATE INDEX IF NOT EXISTS idx_paper_label_approvals_submission ON paper_label_approvals(label_submission_id);
+CREATE INDEX IF NOT EXISTS idx_paper_label_approvals_approver ON paper_label_approvals(approver_profile_id, approved_at DESC);
 CREATE INDEX IF NOT EXISTS idx_paper_conflicts_paper_status ON paper_conflicts(paper_id, status, conflict_type);
 CREATE INDEX IF NOT EXISTS idx_paper_conflict_resolutions_paper_status
     ON paper_conflict_resolutions(paper_id, status, updated_at DESC);
@@ -1206,6 +1265,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_annotations_assignment_unique
     ON annotations(paper_user_assignment_id)
     WHERE paper_user_assignment_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_paper_label_events_assignment ON paper_label_events(paper_user_assignment_id, created_at DESC);
+
+-- Clean break for the general queue workflow: old slot/user rows remain as
+-- historical audit data, but unresolved slot assignments no longer drive work.
+UPDATE paper_slot_assignments
+SET
+    status = 'cancelled',
+    official_submission_id = NULL,
+    resolved_at = COALESCE(resolved_at, NOW())
+WHERE status IN ('pending', 'submitted', 'conflict');
+
+UPDATE paper_user_assignments
+SET
+    status = 'cancelled',
+    resolved_at = COALESCE(resolved_at, NOW())
+WHERE status IN ('assigned', 'draft', 'submitted', 'conflict');
+
+UPDATE paper_conflicts
+SET
+    status = 'cancelled',
+    resolved_at = COALESCE(resolved_at, NOW())
+WHERE status = 'open';
 
 CREATE OR REPLACE FUNCTION public.normalize_submission_text(input_text TEXT)
 RETURNS TEXT
@@ -1360,6 +1440,36 @@ AS $$
        AND public.current_user_can_write();
 $$;
 
+CREATE OR REPLACE FUNCTION public.current_user_can_approve_labels()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT public.current_user_can_write()
+       AND EXISTS (
+            SELECT 1
+            FROM reviewer_profiles
+            WHERE can_approve_labels IS TRUE
+              AND active IS TRUE
+              AND (
+                  auth_user_id = auth.uid()
+                  OR (
+                      email IS NOT NULL
+                      AND email = public.current_auth_email()
+                  )
+              )
+       );
+$$;
+
+DROP FUNCTION IF EXISTS public.upsert_reviewer_admin_config(
+    TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, TEXT, TEXT[], BOOLEAN, REAL, REAL, TEXT
+);
+DROP FUNCTION IF EXISTS public.upsert_reviewer_admin_config(
+    TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, TEXT, TEXT[], BOOLEAN, REAL, REAL, TEXT
+);
+
 CREATE OR REPLACE FUNCTION public.upsert_reviewer_admin_config(
     p_email TEXT,
     p_display_name TEXT,
@@ -1370,6 +1480,7 @@ CREATE OR REPLACE FUNCTION public.upsert_reviewer_admin_config(
     p_official_slot TEXT DEFAULT NULL,
     p_shadow_slots TEXT[] DEFAULT ARRAY[]::TEXT[],
     p_cockpit_access BOOLEAN DEFAULT FALSE,
+    p_can_approve_labels BOOLEAN DEFAULT FALSE,
     p_priority_weight_en REAL DEFAULT 1.0,
     p_priority_weight_tr REAL DEFAULT 1.0,
     p_notes TEXT DEFAULT NULL
@@ -1447,6 +1558,7 @@ BEGIN
         tester_access,
         official_slot,
         cockpit_access,
+        can_approve_labels,
         priority_weight_en,
         priority_weight_tr,
         notes,
@@ -1461,6 +1573,7 @@ BEGIN
         coalesce(p_tester_access, FALSE),
         v_official_slot,
         coalesce(p_cockpit_access, FALSE),
+        coalesce(p_can_approve_labels, FALSE),
         coalesce(p_priority_weight_en, 1.0),
         coalesce(p_priority_weight_tr, 1.0),
         nullif(trim(coalesce(p_notes, '')), ''),
@@ -1475,6 +1588,7 @@ BEGIN
         tester_access = EXCLUDED.tester_access,
         official_slot = EXCLUDED.official_slot,
         cockpit_access = EXCLUDED.cockpit_access,
+        can_approve_labels = EXCLUDED.can_approve_labels,
         priority_weight_en = EXCLUDED.priority_weight_en,
         priority_weight_tr = EXCLUDED.priority_weight_tr,
         notes = EXCLUDED.notes,
@@ -1617,6 +1731,155 @@ SELECT jsonb_build_object(
         FROM ordered_foods
     ), '[]'::jsonb)
 );
+$$;
+
+CREATE OR REPLACE FUNCTION public.build_label_payload_diff(
+    p_original_payload JSONB,
+    p_final_payload JSONB
+)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+AS $$
+WITH
+original_foods AS (
+    SELECT
+        lower(public.normalize_submission_text(value ->> 'food_name')) || '|' || coalesce(value ->> 'food_fdc_id', '') AS food_key,
+        value AS food
+    FROM jsonb_array_elements(coalesce(p_original_payload -> 'food_items', '[]'::jsonb)) AS value
+),
+final_foods AS (
+    SELECT
+        lower(public.normalize_submission_text(value ->> 'food_name')) || '|' || coalesce(value ->> 'food_fdc_id', '') AS food_key,
+        value AS food
+    FROM jsonb_array_elements(coalesce(p_final_payload -> 'food_items', '[]'::jsonb)) AS value
+),
+original_nutrients AS (
+    SELECT
+        food_key,
+        jsonb_build_object(
+            'food_name', food ->> 'food_name',
+            'food_fdc_id', food ->> 'food_fdc_id',
+            'nutrient_id', nutrient ->> 'nutrient_id',
+            'nutrient_name', public.normalize_submission_text(nutrient ->> 'nutrient_name'),
+            'value', nutrient -> 'value',
+            'unit', public.normalize_submission_text(nutrient ->> 'unit')
+        ) AS nutrient_row,
+        lower(public.normalize_submission_text(food ->> 'food_name')) || '|' ||
+            coalesce(food ->> 'food_fdc_id', '') || '|' ||
+            coalesce(nutrient ->> 'nutrient_id', '') || '|' ||
+            lower(public.normalize_submission_text(nutrient ->> 'nutrient_name')) || '|' ||
+            public.normalize_submission_text(nutrient ->> 'unit') || '|' ||
+            coalesce((nutrient -> 'value')::text, '') AS nutrient_key
+    FROM original_foods
+    CROSS JOIN LATERAL jsonb_array_elements(coalesce(food -> 'nutrients', '[]'::jsonb)) AS nutrient
+),
+final_nutrients AS (
+    SELECT
+        food_key,
+        jsonb_build_object(
+            'food_name', food ->> 'food_name',
+            'food_fdc_id', food ->> 'food_fdc_id',
+            'nutrient_id', nutrient ->> 'nutrient_id',
+            'nutrient_name', public.normalize_submission_text(nutrient ->> 'nutrient_name'),
+            'value', nutrient -> 'value',
+            'unit', public.normalize_submission_text(nutrient ->> 'unit')
+        ) AS nutrient_row,
+        lower(public.normalize_submission_text(food ->> 'food_name')) || '|' ||
+            coalesce(food ->> 'food_fdc_id', '') || '|' ||
+            coalesce(nutrient ->> 'nutrient_id', '') || '|' ||
+            lower(public.normalize_submission_text(nutrient ->> 'nutrient_name')) || '|' ||
+            public.normalize_submission_text(nutrient ->> 'unit') || '|' ||
+            coalesce((nutrient -> 'value')::text, '') AS nutrient_key
+    FROM final_foods
+    CROSS JOIN LATERAL jsonb_array_elements(coalesce(food -> 'nutrients', '[]'::jsonb)) AS nutrient
+),
+missing_foods AS (
+    SELECT coalesce(jsonb_agg(food ORDER BY food_key), '[]'::jsonb) AS rows
+    FROM original_foods original
+    WHERE NOT EXISTS (
+        SELECT 1 FROM final_foods final WHERE final.food_key = original.food_key
+    )
+),
+added_foods AS (
+    SELECT coalesce(jsonb_agg(food ORDER BY food_key), '[]'::jsonb) AS rows
+    FROM final_foods final
+    WHERE NOT EXISTS (
+        SELECT 1 FROM original_foods original WHERE original.food_key = final.food_key
+    )
+),
+missing_nutrients AS (
+    SELECT coalesce(jsonb_agg(nutrient_row ORDER BY food_key, nutrient_key), '[]'::jsonb) AS rows
+    FROM original_nutrients original
+    WHERE NOT EXISTS (
+        SELECT 1 FROM final_nutrients final WHERE final.nutrient_key = original.nutrient_key
+    )
+),
+added_nutrients AS (
+    SELECT coalesce(jsonb_agg(nutrient_row ORDER BY food_key, nutrient_key), '[]'::jsonb) AS rows
+    FROM final_nutrients final
+    WHERE NOT EXISTS (
+        SELECT 1 FROM original_nutrients original WHERE original.nutrient_key = final.nutrient_key
+    )
+)
+SELECT jsonb_build_object(
+    'decision_changed', coalesce(p_original_payload ->> 'decision_kind', '') <> coalesce(p_final_payload ->> 'decision_kind', ''),
+    'original_decision_kind', p_original_payload ->> 'decision_kind',
+    'final_decision_kind', p_final_payload ->> 'decision_kind',
+    'original_food_count', jsonb_array_length(coalesce(p_original_payload -> 'food_items', '[]'::jsonb)),
+    'final_food_count', jsonb_array_length(coalesce(p_final_payload -> 'food_items', '[]'::jsonb)),
+    'missing_foods', (SELECT rows FROM missing_foods),
+    'added_foods', (SELECT rows FROM added_foods),
+    'missing_nutrient_rows', (SELECT rows FROM missing_nutrients),
+    'added_nutrient_rows', (SELECT rows FROM added_nutrients)
+);
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_general_queue_papers(
+    p_limit INTEGER DEFAULT 250
+)
+RETURNS SETOF papers
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'Authentication required';
+    END IF;
+
+    RETURN QUERY
+    SELECT p.*
+    FROM papers p
+    WHERE p.routing_status = 'human_review_ready'
+      AND p.workflow_language IN ('en', 'tr')
+      AND NOT EXISTS (
+          SELECT 1
+          FROM paper_review_outcomes outcome
+          WHERE outcome.paper_id = p.id
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM paper_label_submissions submission
+          WHERE submission.paper_id = p.id
+            AND submission.status IN ('pending_approval', 'accepted')
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM paper_slot_assignments legacy_assignment
+          WHERE legacy_assignment.paper_id = p.id
+            AND legacy_assignment.status NOT IN ('resolved', 'cancelled')
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM paper_global_labels global_label
+          WHERE global_label.paper_id = p.id
+            AND global_label.label = 'definitely_no_data'
+      )
+    ORDER BY p.routing_updated_at NULLS FIRST, p.created_at, p.id
+    LIMIT greatest(1, least(coalesce(p_limit, 250), 1000));
+END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.sync_reviewer_profile()
@@ -2349,6 +2612,389 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.submit_general_label(
+    p_annotation_id INTEGER,
+    p_decision_kind TEXT,
+    p_submission_metadata JSONB DEFAULT '{}'::jsonb
+)
+RETURNS paper_label_submissions
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_profile reviewer_profiles;
+    v_annotation annotations;
+    v_payload_json JSONB;
+    v_payload_text TEXT;
+    v_payload_hash TEXT;
+    v_submission paper_label_submissions;
+    v_approval paper_label_approvals;
+    v_food_count INTEGER;
+BEGIN
+    IF p_decision_kind NOT IN ('has_data', 'no_usable_data') THEN
+        RAISE EXCEPTION 'Unsupported decision kind: %', p_decision_kind;
+    END IF;
+
+    IF NOT public.current_user_can_write() THEN
+        RAISE EXCEPTION 'Read-only accounts cannot submit labels';
+    END IF;
+
+    SELECT *
+    INTO v_profile
+    FROM reviewer_profiles
+    WHERE active IS TRUE
+      AND (
+          auth_user_id = auth.uid()
+          OR (
+              email IS NOT NULL
+              AND email = public.current_auth_email()
+          )
+      )
+    ORDER BY updated_at DESC
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Reviewer profile not found';
+    END IF;
+
+    SELECT *
+    INTO v_annotation
+    FROM annotations
+    WHERE id = p_annotation_id
+      AND user_id = auth.uid()
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Annotation not found for current user';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM paper_review_outcomes
+        WHERE paper_id = v_annotation.paper_id
+    ) THEN
+        RAISE EXCEPTION 'Paper already has a final outcome';
+    END IF;
+
+    IF p_decision_kind = 'has_data' THEN
+        SELECT COUNT(*)
+        INTO v_food_count
+        FROM food_items
+        WHERE annotation_id = v_annotation.id;
+
+        IF v_food_count <= 0 THEN
+            RAISE EXCEPTION 'Cannot submit has_data without at least one food item';
+        END IF;
+
+        v_payload_json := public.build_annotation_submission_payload(v_annotation.id, p_decision_kind);
+    ELSE
+        v_payload_json := jsonb_build_object(
+            'decision_kind', 'no_usable_data',
+            'food_items', '[]'::jsonb
+        );
+    END IF;
+
+    v_payload_text := v_payload_json::text;
+    v_payload_hash := encode(digest(v_payload_text, 'sha256'), 'hex');
+
+    INSERT INTO paper_label_submissions (
+        paper_id,
+        reviewer_profile_id,
+        auth_user_id,
+        annotation_id,
+        decision_kind,
+        payload_json,
+        payload_text,
+        payload_hash,
+        submission_metadata,
+        status
+    )
+    VALUES (
+        v_annotation.paper_id,
+        v_profile.id,
+        auth.uid(),
+        v_annotation.id,
+        p_decision_kind,
+        v_payload_json,
+        v_payload_text,
+        v_payload_hash,
+        coalesce(p_submission_metadata, '{}'::jsonb),
+        CASE
+            WHEN public.current_user_can_approve_labels() THEN 'accepted'
+            ELSE 'pending_approval'
+        END
+    )
+    RETURNING * INTO v_submission;
+
+    UPDATE annotations
+    SET
+        has_data = (p_decision_kind = 'has_data'),
+        status = CASE
+            WHEN p_decision_kind = 'has_data' THEN 'done'
+            ELSE 'skipped'
+        END,
+        updated_at = NOW()
+    WHERE id = v_annotation.id;
+
+    IF public.current_user_can_approve_labels() THEN
+        INSERT INTO paper_label_approvals (
+            paper_id,
+            label_submission_id,
+            approver_profile_id,
+            approver_auth_user_id,
+            approval_annotation_id,
+            decision_kind,
+            payload_json,
+            payload_text,
+            payload_hash,
+            correction_diff_json,
+            approval_note
+        )
+        VALUES (
+            v_submission.paper_id,
+            v_submission.id,
+            v_profile.id,
+            auth.uid(),
+            v_annotation.id,
+            v_submission.decision_kind,
+            v_submission.payload_json,
+            v_submission.payload_text,
+            v_submission.payload_hash,
+            public.build_label_payload_diff(v_submission.payload_json, v_submission.payload_json),
+            'Direct reviewer submission'
+        )
+        RETURNING * INTO v_approval;
+
+        UPDATE paper_label_submissions
+        SET
+            status = CASE
+                WHEN id = v_submission.id THEN 'accepted'
+                ELSE 'superseded'
+            END,
+            reviewed_at = NOW()
+        WHERE paper_id = v_submission.paper_id
+          AND status IN ('pending_approval', 'accepted');
+
+        INSERT INTO paper_review_outcomes (
+            paper_id,
+            decision_kind,
+            resolution_source,
+            payload_json,
+            payload_text,
+            payload_hash,
+            resolved_by,
+            resolved_at,
+            updated_at,
+            truth_source_kind,
+            training_weight,
+            label_submission_id,
+            label_approval_id
+        )
+        VALUES (
+            v_submission.paper_id,
+            v_submission.decision_kind,
+            'reviewer_direct_submit',
+            v_submission.payload_json,
+            v_submission.payload_text,
+            v_submission.payload_hash,
+            auth.uid(),
+            NOW(),
+            NOW(),
+            'human_review',
+            1.0,
+            v_submission.id,
+            v_approval.id
+        );
+    END IF;
+
+    RETURN v_submission;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.approve_label_submission(
+    p_label_submission_id UUID,
+    p_approval_annotation_id INTEGER,
+    p_decision_kind TEXT,
+    p_approval_note TEXT DEFAULT NULL
+)
+RETURNS paper_label_approvals
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_submission paper_label_submissions;
+    v_profile reviewer_profiles;
+    v_annotation annotations;
+    v_payload_json JSONB;
+    v_payload_text TEXT;
+    v_payload_hash TEXT;
+    v_approval paper_label_approvals;
+    v_food_count INTEGER;
+BEGIN
+    IF p_decision_kind NOT IN ('has_data', 'no_usable_data') THEN
+        RAISE EXCEPTION 'Unsupported decision kind: %', p_decision_kind;
+    END IF;
+
+    IF NOT public.current_user_can_approve_labels() THEN
+        RAISE EXCEPTION 'Label approval access required';
+    END IF;
+
+    SELECT *
+    INTO v_profile
+    FROM reviewer_profiles
+    WHERE active IS TRUE
+      AND can_approve_labels IS TRUE
+      AND (
+          auth_user_id = auth.uid()
+          OR (
+              email IS NOT NULL
+              AND email = public.current_auth_email()
+          )
+      )
+    ORDER BY updated_at DESC
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Approver profile not found';
+    END IF;
+
+    SELECT *
+    INTO v_submission
+    FROM paper_label_submissions
+    WHERE id = p_label_submission_id
+      AND status = 'pending_approval'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Pending label submission not found';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM paper_review_outcomes
+        WHERE paper_id = v_submission.paper_id
+    ) THEN
+        RAISE EXCEPTION 'Paper already has a final outcome';
+    END IF;
+
+    SELECT *
+    INTO v_annotation
+    FROM annotations
+    WHERE id = p_approval_annotation_id
+      AND user_id = auth.uid()
+      AND paper_id = v_submission.paper_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Approval annotation not found for current user and paper';
+    END IF;
+
+    IF p_decision_kind = 'has_data' THEN
+        SELECT COUNT(*)
+        INTO v_food_count
+        FROM food_items
+        WHERE annotation_id = v_annotation.id;
+
+        IF v_food_count <= 0 THEN
+            RAISE EXCEPTION 'Cannot approve has_data without at least one food item';
+        END IF;
+
+        v_payload_json := public.build_annotation_submission_payload(v_annotation.id, p_decision_kind);
+    ELSE
+        v_payload_json := jsonb_build_object(
+            'decision_kind', 'no_usable_data',
+            'food_items', '[]'::jsonb
+        );
+    END IF;
+
+    v_payload_text := v_payload_json::text;
+    v_payload_hash := encode(digest(v_payload_text, 'sha256'), 'hex');
+
+    INSERT INTO paper_label_approvals (
+        paper_id,
+        label_submission_id,
+        approver_profile_id,
+        approver_auth_user_id,
+        approval_annotation_id,
+        decision_kind,
+        payload_json,
+        payload_text,
+        payload_hash,
+        correction_diff_json,
+        approval_note
+    )
+    VALUES (
+        v_submission.paper_id,
+        v_submission.id,
+        v_profile.id,
+        auth.uid(),
+        v_annotation.id,
+        p_decision_kind,
+        v_payload_json,
+        v_payload_text,
+        v_payload_hash,
+        public.build_label_payload_diff(v_submission.payload_json, v_payload_json),
+        nullif(trim(coalesce(p_approval_note, '')), '')
+    )
+    RETURNING * INTO v_approval;
+
+    UPDATE paper_label_submissions
+    SET
+        status = CASE
+            WHEN id = v_submission.id THEN 'accepted'
+            ELSE 'superseded'
+        END,
+        reviewed_at = NOW()
+    WHERE paper_id = v_submission.paper_id
+      AND status = 'pending_approval';
+
+    UPDATE annotations
+    SET
+        has_data = (p_decision_kind = 'has_data'),
+        status = CASE
+            WHEN p_decision_kind = 'has_data' THEN 'done'
+            ELSE 'skipped'
+        END,
+        updated_at = NOW()
+    WHERE id = v_annotation.id;
+
+    INSERT INTO paper_review_outcomes (
+        paper_id,
+        decision_kind,
+        resolution_source,
+        payload_json,
+        payload_text,
+        payload_hash,
+        resolved_by,
+        resolved_at,
+        truth_source_kind,
+        training_weight,
+        updated_at,
+        label_submission_id,
+        label_approval_id
+    )
+    VALUES (
+        v_submission.paper_id,
+        p_decision_kind,
+        'reviewer_approval',
+        v_payload_json,
+        v_payload_text,
+        v_payload_hash,
+        auth.uid(),
+        NOW(),
+        'human_review',
+        1.0,
+        NOW(),
+        v_submission.id,
+        v_approval.id
+    );
+
+    RETURN v_approval;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.mark_assignment_global_no_data(
     p_paper_user_assignment_id UUID,
     p_reason TEXT
@@ -2800,6 +3446,8 @@ ALTER TABLE reviewer_slot_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_slot_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_user_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_assignment_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_label_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE paper_label_approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_conflicts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_conflict_resolutions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_review_outcomes ENABLE ROW LEVEL SECURITY;
@@ -2815,6 +3463,9 @@ DROP POLICY IF EXISTS "Authenticated users can read reviewer slot members" ON re
 DROP POLICY IF EXISTS "Users can view their own paper slot assignments" ON paper_slot_assignments;
 DROP POLICY IF EXISTS "Users can view their own paper user assignments" ON paper_user_assignments;
 DROP POLICY IF EXISTS "Users can view their own assignment submissions" ON paper_assignment_submissions;
+DROP POLICY IF EXISTS "Users can view accessible general label submissions" ON paper_label_submissions;
+DROP POLICY IF EXISTS "Users can insert their own general label submissions" ON paper_label_submissions;
+DROP POLICY IF EXISTS "Cockpit users can view label approvals" ON paper_label_approvals;
 DROP POLICY IF EXISTS "Cockpit users can read conflicts" ON paper_conflicts;
 DROP POLICY IF EXISTS "Users can view accessible conflict resolutions" ON paper_conflict_resolutions;
 DROP POLICY IF EXISTS "Cockpit writers can insert conflict resolutions" ON paper_conflict_resolutions;
@@ -2829,6 +3480,8 @@ DROP POLICY IF EXISTS "Service role full access reviewer slot members" ON review
 DROP POLICY IF EXISTS "Service role full access paper slot assignments" ON paper_slot_assignments;
 DROP POLICY IF EXISTS "Service role full access paper user assignments" ON paper_user_assignments;
 DROP POLICY IF EXISTS "Service role full access paper assignment submissions" ON paper_assignment_submissions;
+DROP POLICY IF EXISTS "Service role full access paper label submissions" ON paper_label_submissions;
+DROP POLICY IF EXISTS "Service role full access paper label approvals" ON paper_label_approvals;
 DROP POLICY IF EXISTS "Service role full access paper conflicts" ON paper_conflicts;
 DROP POLICY IF EXISTS "Service role full access paper conflict resolutions" ON paper_conflict_resolutions;
 DROP POLICY IF EXISTS "Service role full access paper review outcomes" ON paper_review_outcomes;
@@ -2893,6 +3546,28 @@ CREATE POLICY "Users can view their own assignment submissions"
         )
     );
 
+CREATE POLICY "Users can view accessible general label submissions"
+    ON paper_label_submissions FOR SELECT TO authenticated
+    USING (
+        public.current_user_has_cockpit_access()
+        OR public.current_user_can_approve_labels()
+        OR auth_user_id = auth.uid()
+    );
+
+CREATE POLICY "Users can insert their own general label submissions"
+    ON paper_label_submissions FOR INSERT TO authenticated
+    WITH CHECK (
+        auth_user_id = auth.uid()
+        AND public.current_user_can_write()
+    );
+
+CREATE POLICY "Cockpit users can view label approvals"
+    ON paper_label_approvals FOR SELECT TO authenticated
+    USING (
+        public.current_user_has_cockpit_access()
+        OR public.current_user_can_approve_labels()
+    );
+
 CREATE POLICY "Cockpit users can read conflicts"
     ON paper_conflicts FOR SELECT TO authenticated
     USING (public.current_user_has_cockpit_access());
@@ -2927,6 +3602,12 @@ CREATE POLICY "Users can view accessible review outcomes"
             FROM paper_user_assignments pua
             WHERE pua.paper_id = paper_review_outcomes.paper_id
               AND pua.auth_user_id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM paper_label_submissions pls
+            WHERE pls.paper_id = paper_review_outcomes.paper_id
+              AND pls.auth_user_id = auth.uid()
         )
     );
 
@@ -3062,6 +3743,16 @@ CREATE POLICY "Service role full access paper user assignments"
 
 CREATE POLICY "Service role full access paper assignment submissions"
     ON paper_assignment_submissions FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access paper label submissions"
+    ON paper_label_submissions FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role full access paper label approvals"
+    ON paper_label_approvals FOR ALL TO service_role
     USING (true)
     WITH CHECK (true);
 

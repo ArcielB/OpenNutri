@@ -1,245 +1,179 @@
-# OpenNutri Handoff — 2026-04-29 (Europe/Istanbul)
+# OpenNutri Handoff - 2026-05-02 (Europe/Istanbul)
 
-This is the current high-signal project state after the assignment-driven annotator workflow, reviewer-admin cockpit, bilingual queue repair, staged AI routing, and AI-prefilled reviewer verification landed in code.
+This is the current high-signal project state after the reviewer workflow moved from slot-based cross-checking to a shared general queue with Arciel approval.
 
-**Primary Goal**
-- Finish Preliminary Study 3 as fast as possible so the benchmark-quality dataset supports both the TÜBİTAK application and the paper draft.
-- Paper stock is intentionally kept low. Refill happens as labeling progresses so each crawl benefits from newer feedback. The reviewer open-backlog target is now 50 per official reviewer lane.
+## Primary Goal
 
-**Documentation Pointers**
-- `docs/reviewer_sop_en.md` is now the maintained worker-facing English SOP for live reviewer training.
-- `docs/reviewer_workflow_map.md` is now the maintained internal map for reviewer UI, RPC, schema, routing, and refill behavior.
+- Finish Preliminary Study 3 fast enough to support the paper draft and TÜBİTAK application.
+- Keep paper stock intentionally low and refill as labeling progresses so crawler feedback can improve future search.
+- Daily ops target is now 50 visible papers in the shared general queue, roughly balanced between English and Turkish.
 
-**Research / Team Operating Model**
-- Arciel: developer, official reviewer slot, project manager, cockpit/conflict resolver.
-- Peri: official reviewer slot.
-- Aleyna: official reviewer slot.
-- Aysegul (`ayseguldogann99@gmail.com`): independent full-coverage labeler, not Aleyna and not a substitute for Aleyna. Source schema models her as the non-official `aysegul` lane so every newly assigned paper can also go to her without changing the two-official-slot truth calculation.
-- Daine (`dainesalazarromero@gmail.com`): English-only shadow helper inside the Arciel lane; cheap ops help, not a standalone official slot. She receives every English paper assigned to Arciel, but not Arciel's Turkish assignments.
-- Live reviewer config update on April 29, 2026:
-  Daine was allowlisted, configured as an active `arciel` shadow member with `can_review_en=true`, `can_review_tr=false`, `counts_toward_official=false`, and 14 current open English Arciel assignments were backfilled into her queue. Her `auth_user_id` will backfill on first login.
-- Live reviewer config update on April 29, 2026:
-  The earlier configuration that treated `ayseguldogann99@gmail.com` as Aleyna was wrong. Aleyna should remain `ozcnaleyna2@gmail.com`; Aysegul is separate. Live data was corrected over the Supabase REST API: Aleyna is active on the `aleyna` official slot again, Aysegul is active with no official slot, and Aysegul's mistaken Aleyna membership is inactive.
-- Live AI reset on April 29, 2026:
-  All 34 existing papers were reset to `routing_status = queued_for_ai`, `route_destination = blocked`, and `latest_ai_extraction_id = null`; 55 `ai_extractions` rows and 59 old `paper_stage_tasks` rows were deleted; 34 fresh `gemini_flash_db_payload_v2` queued tasks were inserted; 60 slot assignments, 75 user assignments, and 2 open conflicts were cancelled. Existing human submissions/annotations were not deleted.
-- Live schema update on April 29, 2026:
-  After the pooler recovered, the annotator migration was applied successfully. Live `reviewer_slots` now includes `aysegul` with `is_official = false`, and Aysegul has an active `aysegul` primary membership with `counts_toward_official = false`.
+## Documentation Pointers
 
-**Workflow Now**
-- New ingest gate:
-  `crawl -> upload -> AI queue -> routing -> human_review_ready or AI finalization`.
-- The active AI stage is `gemini_flash_db_payload_v2`.
-- Upload no longer runs Gemini inline. It enqueues `paper_stage_tasks` and sets paper-level routing state instead.
-- AI extraction remains blind to human labels. The scored AI artifact is now the deterministic DB-shaped `normalized_payload_json`, not the raw LLM JSON or raw `is_useful` boolean.
-- `UnifiedEvaluator` accepts the requested JSON object shape plus top-level candidate-row arrays and nested `food -> nutrients[]` arrays; those variants are flattened before normalization to avoid retry loops from harmless Gemini shape drift.
-- `UnifiedEvaluator` now receives the full `master_nutrients` ID/name catalog in prompt and should return exact nutrient IDs/names when matched. The full food catalog is not sent; food IDs are verified deterministically against DB reference rows after extraction.
-- The DB-shaped AI payload uses the same top-level contract as `build_annotation_submission_payload`: `decision_kind`, `food_items[].food_name`, `food_fdc_id`, `is_custom_food`, and `nutrients[].nutrient_id`, `nutrient_name`, `value`, `unit`.
-- AI-provided food/nutrient IDs are trusted only when the ID exists and the name exactly matches the current canonical/standard name or alias. Otherwise normalization falls back to exact/alias name matching and then custom rows. Raw paper names, citations, confidence, and candidate IDs remain in `ai_extractions.raw_data`, not the canonical payload.
-- AI routing/finalization now follows the normalized payload decision. If the model says useful but all rows are rejected as unsupported or non-100g/non-composition data, the paper routes as `no_usable_data`.
-- For the blind human study, an AI routing threshold of `1.0` is a safety sentinel that disables automatic AI finalization for that decision class, even when the model reports `overall_confidence = 1.0`; threshold values below `1.0` still use normal `>= threshold` routing.
-- Humans may only be assigned papers whose `papers.routing_status = 'human_review_ready'`.
-- High-confidence AI positives and negatives are finalized immediately unless they fall into the deterministic audit sample.
-- Low-confidence papers always route to humans for now.
-- The shared paper list is gone.
-- Every paper is assigned to exactly 2 official reviewer slots:
-  `arciel`, `peri`, `aleyna`.
-- Aysegul's non-official `aysegul` lane is added to newly assigned papers as independent full-coverage review signal and is excluded from `paper_review_outcomes`.
-- Users only see their own `paper_user_assignments`.
-- Final submissions are frozen as canonical payload snapshots in `paper_assignment_submissions`.
-- Exact raw match is based on deterministic payload serialization + `payload_hash`.
-- Internal mismatch inside the Arciel lane creates `internal_slot_conflict`.
-- Official-slot mismatch creates `external_slot_conflict`.
-- Arciel resolves conflicts in the cockpit.
-- `Definitely No Data` is now a slot-level global skip:
-  one reviewer lane can mark the paper globally unusable, which cancels the other assignments and writes final negative truth immediately.
-- Only final resolved paper truth in `paper_review_outcomes` feeds crawler feedback.
+- `docs/reviewer_workflow_map.md`: source of truth for reviewer UI, schema, RPCs, approval, and ops behavior.
+- `docs/reviewer_sop_en.md`: worker-facing labeler SOP.
+- `AGENTS.md`: standing coding-agent instructions and current product truths.
 
-**Live Schema Status**
-- `apps/expert-annotator/migration.sql` was applied successfully to the live Supabase DB again on April 22, 2026.
-- Live verification confirmed these tables exist:
-  - `reviewer_profiles`
-  - `reviewer_slot_members`
-  - `paper_slot_assignments`
-  - `paper_user_assignments`
-  - `paper_assignment_submissions`
-  - `paper_conflicts`
-  - `paper_review_outcomes`
-- Live verification also confirmed these workflow RPCs exist:
-  - `current_user_has_cockpit_access`
-  - `current_user_can_write`
-  - `current_user_has_cockpit_write_access`
-  - `sync_reviewer_profile`
-  - `touch_assignment_workspace`
-  - `submit_assignment_review`
-  - `mark_assignment_global_no_data`
-  - `resolve_paper_conflict`
-  - `refresh_paper_resolution_state`
-  - `upsert_reviewer_admin_config`
-- `reviewer_profiles` live verification now also confirms both access flags exist:
-  - `tester_access`
-  - `cockpit_access`
-- Cockpit reads now allow active `cockpit_access` users even when `tester_access=true`.
-- Cockpit writes, conflict resolution, suggestion-review status writes, and assignment RPC writes remain blocked for tester accounts through SQL guards.
-- Code now also expects these additional routing tables/fields:
-  - `routing_stage_configs`
-  - `paper_stage_tasks`
-  - paper-level routing columns on `papers`
-  - AI provenance columns on `ai_extractions`
-  - AI/human truth-source columns on `paper_review_outcomes`
-- Live migration was applied again on April 24, 2026 for the standardized AI DB-payload stage.
-- Live schema verification now confirms `gemini_flash_db_payload_v2` is the only active `routing_stage_configs` row, while `gemini_flash_triage_v1` is preserved inactive for audit.
+## Team / Roles
 
-**Live Data Repair Status**
-- On April 22, 2026, `papers.workflow_language IS NULL` was backfilled from `12` to `0` using `services/data-pipeline/scripts/backfill_paper_workflow_language.py`.
-- All 12 legacy null-language rows inferred to English during the live repair.
-- Immediately after the backfill, available paper stock changed from `EN 0 / TR 0 / unscoped 12` to `EN 12 / TR 0 / unscoped 0`.
-- A live bilingual refill then added 12 Turkish papers:
-  - cycle 1 accepted/uploaded 11 Turkish PDFs
-  - cycle 2 accepted/uploaded 1 Turkish PDF
-- Post-refill stock reached the target floor at `EN 12 / TR 10`.
+- Arciel: developer, configured label approver, final reviewer, dashboard reviewer.
+- Peri, Aleyna, Aysegul, Daine: general-queue labelers unless access flags are changed.
+- Approval authority is stored as `reviewer_profiles.can_approve_labels`; currently Arciel is seeded as `true`.
+- `tester_access=true` keeps an account read-only even if it has cockpit visibility.
 
-**Frontend Status**
-- `apps/expert-annotator/src/pages/Annotate.jsx` is now role-aware:
-  - `My Queue`
-  - `Cockpit`
-  - `Conflicts`
-- Mode split is now:
-  - normal reviewer mode: real `paper_user_assignments`, live writes
-  - generic tester mode: local-only virtual queue
-  - developer-training mode (`tester_access && cockpit_access`): local-only admin/annotation/conflict actions plus a virtual bilingual `My Queue` from the full bilingual training paper pool, with live slot assignments prioritized
-- Queue saves drafts to the workspace tables, then uses RPC submission for final snapshots.
-- Editable assignments with no existing annotation/draft now initialize from the latest AI `normalized_payload_json`; no-data AI payloads leave the form blank. Existing drafts/submissions are never overwritten, and final submissions record `submission_metadata.initialized_from_ai_extraction_id` when the form began from AI prefill.
-- Normal labelers see compact AI-prefill badges for AI decision, loaded/available state, matched/custom food and nutrient counts, and rejected rows. AI reasoning stays out of the labeler queue.
-- Queue view now includes `Ask for Help` for confusing papers. It creates a cockpit-visible `backlog_review_items` row with `context.request_kind = assignment_help_request`, stores paper/assignment/slot/member-role/draft context, and keeps the assignment open as `draft`.
-- Shadow/non-official assignments do not show the destructive `Definitely No Data` action. The live `mark_assignment_global_no_data()` RPC now rejects shadow and non-official assignments as a backstop.
-- Cockpit shows reviewer queue/accuracy summaries, resolved source-yield breakdowns, reviewer-admin controls, and expandable AI details in the cockpit-only `All Papers` screen.
-- The AI detail panel shows model decision, confidence, routing bucket, reasoning, normalized DB payload, rejected/custom row counts, raw response metadata, and later human-outcome comparison status.
-- Reviewer-admin controls can:
-  - create a reviewer profile by email
-  - allowlist the reviewer for auth
-  - assign or remove an official slot
-  - add or remove shadow slot memberships
-  - change language permissions, active state, and cockpit access
-- Developer-training suggestion submissions still persist to `backlog_review_items`, while suggestion-review status edits remain local-only in training mode.
-- Queue view again exposes `Definitely No Data`, now routed through the assignment-safe global-skip RPC.
-- Conflicts view compares frozen payload snapshots side by side and lets Arciel choose the winning submission.
-- Frontend build currently passes.
-- `mcraft160105@gmail.com` and `ayseguldogan2706@gmail.com` are now live read-only developer-training accounts:
-  - `tester_access=true`
-  - `cockpit_access=true`
-  - no official slot membership
+## Active Workflow
 
-**Queue Status**
-- Live official open queues now contain both languages:
-  - Arciel: `EN 9 / TR 1`
-  - Peri: `EN 8 / TR 2`
-  - Aleyna: `EN 7 / TR 3`
-- `services/data-pipeline/scripts/refill_assignment_queue.py` was executed live on April 22, 2026 and brought every official reviewer lane to `10` open assignments.
-- Read-only developer-training queue inspection now reports a 25-paper bilingual pool:
-  - 15 live-slot-priority papers
-  - 10 paper-pool backlog papers
-  - EN and TR are interleaved at the front of the queue when both are present
+Pipeline:
 
-**Crawler / Feedback Status**
-- `update_terms.py` now prefers resolved `paper_review_outcomes`, with legacy label events as fallback only for older papers that have no resolved outcome yet.
-- `update_terms.py` now excludes `paper_review_outcomes.truth_source_kind = 'ai_model'` from the current human-truth feedback export.
-- `ensure_paper_stock.py` now treats only `papers.routing_status = 'human_review_ready'` papers as available reviewer stock, and drains the AI queue after upload.
-- New protected queue job:
-  - `services/data-pipeline/scripts/refill_assignment_queue.py`
-  - keeps each active reviewer’s personal open backlog at the target level
-  - creates slot assignments + user assignments only from `human_review_ready` papers
-  - assigns older waiting `human_review_ready` papers first by `routing_updated_at` / creation order
-  - reuses cancelled slot/user assignment rows when reset papers return from AI, because live uniqueness constraints are `(paper_id, slot_key)` and `(paper_slot_assignment_id, reviewer_profile_id)`
-  - drains queued AI tasks before triggering crawler refill when the human-ready pool is exhausted
-- New daily recursive ops runner:
-  - `services/data-pipeline/scripts/daily_ops_orchestrator.py`
-  - runs the safe top-up order: assign existing human-ready stock, process already queued AI tasks, crawl/upload only if reviewer deficits remain, process the new AI queue, then repeat
-  - targets 50 open assignments for each official reviewer
-  - uses quota-aware AI draining and stops when Gemini quota/rate limit is reached instead of claiming a whole batch that cannot be processed
-  - enforces a per-invocation AI budget of 5 tasks so each iteration stays under the 5 RPM free-tier limit
-  - returns JSON with `stopped_reason` and `terminal`; terminal reasons include `queues_full`, `ai_first_task_quota_limited`, `no_eligible_refill_need`, and `dry_run`
-  - non-terminal reasons such as `ai_run_budget_exhausted`, `ai_quota_limited_after_progress`, and `max_cycles` are expected to continue from the GitHub Actions controller after a 5-minute sleep
-  - if quota or the per-invocation AI budget is reached after AI created new `human_review_ready` papers, runs one final assignment pass before stopping that invocation so those papers are visible to reviewers
-  - scheduled in GitHub Actions by `.github/workflows/daily-ops.yml`; the workflow starts once at `00:15` America/Los_Angeles after the Gemini RPD reset, then loops internally every 5 minutes until the orchestrator returns `terminal=true`
-  - this automation runs on GitHub-hosted runners, not the laptop; it needs GitHub repository secrets `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY`
-  - feedback refresh is intentionally tied to search/refill only: existing `human_review_ready` assignment and queued-AI draining do not run feedback; when crawler refill is needed, `ensure_paper_stock.run_refill_cycle` runs `update_terms.py` immediately before DergiPark refresh/search unless `--skip-feedback` is explicitly passed
-- New AI routing ops scripts:
-  - `services/data-pipeline/scripts/process_stage_queue.py`
-  - `services/data-pipeline/scripts/backfill_ai_routing.py`
-  - `process_stage_queue.py` now claims one queued batch per run by default, can claim one task at a time with `--stop-on-quota`, and returns AI processing errors to `queued_for_ai` with `last_error` instead of routing them to humans
-  - AI task claiming is retry-fair: queued tasks sort by lower `attempt_count`, then higher `priority`, then older creation order, so one repeatedly failing paper cannot monopolize the 5-minute automation loop
-  - `backfill_ai_routing.py --reset-open-human-assignments` is the safe reroute path for existing papers: it refuses submitted/human-truth work, cancels unresolved assignment rows, and queues existing papers for AI without draining by default
-- Dry-run check works after a one-pass preview fix.
+`crawl -> upload -> AI queue -> routing -> human_review_ready shared queue -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`
 
-**What Still Needs Attention**
-- Daine’s real email/profile still needs to be entered through the cockpit if she should receive English queue items.
-- Peri and Aleyna do not need to log in before the first refill; assignments can be created now and linked to their auth users when they log in later.
-- PDF nutrient highlights are now precision-first and table-only:
-  the annotator builds a page-local allowlist from PDF.js text content and only highlights detected table body/header cells plus caption/title lines.
-  Nearby prose, legends, and ambiguous pages stay unhighlighted, and captionless continuation pages are intentionally suppressed until a safer continuation heuristic exists.
-- L2 classifier training is still deferred until more resolved labels exist.
+Important rules:
 
-**Useful Commands**
+- Labelers see a shared Queue of available papers.
+- A paper leaves the visible Queue as soon as any pending/accepted general submission exists.
+- Drafts do not claim papers. If two people already have the same paper open, both can still submit before final approval.
+- Every submitted payload is immutable in `paper_label_submissions`.
+- Arciel's own submissions auto-accept and immediately write `paper_label_approvals` plus `paper_review_outcomes`.
+- Non-Arciel submissions wait in Approval. Arciel can edit before accepting final truth.
+- Original labeler payloads are never overwritten; accepted reviewer payloads are stored separately.
+- `paper_label_approvals.correction_diff_json` records what changed for performance/mistake review.
+- Labelers do not see the approval page or other labelers' submissions.
+- Cockpit/tester/developer accounts can inspect Approval/Dashboard/All Papers, but tester accounts cannot mutate live data.
+
+## Active Schema / RPCs
+
+New active tables:
+
+- `paper_label_submissions`
+- `paper_label_approvals`
+- `paper_review_outcomes` with `label_submission_id` and `label_approval_id`
+
+Important access flags:
+
+- `reviewer_profiles.tester_access`
+- `reviewer_profiles.cockpit_access`
+- `reviewer_profiles.can_approve_labels`
+
+Important RPCs/functions:
+
+- `sync_reviewer_profile()`
+- `get_general_queue_papers(p_limit)`
+- `submit_general_label(p_annotation_id, p_decision_kind, p_submission_metadata)`
+- `approve_label_submission(p_label_submission_id, p_approval_annotation_id, p_decision_kind, p_approval_note)`
+- `build_label_payload_diff(original, final)`
+- `current_user_can_approve_labels()`
+
+Legacy tables preserved for audit/history:
+
+- `reviewer_slots`
+- `reviewer_slot_members`
+- `paper_slot_assignments`
+- `paper_user_assignments`
+- `paper_assignment_submissions`
+- `paper_conflicts`
+
+The migration clean-breaks unresolved legacy slot/user assignment rows to `cancelled`; new workflow code must not create new slot/user assignments.
+
+## Frontend Status
+
+`apps/expert-annotator/src/pages/Annotate.jsx` now exposes:
+
+- `Queue`: shared available paper list, AI prefill, draft save, final submit, no-usable-data submit, ask-for-help.
+- `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers.
+- `Dashboard`: labeler performance and detailed correction history.
+- `All Papers`: global paper/submission/approval/outcome state.
+- `Reviewers`: admin table for active/tester/cockpit/approval flags.
+- `Suggestions`: suggestion and general queue help triage.
+
+Frontend validation currently passes with:
+
+- `npm run build`
+- `npm run lint` with only pre-existing hook warnings in `App.jsx` and `ResetPassword.jsx`.
+
+## AI Routing
+
+- Active stage remains `gemini_flash_db_payload_v2`.
+- Upload enqueues `paper_stage_tasks` instead of running Gemini inline.
+- AI extraction stores deterministic `normalized_payload_json` using the same top-level contract as human payloads:
+  `decision_kind`, `food_items[].food_name`, `food_fdc_id`, `is_custom_food`, `nutrients[].nutrient_id`, `nutrient_name`, `value`, `unit`.
+- `UnifiedEvaluator` accepts requested JSON object output, top-level candidate-row arrays, and nested `food -> nutrients[]` arrays.
+- Prompt should include the full nutrient catalog, but not the full food catalog.
+- AI-provided DB IDs are verified against current DB rows before acceptance.
+- AI-finalized outcomes use `truth_source_kind = ai_model` and remain excluded from human-truth feedback.
+
+## Ops
+
+`services/data-pipeline/scripts/refill_assignment_queue.py` is retained under the old filename for compatibility. It now:
+
+- reports shared general queue stock;
+- excludes papers with final outcomes or pending/accepted general submissions;
+- excludes unresolved legacy slot assignments and legacy global no-data rows;
+- drains queued AI before requesting crawler refill;
+- triggers crawler refill when visible stock is below `--target-open`.
+
+`services/data-pipeline/scripts/daily_ops_orchestrator.py` now treats `--target-open` as visible general queue stock, not per-reviewer backlog.
+
+Daily ops order:
+
+1. Check shared queue stock.
+2. Drain queued AI work if stock is low.
+3. Crawl/upload if stock is still low.
+4. Process new AI queue.
+5. Repeat until terminal.
+
+Terminal stop reasons still use existing names for automation compatibility:
+
+- `queues_full`: shared queue stock meets target.
+- `ai_first_task_quota_limited`
+- `no_eligible_refill_need`
+- `dry_run`
+
+Non-terminal reasons include:
+
+- `ai_run_budget_exhausted`
+- `ai_quota_limited_after_progress`
+- `max_cycles`
+
+Feedback refresh is intentionally tied to crawler refill only; pure stock checks and queued-AI draining do not refresh feedback.
+
+## Feedback / Benchmark Boundary
+
+- Feedback learning reads `paper_review_outcomes` first.
+- Only `truth_source_kind = human_review` accepted outcomes feed current human-truth feedback.
+- Pending and superseded `paper_label_submissions` are excluded from feedback learning.
+- Legacy `paper_label_events` / `paper_global_labels` remain fallback only for older papers without resolved outcomes.
+- Unapproved submissions are performance/audit data, not benchmark truth.
+
+## Useful Commands
+
 - Apply schema migration:
   - `cd apps/expert-annotator && DATABASE_URL=... node run-migration.js`
 - Verify live workflow schema:
   - `cd apps/expert-annotator && DATABASE_URL=... node check-workflow-schema.mjs`
+- Frontend validation:
+  - `cd apps/expert-annotator && npm run build && npm run lint`
+- Python tests:
+  - `python3 -m unittest services.data-pipeline.tests.test_ai_routing services.data-pipeline.tests.test_daily_ops`
 - Refresh feedback terms:
   - `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
-- Backfill legacy paper languages:
-  - `python3 services/data-pipeline/scripts/backfill_paper_workflow_language.py [--dry-run]`
 - Refill crawler stock:
   - `python3 services/data-pipeline/scripts/ensure_paper_stock.py --threshold 0`
-- Drain the AI routing queue:
+- Drain AI routing queue:
   - `python3 services/data-pipeline/scripts/process_stage_queue.py`
-- Run the daily recursive ops loop:
+- Run daily ops:
   - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --target-open 50 --max-ai-tasks 5`
-- Backfill the active AI routing stage:
-  - `python3 services/data-pipeline/scripts/backfill_ai_routing.py`
-- Reset existing unresolved human assignments back through the active AI gate:
-  - `python3 services/data-pipeline/scripts/backfill_ai_routing.py --reset-open-human-assignments`
-- Top up reviewer queues:
+- Check shared queue stock / trigger refill loop:
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py --target-open 50`
-- Inspect the developer-training queue pool:
-  - `python3 services/data-pipeline/scripts/seed_training_stock.py [--dry-run]`
 
-**Live Reroute State - April 24, 2026**
-- Before the v2 reroute reset, live checks found:
-  - `0` assignment submissions
-  - `0` human-review outcomes
-  - `30` open unsubmitted user/slot assignments
-- Existing papers were reset through `backfill_ai_routing.py --reset-open-human-assignments` against Supabase for `gemini_flash_db_payload_v2`.
-- The reset queued `25` papers for v2 and cancelled `30` open slot assignments plus `30` open user assignments.
-- The v2 AI drain processed one 25-paper batch:
-  - `1` paper reached `human_review_ready`
-  - `24` papers remain `queued_for_ai` / `blocked` because Gemini returned free-tier quota errors
-  - queued v2 papers now have stale old-stage `latest_ai_extraction_id` cleared until a v2 extraction exists
-- The single successful v2 extraction stored `normalized_payload_json.decision_kind = no_usable_data`, zero accepted rows, normalization summary metadata, and `papers.latest_ai_extraction_id` points to the v2 extraction row.
-- `refill_assignment_queue.py --max-cycles 1` assigned the one available human-ready English paper:
-  - Arciel: 1 open EN assignment
-  - Peri: 1 open EN assignment
-  - Aleyna: 0 open assignments
-  - full 10-open backlog refill is blocked until the 24 queued AI papers are retried or new human-ready stock exists
-- Verified invariant:
-  no open human assignments exist on `queued_for_ai`, `ai_processing`, AI-finalized, or null-routed papers.
+## Live Migration Status
 
-**Live Threshold Repair - April 25, 2026**
-- The active v2 thresholds remain `positive_threshold = 1.0` and `negative_threshold = 1.0`, now interpreted in code as "never auto-finalize this decision class."
-- Three papers that had been unintentionally finalized as `ai_finalized_no_usable_data` because Gemini returned `overall_confidence = 1.0` were restored to `human_review_ready`.
-- Their AI-model `paper_review_outcomes` rows were deleted; their `ai_extractions` audit rows were kept but marked `finalized_without_human = false` with `route_destination = human_review`.
-- Under the old 10-open target, `refill_assignment_queue.py --target-open 10 --max-cycles 4` then assigned all available human-ready stock:
-  - Arciel: 10 open assignments
-  - Peri: 9 open assignments
-  - Aleyna: 9 open assignments
-  - 0 unassigned `human_review_ready` papers remain
-- The last two reviewer slots remain blocked by Gemini quota because the remaining 11 papers are still `queued_for_ai`.
+- The general queue + approval migration was applied to the live Supabase DB on 2026-05-02.
+- Live verification confirmed the new `paper_label_submissions` and `paper_label_approvals` tables, approval RPCs, `can_approve_labels`, and `paper_review_outcomes` provenance columns.
+- Live clean-break verification found `0` unresolved legacy slot assignments and `0` unresolved legacy user assignments.
+- Live reviewer config currently has `1` active approver.
+- Current visible general queue stock was `0` immediately after migration, so daily ops/crawler refill needs to add human-ready papers.
 
-**Daily Ops Retune - April 26, 2026**
-- The GitHub Actions daily ops workflow now starts once at `00:15` America/Los_Angeles after Gemini RPD reset, then loops every 5 minutes inside the same automation session until a terminal condition is true.
-- Because Gemini RPD resets at midnight Pacific and the free tier is 5 RPM / 20 RPD for the current model/project, each controller iteration uses `--max-ai-tasks 5`.
-- The workflow target is now `--target-open 50`, so Arciel, Peri, and Aleyna should each be topped up toward 50 open assignments as AI/crawler stock permits.
-- `daily_ops_orchestrator.py` now treats `--max-ai-tasks` as a whole-invocation budget, not a per-drain-step budget. Stop reason `ai_run_budget_exhausted` is non-terminal and means the controller should sleep 5 minutes and invoke the runner again. Manual `refill_assignment_queue.py` and `ensure_paper_stock.py` are capped at 5 AI tasks by default too.
-- `ai_first_task_quota_limited` is terminal: it means the first attempted AI paper in that invocation hit Gemini quota before any AI progress, so the controller stops for the day.
-- `ai_quota_limited_after_progress` is non-terminal: it means at least one AI paper moved before quota/rate limiting, so the controller sleeps and retries.
-- If AI creates human-ready stock and then quota/budget stops an invocation, the orchestrator does a final assignment pass before exiting.
-- Feedback terms are refreshed only when the automation reaches crawler refill. That refresh happens inside `ensure_paper_stock.run_refill_cycle` immediately before DergiPark refresh and search; do not add feedback refresh to pure assignment or queued-AI-only runs.
+## Still Needs Attention
+
+- L2 classifier training is still deferred until more accepted human-review outcomes exist.
+- PDF nutrient highlights remain precision-first/table-only; continuation-page recall and cross-text-item matching are still future work.

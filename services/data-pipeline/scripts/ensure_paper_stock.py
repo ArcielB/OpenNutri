@@ -68,6 +68,12 @@ def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, in
         "paper_review_outcomes",
         "paper_id",
     )
+    label_submissions = fetch_rows(
+        supabase_url,
+        supabase_key,
+        "paper_label_submissions",
+        "paper_id,status",
+    )
     slot_assignments = fetch_rows(
         supabase_url,
         supabase_key,
@@ -90,12 +96,18 @@ def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, in
         if row.get("paper_id") is not None
         and str(row.get("status") or "").strip().lower() != "cancelled"
     }
+    submitted_ids = {
+        row.get("paper_id")
+        for row in label_submissions
+        if row.get("paper_id") is not None
+        and str(row.get("status") or "").strip().lower() in {"pending_approval", "accepted"}
+    }
 
     counts = {language: 0 for language in SUPPORTED_LANGUAGES}
     counts["unscoped"] = 0
     for row in papers:
         paper_id = row.get("id")
-        if paper_id in skipped_ids or paper_id in resolved_ids or paper_id in assigned_ids:
+        if paper_id in skipped_ids or paper_id in resolved_ids or paper_id in assigned_ids or paper_id in submitted_ids:
             continue
         if str(row.get("routing_status") or "").strip().lower() != "human_review_ready":
             continue
@@ -108,6 +120,7 @@ def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, in
     counts["global_skips"] = len(skipped_ids)
     counts["resolved"] = len(resolved_ids)
     counts["assigned"] = len(assigned_ids)
+    counts["submitted"] = len(submitted_ids)
     counts["papers_total"] = len(papers)
     counts["total"] = counts["en"] + counts["tr"] + counts["unscoped"]
     return counts
@@ -199,7 +212,8 @@ def print_counts(prefix: str, counts: Dict[str, int], targets: Dict[str, int]) -
     print(f"  Papers total: {counts['papers_total']}")
     print(f"  Global no-data labels: {counts['global_skips']}")
     print(f"  Resolved review outcomes: {counts['resolved']}")
-    print(f"  Already assigned papers: {counts['assigned']}")
+    print(f"  Legacy assigned papers: {counts['assigned']}")
+    print(f"  Pending/accepted general submissions: {counts.get('submitted', 0)}")
     print(f"  Human-review-ready total: {counts['total']}")
     print(f"  Human-review-ready EN: {counts['en']} / target {targets['en']}")
     print(f"  Human-review-ready TR: {counts['tr']} / target {targets['tr']}")
