@@ -244,7 +244,7 @@ def normalize_ai_payload_with_summary(
     )
     food_id_resolver = _build_id_resolver(food_lookup or [])
 
-    grouped: dict[tuple[str, str, bool], dict] = {}
+    grouped: dict[tuple[str, str, bool, str, str], dict] = {}
     accepted_row_count = 0
     rejected_row_count = 0
     unmapped_food_count = 0
@@ -279,17 +279,25 @@ def normalize_ai_payload_with_summary(
             primary_name_field="canonical_name",
             alias_fields=("aliases", "alias_names"),
         )
+        raw_food_name = _normalize_space(row.get("raw_food_name")) or food_name
+        preparation_state = _normalize_space(row.get("preparation_state")) or None
+
         if food_match:
             resolved_food_id = str(food_match["id"])
             resolved_food_name = _normalize_space(food_match.get("canonical_name")) or food_name
             is_custom_food = False
-            group_key = (resolved_food_name.casefold(), resolved_food_id, is_custom_food)
         else:
             resolved_food_id = None
             resolved_food_name = food_name
             is_custom_food = True
             unmapped_food_count += 1
-            group_key = (_normalize_lookup_text(resolved_food_name), "", is_custom_food)
+        group_key = (
+            _normalize_lookup_text(resolved_food_name),
+            resolved_food_id or "",
+            is_custom_food,
+            _normalize_lookup_text(raw_food_name),
+            _normalize_lookup_text(preparation_state),
+        )
 
         item = grouped.get(group_key)
         if item is None:
@@ -297,6 +305,8 @@ def normalize_ai_payload_with_summary(
                 "food_name": resolved_food_name,
                 "food_fdc_id": resolved_food_id,
                 "is_custom_food": is_custom_food,
+                "raw_food_name": raw_food_name,
+                "preparation_state": preparation_state,
                 "nutrients": [],
             }
             grouped[group_key] = item
@@ -313,17 +323,31 @@ def normalize_ai_payload_with_summary(
         if nutrient_match:
             nutrient_id = str(nutrient_match["id"])
             resolved_nutrient_name = _normalize_space(nutrient_match.get("standard_name")) or nutrient_name
+            is_custom_nutrient = False
         else:
             nutrient_id = None
             resolved_nutrient_name = nutrient_name
+            is_custom_nutrient = True
             unmapped_nutrient_count += 1
+
+        metadata = _normalize_metadata(row.get("metadata"))
+        flags = _normalize_string_list(row.get("flags"))
+        if flags:
+            metadata["flags"] = flags
 
         item["nutrients"].append(
             {
                 "nutrient_id": nutrient_id,
+                "is_custom_nutrient": is_custom_nutrient,
                 "nutrient_name": resolved_nutrient_name,
+                "raw_nutrient_name": _normalize_space(row.get("raw_nutrient_name")) or nutrient_name,
                 "value": round(amount, 6),
                 "unit": unit,
+                "basis": "per_100g",
+                "sample_size": _normalize_int(row.get("sample_size")),
+                "confidence": _normalize_probability(row.get("confidence")),
+                "source_citation": _normalize_space(row.get("source_citation")) or None,
+                "metadata": metadata,
             }
         )
         accepted_row_count += 1
@@ -335,15 +359,24 @@ def normalize_ai_payload_with_summary(
             _normalize_space(entry[1].get("food_name")),
             str(entry[1].get("food_fdc_id") or ""),
             bool(entry[1].get("is_custom_food")),
+            _normalize_space(entry[1].get("raw_food_name")),
+            _normalize_space(entry[1].get("preparation_state")),
         ),
     ):
         item["nutrients"] = sorted(
             item["nutrients"],
             key=lambda nutrient: (
                 str(nutrient.get("nutrient_id") or ""),
+                bool(nutrient.get("is_custom_nutrient")),
                 _normalize_space(nutrient.get("nutrient_name")),
+                _normalize_space(nutrient.get("raw_nutrient_name")),
                 _normalize_space(nutrient.get("unit")),
+                _normalize_space(nutrient.get("basis")),
                 nutrient.get("value"),
+                nutrient.get("sample_size") if nutrient.get("sample_size") is not None else -1,
+                nutrient.get("confidence") if nutrient.get("confidence") is not None else -1,
+                _normalize_space(nutrient.get("source_citation")),
+                canonical_json_dumps(nutrient.get("metadata") or {}),
             ),
         )
         ordered_food_items.append(item)
@@ -584,6 +617,64 @@ def _normalize_identifier(value: object) -> str:
     return str(value or "").strip()
 
 
+def _normalize_int(value: object) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_probability(value: object) -> float | None:
+    if value is None or value == "":
+        return None
+    return round(clamp_probability(value), 6)
+
+
+def _normalize_string_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        candidate = _normalize_space(value)
+        return [candidate] if candidate else []
+    if not isinstance(value, IterableABC):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = _normalize_space(item)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _normalize_metadata(value: object) -> dict:
+    if not isinstance(value, Mapping):
+        return {}
+    metadata: dict[str, object] = {}
+    for key, raw_value in sorted(value.items(), key=lambda item: str(item[0])):
+        key_text = _normalize_space(key)
+        if not key_text or raw_value is None:
+            continue
+        metadata[key_text] = _json_safe_value(raw_value)
+    return metadata
+
+
+def _json_safe_value(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        return {
+            str(key): _json_safe_value(nested)
+            for key, nested in sorted(value.items(), key=lambda item: str(item[0]))
+            if key is not None
+        }
+    if isinstance(value, IterableABC) and not isinstance(value, (str, bytes, bytearray)):
+        return [_json_safe_value(item) for item in value]
+    return str(value)
+
+
 def count_payload_nutrient_rows(payload: Mapping[str, object]) -> int:
     food_items = payload.get("food_items")
     if not isinstance(food_items, list):
@@ -624,6 +715,13 @@ def _record_to_mapping(record: object) -> Mapping[str, object]:
         "unit": getattr(record, "unit", None),
         "basis": getattr(record, "basis", None),
         "preparation_state": getattr(record, "preparation_state", None),
+        "sample_size": getattr(record, "sample_size", None),
+        "confidence": getattr(record, "confidence", None),
+        "source_citation": getattr(record, "source_citation", None),
+        "metadata": getattr(record, "metadata", None),
+        "flags": getattr(record, "flags", None),
+        "raw_food_name": getattr(record, "raw_food_name", None),
+        "raw_nutrient_name": getattr(record, "raw_nutrient_name", None),
         "food_fdc_id": getattr(record, "food_fdc_id", None),
         "food_id": getattr(record, "food_id", None),
         "entity_id": getattr(record, "entity_id", None),

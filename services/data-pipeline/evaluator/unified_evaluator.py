@@ -79,7 +79,8 @@ class UnifiedEvaluator:
 5. If is_useful is true: Extract ALL candidate food-nutrient composition data from tables.
 6. For each data point, preserve the explicit unit and basis from the paper so downstream validation can standardize it to the database payload.
 7. Use the nutrient catalog below. When a paper nutrient exactly matches a catalog row, output that row's nutrient_id and standard nutrient_name exactly. When no confident exact match exists, set nutrient_id to null and preserve the paper's nutrient name.
-8. Do not invent food IDs. If high-signal food candidates are provided and a paper food exactly matches one, output its food_fdc_id; otherwise set food_fdc_id to null and preserve the paper's food name.
+8. Do not invent food IDs. If high-signal food candidates are provided and a paper food exactly matches a candidate's canonical_name or alias, output its food_fdc_id; otherwise set food_fdc_id to null and preserve the paper's food name.
+9. Preserve row context needed for database review: raw paper names, preparation state, sample size, confidence, source citation, and metadata such as cultivar, location, edible portion, analysis method, storage, and harvest date.
 
 **Nutrient Catalog**:
 {nutrient_catalog}
@@ -331,7 +332,11 @@ Full Text:
             row_id = str(row.get("id") or "").strip()
             name = str(row.get("canonical_name") or row.get("name") or "").strip()
             if row_id and name:
-                candidate_rows.append({"id": row_id, "canonical_name": name})
+                candidate = {"food_fdc_id": row_id, "canonical_name": name}
+                aliases = row.get("alias_names") or row.get("aliases")
+                if isinstance(aliases, list):
+                    candidate["aliases"] = [str(alias).strip() for alias in aliases[:10] if str(alias).strip()]
+                candidate_rows.append(candidate)
         if not candidate_rows:
             return "[]"
         return json.dumps(candidate_rows, ensure_ascii=False, separators=(",", ":"))

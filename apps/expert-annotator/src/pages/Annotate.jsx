@@ -32,6 +32,8 @@ function createEmptyFoodItem() {
     food_name: '',
     food_fdc_id: null,
     is_custom_food: false,
+    raw_food_name: null,
+    preparation_state: null,
     nutrients: [],
   }
 }
@@ -40,11 +42,29 @@ function isValidFoodItem(item) {
   return Boolean((item?.food_name || '').trim() || item?.food_fdc_id)
 }
 
+function normalizeMetadata(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+function normalizeOptionalInteger(value) {
+  if (value === undefined || value === null || value === '') return null
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeOptionalNumber(value) {
+  if (value === undefined || value === null || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function normalizeFoodItem(item) {
   return {
     food_name: (item?.food_name || '').trim(),
     food_fdc_id: item?.food_fdc_id || null,
     is_custom_food: Boolean(item?.is_custom_food || !item?.food_fdc_id),
+    raw_food_name: (item?.raw_food_name || '').trim() || null,
+    preparation_state: (item?.preparation_state || '').trim() || null,
     nutrients: (item?.nutrients || [])
       .filter((nutrient) => (
         (nutrient?.nutrient_name || nutrient?.nutrient_id) &&
@@ -54,9 +74,16 @@ function normalizeFoodItem(item) {
       ))
       .map((nutrient) => ({
         nutrient_id: nutrient.nutrient_id || null,
+        is_custom_nutrient: Boolean(nutrient.is_custom_nutrient || !nutrient.nutrient_id),
         nutrient_name: (nutrient.nutrient_name || '').trim(),
+        raw_nutrient_name: (nutrient.raw_nutrient_name || '').trim() || null,
         value: Number(nutrient.value),
         unit: nutrient.unit,
+        basis: String(nutrient.basis || 'per_100g').trim(),
+        sample_size: normalizeOptionalInteger(nutrient.sample_size),
+        confidence: normalizeOptionalNumber(nutrient.confidence),
+        source_citation: (nutrient.source_citation || '').trim() || null,
+        metadata: normalizeMetadata(nutrient.metadata),
       })),
   }
 }
@@ -69,6 +96,8 @@ function buildFoodItemsFromPayload(payload) {
       food_name: item?.food_name || '',
       food_fdc_id: item?.food_fdc_id || null,
       is_custom_food: Boolean(item?.is_custom_food || !item?.food_fdc_id),
+      raw_food_name: item?.raw_food_name || null,
+      preparation_state: item?.preparation_state || null,
       nutrients: Array.isArray(item?.nutrients) ? item.nutrients : [],
     }))
     .filter(isValidFoodItem)
@@ -139,8 +168,8 @@ function getAiPrefillStats(extraction) {
     rejected_row_count: Number(rawSummary.rejected_row_count ?? Math.max(0, input - accepted)) || 0,
     matched_food_count: foods.filter((food) => food?.food_fdc_id && !food?.is_custom_food).length,
     custom_food_count: foods.filter((food) => !food?.food_fdc_id || food?.is_custom_food).length,
-    matched_nutrient_count: nutrients.filter((nutrient) => nutrient?.nutrient_id).length,
-    custom_nutrient_count: nutrients.filter((nutrient) => !nutrient?.nutrient_id).length,
+    matched_nutrient_count: nutrients.filter((nutrient) => nutrient?.nutrient_id && !nutrient?.is_custom_nutrient).length,
+    custom_nutrient_count: nutrients.filter((nutrient) => !nutrient?.nutrient_id || nutrient?.is_custom_nutrient).length,
   }
 }
 
@@ -1343,11 +1372,20 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           food_name: itemRow.food_name,
           food_fdc_id: itemRow.food_fdc_id,
           is_custom_food: itemRow.is_custom_food,
+          raw_food_name: itemRow.raw_food_name || null,
+          preparation_state: itemRow.preparation_state || null,
           nutrients: (nutrientRows || []).map((row) => ({
             nutrient_id: row.nutrient_id,
+            is_custom_nutrient: row.is_custom_nutrient || !row.nutrient_id,
             nutrient_name: row.nutrient_name,
+            raw_nutrient_name: row.raw_nutrient_name || null,
             value: row.value,
             unit: row.unit,
+            basis: row.basis || 'per_100g',
+            sample_size: row.sample_size,
+            confidence: row.confidence,
+            source_citation: row.source_citation || null,
+            metadata: normalizeMetadata(row.metadata),
           })),
         }
       }))
@@ -1411,6 +1449,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           food_name: item.food_name,
           food_fdc_id: item.food_fdc_id,
           is_custom_food: item.is_custom_food || false,
+          raw_food_name: item.raw_food_name,
+          preparation_state: item.preparation_state,
         })
         .select()
         .single()
@@ -1420,9 +1460,16 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         const nutrientRows = item.nutrients.map((nutrient) => ({
           food_item_id: insertedItem.id,
           nutrient_id: nutrient.nutrient_id,
+          is_custom_nutrient: nutrient.is_custom_nutrient || !nutrient.nutrient_id,
           nutrient_name: nutrient.nutrient_name,
+          raw_nutrient_name: nutrient.raw_nutrient_name,
           value: nutrient.value,
           unit: nutrient.unit,
+          basis: nutrient.basis || 'per_100g',
+          sample_size: nutrient.sample_size,
+          confidence: nutrient.confidence,
+          source_citation: nutrient.source_citation,
+          metadata: normalizeMetadata(nutrient.metadata),
         }))
         const { error: nutrientError } = await supabase.from('annotation_nutrient_values').insert(nutrientRows)
         if (nutrientError) throw nutrientError
@@ -1441,6 +1488,10 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
     if (hasData && foodItemCount === 0) {
       showToast('Add at least one valid food item before saving.', 'error')
+      return
+    }
+    if (hasData && status !== 'draft' && nutrientValueCount === 0) {
+      showToast('Add at least one nutrient row before final submission.', 'error')
       return
     }
 
@@ -1589,6 +1640,11 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       showToast('Add at least one valid food item before approval.', 'error')
       return
     }
+    const approvalNutrientCount = validFoodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0)
+    if (hasData && approvalNutrientCount === 0) {
+      showToast('Add at least one nutrient row before approval.', 'error')
+      return
+    }
     setSaving(true)
     try {
       const { annotation } = await saveAnnotationRows({
@@ -1606,7 +1662,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         status: hasData ? 'done' : 'skipped',
         decision_kind: approvalDecision,
         food_item_count: validFoodItems.length,
-        nutrient_value_count: validFoodItems.reduce((sum, item) => sum + (item.nutrients?.length || 0), 0),
+        nutrient_value_count: approvalNutrientCount,
         source: 'approval_ui',
       })
       if (eventError) throw eventError

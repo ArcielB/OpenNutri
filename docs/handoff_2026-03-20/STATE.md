@@ -5,8 +5,8 @@ This is the current high-signal project state after the reviewer workflow moved 
 ## Primary Goal
 
 - Finish Preliminary Study 3 fast enough to support the paper draft and TÜBİTAK application.
-- Keep paper stock intentionally low and refill as labeling progresses so crawler feedback can improve future search.
-- Daily ops target is now 50 visible papers in the shared general queue, roughly balanced between English and Turkish.
+- Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
+- Daily ops now maximizes Gemini usage: 20 calls per day, at most 5 calls per 5-minute GitHub Actions iteration, with crawler refill only when queued AI work is unavailable.
 
 ## Documentation Pointers
 
@@ -94,10 +94,9 @@ Frontend validation currently passes with:
 
 - Active stage remains `gemini_flash_db_payload_v2`.
 - Upload enqueues `paper_stage_tasks` instead of running Gemini inline.
-- AI extraction stores deterministic `normalized_payload_json` using the same top-level contract as human payloads:
-  `decision_kind`, `food_items[].food_name`, `food_fdc_id`, `is_custom_food`, `nutrients[].nutrient_id`, `nutrient_name`, `value`, `unit`.
+- AI extraction stores deterministic `normalized_payload_json` using the same top-level contract as human payloads, including DB/custom food identity, raw food name, preparation state, DB/custom nutrient identity, raw nutrient name, value, unit, basis, sample size, confidence, source citation, and row metadata.
 - `UnifiedEvaluator` accepts requested JSON object output, top-level candidate-row arrays, and nested `food -> nutrients[]` arrays.
-- Prompt should include the full nutrient catalog, but not the full food catalog.
+- Prompt should include the full nutrient catalog plus high-signal food candidates matched from the paper text, but not the full food catalog.
 - AI-provided DB IDs are verified against current DB rows before acceptance.
 - AI-finalized outcomes use `truth_source_kind = ai_model` and remain excluded from human-truth feedback.
 
@@ -111,21 +110,21 @@ Frontend validation currently passes with:
 - drains queued AI before requesting crawler refill;
 - triggers crawler refill when visible stock is below `--target-open`.
 
-`services/data-pipeline/scripts/daily_ops_orchestrator.py` now treats `--target-open` as visible general queue stock, not per-reviewer backlog.
+`services/data-pipeline/scripts/daily_ops_orchestrator.py` now treats `--target-open` as compatibility/reporting only. Scheduled ops maximize Gemini usage instead of stopping when the human queue is full.
 
 Daily ops order:
 
-1. Check shared queue stock.
-2. Drain queued AI work if stock is low.
-3. Crawl/upload if stock is still low.
-4. Process new AI queue.
+1. Drain queued AI work.
+2. Crawl/upload when no queued AI work is available.
+3. Process the new AI queue.
+4. Sleep 5 minutes in GitHub Actions after non-terminal per-invocation budget stops.
 5. Repeat until terminal.
 
-Terminal stop reasons still use existing names for automation compatibility:
+Terminal stop reasons:
 
-- `queues_full`: shared queue stock meets target.
+- `daily_ai_call_budget_exhausted`: 20 Gemini calls consumed for the day.
 - `ai_first_task_quota_limited`
-- `no_eligible_refill_need`
+- `no_progress`: crawler/AI pass produced no queued or processed work.
 - `dry_run`
 
 Non-terminal reasons include:
@@ -134,7 +133,7 @@ Non-terminal reasons include:
 - `ai_quota_limited_after_progress`
 - `max_cycles`
 
-Feedback refresh is intentionally tied to crawler refill only; pure stock checks and queued-AI draining do not refresh feedback.
+Feedback refresh is intentionally tied to crawler refill only; queued-AI draining does not refresh feedback.
 
 ## Feedback / Benchmark Boundary
 
@@ -161,13 +160,14 @@ Feedback refresh is intentionally tied to crawler refill only; pure stock checks
 - Drain AI routing queue:
   - `python3 services/data-pipeline/scripts/process_stage_queue.py`
 - Run daily ops:
-  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --target-open 50 --max-ai-tasks 5`
+  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --daily-ai-call-budget 20 --max-ai-tasks 5`
 - Check shared queue stock / trigger refill loop:
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py --target-open 50`
 
 ## Live Migration Status
 
 - The general queue + approval migration was applied to the live Supabase DB on 2026-05-02.
+- The DB-aligned AI payload migration was applied to the live Supabase DB on 2026-05-02; verification confirmed the new raw/custom/basis/source metadata columns on `food_items` and `annotation_nutrient_values`.
 - Live verification confirmed the new `paper_label_submissions` and `paper_label_approvals` tables, approval RPCs, `can_approve_labels`, and `paper_review_outcomes` provenance columns.
 - Live clean-break verification found `0` unresolved legacy slot assignments and `0` unresolved legacy user assignments.
 - Live reviewer config currently has `1` active approver.

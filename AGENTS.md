@@ -76,12 +76,12 @@ Do not spend tokens on these unless the task explicitly needs them:
 ## Research Ops Notes
 - Current top-level goal: finish Preliminary Study 3 fast enough to publish the paper and support the TÜBİTAK application.
 - Queue strategy: keep paper stock low on purpose and refill as labeling proceeds so each crawl benefits from newer feedback.
-- Automated daily ops target 50 visible papers in the shared general queue, balanced roughly across English and Turkish stock.
-- Daily ops starts once at 00:15 America/Los_Angeles after Gemini RPD reset. The GitHub Actions controller loops every 5 minutes until `daily_ops_orchestrator.py` returns `terminal=true`; each iteration processes at most 5 AI tasks. Terminal stop reasons include `queues_full`, `ai_first_task_quota_limited`, `no_eligible_refill_need`, and `dry_run`. Non-terminal reasons like `ai_run_budget_exhausted` and `ai_quota_limited_after_progress` should continue after the 5-minute sleep. Manual `daily_ops_orchestrator.py`, `refill_assignment_queue.py`, and `ensure_paper_stock.py` defaults are also capped at 5 AI tasks per run unless explicitly overridden.
+- Automated daily ops now maximizes Gemini usage instead of stopping when the shared human queue is full. The daily target is 20 Gemini calls; each controller invocation processes at most 5 AI tasks, then GitHub Actions sleeps 5 minutes and continues until the 20-call budget is consumed, the first AI call is quota-limited, or a crawl/AI iteration produces no queued or processed work.
+- Daily ops starts once at 00:05 America/Los_Angeles after Gemini RPD reset. The GitHub Actions controller loops every 5 minutes until `daily_ops_orchestrator.py` returns `terminal=true`; terminal stop reasons include `daily_ai_call_budget_exhausted`, `ai_first_task_quota_limited`, `no_progress`, and `dry_run`. Non-terminal reasons like `ai_run_budget_exhausted`, `ai_quota_limited_after_progress`, and `max_cycles` should continue after the 5-minute sleep.
 - Daily ops only refreshes feedback terms when it reaches the crawler/refill path. Existing `human_review_ready` general queue stock and queued-AI draining do not refresh feedback; `ensure_paper_stock.run_refill_cycle` refreshes terms immediately before DergiPark refresh/search unless `--skip-feedback` is explicitly passed.
 - AI stage task claiming is retry-fair: queued tasks sort by lower `attempt_count`, then higher `priority`, then older creation order. Do not change this back to pure oldest-first, because one repeatedly failing paper can otherwise monopolize the 5-minute automation loop.
 - `UnifiedEvaluator` intentionally accepts Gemini output as the requested JSON object, a top-level array of candidate rows, or nested `food -> nutrients[]` rows; keep these parser variants so shape drift does not become an infinite AI retry loop.
-- `UnifiedEvaluator` should receive the full nutrient catalog in prompt, but not the full food catalog. Deterministic normalization verifies AI-provided food/nutrient IDs against DB rows, then falls back to exact/alias matching and custom rows.
+- `UnifiedEvaluator` should receive the full nutrient catalog plus high-signal text-matched food candidates in prompt, but not the full food catalog. Deterministic normalization verifies AI-provided food/nutrient IDs against DB rows, then falls back to exact/alias matching and custom rows.
 - Team operating model:
   - Arciel: developer, configured approver, final reviewer, dashboard reviewer.
   - Peri, Aleyna, Aysegul, Daine: general-queue labelers unless access flags are changed.
@@ -95,7 +95,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - After changing schema, verify the new columns/indexes or behavior against the live database before closing the task.
 - Refresh label-feedback terms: `python3 services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
 - Refill low paper stock: `python3 services/data-pipeline/scripts/ensure_paper_stock.py --threshold 0`
-- Top up general queue stock: `python3 services/data-pipeline/scripts/refill_assignment_queue.py --target-open 50`
+- Run daily AI-max ops locally: `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --daily-ai-call-budget 20 --max-ai-tasks 5`
 
 ## Secrets
 - `Keys and links` is the main local source for GitHub, Supabase, and database credentials.

@@ -301,9 +301,16 @@ export default function NutrientAutocomplete({ allNutrients, addedNutrientIds, o
         })
         onAdd({
             nutrient_id: nutrient.id || null,
+            is_custom_nutrient: !nutrient.id,
             nutrient_name: nutrient.name,
+            raw_nutrient_name: nutrient.name,
             unit: formatUnit(nutrient.unit_name),
+            basis: 'per_100g',
             value: null,
+            sample_size: null,
+            confidence: null,
+            source_citation: null,
+            metadata: {},
         })
         setQuery('')
         setShowDropdown(false)

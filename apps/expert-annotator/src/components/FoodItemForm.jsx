@@ -8,7 +8,7 @@ export default function FoodItemForm({ index, data, onChange, onDelete, allNutri
     const addedNutrientIds = new Set(nutrients.map((n) => n.nutrient_id).filter(Boolean))
 
     const handleFoodChange = ({ food_name, food_fdc_id, is_custom_food }) => {
-        onChange({ ...data, food_name, food_fdc_id, is_custom_food })
+        onChange({ ...data, food_name, food_fdc_id, is_custom_food, raw_food_name: food_name || null })
     }
 
     const handleAddNutrient = (nutrientEntry) => {

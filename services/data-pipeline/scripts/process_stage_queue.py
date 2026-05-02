@@ -104,6 +104,39 @@ def fetch_reference_lookups(client: Client) -> dict[str, list[dict]]:
     }
 
 
+def _candidate_lookup_text(value: object) -> str:
+    return " ".join(str(value or "").casefold().split())
+
+
+def select_food_candidates_for_text(
+    full_text: str,
+    food_lookup: list[dict],
+    *,
+    limit: int = 250,
+) -> list[dict]:
+    haystack = f" {_candidate_lookup_text(full_text[:500_000])} "
+    matches: list[tuple[int, int, str, dict]] = []
+    for index, row in enumerate(food_lookup or []):
+        if not isinstance(row, dict) or not row.get("id"):
+            continue
+        candidate_names = [str(row.get("canonical_name") or "").strip()]
+        aliases = row.get("alias_names")
+        if isinstance(aliases, list):
+            candidate_names.extend(str(alias).strip() for alias in aliases)
+        best_match = ""
+        for name in candidate_names:
+            normalized = _candidate_lookup_text(name)
+            if len(normalized) < 4:
+                continue
+            if f" {normalized} " in haystack and len(normalized) > len(best_match):
+                best_match = normalized
+        if best_match:
+            matches.append((len(best_match), -index, best_match, row))
+
+    matches.sort(reverse=True)
+    return [row for _score, _index, _match, row in matches[: max(1, int(limit))]]
+
+
 def _fetch_all_rows(client: Client, table_name: str, select: str) -> list[dict]:
     rows: list[dict] = []
     offset = 0
@@ -392,6 +425,11 @@ def process_one_task(
     try:
         full_text = extract_pdf_text(str(paper.get("filename") or ""))
         input_hash = input_hash_for_text(title=paper.get("title"), full_text=full_text)
+        if reference_lookups is not None:
+            evaluator.food_candidates = select_food_candidates_for_text(
+                full_text,
+                (reference_lookups or {}).get("foods") or [],
+            )
         ai_result = evaluator.evaluate_and_extract(
             {
                 "pmc_id": paper.get("doi") or paper.get("filename") or "",
@@ -531,6 +569,7 @@ def drain_stage_queue(
     evaluator = UnifiedEvaluator(
         model_name=stage_config.model_name,
         nutrient_catalog=reference_lookups.get("nutrients") or [],
+        food_candidates=[],
     )
     if evaluator.model is None:
         raise RuntimeError("UnifiedEvaluator could not initialize a Gemini model. Check GEMINI_API_KEY.")

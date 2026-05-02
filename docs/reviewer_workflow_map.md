@@ -107,10 +107,10 @@ Shared-stock logic:
 
 Daily ops:
 
-- `daily_ops_orchestrator.py` first checks shared queue stock.
-- If stock is low, it drains queued AI tasks before crawling.
-- If stock is still low, it calls `ensure_paper_stock.py` to crawl/upload more papers.
-- Feedback refresh happens only when crawler refill is reached, not for pure queue checks or queued-AI draining.
+- `daily_ops_orchestrator.py` maximizes daily Gemini usage instead of stopping on shared queue stock.
+- It drains queued AI first, crawls/uploads when no queued AI work is available, then processes the new AI queue.
+- GitHub Actions starts at `00:05` America/Los_Angeles and loops every 5 minutes until 20 Gemini calls are used, the first AI task is quota-limited, or a crawl/AI pass produces no useful work.
+- Feedback refresh happens only when crawler refill is reached, not for queued-AI draining.
 
 ## Operational Invariants
 
@@ -118,4 +118,4 @@ Daily ops:
 - Never overwrite a labeler's original submission payload.
 - Tester accounts must remain read-only even when they can see cockpit/approval pages.
 - Only accepted `paper_review_outcomes.truth_source_kind = human_review` rows feed current feedback learning.
-- Keep AI prefill metadata outside canonical payload hashes.
+- Keep AI prefill payloads DB-aligned: custom foods/nutrients must be explicit, and row context such as raw names, basis, confidence, source citation, and metadata belongs in the canonical payload hash.

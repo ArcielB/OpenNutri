@@ -404,6 +404,8 @@ CREATE TABLE IF NOT EXISTS food_items (
     food_name TEXT NOT NULL,
     food_fdc_id UUID REFERENCES entities(id),
     is_custom_food BOOLEAN NOT NULL DEFAULT FALSE,
+    raw_food_name TEXT,
+    preparation_state TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -411,11 +413,36 @@ CREATE TABLE IF NOT EXISTS annotation_nutrient_values (
     id SERIAL PRIMARY KEY,
     food_item_id INTEGER NOT NULL REFERENCES food_items(id) ON DELETE CASCADE,
     nutrient_id UUID REFERENCES master_nutrients(id),
+    is_custom_nutrient BOOLEAN NOT NULL DEFAULT FALSE,
     nutrient_name TEXT NOT NULL,
+    raw_nutrient_name TEXT,
     value REAL,
     unit TEXT NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'per_100g',
+    sample_size INTEGER,
+    confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+    source_citation TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE food_items
+    ADD COLUMN IF NOT EXISTS food_fdc_id UUID REFERENCES entities(id),
+    ADD COLUMN IF NOT EXISTS is_custom_food BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS raw_food_name TEXT,
+    ADD COLUMN IF NOT EXISTS preparation_state TEXT,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+ALTER TABLE annotation_nutrient_values
+    ADD COLUMN IF NOT EXISTS nutrient_id UUID REFERENCES master_nutrients(id),
+    ADD COLUMN IF NOT EXISTS is_custom_nutrient BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS raw_nutrient_name TEXT,
+    ADD COLUMN IF NOT EXISTS basis TEXT NOT NULL DEFAULT 'per_100g',
+    ADD COLUMN IF NOT EXISTS sample_size INTEGER,
+    ADD COLUMN IF NOT EXISTS confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+    ADD COLUMN IF NOT EXISTS source_citation TEXT,
+    ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE TABLE IF NOT EXISTS search_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1696,25 +1723,47 @@ WITH ordered_foods AS (
             'food_name', public.normalize_submission_text(fi.food_name),
             'food_fdc_id', fi.food_fdc_id,
             'is_custom_food', fi.is_custom_food,
+            'raw_food_name', NULLIF(public.normalize_submission_text(fi.raw_food_name), ''),
+            'preparation_state', NULLIF(public.normalize_submission_text(fi.preparation_state), ''),
             'nutrients', COALESCE((
                 SELECT jsonb_agg(
                     jsonb_build_object(
                         'nutrient_id', anv.nutrient_id,
+                        'is_custom_nutrient', COALESCE(anv.is_custom_nutrient, anv.nutrient_id IS NULL),
                         'nutrient_name', public.normalize_submission_text(anv.nutrient_name),
+                        'raw_nutrient_name', NULLIF(public.normalize_submission_text(anv.raw_nutrient_name), ''),
                         'value', CASE
                             WHEN anv.value IS NULL THEN NULL
                             ELSE round(anv.value::numeric, 6)
                         END,
-                        'unit', public.normalize_submission_text(anv.unit)
+                        'unit', public.normalize_submission_text(anv.unit),
+                        'basis', public.normalize_submission_text(COALESCE(anv.basis, 'per_100g')),
+                        'sample_size', anv.sample_size,
+                        'confidence', CASE
+                            WHEN anv.confidence IS NULL THEN NULL
+                            ELSE round(anv.confidence::numeric, 6)
+                        END,
+                        'source_citation', NULLIF(public.normalize_submission_text(anv.source_citation), ''),
+                        'metadata', COALESCE(anv.metadata, '{}'::jsonb)
                     )
                     ORDER BY
                         coalesce(anv.nutrient_id::text, ''),
+                        COALESCE(anv.is_custom_nutrient, anv.nutrient_id IS NULL),
                         public.normalize_submission_text(anv.nutrient_name),
+                        public.normalize_submission_text(anv.raw_nutrient_name),
                         public.normalize_submission_text(anv.unit),
+                        public.normalize_submission_text(COALESCE(anv.basis, 'per_100g')),
                         CASE
                             WHEN anv.value IS NULL THEN NULL
                             ELSE round(anv.value::numeric, 6)
                         END,
+                        anv.sample_size,
+                        CASE
+                            WHEN anv.confidence IS NULL THEN NULL
+                            ELSE round(anv.confidence::numeric, 6)
+                        END,
+                        public.normalize_submission_text(anv.source_citation),
+                        COALESCE(anv.metadata, '{}'::jsonb)::text,
                         anv.id
                 )
                 FROM annotation_nutrient_values anv
@@ -1723,6 +1772,11 @@ WITH ordered_foods AS (
         ) AS payload
     FROM food_items fi
     WHERE fi.annotation_id = p_annotation_id
+      AND EXISTS (
+          SELECT 1
+          FROM annotation_nutrient_values anv_exists
+          WHERE anv_exists.food_item_id = fi.id
+      )
 )
 SELECT jsonb_build_object(
     'decision_kind', p_decision_kind,
@@ -1744,13 +1798,21 @@ AS $$
 WITH
 original_foods AS (
     SELECT
-        lower(public.normalize_submission_text(value ->> 'food_name')) || '|' || coalesce(value ->> 'food_fdc_id', '') AS food_key,
+        lower(public.normalize_submission_text(value ->> 'food_name')) || '|' ||
+            coalesce(value ->> 'food_fdc_id', '') || '|' ||
+            coalesce(value ->> 'is_custom_food', '') || '|' ||
+            lower(public.normalize_submission_text(value ->> 'raw_food_name')) || '|' ||
+            lower(public.normalize_submission_text(value ->> 'preparation_state')) AS food_key,
         value AS food
     FROM jsonb_array_elements(coalesce(p_original_payload -> 'food_items', '[]'::jsonb)) AS value
 ),
 final_foods AS (
     SELECT
-        lower(public.normalize_submission_text(value ->> 'food_name')) || '|' || coalesce(value ->> 'food_fdc_id', '') AS food_key,
+        lower(public.normalize_submission_text(value ->> 'food_name')) || '|' ||
+            coalesce(value ->> 'food_fdc_id', '') || '|' ||
+            coalesce(value ->> 'is_custom_food', '') || '|' ||
+            lower(public.normalize_submission_text(value ->> 'raw_food_name')) || '|' ||
+            lower(public.normalize_submission_text(value ->> 'preparation_state')) AS food_key,
         value AS food
     FROM jsonb_array_elements(coalesce(p_final_payload -> 'food_items', '[]'::jsonb)) AS value
 ),
@@ -1760,17 +1822,37 @@ original_nutrients AS (
         jsonb_build_object(
             'food_name', food ->> 'food_name',
             'food_fdc_id', food ->> 'food_fdc_id',
+            'is_custom_food', food -> 'is_custom_food',
+            'raw_food_name', food ->> 'raw_food_name',
+            'preparation_state', food ->> 'preparation_state',
             'nutrient_id', nutrient ->> 'nutrient_id',
+            'is_custom_nutrient', nutrient -> 'is_custom_nutrient',
             'nutrient_name', public.normalize_submission_text(nutrient ->> 'nutrient_name'),
+            'raw_nutrient_name', public.normalize_submission_text(nutrient ->> 'raw_nutrient_name'),
             'value', nutrient -> 'value',
-            'unit', public.normalize_submission_text(nutrient ->> 'unit')
+            'unit', public.normalize_submission_text(nutrient ->> 'unit'),
+            'basis', public.normalize_submission_text(nutrient ->> 'basis'),
+            'sample_size', nutrient -> 'sample_size',
+            'confidence', nutrient -> 'confidence',
+            'source_citation', public.normalize_submission_text(nutrient ->> 'source_citation'),
+            'metadata', coalesce(nutrient -> 'metadata', '{}'::jsonb)
         ) AS nutrient_row,
         lower(public.normalize_submission_text(food ->> 'food_name')) || '|' ||
             coalesce(food ->> 'food_fdc_id', '') || '|' ||
+            coalesce(food ->> 'is_custom_food', '') || '|' ||
+            lower(public.normalize_submission_text(food ->> 'raw_food_name')) || '|' ||
+            lower(public.normalize_submission_text(food ->> 'preparation_state')) || '|' ||
             coalesce(nutrient ->> 'nutrient_id', '') || '|' ||
+            coalesce(nutrient ->> 'is_custom_nutrient', '') || '|' ||
             lower(public.normalize_submission_text(nutrient ->> 'nutrient_name')) || '|' ||
+            lower(public.normalize_submission_text(nutrient ->> 'raw_nutrient_name')) || '|' ||
             public.normalize_submission_text(nutrient ->> 'unit') || '|' ||
-            coalesce((nutrient -> 'value')::text, '') AS nutrient_key
+            public.normalize_submission_text(nutrient ->> 'basis') || '|' ||
+            coalesce((nutrient -> 'value')::text, '') || '|' ||
+            coalesce((nutrient -> 'sample_size')::text, '') || '|' ||
+            coalesce((nutrient -> 'confidence')::text, '') || '|' ||
+            lower(public.normalize_submission_text(nutrient ->> 'source_citation')) || '|' ||
+            coalesce((nutrient -> 'metadata')::text, '') AS nutrient_key
     FROM original_foods
     CROSS JOIN LATERAL jsonb_array_elements(coalesce(food -> 'nutrients', '[]'::jsonb)) AS nutrient
 ),
@@ -1780,17 +1862,37 @@ final_nutrients AS (
         jsonb_build_object(
             'food_name', food ->> 'food_name',
             'food_fdc_id', food ->> 'food_fdc_id',
+            'is_custom_food', food -> 'is_custom_food',
+            'raw_food_name', food ->> 'raw_food_name',
+            'preparation_state', food ->> 'preparation_state',
             'nutrient_id', nutrient ->> 'nutrient_id',
+            'is_custom_nutrient', nutrient -> 'is_custom_nutrient',
             'nutrient_name', public.normalize_submission_text(nutrient ->> 'nutrient_name'),
+            'raw_nutrient_name', public.normalize_submission_text(nutrient ->> 'raw_nutrient_name'),
             'value', nutrient -> 'value',
-            'unit', public.normalize_submission_text(nutrient ->> 'unit')
+            'unit', public.normalize_submission_text(nutrient ->> 'unit'),
+            'basis', public.normalize_submission_text(nutrient ->> 'basis'),
+            'sample_size', nutrient -> 'sample_size',
+            'confidence', nutrient -> 'confidence',
+            'source_citation', public.normalize_submission_text(nutrient ->> 'source_citation'),
+            'metadata', coalesce(nutrient -> 'metadata', '{}'::jsonb)
         ) AS nutrient_row,
         lower(public.normalize_submission_text(food ->> 'food_name')) || '|' ||
             coalesce(food ->> 'food_fdc_id', '') || '|' ||
+            coalesce(food ->> 'is_custom_food', '') || '|' ||
+            lower(public.normalize_submission_text(food ->> 'raw_food_name')) || '|' ||
+            lower(public.normalize_submission_text(food ->> 'preparation_state')) || '|' ||
             coalesce(nutrient ->> 'nutrient_id', '') || '|' ||
+            coalesce(nutrient ->> 'is_custom_nutrient', '') || '|' ||
             lower(public.normalize_submission_text(nutrient ->> 'nutrient_name')) || '|' ||
+            lower(public.normalize_submission_text(nutrient ->> 'raw_nutrient_name')) || '|' ||
             public.normalize_submission_text(nutrient ->> 'unit') || '|' ||
-            coalesce((nutrient -> 'value')::text, '') AS nutrient_key
+            public.normalize_submission_text(nutrient ->> 'basis') || '|' ||
+            coalesce((nutrient -> 'value')::text, '') || '|' ||
+            coalesce((nutrient -> 'sample_size')::text, '') || '|' ||
+            coalesce((nutrient -> 'confidence')::text, '') || '|' ||
+            lower(public.normalize_submission_text(nutrient ->> 'source_citation')) || '|' ||
+            coalesce((nutrient -> 'metadata')::text, '') AS nutrient_key
     FROM final_foods
     CROSS JOIN LATERAL jsonb_array_elements(coalesce(food -> 'nutrients', '[]'::jsonb)) AS nutrient
 ),
@@ -2495,6 +2597,7 @@ DECLARE
     v_payload_hash TEXT;
     v_submission paper_assignment_submissions;
     v_food_count INTEGER;
+    v_nutrient_count INTEGER;
 BEGIN
     IF p_decision_kind NOT IN ('has_data', 'no_usable_data') THEN
         RAISE EXCEPTION 'Unsupported decision kind: %', p_decision_kind;
@@ -2539,11 +2642,22 @@ BEGIN
 
         SELECT COUNT(*)
         INTO v_food_count
-        FROM food_items
-        WHERE annotation_id = v_annotation.id;
+        FROM food_items fi
+        WHERE fi.annotation_id = v_annotation.id
+          AND EXISTS (
+              SELECT 1
+              FROM annotation_nutrient_values anv
+              WHERE anv.food_item_id = fi.id
+          );
 
-        IF v_food_count <= 0 THEN
-            RAISE EXCEPTION 'Cannot submit has_data without at least one food item';
+        SELECT COUNT(*)
+        INTO v_nutrient_count
+        FROM annotation_nutrient_values anv
+        JOIN food_items fi ON fi.id = anv.food_item_id
+        WHERE fi.annotation_id = v_annotation.id;
+
+        IF v_food_count <= 0 OR v_nutrient_count <= 0 THEN
+            RAISE EXCEPTION 'Cannot submit has_data without at least one food item with nutrient rows';
         END IF;
 
         v_payload_json := public.build_annotation_submission_payload(v_annotation.id, p_decision_kind);
@@ -2631,6 +2745,7 @@ DECLARE
     v_submission paper_label_submissions;
     v_approval paper_label_approvals;
     v_food_count INTEGER;
+    v_nutrient_count INTEGER;
 BEGIN
     IF p_decision_kind NOT IN ('has_data', 'no_usable_data') THEN
         RAISE EXCEPTION 'Unsupported decision kind: %', p_decision_kind;
@@ -2680,11 +2795,22 @@ BEGIN
     IF p_decision_kind = 'has_data' THEN
         SELECT COUNT(*)
         INTO v_food_count
-        FROM food_items
-        WHERE annotation_id = v_annotation.id;
+        FROM food_items fi
+        WHERE fi.annotation_id = v_annotation.id
+          AND EXISTS (
+              SELECT 1
+              FROM annotation_nutrient_values anv
+              WHERE anv.food_item_id = fi.id
+          );
 
-        IF v_food_count <= 0 THEN
-            RAISE EXCEPTION 'Cannot submit has_data without at least one food item';
+        SELECT COUNT(*)
+        INTO v_nutrient_count
+        FROM annotation_nutrient_values anv
+        JOIN food_items fi ON fi.id = anv.food_item_id
+        WHERE fi.annotation_id = v_annotation.id;
+
+        IF v_food_count <= 0 OR v_nutrient_count <= 0 THEN
+            RAISE EXCEPTION 'Cannot submit has_data without at least one food item with nutrient rows';
         END IF;
 
         v_payload_json := public.build_annotation_submission_payload(v_annotation.id, p_decision_kind);
@@ -2832,6 +2958,7 @@ DECLARE
     v_payload_hash TEXT;
     v_approval paper_label_approvals;
     v_food_count INTEGER;
+    v_nutrient_count INTEGER;
 BEGIN
     IF p_decision_kind NOT IN ('has_data', 'no_usable_data') THEN
         RAISE EXCEPTION 'Unsupported decision kind: %', p_decision_kind;
@@ -2894,11 +3021,22 @@ BEGIN
     IF p_decision_kind = 'has_data' THEN
         SELECT COUNT(*)
         INTO v_food_count
-        FROM food_items
-        WHERE annotation_id = v_annotation.id;
+        FROM food_items fi
+        WHERE fi.annotation_id = v_annotation.id
+          AND EXISTS (
+              SELECT 1
+              FROM annotation_nutrient_values anv
+              WHERE anv.food_item_id = fi.id
+          );
 
-        IF v_food_count <= 0 THEN
-            RAISE EXCEPTION 'Cannot approve has_data without at least one food item';
+        SELECT COUNT(*)
+        INTO v_nutrient_count
+        FROM annotation_nutrient_values anv
+        JOIN food_items fi ON fi.id = anv.food_item_id
+        WHERE fi.annotation_id = v_annotation.id;
+
+        IF v_food_count <= 0 OR v_nutrient_count <= 0 THEN
+            RAISE EXCEPTION 'Cannot approve has_data without at least one food item with nutrient rows';
         END IF;
 
         v_payload_json := public.build_annotation_submission_payload(v_annotation.id, p_decision_kind);
@@ -3784,10 +3922,19 @@ CREATE POLICY "Service role full access backlog review items"
 ALTER TABLE food_items
     ADD COLUMN IF NOT EXISTS food_fdc_id UUID REFERENCES entities(id),
     ADD COLUMN IF NOT EXISTS is_custom_food BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS raw_food_name TEXT,
+    ADD COLUMN IF NOT EXISTS preparation_state TEXT,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 ALTER TABLE annotation_nutrient_values
     ADD COLUMN IF NOT EXISTS nutrient_id UUID REFERENCES master_nutrients(id),
+    ADD COLUMN IF NOT EXISTS is_custom_nutrient BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS raw_nutrient_name TEXT,
+    ADD COLUMN IF NOT EXISTS basis TEXT NOT NULL DEFAULT 'per_100g',
+    ADD COLUMN IF NOT EXISTS sample_size INTEGER,
+    ADD COLUMN IF NOT EXISTS confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+    ADD COLUMN IF NOT EXISTS source_citation TEXT,
+    ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 ALTER TABLE food_items DROP COLUMN IF EXISTS moisture;

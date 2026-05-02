@@ -19,9 +19,9 @@ from scripts.process_stage_queue import drain_stage_queue, require_client
 
 
 TERMINAL_STOP_REASONS = {
-    "queues_full",
+    "daily_ai_call_budget_exhausted",
     "ai_first_task_quota_limited",
-    "no_eligible_refill_need",
+    "no_progress",
     "dry_run",
 }
 
@@ -30,9 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the daily recursive OpenNutri queue operation loop."
     )
-    parser.add_argument("--target-open", type=int, default=50, help="Target visible papers in the shared general queue")
-    parser.add_argument("--max-cycles", type=int, default=8, help="Maximum assign/AI/crawl cycles to run")
-    parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum AI tasks to process across this whole run")
+    parser.add_argument("--target-open", type=int, default=50, help="Retained for stock reporting compatibility; daily ops no longer stops on this target")
+    parser.add_argument("--max-cycles", type=int, default=8, help="Maximum AI/crawl cycles to run in this invocation")
+    parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum AI tasks to process in this controller invocation")
+    parser.add_argument("--daily-ai-call-budget", type=int, default=20, help="Daily Gemini call budget to consume before terminal stop")
+    parser.add_argument("--ai-tasks-already-used", type=int, default=0, help="Gemini calls already consumed by earlier controller invocations today")
     parser.add_argument("--refill-step-en", type=int, default=4, help="New English papers to request when needed")
     parser.add_argument("--refill-step-tr", type=int, default=4, help="New Turkish papers to request when needed")
     parser.add_argument("--seed", type=int, default=20260413, help="Random seed for assignment balancing")
@@ -62,31 +64,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _need_by_language(
-    client: Any,
-    *,
-    target_open: int,
-    refill_step_en: int,
-    refill_step_tr: int,
-) -> dict[str, Any]:
-    state = refill_assignment_queue.fetch_state(client)
-    context = refill_assignment_queue.compute_assignment_context(state, target_open=target_open)
-    deficits: dict[str, int] = context["language_deficits"]  # type: ignore[assignment]
-    open_available: list[dict] = context["open_available"]  # type: ignore[assignment]
-
-    need_en = deficits.get("en", 0) > 0
-    need_tr = deficits.get("tr", 0) > 0
-    requested = {
-        "en": max(0, int(refill_step_en)) if need_en else 0,
-        "tr": max(0, int(refill_step_tr)) if need_tr else 0,
-    }
-    return {
-        "requested": requested,
-        "deficits": refill_assignment_queue.deficits_by_name(deficits),
-        "available": refill_assignment_queue.assignment_stock_counts(open_available),
-    }
-
-
 def _crawler_args(args: argparse.Namespace) -> SimpleNamespace:
     return SimpleNamespace(
         data_dir=args.data_dir,
@@ -97,6 +74,14 @@ def _crawler_args(args: argparse.Namespace) -> SimpleNamespace:
         dergipark_max_issues_per_journal=args.dergipark_max_issues_per_journal,
         skip_feedback=args.skip_feedback,
         skip_dergipark_refresh=args.skip_dergipark_refresh,
+    )
+
+
+def _queued_ai_paper_count(papers: list[dict]) -> int:
+    return sum(
+        1
+        for paper in papers
+        if str(paper.get("routing_status") or "").strip().lower() == "queued_for_ai"
     )
 
 
@@ -134,59 +119,58 @@ def _quota_stop_reason(ai_summary: dict[str, object]) -> str:
 
 
 def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
-    max_ai_tasks = max(1, int(args.max_ai_tasks))
+    daily_ai_call_budget = max(1, int(getattr(args, "daily_ai_call_budget", 20)))
+    ai_tasks_already_used = max(0, int(getattr(args, "ai_tasks_already_used", 0)))
+    invocation_ai_task_limit = max(1, int(args.max_ai_tasks))
     ai_tasks_used = 0
     summary: dict[str, Any] = {
         "dry_run": bool(args.dry_run),
         "target_open": int(args.target_open),
-        "max_ai_tasks": max_ai_tasks,
+        "max_ai_tasks": invocation_ai_task_limit,
+        "daily_ai_call_budget": daily_ai_call_budget,
+        "ai_tasks_already_used": ai_tasks_already_used,
         "ai_tasks_used": ai_tasks_used,
+        "daily_ai_tasks_used": ai_tasks_already_used,
         "cycles": [],
         "stopped_reason": None,
     }
+
+    if ai_tasks_already_used >= daily_ai_call_budget:
+        summary["stopped_reason"] = "daily_ai_call_budget_exhausted"
+        summary["terminal"] = True
+        return summary
 
     for cycle in range(1, max(1, int(args.max_cycles)) + 1):
         if not args.json_summary:
             print(f"\nDaily ops cycle {cycle}")
         cycle_summary: dict[str, Any] = {"cycle": cycle}
 
-        assignment_summary = refill_assignment_queue.assign_ready_papers(
-            client,
-            target_open=args.target_open,
-            seed=args.seed,
-            dry_run=args.dry_run,
-            verbose=not args.json_summary,
-        )
-        cycle_summary["assignment"] = assignment_summary
+        state = refill_assignment_queue.fetch_state(client)
+        queued_before = _queued_ai_paper_count(state.get("papers", []))
+        cycle_summary["queued_ai_before"] = queued_before
+        remaining_daily_ai_tasks = daily_ai_call_budget - (ai_tasks_already_used + ai_tasks_used)
+        remaining_invocation_ai_tasks = invocation_ai_task_limit - ai_tasks_used
+        remaining_ai_tasks = min(remaining_daily_ai_tasks, remaining_invocation_ai_tasks)
 
-        if assignment_summary.get("satisfied"):
-            summary["stopped_reason"] = "queues_full"
+        if remaining_ai_tasks <= 0:
+            summary["stopped_reason"] = (
+                "daily_ai_call_budget_exhausted"
+                if ai_tasks_already_used + ai_tasks_used >= daily_ai_call_budget
+                else "ai_run_budget_exhausted"
+            )
             summary["cycles"].append(cycle_summary)
             break
 
-        if assignment_summary.get("made_progress"):
-            summary["cycles"].append(cycle_summary)
-            if args.dry_run:
-                summary["stopped_reason"] = "dry_run"
-                break
-            continue
-
-        state = refill_assignment_queue.fetch_state(client)
         if refill_assignment_queue.has_queued_ai_work(state["papers"]):
             if args.dry_run:
                 cycle_summary["ai"] = {"would_process": True}
                 summary["stopped_reason"] = "dry_run"
                 summary["cycles"].append(cycle_summary)
                 break
-            remaining_ai_tasks = max_ai_tasks - ai_tasks_used
-            if remaining_ai_tasks <= 0:
-                cycle_summary["ai"] = {"skipped": "run_ai_task_budget_exhausted"}
-                summary["stopped_reason"] = "ai_run_budget_exhausted"
-                summary["cycles"].append(cycle_summary)
-                break
             ai_summary = _run_ai_drain(client, args, max_tasks=remaining_ai_tasks)
             ai_tasks_used += int(ai_summary.get("processed") or 0)
             summary["ai_tasks_used"] = ai_tasks_used
+            summary["daily_ai_tasks_used"] = ai_tasks_already_used + ai_tasks_used
             cycle_summary["ai"] = ai_summary
             if ai_summary.get("quota_limited"):
                 assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
@@ -196,7 +180,14 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
                 summary["cycles"].append(cycle_summary)
                 break
             if int(ai_summary.get("processed") or 0) > 0:
-                if ai_tasks_used >= max_ai_tasks:
+                if ai_tasks_already_used + ai_tasks_used >= daily_ai_call_budget:
+                    assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
+                    if assignment_after_ai is not None:
+                        cycle_summary["assignment_after_ai"] = assignment_after_ai
+                    summary["stopped_reason"] = "daily_ai_call_budget_exhausted"
+                    summary["cycles"].append(cycle_summary)
+                    break
+                if ai_tasks_used >= invocation_ai_task_limit:
                     assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
                     if assignment_after_ai is not None:
                         cycle_summary["assignment_after_ai"] = assignment_after_ai
@@ -206,16 +197,16 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
                 summary["cycles"].append(cycle_summary)
                 continue
 
-        crawl_need = _need_by_language(
-            client,
-            target_open=args.target_open,
-            refill_step_en=args.refill_step_en,
-            refill_step_tr=args.refill_step_tr,
-        )
-        requested = crawl_need["requested"]
-        cycle_summary["crawl_need"] = crawl_need
+        requested = {
+            "en": max(0, int(args.refill_step_en)),
+            "tr": max(0, int(args.refill_step_tr)),
+        }
+        cycle_summary["crawl_need"] = {
+            "requested": requested,
+            "mode": "max_ai_usage",
+        }
         if requested["en"] <= 0 and requested["tr"] <= 0:
-            summary["stopped_reason"] = "no_eligible_refill_need"
+            summary["stopped_reason"] = "no_progress"
             summary["cycles"].append(cycle_summary)
             break
 
@@ -234,15 +225,30 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         )
         cycle_summary["crawl"] = {"requested": requested}
 
-        remaining_ai_tasks = max_ai_tasks - ai_tasks_used
+        state_after_crawl = refill_assignment_queue.fetch_state(client)
+        queued_after_crawl = _queued_ai_paper_count(state_after_crawl.get("papers", []))
+        cycle_summary["queued_ai_after_crawl"] = queued_after_crawl
+        if queued_after_crawl <= 0 and queued_before <= 0:
+            summary["stopped_reason"] = "no_progress"
+            summary["cycles"].append(cycle_summary)
+            break
+
+        remaining_daily_ai_tasks = daily_ai_call_budget - (ai_tasks_already_used + ai_tasks_used)
+        remaining_invocation_ai_tasks = invocation_ai_task_limit - ai_tasks_used
+        remaining_ai_tasks = min(remaining_daily_ai_tasks, remaining_invocation_ai_tasks)
         if remaining_ai_tasks <= 0:
-            cycle_summary["ai_after_crawl"] = {"skipped": "run_ai_task_budget_exhausted"}
-            summary["stopped_reason"] = "ai_run_budget_exhausted"
+            cycle_summary["ai_after_crawl"] = {"skipped": "run_or_daily_ai_task_budget_exhausted"}
+            summary["stopped_reason"] = (
+                "daily_ai_call_budget_exhausted"
+                if ai_tasks_already_used + ai_tasks_used >= daily_ai_call_budget
+                else "ai_run_budget_exhausted"
+            )
             summary["cycles"].append(cycle_summary)
             break
         ai_summary = _run_ai_drain(client, args, max_tasks=remaining_ai_tasks)
         ai_tasks_used += int(ai_summary.get("processed") or 0)
         summary["ai_tasks_used"] = ai_tasks_used
+        summary["daily_ai_tasks_used"] = ai_tasks_already_used + ai_tasks_used
         cycle_summary["ai_after_crawl"] = ai_summary
         if ai_summary.get("quota_limited"):
             assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
@@ -251,7 +257,18 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             summary["stopped_reason"] = _quota_stop_reason(ai_summary)
             summary["cycles"].append(cycle_summary)
             break
-        if int(ai_summary.get("processed") or 0) > 0 and ai_tasks_used >= max_ai_tasks:
+        if int(ai_summary.get("processed") or 0) <= 0 and queued_after_crawl <= queued_before:
+            summary["stopped_reason"] = "no_progress"
+            summary["cycles"].append(cycle_summary)
+            break
+        if int(ai_summary.get("processed") or 0) > 0 and ai_tasks_already_used + ai_tasks_used >= daily_ai_call_budget:
+            assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
+            if assignment_after_ai is not None:
+                cycle_summary["assignment_after_ai"] = assignment_after_ai
+            summary["stopped_reason"] = "daily_ai_call_budget_exhausted"
+            summary["cycles"].append(cycle_summary)
+            break
+        if int(ai_summary.get("processed") or 0) > 0 and ai_tasks_used >= invocation_ai_task_limit:
             assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
             if assignment_after_ai is not None:
                 cycle_summary["assignment_after_ai"] = assignment_after_ai

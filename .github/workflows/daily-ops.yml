@@ -2,9 +2,9 @@ name: Daily OpenNutri Ops
 
 on:
   schedule:
-    # GitHub cron is UTC. The gate step below keeps the 00:15
+    # GitHub cron is UTC. The gate step below keeps the 00:05
     # America/Los_Angeles start in both PDT and PST, with tolerance for runner delay.
-    - cron: "15 7,8 * * *"
+    - cron: "5 7,8 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -29,7 +29,7 @@ jobs:
           pacific_minute="$(TZ=America/Los_Angeles date +%M)"
           pacific_time="${pacific_hour}:${pacific_minute}"
           case "$pacific_time" in
-            00:1[5-9]|00:[2-5][0-9])
+            00:0[5-9]|00:[1-5][0-9])
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               ;;
             *)
@@ -78,6 +78,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          daily_ai_tasks_used=0
+          daily_ai_call_budget=20
+
           while true; do
             summary="$(
               python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
@@ -85,14 +88,21 @@ jobs:
                 --target-open 50 \
                 --max-cycles 8 \
                 --max-ai-tasks 5 \
+                --daily-ai-call-budget "$daily_ai_call_budget" \
+                --ai-tasks-already-used "$daily_ai_tasks_used" \
                 | tee /tmp/opennutri-daily-ops-last.jsonl \
                 | tail -n 1
             )"
             reason="$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("stopped_reason", ""))' "$summary")"
             terminal="$(python3 -c 'import json, sys; print("true" if json.loads(sys.argv[1]).get("terminal") else "false")' "$summary")"
-            echo "Daily ops iteration stopped_reason=$reason terminal=$terminal"
+            daily_ai_tasks_used="$(python3 -c 'import json, sys; print(int(json.loads(sys.argv[1]).get("daily_ai_tasks_used") or 0))' "$summary")"
+            echo "Daily ops iteration stopped_reason=$reason terminal=$terminal daily_ai_tasks_used=$daily_ai_tasks_used/$daily_ai_call_budget"
 
             if [ "$terminal" = "true" ]; then
+              break
+            fi
+            if [ "$daily_ai_tasks_used" -ge "$daily_ai_call_budget" ]; then
+              echo "Daily Gemini call budget consumed."
               break
             fi
 

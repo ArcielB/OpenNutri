@@ -27,7 +27,13 @@ from scripts.backfill_ai_routing import (
     cancel_unresolved_assignments_for_closed_routes,
     reset_open_human_assignments_for_ai,
 )
-from scripts.process_stage_queue import claim_stage_tasks, drain_stage_queue, is_quota_error, process_one_task
+from scripts.process_stage_queue import (
+    claim_stage_tasks,
+    drain_stage_queue,
+    is_quota_error,
+    process_one_task,
+    select_food_candidates_for_text,
+)
 from evaluator.unified_evaluator import UnifiedEvaluator
 
 
@@ -289,10 +295,13 @@ class RoutingLogicTests(unittest.TestCase):
         self.assertIsNone(food_item["food_fdc_id"])
         self.assertTrue(food_item["is_custom_food"])
         self.assertEqual(
-            food_item["nutrients"],
             [
-                {"nutrient_id": None, "nutrient_name": "Protein", "unit": "g/100g", "value": 0.3},
-                {"nutrient_id": None, "nutrient_name": "Vitamin C", "unit": "mg/100g", "value": 4.6},
+                (row["nutrient_id"], row["is_custom_nutrient"], row["nutrient_name"], row["unit"], row["basis"], row["value"])
+                for row in food_item["nutrients"]
+            ],
+            [
+                (None, True, "Protein", "g/100g", "per_100g", 0.3),
+                (None, True, "Vitamin C", "mg/100g", "per_100g", 4.6),
             ],
         )
 
@@ -353,16 +362,22 @@ class RoutingLogicTests(unittest.TestCase):
         self.assertFalse(apple["is_custom_food"])
         self.assertEqual(apple["food_fdc_id"], "food-apple")
         self.assertEqual(
-            apple["nutrients"],
             [
-                {"nutrient_id": "nutrient-protein", "nutrient_name": "Protein", "unit": "g/100g", "value": 0.3},
-                {"nutrient_id": "nutrient-vitc", "nutrient_name": "Vitamin C", "unit": "mg/100g", "value": 4.6},
-                {"nutrient_id": "nutrient-vitc", "nutrient_name": "Vitamin C", "unit": "mg/100g", "value": 5.0},
+                (row["nutrient_id"], row["is_custom_nutrient"], row["nutrient_name"], row["unit"], row["basis"], row["value"])
+                for row in apple["nutrients"]
+            ],
+            [
+                ("nutrient-protein", False, "Protein", "g/100g", "per_100g", 0.3),
+                ("nutrient-vitc", False, "Vitamin C", "mg/100g", "per_100g", 5.0),
+                ("nutrient-vitc", False, "Vitamin C", "mg/100g", "per_100g", 4.6),
             ],
         )
         self.assertEqual(
-            payload["food_items"][1]["nutrients"],
-            [{"nutrient_id": None, "nutrient_name": "Zinc", "unit": "mg/100g", "value": 1.234568}],
+            [
+                (row["nutrient_id"], row["is_custom_nutrient"], row["nutrient_name"], row["unit"], row["basis"], row["value"])
+                for row in payload["food_items"][1]["nutrients"]
+            ],
+            [(None, True, "Zinc", "mg/100g", "per_100g", 1.234568)],
         )
 
     def test_normalize_ai_payload_accepts_exact_db_ids_when_names_match(self) -> None:
@@ -389,27 +404,20 @@ class RoutingLogicTests(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(
-            payload,
-            {
-                "decision_kind": "has_data",
-                "food_items": [
-                    {
-                        "food_name": "Apple, raw",
-                        "food_fdc_id": "food-apple",
-                        "is_custom_food": False,
-                        "nutrients": [
-                            {
-                                "nutrient_id": "nutrient-protein",
-                                "nutrient_name": "Protein",
-                                "value": 0.31,
-                                "unit": "g/100g",
-                            }
-                        ],
-                    }
-                ],
-            },
-        )
+        food_item = payload["food_items"][0]
+        nutrient = food_item["nutrients"][0]
+        self.assertEqual(payload["decision_kind"], "has_data")
+        self.assertEqual(food_item["food_name"], "Apple, raw")
+        self.assertEqual(food_item["food_fdc_id"], "food-apple")
+        self.assertFalse(food_item["is_custom_food"])
+        self.assertEqual(food_item["raw_food_name"], "Apple, raw")
+        self.assertEqual(nutrient["nutrient_id"], "nutrient-protein")
+        self.assertFalse(nutrient["is_custom_nutrient"])
+        self.assertEqual(nutrient["nutrient_name"], "Protein")
+        self.assertEqual(nutrient["raw_nutrient_name"], "Protein")
+        self.assertEqual(nutrient["value"], 0.31)
+        self.assertEqual(nutrient["unit"], "g/100g")
+        self.assertEqual(nutrient["basis"], "per_100g")
 
     def test_normalize_ai_payload_rejects_stale_or_mismatched_db_ids(self) -> None:
         payload = normalize_ai_payload(
@@ -467,7 +475,20 @@ class RoutingLogicTests(unittest.TestCase):
         self.assertEqual(food_item["nutrients"][0]["nutrient_id"], None)
         self.assertEqual(food_item["nutrients"][0]["nutrient_name"], "Total phenolic compounds")
 
-    def test_normalized_payload_keeps_raw_metadata_out_of_canonical_contract(self) -> None:
+    def test_select_food_candidates_for_text_uses_aliases_without_full_catalog(self) -> None:
+        candidates = select_food_candidates_for_text(
+            "The table reports Fuji apple and dried pear composition values.",
+            [
+                {"id": "food-apple", "canonical_name": "Apple, raw", "alias_names": ["Fuji apple"]},
+                {"id": "food-bread", "canonical_name": "Bread"},
+                {"id": "food-pear", "canonical_name": "Pear, dried", "alias_names": ["dried pear"]},
+            ],
+            limit=5,
+        )
+
+        self.assertEqual([row["id"] for row in candidates], ["food-apple", "food-pear"])
+
+    def test_normalized_payload_preserves_raw_metadata_in_canonical_contract(self) -> None:
         payload = normalize_ai_payload(
             is_useful=True,
             records=[
@@ -485,11 +506,12 @@ class RoutingLogicTests(unittest.TestCase):
             ],
         )
 
-        payload_text = json.dumps(payload)
-        self.assertNotIn("raw_food_name", payload_text)
-        self.assertNotIn("raw_nutrient_name", payload_text)
-        self.assertNotIn("source_citation", payload_text)
-        self.assertNotIn("confidence", payload_text)
+        food_item = payload["food_items"][0]
+        nutrient = food_item["nutrients"][0]
+        self.assertEqual(food_item["raw_food_name"], "Fuji apple")
+        self.assertEqual(nutrient["raw_nutrient_name"], "crude protein")
+        self.assertEqual(nutrient["source_citation"], "Table 1, row 2")
+        self.assertEqual(nutrient["confidence"], 0.9)
 
 
 class StockAndFeedbackTests(unittest.TestCase):
