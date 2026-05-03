@@ -63,7 +63,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Relevance filtering currently targets English and Turkish only.
 - The annotator now uses a general queue:
   every active labeler sees the same available `human_review_ready` papers, and a paper disappears from the queue as soon as a general label submission exists.
-- Only papers successfully processed by AI with a normalized `has_data` payload should enter the human labeling queue. AI no-usable-data/empty outcomes should be finalized as empty instead of sent to labelers.
+- Only papers successfully processed by AI with a normalized decision payload should enter the human labeling queue. Both AI `has_data` and AI `no_usable_data` decisions go to humans while thresholds are intentionally set to require human validation; only above-threshold AI outcomes should bypass humans.
 - General queue drafts are not claims. Multiple stale in-progress reviewers can still submit before final approval, and every immutable submission is retained in `paper_label_submissions`.
 - Final human truth is reviewer-led approval:
   Arciel currently has `reviewer_profiles.can_approve_labels = true`; approval rights are configurable and separate from tester/cockpit visibility.

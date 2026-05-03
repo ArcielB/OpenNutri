@@ -1086,7 +1086,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.upserts[0][1]["decision_kind"], "no_usable_data")
 
     @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
-    def test_no_usable_data_finalizes_empty_even_when_negative_threshold_is_one(self, _extract_mock: Mock) -> None:
+    def test_threshold_one_routes_no_usable_data_to_humans(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
                 "papers": [
@@ -1131,13 +1131,12 @@ class QueueAndBackfillTests(unittest.TestCase):
             evaluator=evaluator,
         )
 
-        self.assertEqual(result["status"], "ai_finalized_no_usable_data")
+        self.assertEqual(result["status"], "human_review_ready")
         extraction_payload = client.inserts[0][1][0]
         self.assertEqual(extraction_payload["routing_bucket"], "low_confidence_no_usable_data")
-        self.assertTrue(extraction_payload["finalized_without_human"])
+        self.assertFalse(extraction_payload["finalized_without_human"])
         self.assertEqual(extraction_payload["normalized_payload_json"], {"decision_kind": "no_usable_data", "food_items": []})
-        self.assertEqual(client.upserts[0][0], "paper_review_outcomes")
-        self.assertEqual(client.upserts[0][1]["decision_kind"], "no_usable_data")
+        self.assertEqual(client.upserts, [])
 
 
 if __name__ == "__main__":

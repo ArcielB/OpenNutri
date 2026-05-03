@@ -30,7 +30,7 @@ Pipeline:
 Important rules:
 
 - Labelers see a shared Queue of available papers.
-- A paper is available to labelers only after AI processing creates a latest normalized `has_data` extraction payload. Empty/no-usable-data AI outcomes are finalized as empty instead of being sent to labelers.
+- A paper is available to labelers only after AI processing creates a latest normalized decision payload. Both `has_data` and `no_usable_data` AI decisions remain human-review work while thresholds are set to require validation.
 - A paper leaves the visible Queue as soon as any pending/accepted general submission exists.
 - Drafts do not claim papers. If two people already have the same paper open, both can still submit before final approval.
 - Every submitted payload is immutable in `paper_label_submissions`.
@@ -79,7 +79,7 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 
 `apps/expert-annotator/src/pages/Annotate.jsx` now exposes:
 
-- `Queue`: shared available paper list, AI prefill from latest `ai_extractions.normalized_payload_json`, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized AI `has_data` output; AI-prefilled rows are editable DB-compliant extracted data; AI reasoning is not shown to labelers.
+- `Queue`: shared available paper list, AI prefill from latest `ai_extractions.normalized_payload_json`, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized AI output; AI `has_data` rows are editable DB-compliant extracted data, AI `no_usable_data` decisions open as an empty review state, and AI reasoning is not shown to labelers.
 - `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers.
 - `Dashboard`: labeler performance and detailed correction history.
 - `All Papers`: global paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload.

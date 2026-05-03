@@ -1958,8 +1958,7 @@ BEGIN
       ON latest_ai.id = p.latest_ai_extraction_id
     WHERE p.routing_status = 'human_review_ready'
       AND p.workflow_language IN ('en', 'tr')
-      AND latest_ai.normalized_payload_json ->> 'decision_kind' = 'has_data'
-      AND jsonb_array_length(coalesce(latest_ai.normalized_payload_json -> 'food_items', '[]'::jsonb)) > 0
+      AND latest_ai.normalized_payload_json ->> 'decision_kind' IN ('has_data', 'no_usable_data')
       AND NOT EXISTS (
           SELECT 1
           FROM paper_review_outcomes outcome
