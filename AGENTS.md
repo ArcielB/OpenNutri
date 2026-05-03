@@ -79,7 +79,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Legacy global no-data still exists in the schema for old data, but the active workflow is general queue + reviewer approval.
 
 ## Research Ops Notes
-- Current top-level goal: finish Preliminary Study 3 fast enough to publish the paper and support the TÜBİTAK application.
+- Current top-level goal: Preliminary Study 3 is skipped. Near-term pipeline work should optimize for quickly surfacing useful direct food-composition papers, even if that means accepting lower recall and revisiting skipped candidates in a later pass.
 - Queue strategy: keep paper stock low on purpose and refill as labeling proceeds so each crawl benefits from newer feedback.
 - Automated daily ops now maximizes Gemini usage instead of stopping when the shared human queue is full. The daily target is 20 Gemini calls; each controller invocation processes at most 5 AI tasks, then GitHub Actions sleeps 5 minutes and continues until the 20-call budget is consumed, the first AI call is quota-limited, or a crawl/AI iteration produces no queued or processed work.
 - Daily ops starts once at 00:05 America/Los_Angeles after Gemini RPD reset. The GitHub Actions controller loops every 5 minutes until `daily_ops_orchestrator.py` returns `terminal=true`; terminal stop reasons include `daily_ai_call_budget_exhausted`, `ai_first_task_quota_limited`, `no_progress`, and `dry_run`. Non-terminal reasons like `ai_run_budget_exhausted`, `ai_quota_limited_after_progress`, and `max_cycles` should continue after the 5-minute sleep.
@@ -120,7 +120,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 
 ## Current Priorities
 - Prevent empty food items and label-count mismatches.
-- Operate and refine the general queue + Arciel approval workflow for Preliminary Study 3.
+- Operate and refine the general queue + Arciel approval workflow around high-precision useful-paper discovery.
 - Train and integrate the L2 classifier once label volume supports it.
 - Route user suggestions into a review queue, then support attachments.
 - Fix PDF nutrient highlighting reliability.

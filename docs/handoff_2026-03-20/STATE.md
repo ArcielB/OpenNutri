@@ -4,7 +4,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 
 ## Primary Goal
 
-- Finish Preliminary Study 3 fast enough to support the paper draft and TÜBİTAK application.
+- Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
 - Daily ops now maximizes Gemini usage: 20 calls per day, at most 5 calls per 5-minute GitHub Actions iteration, with crawler refill only when queued AI work is unavailable.
 
