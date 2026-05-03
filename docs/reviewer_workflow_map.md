@@ -8,13 +8,13 @@ This is the maintained internal map for the active reviewer workflow. The old sl
 
 Current live flow:
 
-`crawl -> upload -> AI queue -> routing -> human_review_ready shared queue -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`
+`crawl -> upload -> Gemma proof extraction -> Gemini extraction -> human_review_ready shared queue -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`
 
 Important consequences:
 
 - Labelers pull from a shared general queue, not personal slot assignments.
 - A paper is visible in the queue only while it is `human_review_ready`, unresolved, and has no pending/accepted general submission.
-- Queue eligibility also requires a latest AI extraction whose normalized payload has a DB-compliant decision. Both `has_data` and `no_usable_data` AI decisions are labeler work while thresholds require human validation; only above-threshold AI outcomes bypass humans.
+- Queue eligibility also requires a latest Gemini extraction whose normalized payload has a DB-compliant `has_data` decision. AI `no_usable_data` decisions are provisional skips by default and do not enter the labeler queue.
 - Submitting creates an immutable `paper_label_submissions` row and removes the paper from the visible queue on refresh.
 - Drafts do not claim a paper. If two labelers already have a paper open, both can submit before final approval; all submissions are retained for audit/performance.
 - Arciel's own submission auto-accepts. Other labelers' submissions wait for approval.
@@ -22,7 +22,7 @@ Important consequences:
 
 ## Roles
 
-- **General labeler**: active non-tester reviewer profile. Sees the shared Queue, can save drafts, submit usable-data or no-usable-data labels, and ask for help.
+- **General labeler**: active non-tester reviewer profile. Sees the shared Queue of useful Gemini-positive papers, can save drafts, submit usable-data or no-usable-data labels, and ask for help.
 - **Approver**: reviewer profile with `can_approve_labels = true`. Currently Arciel only. Can approve/edit pending submissions and write final human truth.
 - **Cockpit/tester/developer viewer**: `cockpit_access = true`, often with `tester_access = true`. Can inspect Approval, Dashboard, Suggestions, and All Papers, but tester accounts cannot mutate because SQL write guards call `current_user_can_write()`.
 
@@ -66,7 +66,7 @@ Core RPCs:
 - The Queue calls `get_general_queue_papers()`.
 - Labelers only see available papers and their own draft content.
 - Labelers do not see other labeler names, submission counts, or approval status.
-- Every visible queue paper must already have a latest AI extraction with normalized output. If a paper has no saved annotation, the form initializes from that `ai_extractions.normalized_payload_json`: `has_data` decisions preload editable DB-compliant food/nutrient rows, and `no_usable_data` decisions preload an empty review state. AI reasoning is not shown in the labeling queue.
+- Every visible queue paper must already have a latest Gemini `has_data` extraction with normalized output. If a paper has no saved annotation, the form initializes from that `ai_extractions.normalized_payload_json` and preloads editable DB-compliant food/nutrient rows. AI `no_usable_data` decisions are provisional skips outside the labeler queue. AI reasoning is not shown in the labeling queue.
 - `Save Draft` writes only the user's annotation/food/nutrient rows.
 - `Submit Final Extraction` or `No Usable Data` writes annotation rows, inserts a `paper_label_events` audit row, then calls `submit_general_label()`.
 - `Ask for Help` inserts a `backlog_review_items` row with `context.request_kind = general_queue_help_request`.
@@ -105,7 +105,7 @@ Core RPCs:
 Shared-stock logic:
 
 - Available stock is `papers.routing_status = human_review_ready`.
-- Available stock requires `papers.latest_ai_extraction_id` to point to an AI extraction with normalized `decision_kind IN ('has_data', 'no_usable_data')`.
+- Available stock requires `papers.latest_ai_extraction_id` to point to a Gemini extraction with normalized `decision_kind = 'has_data'`.
 - Supported languages are English and Turkish.
 - Exclude papers with final `paper_review_outcomes`.
 - Exclude papers with `paper_label_submissions.status IN ('pending_approval', 'accepted')`.
@@ -115,7 +115,7 @@ Shared-stock logic:
 Daily ops:
 
 - `daily_ops_orchestrator.py` maximizes daily Gemini usage instead of stopping on shared queue stock.
-- It drains queued AI first, crawls/uploads when no queued AI work is available, then processes the new AI queue.
+- It drains queued Gemini extraction work first, drains queued Gemma proof-extraction work when Gemini has no ready tasks, crawls/uploads when no model work is available, then processes new Gemma/Gemini work.
 - GitHub Actions starts at `00:05` America/Los_Angeles and loops every 5 minutes until 20 Gemini calls are used, the first AI task is quota-limited, or a crawl/AI pass produces no useful work.
 - Feedback refresh happens only when crawler refill is reached, not for queued-AI draining.
 

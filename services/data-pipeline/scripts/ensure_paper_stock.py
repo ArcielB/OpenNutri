@@ -55,6 +55,12 @@ def fetch_rows(
 
 def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, int]:
     papers = fetch_rows(supabase_url, supabase_key, "papers", "id,workflow_language,routing_status,latest_ai_extraction_id")
+    ai_extractions = fetch_rows(
+        supabase_url,
+        supabase_key,
+        "ai_extractions",
+        "id,normalized_payload_json",
+    )
     global_labels = fetch_rows(
         supabase_url,
         supabase_key,
@@ -105,13 +111,21 @@ def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, in
 
     counts = {language: 0 for language in SUPPORTED_LANGUAGES}
     counts["unscoped"] = 0
+    ai_decision_by_id = {
+        row.get("id"): (row.get("normalized_payload_json") or {}).get("decision_kind")
+        for row in ai_extractions
+        if row.get("id") is not None and isinstance(row.get("normalized_payload_json"), dict)
+    }
     for row in papers:
         paper_id = row.get("id")
         if paper_id in skipped_ids or paper_id in resolved_ids or paper_id in assigned_ids or paper_id in submitted_ids:
             continue
         if str(row.get("routing_status") or "").strip().lower() != "human_review_ready":
             continue
-        if not row.get("latest_ai_extraction_id"):
+        latest_ai_extraction_id = row.get("latest_ai_extraction_id")
+        if not latest_ai_extraction_id:
+            continue
+        if ai_decision_by_id.get(latest_ai_extraction_id) != "has_data":
             continue
         workflow_language = str(row.get("workflow_language") or "").strip().lower()
         if workflow_language in SUPPORTED_LANGUAGES:
@@ -191,17 +205,20 @@ def run_json_command(label: str, cmd: list[str], env: dict) -> dict:
     raise SystemExit(f"{label} did not print a JSON summary.")
 
 
-def run_ai_queue(label: str, *, max_tasks: int, env: dict) -> dict:
+def run_ai_queue(label: str, *, max_tasks: int, env: dict, stage_key: str | None = None) -> dict:
+    cmd = [
+        sys.executable,
+        "services/data-pipeline/scripts/process_stage_queue.py",
+        "--max-tasks",
+        str(max(1, int(max_tasks))),
+        "--stop-on-quota",
+        "--json-summary",
+    ]
+    if stage_key:
+        cmd.extend(["--stage-key", stage_key])
     summary = run_json_command(
         label,
-        [
-            sys.executable,
-            "services/data-pipeline/scripts/process_stage_queue.py",
-            "--max-tasks",
-            str(max(1, int(max_tasks))),
-            "--stop-on-quota",
-            "--json-summary",
-        ],
+        cmd,
         env,
     )
     if summary.get("quota_limited"):
@@ -371,9 +388,16 @@ def run_refill_cycle(
     if process_ai_after_upload:
         worker_batch = max(1, int(getattr(args, "max_ai_tasks", 5)))
         run_ai_queue(
+            "Process Gemma proof-extraction queue",
+            max_tasks=max(worker_batch * 10, 20),
+            env=env,
+            stage_key="gemma_proof_extraction_v1",
+        )
+        run_ai_queue(
             "Process AI routing queue",
             max_tasks=worker_batch,
             env=env,
+            stage_key="gemini_flash_db_payload_v2",
         )
 
 
@@ -450,9 +474,16 @@ def main() -> None:
     env["SUPABASE_SERVICE_ROLE_KEY"] = supabase_key
 
     run_ai_queue(
-        "Process existing AI routing queue",
+        "Process existing Gemma proof-extraction queue",
+        max_tasks=max(max(1, int(args.max_ai_tasks)) * 10, 20),
+        env=env,
+        stage_key="gemma_proof_extraction_v1",
+    )
+    run_ai_queue(
+        "Process existing Gemini extraction queue",
         max_tasks=max(1, int(args.max_ai_tasks)),
         env=env,
+        stage_key="gemini_flash_db_payload_v2",
     )
     counts = fetch_available_counts(supabase_url, supabase_key)
     print_counts("After draining existing AI queue:", counts, targets)

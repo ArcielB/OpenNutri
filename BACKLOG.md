@@ -162,6 +162,28 @@ Improve fuzzy scoring and normalization so suggestions are ranked more accuratel
 - scoring/ranking is stable across similar inputs
 
 
+## 11. Highlight model-provided extraction evidence in PDFs
+
+### Problem
+The model contract now stores per-row source evidence such as `source_citation`, `table_label`, `page_hint`, and `source_quote`, but the reviewer UI does not yet turn that evidence into deterministic PDF jumps/highlights.
+
+### Goal
+Use model-provided evidence as navigation help without treating it as truth:
+- jump to the cited page/table when page or table hints are available
+- highlight only when PDF text matching confirms the cited food/nutrient/value/unit evidence
+- clearly show unmatched model evidence as unverified
+
+### Likely technical area
+- `apps/expert-annotator/src/components/PdfViewer.jsx`
+- `apps/expert-annotator/src/utils/PdfTextScanner.js`
+- `apps/expert-annotator/src/pages/Annotate.jsx`
+
+### Done when
+- clicking an AI evidence badge opens the likely PDF location
+- confirmed evidence highlights are table-scoped and do not fall back to prose-wide matching
+- unconfirmed evidence remains visible but is not highlighted as verified
+
+
 
 
 

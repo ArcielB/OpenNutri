@@ -29,6 +29,9 @@ class NutrientRecord:
     confidence: float  # 0.0-1.0 confidence score for THIS specific record
     source_citation: str  # "Table 2, Row 3" or "Page 5, Results section"
     metadata: Dict[str, Any]
+    table_label: Optional[str] = None
+    page_hint: Optional[int] = None
+    source_quote: Optional[str] = None
     raw_food_name: Optional[str] = None
     raw_nutrient_name: Optional[str] = None
     food_fdc_id: Optional[str] = None
@@ -54,6 +57,12 @@ class ExtractionResult:
     reasoning: str
     overall_confidence: float  # 0.0-1.0 confidence for the entire paper
     data: List[NutrientRecord]
+    decision_kind: str = "no_usable_data"
+    no_data_reason: str = ""
+    paper_type: str = ""
+    database_value: str = ""
+    paper_decision_confidence: float = 0.0
+    extraction_confidence: float = 0.0
     source_term: str = ""
     raw_response_text: str = ""
 
@@ -65,25 +74,27 @@ class UnifiedEvaluator:
     
     EXTRACTION_PROMPT = """You are a food composition database curator extracting structured data from scientific papers.
 
-**Task**: Determine if this paper contains direct food composition data for database entry, and if so, extract it.
+**Task**: Determine if this paper contains direct food/product composition data that is useful for OpenNutri, and if so, extract it.
 
 **USEFULNESS Criteria**:
-- is_useful = true ONLY if the paper directly reports composition values measured in foods or food products, with clear food-nutrient mappings suitable for a food composition database (for example: apple: protein 0.3 g/100g, vitamin C 4.6 mg/100g, moisture 84%).
+- is_useful = true ONLY if the paper directly reports composition values measured in real foods or food products, with clear food-nutrient mappings suitable for an OpenNutri food composition database (for example: apple: protein 0.3 g/100g, vitamin C 4.6 mg/100g, moisture 84%).
+- OpenNutri useful data means nutrition/composition values that could reasonably support diet tracking, food composition datasets, food exporters, food product inspection, or similar real-world food data use cases.
+- is_useful = false for experimental treatment/formulation variants that are not stable real-world foods/products worth adding to a nutrition dataset (for example one-off formulations with 1%, 2%, 4%, 6% additive levels, fertilizer treatments, irradiation doses, storage treatments, processing treatments, salt-stress treatments, or treatment-only recipes).
 - is_useful = false if the paper is mainly about what a nutrient, supplement, extract, dose, or diet does to people, animals, cells, microbes, biomarkers, disease, growth, antioxidant status, digestibility, shelf life, processing performance, sensory properties, or any other outcome.
 - is_useful = false for intervention/effect/association papers even if they mention foods or nutrients, unless they also contain direct food composition tables for the food itself.
 - is_useful = false for review papers without original composition data, methodology papers without food composition results, supplement/pill/extract studies, and papers about non-food items.
-- Every paper that is not actually about direct food composition data is empty: return is_useful=false and data=[].
+- Every paper that does not contain data useful to OpenNutri is empty: return decision_kind="no_usable_data", is_useful=false, and data=[].
 
 **Instructions**:
 1. Read the paper carefully.
 2. Provide a detailed reasoning for your decision (why it is or isn't useful).
 3. Determine if it is useful (is_useful: true/false).
-4. Assign an overall_confidence score (0.0-1.0) for the paper.
+4. Assign paper_decision_confidence for whether the useful/no-usable-data decision is right.
 5. If is_useful is true: Extract ALL candidate food-nutrient composition data from tables.
 6. For each data point, preserve the explicit unit and basis from the paper so downstream validation can standardize it to the database payload.
 7. Use the nutrient catalog below. When a paper nutrient exactly matches a catalog row, output that row's nutrient_id and standard nutrient_name exactly. When no confident exact match exists, set nutrient_id to null and preserve the paper's nutrient name.
 8. Do not invent food IDs. If high-signal food candidates are provided and a paper food exactly matches a candidate's canonical_name or alias, output its food_fdc_id; otherwise set food_fdc_id to null and preserve the paper's food name.
-9. Preserve row context needed for database review: raw paper names, preparation state, sample size, confidence, source citation, and metadata such as cultivar, location, edible portion, analysis method, storage, and harvest date.
+9. Preserve row context needed for database review: raw paper names, preparation state, sample size, confidence, source citation, page/table hints, short source quote, and metadata such as cultivar, location, edible portion, analysis method, storage, and harvest date.
 
 **Nutrient Catalog**:
 {nutrient_catalog}
@@ -95,8 +106,14 @@ class UnifiedEvaluator:
 ```json
 {{
   "reasoning": "Detailed explanation of why this paper is or is not useful for food composition data",
+  "decision_kind": "has_data",
   "is_useful": true | false,
-  "overall_confidence": 0.95,
+  "no_data_reason": null,
+  "paper_type": "ordinary_food_composition",
+  "database_value": "high",
+  "paper_decision_confidence": 0.95,
+  "extraction_confidence": 0.90,
+  "overall_confidence": 0.90,
   "data": [
     {{
       "food_name": "Apple, raw, with skin",
@@ -112,6 +129,9 @@ class UnifiedEvaluator:
       "sample_size": 50,
       "confidence": 0.98,
       "source_citation": "Table 2, row 3",
+      "table_label": "Table 2",
+      "page_hint": 5,
+      "source_quote": "Fuji apple ... Vitamin C ... 4.6 mg/100g",
       "metadata": {{
         "cultivar": "Fuji",
         "location": "Japan",
@@ -139,6 +159,9 @@ class UnifiedEvaluator:
 - sample_size: Number of samples (n=) as an integer, or null if not stated.
 - confidence: 0.0-1.0 score for THIS specific data point.
 - source_citation: SPECIFIC location (e.g., "Table 1, Row 2").
+- table_label: Table identifier if available (e.g., "Table 1"), otherwise null.
+- page_hint: PDF page number if available, otherwise null.
+- source_quote: Short exact excerpt containing the food/nutrient/value/unit evidence. Keep it under 40 words.
 
 **Critical Rules**:
 1. Return ONLY valid JSON.
@@ -149,6 +172,8 @@ class UnifiedEvaluator:
 6. Do not treat clinical outcomes, health effects, intervention outcomes, dose-response results, digestibility metrics, antioxidant assays, pH, color, texture, yield, microbial counts, enzyme activity, gene expression, blood/serum/tissue biomarkers, body composition, growth, survival, sensory scores, or other non-composition measurements as food composition nutrient values.
 7. Do not extract values that describe an administered nutrient amount, supplement dose, diet formulation dose, treatment concentration, or experimental exposure unless the table also reports the nutrient composition of the food itself.
 8. If the only quantitative values are effects of a nutrient/food/extract on an outcome, the paper is empty for OpenNutri.
+9. If the only composition values are for one-off experimental treatment or formulation variants that are not real-world food products, the paper is empty for OpenNutri.
+10. Use database_value only as supporting context. The final decision remains decision_kind="has_data" only for data useful to OpenNutri; otherwise decision_kind="no_usable_data".
 
 **Paper Content**:
 Title: {title}
@@ -213,6 +238,8 @@ Full Text:
                 reasoning="No LLM available",
                 overall_confidence=0.0,
                 data=[],
+                decision_kind="no_usable_data",
+                no_data_reason="no_llm_available",
                 source_term=paper.get("source_term", "")
             )
         
@@ -252,6 +279,12 @@ Full Text:
             # Parse into our data structure with plausibility checks
             records = []
             for item in self._iter_candidate_rows(result_json.get("data", [])):
+                metadata = item.get("metadata", {})
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                for evidence_key in ("table_label", "page_hint", "source_quote"):
+                    if item.get(evidence_key) is not None:
+                        metadata[evidence_key] = item.get(evidence_key)
                 record = NutrientRecord(
                     food_name=item["food_name"],
                     nutrient_name=item["nutrient_name"],
@@ -262,7 +295,10 @@ Full Text:
                     sample_size=item.get("sample_size"),
                     confidence=float(item.get("confidence", 0.5)),
                     source_citation=item.get("source_citation", "Not specified"),
-                    metadata=item.get("metadata", {}),
+                    metadata=metadata,
+                    table_label=item.get("table_label"),
+                    page_hint=self._coerce_int(item.get("page_hint")),
+                    source_quote=item.get("source_quote"),
                     raw_food_name=item.get("raw_food_name") or item.get("paper_food_name") or item["food_name"],
                     raw_nutrient_name=item.get("raw_nutrient_name") or item.get("paper_nutrient_name") or item["nutrient_name"],
                     food_fdc_id=item.get("food_fdc_id"),
@@ -279,12 +315,31 @@ Full Text:
                 record.flags = self._check_plausibility(record)
                 records.append(record)
             
+            decision_kind = str(result_json.get("decision_kind") or "").strip().lower()
+            is_useful = bool(result_json.get("is_useful", False))
+            if decision_kind not in {"has_data", "no_usable_data"}:
+                decision_kind = "has_data" if is_useful else "no_usable_data"
+            is_useful = decision_kind == "has_data"
+            paper_decision_confidence = self._coerce_float(
+                result_json.get("paper_decision_confidence"),
+                result_json.get("overall_confidence", 0.0),
+            )
+            extraction_confidence = self._coerce_float(
+                result_json.get("extraction_confidence"),
+                self._confidence_from_records(records),
+            )
             return ExtractionResult(
                 pmc_id=paper.get("pmc_id", ""),
-                is_useful=bool(result_json.get("is_useful", False)),
+                is_useful=is_useful,
                 reasoning=result_json.get("reasoning", "No reasoning provided"),
-                overall_confidence=float(result_json.get("overall_confidence", 0.0)),
+                overall_confidence=float(result_json.get("overall_confidence", min(paper_decision_confidence, extraction_confidence))),
                 data=records,
+                decision_kind=decision_kind,
+                no_data_reason=str(result_json.get("no_data_reason") or ""),
+                paper_type=str(result_json.get("paper_type") or ""),
+                database_value=str(result_json.get("database_value") or ""),
+                paper_decision_confidence=paper_decision_confidence,
+                extraction_confidence=extraction_confidence,
                 source_term=paper.get("source_term", ""),
                 raw_response_text=response_text,
             )
@@ -297,11 +352,17 @@ Full Text:
                 reasoning=f"Extraction error: {str(e)}",
                 overall_confidence=0.0,
                 data=[],
+                decision_kind="no_usable_data",
+                no_data_reason="extraction_error",
                 source_term=paper.get("source_term", "")
             )
 
     def _coerce_result_root(self, parsed_json: Any) -> dict:
         if isinstance(parsed_json, dict):
+            if "decision_kind" not in parsed_json:
+                parsed_json["decision_kind"] = "has_data" if parsed_json.get("is_useful") else "no_usable_data"
+            if "is_useful" not in parsed_json:
+                parsed_json["is_useful"] = parsed_json.get("decision_kind") == "has_data"
             data = parsed_json.get("data", [])
             if not isinstance(data, list):
                 parsed_json = dict(parsed_json)
@@ -310,8 +371,11 @@ Full Text:
         if isinstance(parsed_json, list):
             return {
                 "reasoning": "Model returned a top-level data array; treating it as candidate food composition rows.",
+                "decision_kind": "has_data" if parsed_json else "no_usable_data",
                 "is_useful": bool(parsed_json),
                 "overall_confidence": self._confidence_from_rows(parsed_json),
+                "paper_decision_confidence": self._confidence_from_rows(parsed_json),
+                "extraction_confidence": self._confidence_from_rows(parsed_json),
                 "data": parsed_json,
             }
         raise ValueError(f"Expected JSON object or data array, got {type(parsed_json).__name__}")
@@ -358,6 +422,28 @@ Full Text:
         if not confidences:
             return 0.5 if rows else 0.0
         return max(0.0, min(1.0, sum(confidences) / len(confidences)))
+
+    def _confidence_from_records(self, records: list[NutrientRecord]) -> float:
+        if not records:
+            return 0.0
+        return max(0.0, min(1.0, sum(float(record.confidence or 0.0) for record in records) / len(records)))
+
+    def _coerce_float(self, value: object, default: object = 0.0) -> float:
+        try:
+            return max(0.0, min(1.0, float(value)))
+        except (TypeError, ValueError):
+            try:
+                return max(0.0, min(1.0, float(default)))
+            except (TypeError, ValueError):
+                return 0.0
+
+    def _coerce_int(self, value: object) -> int | None:
+        try:
+            if value is None or value == "":
+                return None
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
 
     def _iter_candidate_rows(self, data: list) -> list[dict]:
         rows = []

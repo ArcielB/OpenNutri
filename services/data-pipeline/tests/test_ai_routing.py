@@ -11,10 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ai_routing import (
     HUMAN_REVIEW_DESTINATION,
+    PROVISIONAL_SKIP_DESTINATION,
     ROUTING_BUCKET_HIGH_NEGATIVE,
     ROUTING_BUCKET_HIGH_POSITIVE,
     ROUTING_BUCKET_LOW_NEGATIVE,
     ROUTING_BUCKET_LOW_POSITIVE,
+    ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
     RoutingStageConfig,
     classify_routing_bucket,
     normalize_ai_payload,
@@ -524,6 +526,11 @@ class StockAndFeedbackTests(unittest.TestCase):
                 {"id": 3, "workflow_language": "tr", "routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-3"},
                 {"id": 4, "workflow_language": "en", "routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-4"},
             ],
+            [
+                {"id": "ai-1", "normalized_payload_json": {"decision_kind": "has_data"}},
+                {"id": "ai-3", "normalized_payload_json": {"decision_kind": "no_usable_data"}},
+                {"id": "ai-4", "normalized_payload_json": {"decision_kind": "has_data"}},
+            ],
             [],
             [],
             [{"paper_id": 4, "status": "pending_approval"}],
@@ -546,6 +553,7 @@ class StockAndFeedbackTests(unittest.TestCase):
             slot_assignments=[],
             review_outcomes=[],
             global_labels=[],
+            ai_extractions=[{"id": "ai-1", "normalized_payload_json": {"decision_kind": "has_data"}}],
         )
         self.assertEqual([paper["id"] for paper in available], [1])
 
@@ -582,6 +590,11 @@ class StockAndFeedbackTests(unittest.TestCase):
             slot_assignments=[],
             review_outcomes=[],
             global_labels=[],
+            ai_extractions=[
+                {"id": "ai-1", "normalized_payload_json": {"decision_kind": "has_data"}},
+                {"id": "ai-2", "normalized_payload_json": {"decision_kind": "has_data"}},
+                {"id": "ai-3", "normalized_payload_json": {"decision_kind": "has_data"}},
+            ],
         )
 
         self.assertEqual([paper["id"] for paper in available], [2, 3, 1])
@@ -600,6 +613,11 @@ class StockAndFeedbackTests(unittest.TestCase):
             label_submissions=[
                 {"paper_id": 1, "status": "pending_approval"},
                 {"paper_id": 2, "status": "superseded"},
+            ],
+            ai_extractions=[
+                {"id": "ai-1", "normalized_payload_json": {"decision_kind": "has_data"}},
+                {"id": "ai-2", "normalized_payload_json": {"decision_kind": "has_data"}},
+                {"id": "ai-3", "normalized_payload_json": {"decision_kind": "has_data"}},
             ],
         )
         self.assertEqual([paper["id"] for paper in available], [2, 3])
@@ -624,6 +642,9 @@ class StockAndFeedbackTests(unittest.TestCase):
                 "paper_review_outcomes": [],
                 "paper_label_submissions": [],
                 "paper_slot_assignments": [],
+                "ai_extractions": [
+                    {"id": "ai-101", "normalized_payload_json": {"decision_kind": "has_data"}},
+                ],
                 "reviewer_profiles": [
                     {
                         "id": "profile-arciel",
@@ -1137,6 +1158,127 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertFalse(extraction_payload["finalized_without_human"])
         self.assertEqual(extraction_payload["normalized_payload_json"], {"decision_kind": "no_usable_data", "food_items": []})
         self.assertEqual(client.upserts, [])
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_screening_has_data_enqueues_followup_stage(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 14,
+                        "title": "Useful composition paper",
+                        "doi": "10.123/useful",
+                        "filename": "paper.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-14", "paper_id": 14, "status": "processing"}],
+            }
+        )
+        stage = RoutingStageConfig(
+            stage_key="gemma_proof_extraction_v1",
+            stage_kind="ai_model",
+            display_name="Gemma Proof Extraction v1",
+            model_name="gemma-3-27b-it",
+            prompt_version="opennutri_master_payload_v1",
+            active=True,
+            positive_threshold=1.0,
+            negative_threshold=1.0,
+            audit_rate=0.0,
+            next_stage_on_low_confidence="gemini_flash_db_payload_v2",
+            counts_as_truth=False,
+            next_stage_on_has_data="gemini_flash_db_payload_v2",
+            no_data_route_destination=PROVISIONAL_SKIP_DESTINATION,
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=True,
+            reasoning="Direct useful table.",
+            overall_confidence=0.91,
+            data=[
+                {
+                    "food_name": "Apple",
+                    "nutrient_name": "Protein",
+                    "amount": 0.3,
+                    "unit": "g",
+                    "basis": "100g",
+                    "source_citation": "Table 1",
+                },
+            ],
+            raw_response_text="{}",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-14", "paper_id": 14},
+            stage_config=stage,
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], "queued_for_ai")
+        self.assertEqual(result["route_destination"], "next_stage")
+        self.assertEqual(result["followup_stage_key"], "gemini_flash_db_payload_v2")
+        self.assertEqual(client.upserts[0][0], "paper_stage_tasks")
+        self.assertEqual(client.upserts[0][1]["stage_key"], "gemini_flash_db_payload_v2")
+        self.assertEqual(client.inserts[0][1][0]["route_destination"], "next_stage")
+        self.assertEqual(client.tables["papers"][0]["current_stage_key"], "gemini_flash_db_payload_v2")
+        self.assertEqual(client.tables["papers"][0]["latest_ai_extraction_id"], client.inserts[0][1][0].get("id"))
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_stage_no_data_can_be_provisional_skip(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 15,
+                        "title": "Experimental treatment paper",
+                        "doi": "10.123/treatment",
+                        "filename": "paper.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-15", "paper_id": 15, "status": "processing"}],
+            }
+        )
+        stage = RoutingStageConfig(
+            stage_key="gemma_proof_extraction_v1",
+            stage_kind="ai_model",
+            display_name="Gemma Proof Extraction v1",
+            model_name="gemma-3-27b-it",
+            prompt_version="opennutri_master_payload_v1",
+            active=True,
+            positive_threshold=1.0,
+            negative_threshold=1.0,
+            audit_rate=0.0,
+            next_stage_on_low_confidence="gemini_flash_db_payload_v2",
+            counts_as_truth=False,
+            next_stage_on_has_data="gemini_flash_db_payload_v2",
+            no_data_route_destination=PROVISIONAL_SKIP_DESTINATION,
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=False,
+            reasoning="Only one-off experimental formulation variants.",
+            overall_confidence=0.94,
+            data=[],
+            raw_response_text="{}",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-15", "paper_id": 15},
+            stage_config=stage,
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], ROUTING_STATUS_AI_PROVISIONAL_NO_DATA)
+        self.assertEqual(result["route_destination"], PROVISIONAL_SKIP_DESTINATION)
+        self.assertEqual(client.inserts[0][1][0]["route_destination"], PROVISIONAL_SKIP_DESTINATION)
+        self.assertEqual(client.upserts, [])
+        self.assertEqual(client.tables["papers"][0]["routing_status"], ROUTING_STATUS_AI_PROVISIONAL_NO_DATA)
+        self.assertEqual(client.tables["papers"][0]["route_destination"], PROVISIONAL_SKIP_DESTINATION)
 
 
 if __name__ == "__main__":

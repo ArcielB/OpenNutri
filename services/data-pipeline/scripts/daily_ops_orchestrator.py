@@ -33,6 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-open", type=int, default=50, help="Retained for stock reporting compatibility; daily ops no longer stops on this target")
     parser.add_argument("--max-cycles", type=int, default=8, help="Maximum AI/crawl cycles to run in this invocation")
     parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum AI tasks to process in this controller invocation")
+    parser.add_argument("--max-screening-tasks", type=int, default=50, help="Maximum cheap screening-stage tasks to process in this controller invocation")
     parser.add_argument("--daily-ai-call-budget", type=int, default=20, help="Daily Gemini call budget to consume before terminal stop")
     parser.add_argument("--ai-tasks-already-used", type=int, default=0, help="Gemini calls already consumed by earlier controller invocations today")
     parser.add_argument("--refill-step-en", type=int, default=4, help="New English papers to request when needed")
@@ -61,6 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dry-run", action="store_true", help="Report planned work without writes or network jobs")
     parser.add_argument("--json-summary", action="store_true", help="Print a final JSON summary")
+    parser.add_argument("--screening-stage-key", default="gemma_proof_extraction_v1", help="Cheap first-pass model stage key")
+    parser.add_argument("--extraction-stage-key", default="gemini_flash_db_payload_v2", help="Gemini extraction stage key counted against daily budget")
     return parser
 
 
@@ -85,9 +88,25 @@ def _queued_ai_paper_count(papers: list[dict]) -> int:
     )
 
 
-def _run_ai_drain(client: Any, args: argparse.Namespace, *, max_tasks: int) -> dict[str, object]:
+def _queued_ai_paper_count_for_stage(papers: list[dict], stage_key: str) -> int:
+    return sum(
+        1
+        for paper in papers
+        if str(paper.get("routing_status") or "").strip().lower() == "queued_for_ai"
+        and str(paper.get("current_stage_key") or "").strip() == stage_key
+    )
+
+
+def _run_ai_drain(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    max_tasks: int,
+    stage_key: str | None = None,
+) -> dict[str, object]:
     return drain_stage_queue(
         client,
+        stage_key=stage_key,
         max_tasks=max(1, int(max_tasks)),
         stop_on_quota=True,
         verbose=not args.json_summary,
@@ -122,11 +141,17 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
     daily_ai_call_budget = max(1, int(getattr(args, "daily_ai_call_budget", 20)))
     ai_tasks_already_used = max(0, int(getattr(args, "ai_tasks_already_used", 0)))
     invocation_ai_task_limit = max(1, int(args.max_ai_tasks))
+    screening_stage_key = str(getattr(args, "screening_stage_key", "gemma_proof_extraction_v1") or "gemma_proof_extraction_v1")
+    extraction_stage_key = str(getattr(args, "extraction_stage_key", "gemini_flash_db_payload_v2") or "gemini_flash_db_payload_v2")
+    max_screening_tasks = max(1, int(getattr(args, "max_screening_tasks", 50)))
     ai_tasks_used = 0
     summary: dict[str, Any] = {
         "dry_run": bool(args.dry_run),
         "target_open": int(args.target_open),
         "max_ai_tasks": invocation_ai_task_limit,
+        "max_screening_tasks": max_screening_tasks,
+        "screening_stage_key": screening_stage_key,
+        "extraction_stage_key": extraction_stage_key,
         "daily_ai_call_budget": daily_ai_call_budget,
         "ai_tasks_already_used": ai_tasks_already_used,
         "ai_tasks_used": ai_tasks_used,
@@ -147,7 +172,13 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
 
         state = refill_assignment_queue.fetch_state(client)
         queued_before = _queued_ai_paper_count(state.get("papers", []))
+        queued_extraction_before = _queued_ai_paper_count_for_stage(state.get("papers", []), extraction_stage_key)
+        queued_screening_before = _queued_ai_paper_count_for_stage(state.get("papers", []), screening_stage_key)
+        if queued_before > 0 and queued_extraction_before <= 0 and queued_screening_before <= 0:
+            queued_extraction_before = queued_before
         cycle_summary["queued_ai_before"] = queued_before
+        cycle_summary["queued_extraction_before"] = queued_extraction_before
+        cycle_summary["queued_screening_before"] = queued_screening_before
         remaining_daily_ai_tasks = daily_ai_call_budget - (ai_tasks_already_used + ai_tasks_used)
         remaining_invocation_ai_tasks = invocation_ai_task_limit - ai_tasks_used
         remaining_ai_tasks = min(remaining_daily_ai_tasks, remaining_invocation_ai_tasks)
@@ -161,13 +192,18 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             summary["cycles"].append(cycle_summary)
             break
 
-        if refill_assignment_queue.has_queued_ai_work(state["papers"]):
+        if queued_extraction_before > 0:
             if args.dry_run:
                 cycle_summary["ai"] = {"would_process": True}
                 summary["stopped_reason"] = "dry_run"
                 summary["cycles"].append(cycle_summary)
                 break
-            ai_summary = _run_ai_drain(client, args, max_tasks=remaining_ai_tasks)
+            ai_summary = _run_ai_drain(
+                client,
+                args,
+                max_tasks=remaining_ai_tasks,
+                stage_key=extraction_stage_key,
+            )
             ai_tasks_used += int(ai_summary.get("processed") or 0)
             summary["ai_tasks_used"] = ai_tasks_used
             summary["daily_ai_tasks_used"] = ai_tasks_already_used + ai_tasks_used
@@ -194,6 +230,26 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
                     summary["stopped_reason"] = "ai_run_budget_exhausted"
                     summary["cycles"].append(cycle_summary)
                     break
+                summary["cycles"].append(cycle_summary)
+                continue
+        elif queued_screening_before > 0:
+            if args.dry_run:
+                cycle_summary["screening"] = {"would_process": True}
+                summary["stopped_reason"] = "dry_run"
+                summary["cycles"].append(cycle_summary)
+                break
+            screening_summary = _run_ai_drain(
+                client,
+                args,
+                max_tasks=max_screening_tasks,
+                stage_key=screening_stage_key,
+            )
+            cycle_summary["screening"] = screening_summary
+            if screening_summary.get("quota_limited"):
+                summary["stopped_reason"] = _quota_stop_reason(screening_summary)
+                summary["cycles"].append(cycle_summary)
+                break
+            if int(screening_summary.get("processed") or 0) > 0:
                 summary["cycles"].append(cycle_summary)
                 continue
 
@@ -233,6 +289,24 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             summary["cycles"].append(cycle_summary)
             break
 
+        queued_screening_after_crawl = _queued_ai_paper_count_for_stage(
+            state_after_crawl.get("papers", []),
+            screening_stage_key,
+        )
+        if queued_screening_after_crawl > 0:
+            screening_summary = _run_ai_drain(
+                client,
+                args,
+                max_tasks=max_screening_tasks,
+                stage_key=screening_stage_key,
+            )
+            cycle_summary["screening_after_crawl"] = screening_summary
+            if screening_summary.get("quota_limited"):
+                summary["stopped_reason"] = _quota_stop_reason(screening_summary)
+                summary["cycles"].append(cycle_summary)
+                break
+            state_after_crawl = refill_assignment_queue.fetch_state(client)
+
         remaining_daily_ai_tasks = daily_ai_call_budget - (ai_tasks_already_used + ai_tasks_used)
         remaining_invocation_ai_tasks = invocation_ai_task_limit - ai_tasks_used
         remaining_ai_tasks = min(remaining_daily_ai_tasks, remaining_invocation_ai_tasks)
@@ -245,7 +319,27 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             )
             summary["cycles"].append(cycle_summary)
             break
-        ai_summary = _run_ai_drain(client, args, max_tasks=remaining_ai_tasks)
+        queued_extraction_after_crawl = _queued_ai_paper_count_for_stage(
+            state_after_crawl.get("papers", []),
+            extraction_stage_key,
+        )
+        if queued_after_crawl > 0 and queued_extraction_after_crawl <= 0 and queued_screening_after_crawl <= 0:
+            queued_extraction_after_crawl = queued_after_crawl
+        if queued_extraction_after_crawl <= 0:
+            cycle_summary["ai_after_crawl"] = {"skipped": "no_extraction_stage_tasks_ready"}
+            if int((cycle_summary.get("screening_after_crawl") or {}).get("processed") or 0) > 0:
+                summary["cycles"].append(cycle_summary)
+                continue
+            summary["stopped_reason"] = "no_progress"
+            summary["cycles"].append(cycle_summary)
+            break
+
+        ai_summary = _run_ai_drain(
+            client,
+            args,
+            max_tasks=remaining_ai_tasks,
+            stage_key=extraction_stage_key,
+        )
         ai_tasks_used += int(ai_summary.get("processed") or 0)
         summary["ai_tasks_used"] = ai_tasks_used
         summary["daily_ai_tasks_used"] = ai_tasks_already_used + ai_tasks_used

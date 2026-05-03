@@ -25,7 +25,10 @@ if str(PIPELINE_ROOT) not in sys.path:
 from ai_routing import (
     BLOCKED_DESTINATION,
     HUMAN_REVIEW_DESTINATION,
+    NEXT_STAGE_DESTINATION,
+    PROVISIONAL_SKIP_DESTINATION,
     ROUTING_STATUS_HUMAN_READY,
+    ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
     ROUTING_STATUS_PROCESSING,
     ROUTING_STATUS_QUEUED,
     RoutingStageConfig,
@@ -73,6 +76,19 @@ def fetch_active_stage_config(client: Client, stage_key: str | None = None) -> R
     response = query.limit(1).execute()
     if not response.data:
         raise RuntimeError(f"No routing stage config found for {stage_key or 'active stage'}.")
+    return RoutingStageConfig.from_row(response.data[0])
+
+
+def fetch_stage_config(client: Client, stage_key: str) -> RoutingStageConfig:
+    response = (
+        client.table("routing_stage_configs")
+        .select("*")
+        .eq("stage_key", stage_key)
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        raise RuntimeError(f"No routing stage config found for {stage_key}.")
     return RoutingStageConfig.from_row(response.data[0])
 
 
@@ -280,6 +296,66 @@ def mark_task_requeued_after_error(client: Client, *, task_id: str, error_text: 
     ).eq("id", task_id).execute()
 
 
+def enqueue_followup_stage_task(
+    client: Client,
+    *,
+    paper_id: int,
+    stage_key: str,
+    priority: int,
+) -> None:
+    existing_response = (
+        client.table("paper_stage_tasks")
+        .select("id,status")
+        .eq("paper_id", paper_id)
+        .eq("stage_key", stage_key)
+        .limit(1)
+        .execute()
+    )
+    existing = existing_response.data[0] if existing_response.data else None
+    existing_status = str((existing or {}).get("status") or "").strip().lower()
+    if existing_status in {"queued", "processing"}:
+        return
+    client.table("paper_stage_tasks").upsert(
+        {
+            "paper_id": paper_id,
+            "stage_key": stage_key,
+            "status": "queued",
+            "priority": int(priority),
+            "last_error": None,
+            "started_at": None,
+            "completed_at": None,
+            "updated_at": _utcnow_iso(),
+        },
+        on_conflict="paper_id,stage_key",
+    ).execute()
+
+
+def score_followup_priority(*, ai_result, normalization_summary: dict, normalized_payload_json: dict) -> int:
+    confidence = float(getattr(ai_result, "overall_confidence", 0.0) or 0.0)
+    accepted_rows = int(normalization_summary.get("accepted_row_count") or 0)
+    rejected_rows = int(normalization_summary.get("rejected_row_count") or 0)
+    unmapped_foods = int(normalization_summary.get("unmapped_food_count") or 0)
+    unmapped_nutrients = int(normalization_summary.get("unmapped_nutrient_count") or 0)
+    evidence_rows = 0
+    for food_item in normalized_payload_json.get("food_items") or []:
+        if not isinstance(food_item, dict):
+            continue
+        for nutrient in food_item.get("nutrients") or []:
+            if not isinstance(nutrient, dict):
+                continue
+            metadata = nutrient.get("metadata") if isinstance(nutrient.get("metadata"), dict) else {}
+            if nutrient.get("source_citation") or metadata.get("table_label") or metadata.get("source_quote"):
+                evidence_rows += 1
+    score = (
+        100 * confidence
+        + min(80, accepted_rows * 4)
+        + min(40, evidence_rows * 3)
+        - min(60, rejected_rows * 5)
+        - min(30, (unmapped_foods + unmapped_nutrients) * 2)
+    )
+    return max(-1000, min(1000, int(round(score))))
+
+
 def finalize_ai_outcome(
     client: Client,
     *,
@@ -341,6 +417,12 @@ def insert_ai_extraction(
             "parsed_result": {
                 "reasoning": ai_result.reasoning,
                 "is_useful": ai_result.is_useful,
+                "decision_kind": getattr(ai_result, "decision_kind", None),
+                "no_data_reason": getattr(ai_result, "no_data_reason", None),
+                "paper_type": getattr(ai_result, "paper_type", None),
+                "database_value": getattr(ai_result, "database_value", None),
+                "paper_decision_confidence": getattr(ai_result, "paper_decision_confidence", None),
+                "extraction_confidence": getattr(ai_result, "extraction_confidence", None),
                 "overall_confidence": ai_result.overall_confidence,
                 "data": [_serialize_ai_record(record) for record in ai_result.data],
             },
@@ -376,6 +458,9 @@ def _serialize_ai_record(record) -> dict:
         "sample_size": getattr(record, "sample_size", None),
         "confidence": getattr(record, "confidence", None),
         "source_citation": getattr(record, "source_citation", None),
+        "table_label": getattr(record, "table_label", None),
+        "page_hint": getattr(record, "page_hint", None),
+        "source_quote": getattr(record, "source_quote", None),
         "metadata": getattr(record, "metadata", None),
         "flags": getattr(record, "flags", None),
     }
@@ -465,6 +550,24 @@ def process_one_task(
             audit_sampled=audit_sampled,
             has_human_truth=preserve_human_route,
         )
+        followup_stage_key = str(stage_config.next_stage_on_has_data or "").strip()
+        followup_priority = score_followup_priority(
+            ai_result=ai_result,
+            normalization_summary=normalization.summary(),
+            normalized_payload_json=normalized_payload_json,
+        )
+        actual_route_destination = route_destination
+        actual_finalized_without_human = finalized_without_human
+        if normalized_is_useful and followup_stage_key and not preserve_human_route:
+            actual_route_destination = NEXT_STAGE_DESTINATION
+            actual_finalized_without_human = False
+        elif (
+            not normalized_is_useful
+            and stage_config.no_data_route_destination == PROVISIONAL_SKIP_DESTINATION
+            and not preserve_human_route
+        ):
+            actual_route_destination = PROVISIONAL_SKIP_DESTINATION
+            actual_finalized_without_human = False
         extraction_row = insert_ai_extraction(
             client,
             paper_id=paper_id,
@@ -474,10 +577,58 @@ def process_one_task(
             normalized_payload_json=normalized_payload_json,
             normalization_summary=normalization.summary(),
             routing_bucket=routing_bucket,
-            route_destination=route_destination,
+            route_destination=actual_route_destination,
             audit_sampled=audit_sampled,
-            finalized_without_human=finalized_without_human,
+            finalized_without_human=actual_finalized_without_human,
         )
+        if normalized_is_useful and followup_stage_key and not preserve_human_route:
+            enqueue_followup_stage_task(
+                client,
+                paper_id=paper_id,
+                stage_key=followup_stage_key,
+                priority=followup_priority,
+            )
+            update_paper_routing_summary(
+                client,
+                paper_id=paper_id,
+                stage_key=followup_stage_key,
+                routing_status=ROUTING_STATUS_QUEUED,
+                routing_bucket=routing_bucket,
+                route_destination=NEXT_STAGE_DESTINATION,
+                latest_ai_extraction_id=extraction_row.get("id"),
+            )
+            mark_task_completed(client, task_id)
+            return {
+                "paper_id": paper_id,
+                "status": ROUTING_STATUS_QUEUED,
+                "route_destination": NEXT_STAGE_DESTINATION,
+                "audit_sampled": audit_sampled,
+                "finalized_without_human": False,
+                "followup_stage_key": followup_stage_key,
+                "followup_priority": followup_priority,
+            }
+        if (
+            not normalized_is_useful
+            and stage_config.no_data_route_destination == PROVISIONAL_SKIP_DESTINATION
+            and not preserve_human_route
+        ):
+            update_paper_routing_summary(
+                client,
+                paper_id=paper_id,
+                stage_key=stage_config.stage_key,
+                routing_status=ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
+                routing_bucket=routing_bucket,
+                route_destination=PROVISIONAL_SKIP_DESTINATION,
+                latest_ai_extraction_id=extraction_row.get("id"),
+            )
+            mark_task_completed(client, task_id)
+            return {
+                "paper_id": paper_id,
+                "status": ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
+                "route_destination": PROVISIONAL_SKIP_DESTINATION,
+                "audit_sampled": audit_sampled,
+                "finalized_without_human": False,
+            }
         if finalized_without_human and not preserve_human_route:
             finalize_ai_outcome(
                 client,
@@ -530,6 +681,8 @@ def _empty_stage_summary(stage_key: str) -> dict[str, object]:
         "processed": 0,
         "finalized": 0,
         "human_ready": 0,
+        "followup_queued": 0,
+        "provisional_skipped": 0,
         "requeued": 0,
         "failed": 0,
         "quota_limited": False,
@@ -545,6 +698,10 @@ def _record_processing_result(summary: dict[str, object], result: dict, *, verbo
         summary["finalized"] = int(summary["finalized"]) + 1
     elif status == ROUTING_STATUS_HUMAN_READY:
         summary["human_ready"] = int(summary["human_ready"]) + 1
+    elif status == ROUTING_STATUS_QUEUED and result.get("followup_stage_key"):
+        summary["followup_queued"] = int(summary["followup_queued"]) + 1
+    elif status == ROUTING_STATUS_AI_PROVISIONAL_NO_DATA:
+        summary["provisional_skipped"] = int(summary["provisional_skipped"]) + 1
     elif status == ROUTING_STATUS_QUEUED and result.get("error"):
         summary["requeued"] = int(summary["requeued"]) + 1
     if result.get("quota_limited"):
@@ -564,28 +721,49 @@ def drain_stage_queue(
     verbose: bool = True,
     stop_on_quota: bool = False,
 ) -> dict[str, object]:
-    stage_config = fetch_active_stage_config(client, stage_key or None)
     reference_lookups = fetch_reference_lookups(client)
-    evaluator = UnifiedEvaluator(
-        model_name=stage_config.model_name,
-        nutrient_catalog=reference_lookups.get("nutrients") or [],
-        food_candidates=[],
-    )
-    if evaluator.model is None:
-        raise RuntimeError("UnifiedEvaluator could not initialize a Gemini model. Check GEMINI_API_KEY.")
-    summary = _empty_stage_summary(stage_config.stage_key)
+    evaluator_cache: dict[str, UnifiedEvaluator] = {}
+    stage_cache: dict[str, RoutingStageConfig] = {}
+
+    def get_stage_config(current_stage_key: str | None) -> RoutingStageConfig:
+        resolved_key = str(current_stage_key or "").strip()
+        if resolved_key:
+            if resolved_key not in stage_cache:
+                stage_cache[resolved_key] = fetch_stage_config(client, resolved_key)
+            return stage_cache[resolved_key]
+        active_config = fetch_active_stage_config(client, None)
+        stage_cache[active_config.stage_key] = active_config
+        return active_config
+
+    def get_evaluator(config: RoutingStageConfig) -> UnifiedEvaluator:
+        evaluator = evaluator_cache.get(config.stage_key)
+        if evaluator is None:
+            evaluator = UnifiedEvaluator(
+                model_name=config.model_name,
+                nutrient_catalog=reference_lookups.get("nutrients") or [],
+                food_candidates=[],
+            )
+            if evaluator.model is None:
+                raise RuntimeError(f"UnifiedEvaluator could not initialize model {config.model_name}. Check GEMINI_API_KEY.")
+            evaluator_cache[config.stage_key] = evaluator
+        return evaluator
+
+    initial_config = get_stage_config(stage_key)
+    summary = _empty_stage_summary(stage_key or "all_queued_stages")
 
     if stop_on_quota:
         while int(summary["processed"]) < max(1, max_tasks):
-            claimed = claim_stage_tasks(client, stage_key=stage_config.stage_key, limit=1)
+            claimed = claim_stage_tasks(client, stage_key=stage_key, limit=1)
             if not claimed:
                 break
             summary["claimed"] = int(summary["claimed"]) + len(claimed)
+            task_stage_key = claimed[0].get("stage_key") or initial_config.stage_key
+            task_stage_config = get_stage_config(str(task_stage_key))
             result = process_one_task(
                 client,
                 task=claimed[0],
-                stage_config=stage_config,
-                evaluator=evaluator,
+                stage_config=task_stage_config,
+                evaluator=get_evaluator(task_stage_config),
                 reference_lookups=reference_lookups,
             )
             _record_processing_result(summary, result, verbose=verbose)
@@ -595,7 +773,7 @@ def drain_stage_queue(
             print(json.dumps(summary, indent=2))
         return summary
 
-    claimed = claim_stage_tasks(client, stage_key=stage_config.stage_key, limit=max(1, max_tasks))
+    claimed = claim_stage_tasks(client, stage_key=stage_key, limit=max(1, max_tasks))
     summary["claimed"] = len(claimed)
     claimed = sorted(
         claimed,
@@ -607,11 +785,13 @@ def drain_stage_queue(
         ),
     )
     for task in claimed[:max_tasks]:
+        task_stage_key = task.get("stage_key") or initial_config.stage_key
+        task_stage_config = get_stage_config(str(task_stage_key))
         result = process_one_task(
             client,
             task=task,
-            stage_config=stage_config,
-            evaluator=evaluator,
+            stage_config=task_stage_config,
+            evaluator=get_evaluator(task_stage_config),
             reference_lookups=reference_lookups,
         )
         _record_processing_result(summary, result, verbose=verbose)

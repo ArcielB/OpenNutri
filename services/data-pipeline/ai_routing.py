@@ -12,6 +12,8 @@ AI_MODEL_STAGE_KIND = "ai_model"
 HUMAN_REVIEW_DESTINATION = "human_review"
 FINALIZED_DESTINATION = "finalized"
 BLOCKED_DESTINATION = "blocked"
+NEXT_STAGE_DESTINATION = "next_stage"
+PROVISIONAL_SKIP_DESTINATION = "provisional_skip"
 ROUTING_BUCKET_HIGH_POSITIVE = "high_confidence_has_data"
 ROUTING_BUCKET_HIGH_NEGATIVE = "high_confidence_no_usable_data"
 ROUTING_BUCKET_LOW_POSITIVE = "low_confidence_has_data"
@@ -22,6 +24,7 @@ ROUTING_STATUS_FAILED = "ai_failed"
 ROUTING_STATUS_HUMAN_READY = "human_review_ready"
 ROUTING_STATUS_AI_FINAL_HAS_DATA = "ai_finalized_has_data"
 ROUTING_STATUS_AI_FINAL_NO_DATA = "ai_finalized_no_usable_data"
+ROUTING_STATUS_AI_PROVISIONAL_NO_DATA = "ai_provisional_no_usable_data"
 DECISION_HAS_DATA = "has_data"
 DECISION_NO_USABLE_DATA = "no_usable_data"
 SUPPORTED_STANDARD_UNITS = {
@@ -48,9 +51,16 @@ class RoutingStageConfig:
     audit_rate: float
     next_stage_on_low_confidence: str
     counts_as_truth: bool
+    stage_order: int = 0
+    next_stage_on_has_data: str = ""
+    no_data_route_destination: str = HUMAN_REVIEW_DESTINATION
 
     @classmethod
     def from_row(cls, row: Mapping[str, object]) -> "RoutingStageConfig":
+        try:
+            stage_order = int(row.get("stage_order") or 0)
+        except (TypeError, ValueError):
+            stage_order = 0
         return cls(
             stage_key=str(row.get("stage_key") or "").strip(),
             stage_kind=str(row.get("stage_kind") or "").strip(),
@@ -63,6 +73,9 @@ class RoutingStageConfig:
             audit_rate=clamp_probability(row.get("audit_rate")),
             next_stage_on_low_confidence=str(row.get("next_stage_on_low_confidence") or HUMAN_REVIEW_DESTINATION).strip(),
             counts_as_truth=bool(row.get("counts_as_truth")),
+            stage_order=stage_order,
+            next_stage_on_has_data=str(row.get("next_stage_on_has_data") or "").strip(),
+            no_data_route_destination=str(row.get("no_data_route_destination") or HUMAN_REVIEW_DESTINATION).strip(),
         )
 
 
@@ -331,6 +344,9 @@ def normalize_ai_payload_with_summary(
             unmapped_nutrient_count += 1
 
         metadata = _normalize_metadata(row.get("metadata"))
+        for evidence_key in ("table_label", "page_hint", "source_quote"):
+            if row.get(evidence_key) is not None:
+                metadata[evidence_key] = _json_safe_value(row.get(evidence_key))
         flags = _normalize_string_list(row.get("flags"))
         if flags:
             metadata["flags"] = flags
@@ -719,6 +735,9 @@ def _record_to_mapping(record: object) -> Mapping[str, object]:
         "confidence": getattr(record, "confidence", None),
         "source_citation": getattr(record, "source_citation", None),
         "metadata": getattr(record, "metadata", None),
+        "table_label": getattr(record, "table_label", None),
+        "page_hint": getattr(record, "page_hint", None),
+        "source_quote": getattr(record, "source_quote", None),
         "flags": getattr(record, "flags", None),
         "raw_food_name": getattr(record, "raw_food_name", None),
         "raw_nutrient_name": getattr(record, "raw_nutrient_name", None),

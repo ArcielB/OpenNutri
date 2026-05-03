@@ -158,7 +158,8 @@ ALTER TABLE papers
             'ai_failed',
             'human_review_ready',
             'ai_finalized_has_data',
-            'ai_finalized_no_usable_data'
+            'ai_finalized_no_usable_data',
+            'ai_provisional_no_usable_data'
         )
     );
 
@@ -178,7 +179,7 @@ ALTER TABLE papers
     ADD CONSTRAINT papers_route_destination_check
     CHECK (
         route_destination IS NULL
-        OR route_destination IN ('human_review', 'finalized', 'blocked')
+        OR route_destination IN ('human_review', 'finalized', 'blocked', 'next_stage', 'provisional_skip')
     );
 
 CREATE TABLE IF NOT EXISTS paper_search_hits (
@@ -869,7 +870,7 @@ ALTER TABLE ai_extractions
     ADD CONSTRAINT ai_extractions_route_destination_check
     CHECK (
         route_destination IS NULL
-        OR route_destination IN ('human_review', 'finalized', 'blocked')
+        OR route_destination IN ('human_review', 'finalized', 'blocked', 'next_stage', 'provisional_skip')
     );
 
 CREATE TABLE IF NOT EXISTS routing_stage_configs (
@@ -888,9 +889,36 @@ CREATE TABLE IF NOT EXISTS routing_stage_configs (
         CHECK (audit_rate >= 0 AND audit_rate <= 1),
     next_stage_on_low_confidence TEXT NOT NULL DEFAULT 'human_review',
     counts_as_truth BOOLEAN NOT NULL DEFAULT FALSE,
+    stage_order INTEGER NOT NULL DEFAULT 0,
+    next_stage_on_has_data TEXT,
+    no_data_route_destination TEXT NOT NULL DEFAULT 'human_review'
+        CHECK (no_data_route_destination IN ('human_review', 'finalized', 'blocked', 'next_stage', 'provisional_skip')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE routing_stage_configs
+    ADD COLUMN IF NOT EXISTS stage_order INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS next_stage_on_has_data TEXT,
+    ADD COLUMN IF NOT EXISTS no_data_route_destination TEXT NOT NULL DEFAULT 'human_review';
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'routing_stage_configs'
+          AND constraint_name = 'routing_stage_configs_no_data_route_destination_check'
+    ) THEN
+        ALTER TABLE routing_stage_configs
+            DROP CONSTRAINT routing_stage_configs_no_data_route_destination_check;
+    END IF;
+END $$;
+
+ALTER TABLE routing_stage_configs
+    ADD CONSTRAINT routing_stage_configs_no_data_route_destination_check
+    CHECK (no_data_route_destination IN ('human_review', 'finalized', 'blocked', 'next_stage', 'provisional_skip'));
 
 CREATE TABLE IF NOT EXISTS paper_stage_tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -919,7 +947,10 @@ INSERT INTO routing_stage_configs (
     negative_threshold,
     audit_rate,
     next_stage_on_low_confidence,
-    counts_as_truth
+    counts_as_truth,
+    stage_order,
+    next_stage_on_has_data,
+    no_data_route_destination
 )
 VALUES (
     'gemini_flash_triage_v1',
@@ -932,7 +963,10 @@ VALUES (
     1.0,
     0.05,
     'human_review',
-    FALSE
+    FALSE,
+    5,
+    NULL,
+    'human_review'
 )
 ON CONFLICT (stage_key) DO UPDATE
 SET
@@ -941,14 +975,16 @@ SET
     model_name = EXCLUDED.model_name,
     prompt_version = EXCLUDED.prompt_version,
     active = FALSE,
+    stage_order = EXCLUDED.stage_order,
+    next_stage_on_has_data = EXCLUDED.next_stage_on_has_data,
+    no_data_route_destination = EXCLUDED.no_data_route_destination,
     updated_at = NOW();
 
 UPDATE routing_stage_configs
 SET
     active = FALSE,
     updated_at = NOW()
-WHERE active IS TRUE
-  AND stage_key <> 'gemini_flash_db_payload_v2';
+WHERE active IS TRUE;
 
 INSERT INTO routing_stage_configs (
     stage_key,
@@ -961,7 +997,10 @@ INSERT INTO routing_stage_configs (
     negative_threshold,
     audit_rate,
     next_stage_on_low_confidence,
-    counts_as_truth
+    counts_as_truth,
+    stage_order,
+    next_stage_on_has_data,
+    no_data_route_destination
 )
 VALUES (
     'gemini_flash_db_payload_v2',
@@ -969,12 +1008,59 @@ VALUES (
     'Gemini Flash DB Payload v2',
     'gemini-3-flash-preview',
     'gemini_flash_db_payload_v3',
-    TRUE,
+    FALSE,
     1.0,
     1.0,
     0.05,
     'human_review',
-    FALSE
+    FALSE,
+    20,
+    NULL,
+    'provisional_skip'
+)
+ON CONFLICT (stage_key) DO UPDATE
+SET
+    stage_kind = EXCLUDED.stage_kind,
+    display_name = EXCLUDED.display_name,
+    model_name = EXCLUDED.model_name,
+    prompt_version = EXCLUDED.prompt_version,
+    active = FALSE,
+    stage_order = EXCLUDED.stage_order,
+    next_stage_on_has_data = EXCLUDED.next_stage_on_has_data,
+    no_data_route_destination = EXCLUDED.no_data_route_destination,
+    updated_at = NOW();
+
+INSERT INTO routing_stage_configs (
+    stage_key,
+    stage_kind,
+    display_name,
+    model_name,
+    prompt_version,
+    active,
+    positive_threshold,
+    negative_threshold,
+    audit_rate,
+    next_stage_on_low_confidence,
+    counts_as_truth,
+    stage_order,
+    next_stage_on_has_data,
+    no_data_route_destination
+)
+VALUES (
+    'gemma_proof_extraction_v1',
+    'ai_model',
+    'Gemma Proof Extraction v1',
+    'gemma-3-27b-it',
+    'opennutri_master_payload_v1',
+    TRUE,
+    1.0,
+    1.0,
+    0.02,
+    'gemini_flash_db_payload_v2',
+    FALSE,
+    10,
+    'gemini_flash_db_payload_v2',
+    'provisional_skip'
 )
 ON CONFLICT (stage_key) DO UPDATE
 SET
@@ -983,6 +1069,9 @@ SET
     model_name = EXCLUDED.model_name,
     prompt_version = EXCLUDED.prompt_version,
     active = TRUE,
+    stage_order = EXCLUDED.stage_order,
+    next_stage_on_has_data = EXCLUDED.next_stage_on_has_data,
+    no_data_route_destination = EXCLUDED.no_data_route_destination,
     updated_at = NOW();
 
 DO $$
@@ -1958,7 +2047,7 @@ BEGIN
       ON latest_ai.id = p.latest_ai_extraction_id
     WHERE p.routing_status = 'human_review_ready'
       AND p.workflow_language IN ('en', 'tr')
-      AND latest_ai.normalized_payload_json ->> 'decision_kind' IN ('has_data', 'no_usable_data')
+      AND latest_ai.normalized_payload_json ->> 'decision_kind' = 'has_data'
       AND NOT EXISTS (
           SELECT 1
           FROM paper_review_outcomes outcome

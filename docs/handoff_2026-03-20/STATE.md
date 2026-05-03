@@ -6,7 +6,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 
 - Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
-- Daily ops now maximizes Gemini usage: 20 calls per day, at most 5 calls per 5-minute GitHub Actions iteration, with crawler refill only when queued AI work is unavailable.
+- Daily ops now uses Gemma proof extraction before Gemini: cheap Gemma calls screen/extract broadly, Gemma-positive papers enqueue Gemini by priority, and the Gemini budget remains 20 calls/day.
 
 ## Documentation Pointers
 
@@ -25,12 +25,12 @@ This is the current high-signal project state after the reviewer workflow moved 
 
 Pipeline:
 
-`crawl -> upload -> AI queue -> routing -> human_review_ready shared queue -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`
+`crawl -> upload -> Gemma proof extraction -> Gemini extraction -> human_review_ready shared queue -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`
 
 Important rules:
 
 - Labelers see a shared Queue of available papers.
-- A paper is available to labelers only after AI processing creates a latest normalized decision payload. Both `has_data` and `no_usable_data` AI decisions remain human-review work while thresholds are set to require validation.
+- A paper is available to labelers only after the model cascade creates a latest normalized `has_data` decision payload. AI `no_usable_data` decisions are provisional skips by default and remain inspectable in cockpit/All Papers, not the labeler queue.
 - A paper leaves the visible Queue as soon as any pending/accepted general submission exists.
 - Drafts do not claim papers. If two people already have the same paper open, both can still submit before final approval.
 - Every submitted payload is immutable in `paper_label_submissions`.
@@ -48,6 +48,7 @@ New active tables:
 - `paper_label_submissions`
 - `paper_label_approvals`
 - `paper_review_outcomes` with `label_submission_id` and `label_approval_id`
+- `routing_stage_configs` now orders model stages. `gemma_proof_extraction_v1` is the active entry stage; `gemini_flash_db_payload_v2` is the second extraction stage.
 
 Important access flags:
 
@@ -79,7 +80,7 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 
 `apps/expert-annotator/src/pages/Annotate.jsx` now exposes:
 
-- `Queue`: shared available paper list, AI prefill from latest `ai_extractions.normalized_payload_json`, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized AI output; AI `has_data` rows are editable DB-compliant extracted data, AI `no_usable_data` decisions open as an empty review state, and AI reasoning is not shown to labelers.
+- `Queue`: shared available paper list, AI prefill from latest Gemini `has_data` `ai_extractions.normalized_payload_json`, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized useful AI output; AI `no_usable_data` decisions are provisional skips outside the labeler queue, and AI reasoning is not shown to labelers.
 - `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers.
 - `Dashboard`: labeler performance and detailed correction history.
 - `All Papers`: global paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload.
@@ -93,15 +94,16 @@ Frontend validation currently passes with:
 
 ## AI Routing
 
-- Active stage remains `gemini_flash_db_payload_v2`.
-- Active prompt version is `gemini_flash_db_payload_v3`.
-- Upload enqueues `paper_stage_tasks` instead of running Gemini inline.
+- Active entry stage is `gemma_proof_extraction_v1`; second stage is `gemini_flash_db_payload_v2`.
+- Active shared prompt contract is `opennutri_master_payload_v1` for Gemma and `gemini_flash_db_payload_v3` for Gemini until the Gemini config is renamed.
+- Upload enqueues `paper_stage_tasks` instead of running models inline.
 - AI extraction stores deterministic `normalized_payload_json` using the same top-level contract as human payloads, including DB/custom food identity, raw food name, preparation state, DB/custom nutrient identity, raw nutrient name, value, unit, basis, sample size, confidence, source citation, and row metadata.
 - The annotator treats that payload as the reviewer-facing AI output: it preloads editable queue rows when there is no saved annotation, and cockpit Details shows the normalized payload/normalization summary without model reasoning.
-- The AI prompt target is direct food composition data only. Intervention/effect/outcome papers about nutrient doses, supplements, extracts, diets, biomarkers, cells, animals, microbes, health effects, processing outcomes, sensory scores, or similar responses are empty unless they also report direct food composition tables.
+- The AI prompt target is useful OpenNutri food composition data only. Intervention/effect/outcome papers about nutrient doses, supplements, extracts, diets, biomarkers, cells, animals, microbes, health effects, processing outcomes, sensory scores, or similar responses are empty unless they also report useful direct food/product composition tables. One-off treatment/formulation variants are no usable data unless they represent stable real-world foods/products worth adding to the DB.
 - `UnifiedEvaluator` accepts requested JSON object output, top-level candidate-row arrays, and nested `food -> nutrients[]` arrays.
 - Prompt should include the full nutrient catalog plus high-signal food candidates matched from the paper text, but not the full food catalog.
 - AI-provided DB IDs are verified against current DB rows before acceptance.
+- Gemma `has_data` outputs enqueue Gemini with a computed priority from model confidence, accepted row count, evidence quality, and normalization quality. Gemma/Gemini `no_usable_data` outputs become `ai_provisional_no_usable_data` with `route_destination = provisional_skip`. Gemini `has_data` outputs with normalized rows become `human_review_ready`.
 - AI-finalized outcomes use `truth_source_kind = ai_model` and remain excluded from human-truth feedback.
 
 ## Ops
@@ -111,18 +113,19 @@ Frontend validation currently passes with:
 - reports shared general queue stock;
 - excludes papers with final outcomes or pending/accepted general submissions;
 - excludes unresolved legacy slot assignments and legacy global no-data rows;
-- drains queued AI before requesting crawler refill;
+- drains queued Gemma and Gemini stage tasks before requesting crawler refill;
 - triggers crawler refill when visible stock is below `--target-open`.
 
-`services/data-pipeline/scripts/daily_ops_orchestrator.py` now treats `--target-open` as compatibility/reporting only. Scheduled ops maximize Gemini usage instead of stopping when the human queue is full.
+`services/data-pipeline/scripts/daily_ops_orchestrator.py` now treats `--target-open` as compatibility/reporting only. Scheduled ops spend cheap Gemma calls to fill the Gemini queue and maximize the 20-call Gemini budget instead of stopping when the human queue is full.
 
 Daily ops order:
 
-1. Drain queued AI work.
-2. Crawl/upload when no queued AI work is available.
-3. Process the new AI queue.
-4. Sleep 5 minutes in GitHub Actions after non-terminal per-invocation budget stops.
-5. Repeat until terminal.
+1. Drain queued Gemini extraction work within the daily Gemini budget.
+2. Drain queued Gemma proof-extraction work when Gemini has no ready tasks.
+3. Crawl/upload when no queued model work is available.
+4. Process new Gemma work, then newly queued Gemini work.
+5. Sleep 5 minutes in GitHub Actions after non-terminal per-invocation budget stops.
+6. Repeat until terminal.
 
 Terminal stop reasons:
 

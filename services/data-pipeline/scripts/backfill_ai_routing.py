@@ -210,7 +210,7 @@ def cancel_unresolved_assignments_for_closed_routes(client) -> dict[str, int]:
         for row in papers
         if row.get("id") is not None
         and str(row.get("routing_status") or "").strip().lower()
-        in {"ai_failed", "ai_finalized_has_data", "ai_finalized_no_usable_data"}
+        in {"ai_failed", "ai_finalized_has_data", "ai_finalized_no_usable_data", "ai_provisional_no_usable_data"}
     }
     if not blocked_paper_ids:
         return {"slot_assignments": 0, "user_assignments": 0, "conflicts": 0}

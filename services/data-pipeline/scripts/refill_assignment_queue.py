@@ -88,6 +88,7 @@ def available_papers(
     review_outcomes: list[dict],
     global_labels: list[dict],
     label_submissions: list[dict] | None = None,
+    ai_extractions: list[dict] | None = None,
 ) -> list[dict]:
     blocked_ids = {
         row.get("paper_id")
@@ -120,19 +121,27 @@ def available_papers(
             paper_id = 0
         return timestamp, paper_id
 
+    ai_decision_by_id = {
+        row.get("id"): (row.get("normalized_payload_json") or {}).get("decision_kind")
+        for row in ai_extractions or []
+        if row.get("id") is not None and isinstance(row.get("normalized_payload_json"), dict)
+    }
+
     return [
         paper
         for paper in sorted(papers, key=waiting_order)
         if paper.get("id") not in blocked_ids
         and str(paper.get("routing_status") or "").strip().lower() == "human_review_ready"
         and paper.get("latest_ai_extraction_id")
+        and ai_decision_by_id.get(paper.get("latest_ai_extraction_id")) == "has_data"
         and str(paper.get("workflow_language") or "").strip().lower() in SUPPORTED_LANGUAGES
     ]
 
 
 def fetch_state(client: Client) -> dict[str, list[dict]]:
     return {
-        "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at,routing_updated_at,routing_status,latest_ai_extraction_id"),
+        "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at,routing_updated_at,routing_status,current_stage_key,latest_ai_extraction_id"),
+        "ai_extractions": fetch_all(client, "ai_extractions", "id,normalized_payload_json"),
         "global_labels": fetch_all(client, "paper_global_labels", "paper_id,label"),
         "review_outcomes": fetch_all(client, "paper_review_outcomes", "paper_id,decision_kind"),
         "paper_label_submissions": fetch_all(client, "paper_label_submissions", "paper_id,status"),
@@ -203,6 +212,7 @@ def compute_assignment_context(
         state.get("review_outcomes", []),
         state.get("global_labels", []),
         state.get("paper_label_submissions", []),
+        state.get("ai_extractions", []),
     )
     counts = assignment_stock_counts(open_available)
     language_deficits = language_deficits_for(open_available, target_open)
@@ -261,38 +271,53 @@ def has_queued_ai_work(papers: list[dict]) -> bool:
 
 
 def drain_ai_queue(*, dry_run: bool, max_tasks: int) -> bool:
-    cmd = [
-        sys.executable,
-        "services/data-pipeline/scripts/process_stage_queue.py",
-        "--max-tasks",
-        str(max(1, int(max_tasks))),
-        "--stop-on-quota",
-        "--json-summary",
-    ]
     print("General queue stock is low; attempting to drain queued AI routing tasks first.")
-    if dry_run:
-        print("[dry-run] " + " ".join(cmd))
-        return True
+    commands = [
+        [
+            sys.executable,
+            "services/data-pipeline/scripts/process_stage_queue.py",
+            "--stage-key",
+            "gemma_proof_extraction_v1",
+            "--max-tasks",
+            str(max(max(1, int(max_tasks)) * 10, 20)),
+            "--stop-on-quota",
+            "--json-summary",
+        ],
+        [
+            sys.executable,
+            "services/data-pipeline/scripts/process_stage_queue.py",
+            "--stage-key",
+            "gemini_flash_db_payload_v2",
+            "--max-tasks",
+            str(max(1, int(max_tasks))),
+            "--stop-on-quota",
+            "--json-summary",
+        ],
+    ]
 
     env = os.environ.copy()
-    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env, check=False, capture_output=True, text=True)
-    if result.stdout:
-        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
-    if result.stderr:
-        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
-    if result.returncode != 0:
-        raise SystemExit(f"process_stage_queue.py failed with exit code {result.returncode}")
-    summary: dict | None = None
-    for line in reversed(result.stdout.splitlines()):
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
+    for cmd in commands:
+        if dry_run:
+            print("[dry-run] " + " ".join(cmd))
             continue
-        if isinstance(payload, dict):
-            summary = payload
-            break
-    if summary and summary.get("quota_limited"):
-        raise SystemExit("Gemini quota/rate limit reached; stopping before crawl refill.")
+        result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env, check=False, capture_output=True, text=True)
+        if result.stdout:
+            print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+        if result.stderr:
+            print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
+        if result.returncode != 0:
+            raise SystemExit(f"process_stage_queue.py failed with exit code {result.returncode}")
+        summary: dict | None = None
+        for line in reversed(result.stdout.splitlines()):
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                summary = payload
+                break
+        if summary and summary.get("quota_limited"):
+            raise SystemExit("AI quota/rate limit reached; stopping before crawl refill.")
     return True
 
 

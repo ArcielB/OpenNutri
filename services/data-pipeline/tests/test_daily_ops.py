@@ -17,8 +17,11 @@ def build_args(**overrides):
         "target_open": 50,
         "max_cycles": 4,
         "max_ai_tasks": 5,
+        "max_screening_tasks": 50,
         "daily_ai_call_budget": 20,
         "ai_tasks_already_used": 0,
+        "screening_stage_key": "gemma_proof_extraction_v1",
+        "extraction_stage_key": "gemini_flash_db_payload_v2",
         "refill_step_en": 4,
         "refill_step_tr": 4,
         "seed": 20260413,
@@ -55,6 +58,38 @@ class DailyOpsTests(unittest.TestCase):
         self.assertEqual(summary["ai_tasks_used"], 1)
         drain_mock.assert_called_once()
         self.assertEqual(drain_mock.call_args.kwargs["max_tasks"], 1)
+        self.assertEqual(drain_mock.call_args.kwargs["stage_key"], "gemini_flash_db_payload_v2")
+        crawl_mock.assert_not_called()
+
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    def test_existing_queued_screening_is_processed_without_gemini_budget(
+        self,
+        fetch_state_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+    ) -> None:
+        fetch_state_mock.return_value = {
+            "papers": [
+                {
+                    "routing_status": "queued_for_ai",
+                    "current_stage_key": "gemma_proof_extraction_v1",
+                }
+            ]
+        }
+        drain_mock.return_value = {"processed": 7, "quota_limited": False}
+
+        summary = daily_ops_orchestrator.run_daily_ops(
+            object(),
+            build_args(max_cycles=1, max_ai_tasks=2, max_screening_tasks=7),
+        )
+
+        self.assertEqual(summary["stopped_reason"], "max_cycles")
+        self.assertEqual(summary["ai_tasks_used"], 0)
+        drain_mock.assert_called_once()
+        self.assertEqual(drain_mock.call_args.kwargs["max_tasks"], 7)
+        self.assertEqual(drain_mock.call_args.kwargs["stage_key"], "gemma_proof_extraction_v1")
         crawl_mock.assert_not_called()
 
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
@@ -182,11 +217,59 @@ class DailyOpsTests(unittest.TestCase):
 
         self.assertEqual(summary["stopped_reason"], "ai_run_budget_exhausted")
         crawl_mock.assert_called_once()
-        drain_mock.assert_called_once()
+        self.assertEqual(drain_mock.call_count, 1)
         self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 4, "tr": 4})
+        self.assertEqual(drain_mock.call_args.kwargs["stage_key"], "gemini_flash_db_payload_v2")
         self.assertFalse(crawl_mock.call_args.kwargs["args"].skip_feedback)
         self.assertFalse(crawl_mock.call_args.kwargs["args"].skip_dergipark_refresh)
         self.assertFalse(crawl_mock.call_args.kwargs["process_ai_after_upload"])
+
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    def test_after_crawl_runs_screening_then_extraction(
+        self,
+        fetch_state_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+    ) -> None:
+        fetch_state_mock.side_effect = [
+            {"papers": []},
+            {
+                "papers": [
+                    {
+                        "routing_status": "queued_for_ai",
+                        "current_stage_key": "gemma_proof_extraction_v1",
+                    }
+                ]
+            },
+            {
+                "papers": [
+                    {
+                        "routing_status": "queued_for_ai",
+                        "current_stage_key": "gemini_flash_db_payload_v2",
+                    }
+                ]
+            },
+        ]
+        drain_mock.side_effect = [
+            {"processed": 4, "followup_queued": 1, "quota_limited": False},
+            {"processed": 2, "human_ready": 0, "quota_limited": False},
+        ]
+
+        summary = daily_ops_orchestrator.run_daily_ops(
+            object(),
+            build_args(max_ai_tasks=2, max_screening_tasks=4),
+        )
+
+        self.assertEqual(summary["stopped_reason"], "ai_run_budget_exhausted")
+        self.assertEqual(summary["ai_tasks_used"], 2)
+        crawl_mock.assert_called_once()
+        self.assertEqual(drain_mock.call_count, 2)
+        self.assertEqual(drain_mock.call_args_list[0].kwargs["stage_key"], "gemma_proof_extraction_v1")
+        self.assertEqual(drain_mock.call_args_list[0].kwargs["max_tasks"], 4)
+        self.assertEqual(drain_mock.call_args_list[1].kwargs["stage_key"], "gemini_flash_db_payload_v2")
+        self.assertEqual(drain_mock.call_args_list[1].kwargs["max_tasks"], 2)
 
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
