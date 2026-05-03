@@ -519,10 +519,10 @@ class StockAndFeedbackTests(unittest.TestCase):
     def test_fetch_available_counts_only_counts_human_review_ready(self, fetch_rows_mock: Mock) -> None:
         fetch_rows_mock.side_effect = [
             [
-                {"id": 1, "workflow_language": "en", "routing_status": "human_review_ready"},
+                {"id": 1, "workflow_language": "en", "routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-1"},
                 {"id": 2, "workflow_language": "tr", "routing_status": "queued_for_ai"},
-                {"id": 3, "workflow_language": "tr", "routing_status": "human_review_ready"},
-                {"id": 4, "workflow_language": "en", "routing_status": "human_review_ready"},
+                {"id": 3, "workflow_language": "tr", "routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-3"},
+                {"id": 4, "workflow_language": "en", "routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-4"},
             ],
             [],
             [],
@@ -537,7 +537,7 @@ class StockAndFeedbackTests(unittest.TestCase):
 
     def test_available_papers_excludes_non_human_ready(self) -> None:
         papers = [
-            {"id": 1, "workflow_language": "en", "routing_status": "human_review_ready"},
+            {"id": 1, "workflow_language": "en", "routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-1"},
             {"id": 2, "workflow_language": "tr", "routing_status": "queued_for_ai"},
             {"id": 3, "workflow_language": "en", "routing_status": "ai_failed"},
         ]
@@ -555,6 +555,7 @@ class StockAndFeedbackTests(unittest.TestCase):
                 "id": 1,
                 "workflow_language": "en",
                 "routing_status": "human_review_ready",
+                "latest_ai_extraction_id": "ai-1",
                 "created_at": "2026-04-01T00:00:00+00:00",
                 "routing_updated_at": "2026-04-20T00:00:00+00:00",
             },
@@ -562,6 +563,7 @@ class StockAndFeedbackTests(unittest.TestCase):
                 "id": 2,
                 "workflow_language": "tr",
                 "routing_status": "human_review_ready",
+                "latest_ai_extraction_id": "ai-2",
                 "created_at": "2026-04-02T00:00:00+00:00",
                 "routing_updated_at": "2026-04-10T00:00:00+00:00",
             },
@@ -569,6 +571,7 @@ class StockAndFeedbackTests(unittest.TestCase):
                 "id": 3,
                 "workflow_language": "en",
                 "routing_status": "human_review_ready",
+                "latest_ai_extraction_id": "ai-3",
                 "created_at": "2026-04-03T00:00:00+00:00",
                 "routing_updated_at": "2026-04-10T00:00:00+00:00",
             },
@@ -585,9 +588,9 @@ class StockAndFeedbackTests(unittest.TestCase):
 
     def test_available_papers_excludes_pending_general_submissions(self) -> None:
         papers = [
-            {"id": 1, "workflow_language": "en", "routing_status": "human_review_ready"},
-            {"id": 2, "workflow_language": "tr", "routing_status": "human_review_ready"},
-            {"id": 3, "workflow_language": "en", "routing_status": "human_review_ready"},
+            {"id": 1, "workflow_language": "en", "routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-1"},
+            {"id": 2, "workflow_language": "tr", "routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-2"},
+            {"id": 3, "workflow_language": "en", "routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-3"},
         ]
         available = refill_assignment_queue.available_papers(
             papers,
@@ -614,6 +617,7 @@ class StockAndFeedbackTests(unittest.TestCase):
                         "created_at": "2026-04-01T00:00:00+00:00",
                         "routing_updated_at": "2026-04-01T00:00:00+00:00",
                         "routing_status": "human_review_ready",
+                        "latest_ai_extraction_id": "ai-101",
                     }
                 ],
                 "paper_global_labels": [],
@@ -1082,7 +1086,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.upserts[0][1]["decision_kind"], "no_usable_data")
 
     @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
-    def test_threshold_one_routes_perfect_confidence_to_humans(self, _extract_mock: Mock) -> None:
+    def test_no_usable_data_finalizes_empty_even_when_negative_threshold_is_one(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
                 "papers": [
@@ -1127,11 +1131,13 @@ class QueueAndBackfillTests(unittest.TestCase):
             evaluator=evaluator,
         )
 
-        self.assertEqual(result["status"], "human_review_ready")
+        self.assertEqual(result["status"], "ai_finalized_no_usable_data")
         extraction_payload = client.inserts[0][1][0]
         self.assertEqual(extraction_payload["routing_bucket"], "low_confidence_no_usable_data")
-        self.assertFalse(extraction_payload["finalized_without_human"])
-        self.assertEqual(client.upserts, [])
+        self.assertTrue(extraction_payload["finalized_without_human"])
+        self.assertEqual(extraction_payload["normalized_payload_json"], {"decision_kind": "no_usable_data", "food_items": []})
+        self.assertEqual(client.upserts[0][0], "paper_review_outcomes")
+        self.assertEqual(client.upserts[0][1]["decision_kind"], "no_usable_data")
 
 
 if __name__ == "__main__":

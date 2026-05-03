@@ -59,16 +59,18 @@ Do not spend tokens on these unless the task explicitly needs them:
 
 ## Product Truths
 - The project is a food-composition paper pipeline plus a human labeling UI.
+- The extraction target is direct food composition data only: foods or food products mapped to nutrient/composition values. Papers about effects of a nutrient, supplement, extract, dose, or diet on health, biomarkers, cells, animals, microbes, processing outcomes, or other responses are empty unless they also report direct food composition tables.
 - Relevance filtering currently targets English and Turkish only.
 - The annotator now uses a general queue:
   every active labeler sees the same available `human_review_ready` papers, and a paper disappears from the queue as soon as a general label submission exists.
+- Only papers successfully processed by AI with a normalized `has_data` payload should enter the human labeling queue. AI no-usable-data/empty outcomes should be finalized as empty instead of sent to labelers.
 - General queue drafts are not claims. Multiple stale in-progress reviewers can still submit before final approval, and every immutable submission is retained in `paper_label_submissions`.
 - Final human truth is reviewer-led approval:
   Arciel currently has `reviewer_profiles.can_approve_labels = true`; approval rights are configurable and separate from tester/cockpit visibility.
 - Arciel's own submissions auto-accept into `paper_label_approvals` and `paper_review_outcomes`; non-Arciel submissions remain `pending_approval` until Arciel edits/approves them.
 - The approval page is visible to cockpit/tester/developer accounts but mutation RPCs require `current_user_can_approve_labels()`, which excludes testers.
 - Labeler performance and correction details come from `paper_label_submissions`, `paper_label_approvals.correction_diff_json`, and `paper_review_outcomes`.
-- Labeling queue papers with no saved annotation must open with the latest AI `normalized_payload_json` prefilled as editable food/nutrient rows when available. Labelers review and correct the DB-compliant AI extraction; the queue must not show AI reasoning.
+- Labeling queue papers with no saved annotation must open with the latest AI `normalized_payload_json` prefilled as editable food/nutrient rows. Labelers review and correct the DB-compliant AI extraction; the queue must not show AI reasoning.
 - Cockpit All Papers must keep a per-paper AI Details affordance for the latest AI extraction. Details should show the normalized DB-compliant payload and row/normalization summary, not the model reasoning.
 - Old slot tables (`reviewer_slots`, `reviewer_slot_members`, `paper_slot_assignments`, `paper_user_assignments`, `paper_assignment_submissions`, `paper_conflicts`) are preserved as legacy audit/history only and should not drive new workflow work.
 - Resolved crawler truth now comes from `paper_review_outcomes`; pending/superseded submissions must not feed feedback learning.

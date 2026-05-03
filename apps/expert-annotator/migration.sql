@@ -968,7 +968,7 @@ VALUES (
     'ai_model',
     'Gemini Flash DB Payload v2',
     'gemini-3-flash-preview',
-    'gemini_flash_db_payload_v2',
+    'gemini_flash_db_payload_v3',
     TRUE,
     1.0,
     1.0,
@@ -1954,8 +1954,12 @@ BEGIN
     RETURN QUERY
     SELECT p.*
     FROM papers p
+    JOIN ai_extractions latest_ai
+      ON latest_ai.id = p.latest_ai_extraction_id
     WHERE p.routing_status = 'human_review_ready'
       AND p.workflow_language IN ('en', 'tr')
+      AND latest_ai.normalized_payload_json ->> 'decision_kind' = 'has_data'
+      AND jsonb_array_length(coalesce(latest_ai.normalized_payload_json -> 'food_items', '[]'::jsonb)) > 0
       AND NOT EXISTS (
           SELECT 1
           FROM paper_review_outcomes outcome

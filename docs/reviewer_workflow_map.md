@@ -14,6 +14,7 @@ Important consequences:
 
 - Labelers pull from a shared general queue, not personal slot assignments.
 - A paper is visible in the queue only while it is `human_review_ready`, unresolved, and has no pending/accepted general submission.
+- Queue eligibility also requires a latest AI extraction whose normalized payload is `decision_kind = has_data` with at least one food item. Empty/no-usable-data AI outcomes are final empty outcomes, not labeler work.
 - Submitting creates an immutable `paper_label_submissions` row and removes the paper from the visible queue on refresh.
 - Drafts do not claim a paper. If two labelers already have a paper open, both can submit before final approval; all submissions are retained for audit/performance.
 - Arciel's own submission auto-accepts. Other labelers' submissions wait for approval.
@@ -65,7 +66,7 @@ Core RPCs:
 - The Queue calls `get_general_queue_papers()`.
 - Labelers only see available papers and their own draft content.
 - Labelers do not see other labeler names, submission counts, or approval status.
-- If a paper has no saved annotation, the form initializes from the latest `ai_extractions.normalized_payload_json` when available. The AI output appears as editable DB-compliant food/nutrient rows; AI reasoning is not shown in the labeling queue.
+- Every visible queue paper must already have a latest AI extraction with normalized `has_data` output. If a paper has no saved annotation, the form initializes from that `ai_extractions.normalized_payload_json`. The AI output appears as editable DB-compliant food/nutrient rows; AI reasoning is not shown in the labeling queue.
 - `Save Draft` writes only the user's annotation/food/nutrient rows.
 - `Submit Final Extraction` or `No Usable Data` writes annotation rows, inserts a `paper_label_events` audit row, then calls `submit_general_label()`.
 - `Ask for Help` inserts a `backlog_review_items` row with `context.request_kind = general_queue_help_request`.
@@ -104,6 +105,7 @@ Core RPCs:
 Shared-stock logic:
 
 - Available stock is `papers.routing_status = human_review_ready`.
+- Available stock requires `papers.latest_ai_extraction_id` to point to an AI extraction with normalized `decision_kind = has_data` and at least one food item.
 - Supported languages are English and Turkish.
 - Exclude papers with final `paper_review_outcomes`.
 - Exclude papers with `paper_label_submissions.status IN ('pending_approval', 'accepted')`.
@@ -124,3 +126,4 @@ Daily ops:
 - Tester accounts must remain read-only even when they can see cockpit/approval pages.
 - Only accepted `paper_review_outcomes.truth_source_kind = human_review` rows feed current feedback learning.
 - Keep AI prefill payloads DB-aligned: custom foods/nutrients must be explicit, and row context such as raw names, basis, confidence, source citation, and metadata belongs in the canonical payload hash.
+- Keep the AI prompt focused on direct food composition extraction. Effect/intervention/outcome papers are empty unless they contain direct food composition tables.

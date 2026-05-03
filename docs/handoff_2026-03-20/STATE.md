@@ -30,6 +30,7 @@ Pipeline:
 Important rules:
 
 - Labelers see a shared Queue of available papers.
+- A paper is available to labelers only after AI processing creates a latest normalized `has_data` extraction payload. Empty/no-usable-data AI outcomes are finalized as empty instead of being sent to labelers.
 - A paper leaves the visible Queue as soon as any pending/accepted general submission exists.
 - Drafts do not claim papers. If two people already have the same paper open, both can still submit before final approval.
 - Every submitted payload is immutable in `paper_label_submissions`.
@@ -78,7 +79,7 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 
 `apps/expert-annotator/src/pages/Annotate.jsx` now exposes:
 
-- `Queue`: shared available paper list, AI prefill from latest `ai_extractions.normalized_payload_json`, draft save, final submit, no-usable-data submit, ask-for-help. AI-prefilled rows are editable DB-compliant extracted data; AI reasoning is not shown to labelers.
+- `Queue`: shared available paper list, AI prefill from latest `ai_extractions.normalized_payload_json`, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized AI `has_data` output; AI-prefilled rows are editable DB-compliant extracted data; AI reasoning is not shown to labelers.
 - `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers.
 - `Dashboard`: labeler performance and detailed correction history.
 - `All Papers`: global paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload.
@@ -93,9 +94,11 @@ Frontend validation currently passes with:
 ## AI Routing
 
 - Active stage remains `gemini_flash_db_payload_v2`.
+- Active prompt version is `gemini_flash_db_payload_v3`.
 - Upload enqueues `paper_stage_tasks` instead of running Gemini inline.
 - AI extraction stores deterministic `normalized_payload_json` using the same top-level contract as human payloads, including DB/custom food identity, raw food name, preparation state, DB/custom nutrient identity, raw nutrient name, value, unit, basis, sample size, confidence, source citation, and row metadata.
 - The annotator treats that payload as the reviewer-facing AI output: it preloads editable queue rows when there is no saved annotation, and cockpit Details shows the normalized payload/normalization summary without model reasoning.
+- The AI prompt target is direct food composition data only. Intervention/effect/outcome papers about nutrient doses, supplements, extracts, diets, biomarkers, cells, animals, microbes, health effects, processing outcomes, sensory scores, or similar responses are empty unless they also report direct food composition tables.
 - `UnifiedEvaluator` accepts requested JSON object output, top-level candidate-row arrays, and nested `food -> nutrients[]` arrays.
 - Prompt should include the full nutrient catalog plus high-signal food candidates matched from the paper text, but not the full food catalog.
 - AI-provided DB IDs are verified against current DB rows before acceptance.

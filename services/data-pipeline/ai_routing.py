@@ -166,7 +166,7 @@ def route_bucket(
     audit_sampled: bool,
     has_human_truth: bool,
 ) -> tuple[str, str, bool]:
-    if routing_bucket in {ROUTING_BUCKET_LOW_POSITIVE, ROUTING_BUCKET_LOW_NEGATIVE}:
+    if routing_bucket == ROUTING_BUCKET_LOW_POSITIVE:
         return ROUTING_STATUS_HUMAN_READY, HUMAN_REVIEW_DESTINATION, False
     if audit_sampled or has_human_truth:
         return ROUTING_STATUS_HUMAN_READY, HUMAN_REVIEW_DESTINATION, False

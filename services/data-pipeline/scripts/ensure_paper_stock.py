@@ -54,7 +54,7 @@ def fetch_rows(
 
 
 def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, int]:
-    papers = fetch_rows(supabase_url, supabase_key, "papers", "id,workflow_language,routing_status")
+    papers = fetch_rows(supabase_url, supabase_key, "papers", "id,workflow_language,routing_status,latest_ai_extraction_id")
     global_labels = fetch_rows(
         supabase_url,
         supabase_key,
@@ -110,6 +110,8 @@ def fetch_available_counts(supabase_url: str, supabase_key: str) -> Dict[str, in
         if paper_id in skipped_ids or paper_id in resolved_ids or paper_id in assigned_ids or paper_id in submitted_ids:
             continue
         if str(row.get("routing_status") or "").strip().lower() != "human_review_ready":
+            continue
+        if not row.get("latest_ai_extraction_id"):
             continue
         workflow_language = str(row.get("workflow_language") or "").strip().lower()
         if workflow_language in SUPPORTED_LANGUAGES:

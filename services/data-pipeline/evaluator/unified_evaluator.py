@@ -65,11 +65,14 @@ class UnifiedEvaluator:
     
     EXTRACTION_PROMPT = """You are a food composition database curator extracting structured data from scientific papers.
 
-**Task**: Determine if this paper contains usable food composition data, and if so, extract it.
+**Task**: Determine if this paper contains direct food composition data for database entry, and if so, extract it.
 
 **USEFULNESS Criteria**:
-- is_useful = true if: Contains tables with specific foods and their nutrient values (e.g., "Apple: 52 kcal, 0.3g fat, 14g carbs"). Quantitative data: mg/100g, g/100g, percentages, etc. Clear food-nutrient mappings.
-- is_useful = false if: Clinical trials about health effects, review papers without original data, methodology papers, supplement/pill studies, or papers about non-food items.
+- is_useful = true ONLY if the paper directly reports composition values measured in foods or food products, with clear food-nutrient mappings suitable for a food composition database (for example: apple: protein 0.3 g/100g, vitamin C 4.6 mg/100g, moisture 84%).
+- is_useful = false if the paper is mainly about what a nutrient, supplement, extract, dose, or diet does to people, animals, cells, microbes, biomarkers, disease, growth, antioxidant status, digestibility, shelf life, processing performance, sensory properties, or any other outcome.
+- is_useful = false for intervention/effect/association papers even if they mention foods or nutrients, unless they also contain direct food composition tables for the food itself.
+- is_useful = false for review papers without original composition data, methodology papers without food composition results, supplement/pill/extract studies, and papers about non-food items.
+- Every paper that is not actually about direct food composition data is empty: return is_useful=false and data=[].
 
 **Instructions**:
 1. Read the paper carefully.
@@ -143,7 +146,9 @@ class UnifiedEvaluator:
 3. If is_useful is false, return an empty "data" array.
 4. Extract ALL nutrients from tables, not just a sample.
 5. Prefer rows reported per 100g or as percentages. Rows on other bases may be included as candidates only when the basis is explicit.
-6. Do not treat clinical outcomes, digestibility metrics, antioxidant assays, pH, color, texture, yield, or other non-composition measurements as food composition nutrient values.
+6. Do not treat clinical outcomes, health effects, intervention outcomes, dose-response results, digestibility metrics, antioxidant assays, pH, color, texture, yield, microbial counts, enzyme activity, gene expression, blood/serum/tissue biomarkers, body composition, growth, survival, sensory scores, or other non-composition measurements as food composition nutrient values.
+7. Do not extract values that describe an administered nutrient amount, supplement dose, diet formulation dose, treatment concentration, or experimental exposure unless the table also reports the nutrient composition of the food itself.
+8. If the only quantitative values are effects of a nutrient/food/extract on an outcome, the paper is empty for OpenNutri.
 
 **Paper Content**:
 Title: {title}

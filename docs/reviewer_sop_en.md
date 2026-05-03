@@ -98,6 +98,8 @@ Use nutrient search first. If the correct nutrient appears, select it. If it doe
 
 Do not enter a nutrient row if the value is missing, unclear, only shown as a range without a single usable value, or not tied to a specific food.
 
+The project is building a food composition database. Papers about what a nutrient, supplement, extract, dose, diet, or food does to health, biomarkers, cells, animals, microbes, processing outcomes, or sensory scores are not useful unless they also report direct food composition values for the food itself.
+
 ## PDF Highlights
 
 Highlighted nutrient names are only a helper.
@@ -117,6 +119,8 @@ Do not enter these as nutrient rows:
 - texture, viscosity, hardness, yield, or sensory scores
 - microbial counts
 - processing losses
+- supplement doses, treatment concentrations, or administered nutrient amounts
+- effects of nutrients, extracts, diets, or foods on health, cells, animals, microbes, biomarkers, growth, or disease
 - values from another source cited by the paper
 - values you calculated yourself
 

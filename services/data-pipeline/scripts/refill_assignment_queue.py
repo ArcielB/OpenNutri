@@ -125,13 +125,14 @@ def available_papers(
         for paper in sorted(papers, key=waiting_order)
         if paper.get("id") not in blocked_ids
         and str(paper.get("routing_status") or "").strip().lower() == "human_review_ready"
+        and paper.get("latest_ai_extraction_id")
         and str(paper.get("workflow_language") or "").strip().lower() in SUPPORTED_LANGUAGES
     ]
 
 
 def fetch_state(client: Client) -> dict[str, list[dict]]:
     return {
-        "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at,routing_updated_at,routing_status"),
+        "papers": fetch_all(client, "papers", "id,title,doi,filename,workflow_language,created_at,routing_updated_at,routing_status,latest_ai_extraction_id"),
         "global_labels": fetch_all(client, "paper_global_labels", "paper_id,label"),
         "review_outcomes": fetch_all(client, "paper_review_outcomes", "paper_id,decision_kind"),
         "paper_label_submissions": fetch_all(client, "paper_label_submissions", "paper_id,status"),
