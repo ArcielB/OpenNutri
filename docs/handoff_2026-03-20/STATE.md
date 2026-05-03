@@ -30,7 +30,7 @@ Pipeline:
 Important rules:
 
 - Labelers see a shared Queue of available papers.
-- A paper is available to labelers only after the model cascade creates a latest normalized `has_data` decision payload. AI `no_usable_data` decisions are provisional skips by default and remain inspectable in cockpit/All Papers, not the labeler queue.
+- A paper is available to labelers only after the model cascade creates a latest normalized `has_data` decision payload. AI `no_usable_data` decisions are provisional skips by default and stay out of the labeler queue and default cockpit paper overview.
 - A paper leaves the visible Queue as soon as any pending/accepted general submission exists.
 - Drafts do not claim papers. If two people already have the same paper open, both can still submit before final approval.
 - Every submitted payload is immutable in `paper_label_submissions`.
@@ -39,7 +39,7 @@ Important rules:
 - Original labeler payloads are never overwritten; accepted reviewer payloads are stored separately.
 - `paper_label_approvals.correction_diff_json` records what changed for performance/mistake review.
 - Labelers do not see the approval page or other labelers' submissions.
-- Cockpit/tester/developer accounts can inspect Approval/Dashboard/All Papers, but tester accounts cannot mutate live data.
+- Cockpit/tester/developer accounts can inspect Approval/Dashboard/Useful Papers, but tester accounts cannot mutate live data.
 
 ## Active Schema / RPCs
 
@@ -83,7 +83,7 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 - `Queue`: shared available paper list, AI prefill from latest Gemini `has_data` `ai_extractions.normalized_payload_json`, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized useful AI output; AI `no_usable_data` decisions are provisional skips outside the labeler queue, and AI reasoning is not shown to labelers.
 - `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers.
 - `Dashboard`: labeler performance and detailed correction history.
-- `All Papers`: global paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload.
+- `Useful Papers`: useful paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload. Provisional AI no-data skips are hidden from this default overview.
 - `Reviewers`: admin table for active/tester/cockpit/approval flags.
 - `Suggestions`: suggestion and general queue help triage.
 

@@ -147,6 +147,8 @@ function formatRoutingStatusLabel(status) {
       return 'AI Finalized: Has Data'
     case 'ai_finalized_no_usable_data':
       return 'AI Finalized: No Data'
+    case 'ai_provisional_no_usable_data':
+      return 'AI Provisional: No Data'
     default:
       return status || 'Unknown'
   }
@@ -160,6 +162,10 @@ function formatRouteDestinationLabel(destination) {
       return 'Finalized'
     case 'blocked':
       return 'Blocked'
+    case 'next_stage':
+      return 'Next Stage'
+    case 'provisional_skip':
+      return 'Skipped'
     default:
       return destination || 'Pending'
   }
@@ -180,6 +186,15 @@ function getStatusBadgeClass(status) {
 function getAiDecisionKind(extraction) {
   if (extraction?.normalized_payload_json?.decision_kind) return extraction.normalized_payload_json.decision_kind
   return extraction?.is_useful ? 'has_data' : 'no_usable_data'
+}
+
+function shouldShowPaperInUsefulOverview({ paper, outcome, latestAiExtraction }) {
+  if (outcome?.decision_kind === 'has_data') return true
+  if (outcome?.decision_kind === 'no_usable_data') return false
+  if (paper?.routing_status === 'ai_provisional_no_usable_data') return false
+  if (paper?.route_destination === 'provisional_skip') return false
+  if (!latestAiExtraction) return false
+  return getAiDecisionKind(latestAiExtraction) === 'has_data'
 }
 
 function getPayloadRowCount(payload) {
@@ -967,25 +982,27 @@ function AllPapersView({ cockpitData, reviewerById, onRefresh }) {
   const outcomeByPaperId = Object.fromEntries((cockpitData.outcomes || []).map((row) => [row.paper_id, row]))
   const latestAiExtractionById = Object.fromEntries((cockpitData.aiExtractions || []).map((row) => [row.id, row]))
   const { byPaperId: latestAiExtractionByPaperId } = buildLatestAiExtractionMaps(cockpitData.aiExtractions || [])
-  const rows = (cockpitData.papers || []).map((paper) => ({
-    paper,
-    submissions: submissionsByPaperId[paper.id] || [],
-    approval: approvalsByPaperId[paper.id] || null,
-    outcome: outcomeByPaperId[paper.id] || null,
-    latestAiExtraction: latestAiExtractionById[paper.latest_ai_extraction_id] || latestAiExtractionByPaperId[paper.id] || null,
-  }))
+  const rows = (cockpitData.papers || [])
+    .map((paper) => ({
+      paper,
+      submissions: submissionsByPaperId[paper.id] || [],
+      approval: approvalsByPaperId[paper.id] || null,
+      outcome: outcomeByPaperId[paper.id] || null,
+      latestAiExtraction: latestAiExtractionById[paper.latest_ai_extraction_id] || latestAiExtractionByPaperId[paper.id] || null,
+    }))
+    .filter(shouldShowPaperInUsefulOverview)
 
   return (
     <div className="dashboard-page">
       <div className="dashboard-header">
         <div>
-          <h2>All Papers</h2>
-          <p>Global paper state under the general queue and approval workflow.</p>
+          <h2>Useful Papers</h2>
+          <p>Useful paper state under the general queue and approval workflow.</p>
         </div>
         <button className="btn btn-outline" onClick={onRefresh}>Refresh</button>
       </div>
       <div className="dashboard-card dashboard-card-table">
-        <div className="dashboard-card-title">Paper Workflow Overview</div>
+        <div className="dashboard-card-title">Useful Paper Workflow Overview</div>
         <div className="table-scroll">
           <table className="dashboard-table">
             <thead>
@@ -1000,7 +1017,7 @@ function AllPapersView({ cockpitData, reviewerById, onRefresh }) {
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan="6">No papers found.</td></tr>
+                <tr><td colSpan="6">No useful papers found.</td></tr>
               ) : rows.map(({ paper, submissions, approval, outcome, latestAiExtraction }) => {
                 const aiExpanded = Boolean(latestAiExtraction && expandedAiPaperId === paper.id)
                 return (
@@ -2060,7 +2077,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
             <>
               <button className={`nav-btn ${activeView === 'approval' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('approval')}>Approval</button>
               <button className={`nav-btn ${activeView === 'dashboard' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('dashboard')}>Dashboard</button>
-              <button className={`nav-btn ${activeView === 'all-papers' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('all-papers')}>All Papers</button>
+              <button className={`nav-btn ${activeView === 'all-papers' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('all-papers')}>Useful Papers</button>
               <button className={`nav-btn ${activeView === 'reviewers' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('reviewers')}>Reviewers</button>
               <button className={`nav-btn ${activeView === 'suggestions' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('suggestions')}>Suggestions</button>
             </>

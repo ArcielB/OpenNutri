@@ -63,7 +63,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Relevance filtering currently targets English and Turkish only.
 - The annotator now uses a general queue:
   every active labeler sees the same available `human_review_ready` papers, and a paper disappears from the queue as soon as a general label submission exists.
-- Only papers successfully processed by the model cascade with normalized `has_data` payloads should enter the human labeling queue. AI `no_usable_data` decisions are provisional skips by default and stay visible in cockpit/All Papers, not in the labeler queue.
+- Only papers successfully processed by the model cascade with normalized `has_data` payloads should enter the human labeling queue. AI `no_usable_data` decisions are provisional skips by default and should not appear in the default labeler queue or cockpit paper overview.
 - General queue drafts are not claims. Multiple stale in-progress reviewers can still submit before final approval, and every immutable submission is retained in `paper_label_submissions`.
 - Final human truth is reviewer-led approval:
   Arciel currently has `reviewer_profiles.can_approve_labels = true`; approval rights are configurable and separate from tester/cockpit visibility.
@@ -71,7 +71,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - The approval page is visible to cockpit/tester/developer accounts but mutation RPCs require `current_user_can_approve_labels()`, which excludes testers.
 - Labeler performance and correction details come from `paper_label_submissions`, `paper_label_approvals.correction_diff_json`, and `paper_review_outcomes`.
 - Labeling queue papers with no saved annotation must open with the latest Gemini `has_data` `normalized_payload_json` prefilled as editable food/nutrient rows. Labelers review and correct the DB-compliant AI extraction; the queue must not show AI reasoning.
-- Cockpit All Papers must keep a per-paper AI Details affordance for the latest AI extraction. Details should show the normalized DB-compliant payload and row/normalization summary, not the model reasoning.
+- Cockpit Useful Papers must keep a per-paper AI Details affordance for the latest useful AI extraction. Details should show the normalized DB-compliant payload and row/normalization summary, not the model reasoning. Provisional no-data skips stay out of this default overview.
 - Old slot tables (`reviewer_slots`, `reviewer_slot_members`, `paper_slot_assignments`, `paper_user_assignments`, `paper_assignment_submissions`, `paper_conflicts`) are preserved as legacy audit/history only and should not drive new workflow work.
 - Resolved crawler truth now comes from `paper_review_outcomes`; pending/superseded submissions must not feed feedback learning.
 - Exact raw-match comparison uses deterministic payload snapshots stored in `paper_label_submissions` and accepted reviewer payloads in `paper_label_approvals`.

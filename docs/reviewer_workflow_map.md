@@ -24,7 +24,7 @@ Important consequences:
 
 - **General labeler**: active non-tester reviewer profile. Sees the shared Queue of useful Gemini-positive papers, can save drafts, submit usable-data or no-usable-data labels, and ask for help.
 - **Approver**: reviewer profile with `can_approve_labels = true`. Currently Arciel only. Can approve/edit pending submissions and write final human truth.
-- **Cockpit/tester/developer viewer**: `cockpit_access = true`, often with `tester_access = true`. Can inspect Approval, Dashboard, Suggestions, and All Papers, but tester accounts cannot mutate because SQL write guards call `current_user_can_write()`.
+- **Cockpit/tester/developer viewer**: `cockpit_access = true`, often with `tester_access = true`. Can inspect Approval, Dashboard, Suggestions, and Useful Papers, but tester accounts cannot mutate because SQL write guards call `current_user_can_write()`.
 
 Legacy concepts:
 
@@ -85,9 +85,10 @@ Core RPCs:
 - Summarizes submitted, pending, accepted, corrected, superseded, and correction-item counts per labeler.
 - Detail rows show the original decision/payload count, final decision/payload count, correction count, decision changes, and approval notes.
 
-### All Papers
+### Useful Papers
 
-- Cockpit viewers can inspect the latest AI extraction for each paper from the `Latest AI` column.
+- Cockpit viewers can inspect the latest AI extraction for each useful paper from the `Latest AI` column.
+- Provisional AI no-data skips are hidden from this default overview.
 - The `Details` affordance must show the normalized DB-compliant AI payload and normalization row summary. Do not replace it with raw model reasoning or hide the extracted rows.
 
 ## Truth And Feedback Rules
