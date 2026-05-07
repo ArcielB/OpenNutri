@@ -89,7 +89,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - `UnifiedEvaluator` should receive the full nutrient catalog plus high-signal text-matched food candidates in prompt, but not the full food catalog. Deterministic normalization verifies AI-provided food/nutrient IDs against DB rows, then falls back to exact/alias matching and custom rows. Per-row source evidence (`source_citation`, table/page hints, short source quote) should be preserved in normalized payload metadata for later PDF evidence highlighting.
 - Team operating model:
   - Arciel: developer, configured approver, final reviewer, dashboard reviewer.
-  - Peri, Aleyna, Aysegul, Daine: general-queue labelers unless access flags are changed.
+  - Peri, Aleyna, Aysegul, Daine, and the `f221229078@ktun.edu.tr` account: general-queue labelers unless access flags are changed.
 
 ## Common Commands
 - Frontend install/run: `cd apps/expert-annotator && npm install && npm run dev`

@@ -14,6 +14,7 @@ VALUES
     ('ayseguldogan2706@gmail.com'),
     ('baezarciel@gmail.com'),
     ('dainesalazarromero@gmail.com'),
+    ('f221229078@ktun.edu.tr'),
     ('mcraft160105@gmail.com'),
     ('ozcnaleyna2@gmail.com'),
     ('periacikgoz22@gmail.com')

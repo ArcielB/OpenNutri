@@ -104,7 +104,7 @@ Gemma and Gemini share the same master extraction contract. Gemma `has_data` out
 Daily ops are designed as a recursive high-precision loop:
 `process queued Gemini tasks -> process queued Gemma tasks -> crawl/upload when no model queue is available -> process new Gemma tasks -> process newly queued Gemini tasks -> repeat`.
 The daily automation target is 20 Gemini calls, with cheap Gemma screening handled by a separate larger per-invocation budget.
-Arciel is currently the only configured approver through `reviewer_profiles.can_approve_labels = true`; Peri, Aleyna, Aysegul, and Daine are general-queue labelers unless their access flags change.
+Arciel is currently the only configured approver through `reviewer_profiles.can_approve_labels = true`; Peri, Aleyna, Aysegul, Daine, and the `f221229078@ktun.edu.tr` account are general-queue labelers unless their access flags change.
 Each orchestrator iteration stops with a machine-readable `stopped_reason` and `terminal` flag.
 Terminal stop reasons are: the 20-call daily budget is consumed (`daily_ai_call_budget_exhausted`), the first AI paper in an iteration immediately hits quota (`ai_first_task_quota_limited`), a crawl/AI pass produces no useful work (`no_progress`), or dry-run exit.
 Non-terminal stop reasons, such as `ai_run_budget_exhausted`, `ai_quota_limited_after_progress`, and `max_cycles`, make the GitHub Actions controller sleep 5 minutes and invoke the recursive runner again.

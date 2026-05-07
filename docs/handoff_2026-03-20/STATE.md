@@ -17,7 +17,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 ## Team / Roles
 
 - Arciel: developer, configured label approver, final reviewer, dashboard reviewer.
-- Peri, Aleyna, Aysegul, Daine: general-queue labelers unless access flags are changed.
+- Peri, Aleyna, Aysegul, Daine, and the `f221229078@ktun.edu.tr` account: general-queue labelers unless access flags are changed.
 - Approval authority is stored as `reviewer_profiles.can_approve_labels`; currently Arciel is seeded as `true`.
 - `tester_access=true` keeps an account read-only even if it has cockpit visibility.
 
