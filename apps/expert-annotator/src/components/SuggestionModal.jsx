@@ -34,6 +34,7 @@ export default function SuggestionModal({
     user,
     reviewerProfile = null,
     onClose,
+    onSubmitted = null,
     testMode = false,
     persistInTestMode = false,
 }) {
@@ -162,6 +163,7 @@ export default function SuggestionModal({
                     ...payload,
                 })
                 setSent(true)
+                if (typeof onSubmitted === 'function') onSubmitted()
                 setTimeout(() => onClose(), 1500)
                 return
             }
@@ -169,6 +171,7 @@ export default function SuggestionModal({
 
             if (error) throw error
             setSent(true)
+            if (typeof onSubmitted === 'function') onSubmitted()
             setTimeout(() => onClose(), 1500)
         } catch (err) {
             if (uploadedStorageObjects.length > 0) {

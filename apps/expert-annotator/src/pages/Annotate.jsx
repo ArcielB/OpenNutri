@@ -1168,6 +1168,52 @@ function SuggestionsReviewView({ suggestionItems, onRefresh, onSaveReview, savin
   )
 }
 
+function MySuggestionsView({ suggestionItems, loading, onRefresh }) {
+  return (
+    <div className="dashboard-page">
+      <div className="dashboard-header">
+        <div>
+          <h2>My Suggestions</h2>
+          <p>Track the review status of suggestions you submitted.</p>
+        </div>
+        <button className="btn btn-outline" onClick={onRefresh} disabled={loading}>
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+      <div className="dashboard-card dashboard-card-table">
+        <div className="table-scroll">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Submitted</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Message</th>
+                <th>Reviewed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan="5">Loading your suggestions...</td></tr>
+              ) : suggestionItems.length === 0 ? (
+                <tr><td colSpan="5">You have not submitted any suggestions yet.</td></tr>
+              ) : suggestionItems.map((item) => (
+                <tr key={item.id}>
+                  <td>{formatDate(item.created_at)}</td>
+                  <td>{item.context?.request_kind === 'general_queue_help_request' ? 'Help Request' : 'Suggestion'}</td>
+                  <td><span className={`status-badge ${getStatusBadgeClass(item.status)}`}>{formatStatusLabel(item.status)}</span></td>
+                  <td>{item.suggestion_text}</td>
+                  <td>{formatDate(item.reviewed_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ReviewerAdminView({ cockpitData, reviewerDrafts, onChangeDraft, onSaveDraft, savingReviewerTarget }) {
   return (
     <div className="dashboard-page">
@@ -1277,6 +1323,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [reviewerDrafts, setReviewerDrafts] = useState({})
   const [savingReviewerTarget, setSavingReviewerTarget] = useState(null)
   const [savingSuggestionId, setSavingSuggestionId] = useState(null)
+  const [mySuggestionItems, setMySuggestionItems] = useState([])
+  const [loadingMySuggestions, setLoadingMySuggestions] = useState(false)
   const paperListRef = useRef(null)
 
   const reviewerById = useMemo(() => buildReviewerMap(cockpitData.reviewerProfiles), [cockpitData.reviewerProfiles])
@@ -1288,6 +1336,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const isTesterAccount = Boolean(reviewerProfile?.tester_access)
   const canApproveLabels = Boolean(reviewerProfile?.can_approve_labels && !reviewerProfile?.tester_access && !testMode)
   const canSeeCockpit = Boolean(reviewerProfile?.cockpit_access || reviewerProfile?.can_approve_labels)
+  const canSubmitSuggestion = Boolean(reviewerProfile && !canSeeCockpit)
   const isEditable = Boolean(currentItem && !isTesterAccount)
   const pendingSubmissions = useMemo(
     () => (cockpitData.labelSubmissions || [])
@@ -1431,6 +1480,28 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     }
   }, [canSeeCockpit, showToast])
 
+  const refreshMySuggestions = useCallback(async () => {
+    if (!reviewerProfile?.id || canSeeCockpit) {
+      setMySuggestionItems([])
+      return
+    }
+    setLoadingMySuggestions(true)
+    try {
+      const { data, error } = await supabase
+        .from('backlog_review_items')
+        .select('*')
+        .eq('submitted_by_auth_user_id', user.id)
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      setMySuggestionItems(data || [])
+    } catch (error) {
+      console.error('My suggestions refresh failed:', error)
+      showToast(`Failed to load your suggestions: ${error.message}`, 'error')
+    } finally {
+      setLoadingMySuggestions(false)
+    }
+  }, [canSeeCockpit, reviewerProfile?.id, showToast, user.id])
+
   useEffect(() => {
     let cancelled = false
     async function bootstrap() {
@@ -1467,10 +1538,11 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     if (!reviewerProfile) return
     refreshQueue()
     if (canSeeCockpit) refreshCockpit()
-  }, [canSeeCockpit, refreshCockpit, refreshQueue, reviewerProfile])
+    if (!canSeeCockpit) refreshMySuggestions()
+  }, [canSeeCockpit, refreshCockpit, refreshMySuggestions, refreshQueue, reviewerProfile])
 
   useEffect(() => {
-    if (reviewerProfile && !canSeeCockpit && activeView !== 'queue') {
+    if (reviewerProfile && !canSeeCockpit && activeView !== 'queue' && activeView !== 'my-suggestions') {
       setActiveView('queue')
     }
   }, [activeView, canSeeCockpit, reviewerProfile])
@@ -2073,6 +2145,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
         <div className="top-bar-center view-tabs">
           <button className={`nav-btn ${activeView === 'queue' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('queue')}>Queue</button>
+          {!canSeeCockpit && (
+            <button className={`nav-btn ${activeView === 'my-suggestions' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('my-suggestions')}>My Suggestions</button>
+          )}
           {canSeeCockpit && (
             <>
               <button className={`nav-btn ${activeView === 'approval' ? 'nav-btn-active' : ''}`} onClick={() => setActiveView('approval')}>Approval</button>
@@ -2095,7 +2170,9 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
               <span className="count">{pendingSubmissions.length}</span> pending
             </div>
           )}
-          <button className="suggestion-btn" onClick={() => setShowSuggestion(true)} title="Send a suggestion">?</button>
+          {canSubmitSuggestion && (
+            <button className="suggestion-btn" onClick={() => setShowSuggestion(true)} title="Send a suggestion">💡</button>
+          )}
           <button className={`test-mode-toggle ${testMode ? 'active' : ''}`} onClick={handleToggleTestMode}>Test Mode</button>
           <button className="theme-toggle" onClick={toggleTheme} title="Toggle light/dark mode">
             {theme === 'dark' ? 'Light' : 'Dark'}
@@ -2192,6 +2269,13 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           savingSuggestionId={savingSuggestionId}
         />
       )}
+      {activeView === 'my-suggestions' && !canSeeCockpit && (
+        <MySuggestionsView
+          suggestionItems={mySuggestionItems}
+          loading={loadingMySuggestions}
+          onRefresh={refreshMySuggestions}
+        />
+      )}
 
       {loadingCockpit && canSeeCockpit && <div className="floating-loading">Refreshing cockpit...</div>}
       {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}
@@ -2205,6 +2289,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           onSubmitted={() => {
             setShowSuggestion(false)
             if (canSeeCockpit) refreshCockpit()
+            if (!canSeeCockpit) refreshMySuggestions()
           }}
         />
       )}

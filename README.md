@@ -42,7 +42,7 @@ Features:
 - The cockpit-only Useful Papers view shows useful paper routing state, latest AI extraction details, general submissions, approval status, and final outcomes. Provisional AI no-data skips are hidden from this default overview.
 - Cockpit write actions remain restricted to non-tester cockpit users through `current_user_has_cockpit_write_access()`.
 - Test mode toggle to disable DB writes and store actions locally.
-- Suggestions modal now writes `suggestion_review` records into `backlog_review_items`, supports image attachments with validation, and cockpit reviewers triage them in the Suggestions tab (including attachment previews).
+- Suggestions now split by role: regular labelers can submit from the `?` button and track statuses in a `My Suggestions` view, while cockpit/admin users triage all incoming suggestions and help requests in the cockpit `Suggestions` tab (including attachment previews).
 
 Run locally:
 ```bash

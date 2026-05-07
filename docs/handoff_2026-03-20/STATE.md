@@ -85,7 +85,8 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 - `Dashboard`: labeler performance and detailed correction history.
 - `Useful Papers`: useful paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload. Provisional AI no-data skips are hidden from this default overview.
 - `Reviewers`: admin table for active/tester/cockpit/approval flags.
-- `Suggestions`: suggestion and general queue help triage.
+- `Suggestions`: cockpit/admin-only suggestion and general queue help triage.
+- `My Suggestions`: regular-labeler view that shows each of their submitted suggestion/help-request statuses; the `💡` submit button is hidden for cockpit/admin users.
 
 Frontend validation currently passes with:
 
