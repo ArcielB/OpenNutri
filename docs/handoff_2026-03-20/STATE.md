@@ -6,7 +6,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 
 - Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
-- Daily ops now uses Gemma proof extraction before Gemini: cheap Gemma calls screen/extract broadly, Gemma-positive papers enqueue Gemini by priority, and the Gemini budget remains 20 calls/day.
+- Daily ops currently routes uploads directly to `gemini_flash_db_payload_v2`; the `gemma_proof_extraction_v1` cheap screening stage is retained but inactive until a compatible model is validated. The Gemini budget remains 20 calls/day.
 - GitHub Actions daily ops is scheduled once per America/Los_Angeles day at 00:17 after Gemini reset. The workflow uses separate PDT/PST UTC cron entries and gates by Pacific UTC offset so delayed scheduled runners do not self-skip.
 
 ## Documentation Pointers
@@ -26,7 +26,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 
 Pipeline:
 
-`crawl -> upload -> Gemma proof extraction -> Gemini extraction -> human_review_ready shared queue -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`
+`crawl -> upload -> Gemini extraction -> human_review_ready shared queue -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`
 
 Important rules:
 
@@ -49,7 +49,7 @@ New active tables:
 - `paper_label_submissions`
 - `paper_label_approvals`
 - `paper_review_outcomes` with `label_submission_id` and `label_approval_id`
-- `routing_stage_configs` now orders model stages. `gemma_proof_extraction_v1` is the active entry stage; `gemini_flash_db_payload_v2` is the second extraction stage.
+- `routing_stage_configs` now orders model stages. `gemini_flash_db_payload_v2` is the active entry stage; `gemma_proof_extraction_v1` is retained inactive.
 
 Important access flags:
 
@@ -96,8 +96,8 @@ Frontend validation currently passes with:
 
 ## AI Routing
 
-- Active entry stage is `gemma_proof_extraction_v1`; second stage is `gemini_flash_db_payload_v2`.
-- Active shared prompt contract is `opennutri_master_payload_v1` for Gemma and `gemini_flash_db_payload_v3` for Gemini until the Gemini config is renamed.
+- Active entry stage is `gemini_flash_db_payload_v2`; `gemma_proof_extraction_v1` is retained inactive until cheap screening is validated again.
+- Active shared prompt contract is `gemini_flash_db_payload_v3` for Gemini until the Gemini config is renamed.
 - Upload enqueues `paper_stage_tasks` instead of running models inline.
 - AI extraction stores deterministic `normalized_payload_json` using the same top-level contract as human payloads, including DB/custom food identity, raw food name, preparation state, DB/custom nutrient identity, raw nutrient name, value, unit, basis, sample size, confidence, source citation, and row metadata.
 - The annotator treats that payload as the reviewer-facing AI output: it preloads editable queue rows when there is no saved annotation, and cockpit Details shows the normalized payload/normalization summary without model reasoning.
@@ -105,7 +105,7 @@ Frontend validation currently passes with:
 - `UnifiedEvaluator` accepts requested JSON object output, top-level candidate-row arrays, and nested `food -> nutrients[]` arrays.
 - Prompt should include the full nutrient catalog plus high-signal food candidates matched from the paper text, but not the full food catalog.
 - AI-provided DB IDs are verified against current DB rows before acceptance.
-- Gemma `has_data` outputs enqueue Gemini with a computed priority from model confidence, accepted row count, evidence quality, and normalization quality. Gemma/Gemini `no_usable_data` outputs become `ai_provisional_no_usable_data` with `route_destination = provisional_skip`. Gemini `has_data` outputs with normalized rows become `human_review_ready`.
+- Inactive screening stages can enqueue Gemini with a computed priority from model confidence, accepted row count, evidence quality, and normalization quality. Gemini `no_usable_data` outputs become `ai_provisional_no_usable_data` with `route_destination = provisional_skip`. Gemini `has_data` outputs with normalized rows become `human_review_ready`.
 - AI-finalized outcomes use `truth_source_kind = ai_model` and remain excluded from human-truth feedback.
 
 ## Ops
@@ -115,17 +115,17 @@ Frontend validation currently passes with:
 - reports shared general queue stock;
 - excludes papers with final outcomes or pending/accepted general submissions;
 - excludes unresolved legacy slot assignments and legacy global no-data rows;
-- drains queued Gemma and Gemini stage tasks before requesting crawler refill;
+- drains queued Gemini and any retained screening stage tasks before requesting crawler refill;
 - triggers crawler refill when visible stock is below `--target-open`.
 
-`services/data-pipeline/scripts/daily_ops_orchestrator.py` now treats `--target-open` as compatibility/reporting only. Scheduled ops spend cheap Gemma calls to fill the Gemini queue and maximize the 20-call Gemini budget instead of stopping when the human queue is full.
+`services/data-pipeline/scripts/daily_ops_orchestrator.py` now treats `--target-open` as compatibility/reporting only. Scheduled ops maximize the 20-call Gemini budget instead of stopping when the human queue is full.
 
 Daily ops order:
 
 1. Drain queued Gemini extraction work within the daily Gemini budget.
-2. Drain queued Gemma proof-extraction work when Gemini has no ready tasks.
+2. Drain queued retained screening-stage work when Gemini has no ready tasks.
 3. Crawl/upload when no queued model work is available.
-4. Process new Gemma work, then newly queued Gemini work.
+4. Process newly queued Gemini work.
 5. Sleep 5 minutes in GitHub Actions after non-terminal per-invocation budget stops.
 6. Repeat until terminal.
 

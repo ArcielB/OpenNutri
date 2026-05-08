@@ -95,6 +95,36 @@ class DailyOpsTests(unittest.TestCase):
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    def test_stage_configuration_error_is_terminal(
+        self,
+        fetch_state_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+    ) -> None:
+        fetch_state_mock.return_value = {
+            "papers": [
+                {
+                    "routing_status": "queued_for_ai",
+                    "current_stage_key": "gemma_proof_extraction_v1",
+                }
+            ]
+        }
+        drain_mock.return_value = {
+            "processed": 1,
+            "failed": 1,
+            "quota_limited": False,
+            "permanent_model_error": True,
+        }
+
+        summary = daily_ops_orchestrator.run_daily_ops(object(), build_args())
+
+        self.assertEqual(summary["stopped_reason"], "ai_stage_configuration_error")
+        self.assertTrue(summary["terminal"])
+        crawl_mock.assert_not_called()
+
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
     def test_daily_budget_terminal_before_work(
         self,
         fetch_state_mock: Mock,

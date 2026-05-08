@@ -29,6 +29,7 @@ from ai_routing import (
     PROVISIONAL_SKIP_DESTINATION,
     ROUTING_STATUS_HUMAN_READY,
     ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
+    ROUTING_STATUS_FAILED,
     ROUTING_STATUS_PROCESSING,
     ROUTING_STATUS_QUEUED,
     RoutingStageConfig,
@@ -256,6 +257,17 @@ def is_quota_error(error_text: object) -> bool:
     return "429" in text and ("gemini" in text or "generate_content" in text)
 
 
+def is_non_retryable_model_error(error_text: object) -> bool:
+    text = str(error_text or "").strip().lower()
+    if not text:
+        return False
+    return (
+        "not found" in text
+        and "models/" in text
+        and ("generatecontent" in text or "generate_content" in text)
+    ) or "not supported for generatecontent" in text
+
+
 def update_paper_processing_state(
     client: Client,
     *,
@@ -288,6 +300,18 @@ def mark_task_requeued_after_error(client: Client, *, task_id: str, error_text: 
     client.table("paper_stage_tasks").update(
         {
             "status": "queued",
+            "last_error": error_text[:4000],
+            "started_at": None,
+            "completed_at": None,
+            "updated_at": _utcnow_iso(),
+        }
+    ).eq("id", task_id).execute()
+
+
+def mark_task_failed_after_error(client: Client, *, task_id: str, error_text: str) -> None:
+    client.table("paper_stage_tasks").update(
+        {
+            "status": "failed",
             "last_error": error_text[:4000],
             "started_at": None,
             "completed_at": None,
@@ -657,6 +681,25 @@ def process_one_task(
         }
     except Exception as exc:
         error_text = str(exc)
+        if is_non_retryable_model_error(error_text):
+            update_paper_routing_summary(
+                client,
+                paper_id=paper_id,
+                stage_key=stage_config.stage_key,
+                routing_status=ROUTING_STATUS_FAILED,
+                routing_bucket=None,
+                route_destination=BLOCKED_DESTINATION,
+                latest_ai_extraction_id=paper.get("latest_ai_extraction_id"),
+            )
+            mark_task_failed_after_error(client, task_id=task_id, error_text=error_text)
+            return {
+                "paper_id": paper_id,
+                "status": ROUTING_STATUS_FAILED,
+                "route_destination": BLOCKED_DESTINATION,
+                "error": error_text,
+                "quota_limited": False,
+                "permanent_model_error": True,
+            }
         update_paper_routing_summary(
             client,
             paper_id=paper_id,
@@ -686,6 +729,7 @@ def _empty_stage_summary(stage_key: str) -> dict[str, object]:
         "requeued": 0,
         "failed": 0,
         "quota_limited": False,
+        "permanent_model_error": False,
         "claimed": 0,
         "stage_key": stage_key,
     }
@@ -704,8 +748,12 @@ def _record_processing_result(summary: dict[str, object], result: dict, *, verbo
         summary["provisional_skipped"] = int(summary["provisional_skipped"]) + 1
     elif status == ROUTING_STATUS_QUEUED and result.get("error"):
         summary["requeued"] = int(summary["requeued"]) + 1
+    elif status == ROUTING_STATUS_FAILED:
+        summary["failed"] = int(summary["failed"]) + 1
     if result.get("quota_limited"):
         summary["quota_limited"] = True
+    if result.get("permanent_model_error"):
+        summary["permanent_model_error"] = True
     if verbose:
         message = f"paper={result['paper_id']} status={status} destination={result.get('route_destination')}"
         if result.get("error"):
@@ -767,7 +815,7 @@ def drain_stage_queue(
                 reference_lookups=reference_lookups,
             )
             _record_processing_result(summary, result, verbose=verbose)
-            if result.get("quota_limited"):
+            if result.get("quota_limited") or result.get("permanent_model_error"):
                 break
         if verbose:
             print(json.dumps(summary, indent=2))

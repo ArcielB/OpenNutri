@@ -32,6 +32,7 @@ from scripts.backfill_ai_routing import (
 from scripts.process_stage_queue import (
     claim_stage_tasks,
     drain_stage_queue,
+    is_non_retryable_model_error,
     is_quota_error,
     process_one_task,
     select_food_candidates_for_text,
@@ -840,6 +841,15 @@ class QueueAndBackfillTests(unittest.TestCase):
         )
         self.assertFalse(is_quota_error("HTTP Error 429 while downloading https://example.org/paper.pdf"))
 
+    def test_is_non_retryable_model_error_detects_missing_generate_content_model(self) -> None:
+        self.assertTrue(
+            is_non_retryable_model_error(
+                "Extraction error: 404 models/gemma-3-27b-it is not found for API version v1beta, "
+                "or is not supported for generateContent."
+            )
+        )
+        self.assertFalse(is_non_retryable_model_error("Extraction error: 429 quota exceeded"))
+
     @patch("scripts.process_stage_queue.process_one_task")
     @patch("scripts.process_stage_queue.claim_stage_tasks")
     @patch("scripts.process_stage_queue.fetch_reference_lookups", return_value={})
@@ -1042,6 +1052,47 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "queued")
         self.assertIn("429 quota exceeded", client.tables["paper_stage_tasks"][0]["last_error"])
         self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
+        self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
+        self.assertEqual(client.inserts, [])
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_missing_model_error_fails_task_instead_of_retrying_forever(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 16,
+                        "title": "Model config paper",
+                        "doi": "10.123/model",
+                        "filename": "model.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-16", "paper_id": 16, "status": "processing"}],
+            }
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=False,
+            reasoning="Extraction error: 404 models/gemma-3-27b-it is not found for API version v1beta, or is not supported for generateContent.",
+            overall_confidence=0.0,
+            data=[],
+            raw_response_text="",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-16", "paper_id": 16},
+            stage_config=self.stage_config(),
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], "ai_failed")
+        self.assertTrue(result["permanent_model_error"])
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "failed")
+        self.assertIn("models/gemma-3-27b-it", client.tables["paper_stage_tasks"][0]["last_error"])
+        self.assertEqual(client.tables["papers"][0]["routing_status"], "ai_failed")
         self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
         self.assertEqual(client.inserts, [])
 

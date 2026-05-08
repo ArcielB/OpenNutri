@@ -19,6 +19,7 @@ from scripts.process_stage_queue import drain_stage_queue, require_client
 
 
 TERMINAL_STOP_REASONS = {
+    "ai_stage_configuration_error",
     "daily_ai_call_budget_exhausted",
     "ai_first_task_quota_limited",
     "no_progress",
@@ -208,6 +209,10 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             summary["ai_tasks_used"] = ai_tasks_used
             summary["daily_ai_tasks_used"] = ai_tasks_already_used + ai_tasks_used
             cycle_summary["ai"] = ai_summary
+            if ai_summary.get("permanent_model_error"):
+                summary["stopped_reason"] = "ai_stage_configuration_error"
+                summary["cycles"].append(cycle_summary)
+                break
             if ai_summary.get("quota_limited"):
                 assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
                 if assignment_after_ai is not None:
@@ -245,6 +250,10 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
                 stage_key=screening_stage_key,
             )
             cycle_summary["screening"] = screening_summary
+            if screening_summary.get("permanent_model_error"):
+                summary["stopped_reason"] = "ai_stage_configuration_error"
+                summary["cycles"].append(cycle_summary)
+                break
             if screening_summary.get("quota_limited"):
                 summary["stopped_reason"] = _quota_stop_reason(screening_summary)
                 summary["cycles"].append(cycle_summary)
@@ -301,6 +310,10 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
                 stage_key=screening_stage_key,
             )
             cycle_summary["screening_after_crawl"] = screening_summary
+            if screening_summary.get("permanent_model_error"):
+                summary["stopped_reason"] = "ai_stage_configuration_error"
+                summary["cycles"].append(cycle_summary)
+                break
             if screening_summary.get("quota_limited"):
                 summary["stopped_reason"] = _quota_stop_reason(screening_summary)
                 summary["cycles"].append(cycle_summary)
@@ -344,6 +357,10 @@ def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         summary["ai_tasks_used"] = ai_tasks_used
         summary["daily_ai_tasks_used"] = ai_tasks_already_used + ai_tasks_used
         cycle_summary["ai_after_crawl"] = ai_summary
+        if ai_summary.get("permanent_model_error"):
+            summary["stopped_reason"] = "ai_stage_configuration_error"
+            summary["cycles"].append(cycle_summary)
+            break
         if ai_summary.get("quota_limited"):
             assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
             if assignment_after_ai is not None:
