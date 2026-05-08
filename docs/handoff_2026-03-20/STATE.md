@@ -106,6 +106,7 @@ Frontend validation currently passes with:
 - Prompt should include the full nutrient catalog plus high-signal food candidates matched from the paper text, but not the full food catalog.
 - AI-provided DB IDs are verified against current DB rows before acceptance.
 - Gemma `has_data` outputs enqueue Gemini with a computed priority from model confidence, accepted row count, evidence quality, and normalization quality. Gemma/Gemini `no_usable_data` outputs become `ai_provisional_no_usable_data` with `route_destination = provisional_skip`. Gemini `has_data` outputs with normalized rows become `human_review_ready`.
+- Upload/re-upload preserves closed routing state: papers that already have a closed AI route or human outcome can refresh metadata/search-hit audit rows without being sent back through the active model stage.
 - AI-finalized outcomes use `truth_source_kind = ai_model` and remain excluded from human-truth feedback.
 
 ## Ops

@@ -17,11 +17,23 @@ if str(PIPELINE_ROOT) not in sys.path:
 from ai_routing import (
     BLOCKED_DESTINATION,
     HUMAN_REVIEW_DESTINATION,
+    ROUTING_STATUS_AI_FINAL_HAS_DATA,
+    ROUTING_STATUS_AI_FINAL_NO_DATA,
+    ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
     ROUTING_STATUS_HUMAN_READY,
     ROUTING_STATUS_QUEUED,
     RoutingStageConfig,
 )
 from food_paper_crawler.models import build_search_batch_key, build_search_hit_key
+
+
+EXISTING_PAPER_SELECT = "id,canonical_key,routing_status,current_stage_key,latest_ai_extraction_id"
+CLOSED_AI_ROUTING_STATUSES = {
+    ROUTING_STATUS_HUMAN_READY,
+    ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
+    ROUTING_STATUS_AI_FINAL_HAS_DATA,
+    ROUTING_STATUS_AI_FINAL_NO_DATA,
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -227,7 +239,7 @@ def _find_existing_paper(supabase: Client, payload: dict, filename: str) -> dict
     if canonical_key:
         existing = (
             supabase.table("papers")
-            .select("id,canonical_key,routing_status,current_stage_key")
+            .select(EXISTING_PAPER_SELECT)
             .eq("canonical_key", canonical_key)
             .execute()
         )
@@ -236,7 +248,7 @@ def _find_existing_paper(supabase: Client, payload: dict, filename: str) -> dict
 
     doi = payload.get("doi")
     if doi:
-        existing = supabase.table("papers").select("id,canonical_key,routing_status,current_stage_key").eq("doi", doi).execute()
+        existing = supabase.table("papers").select(EXISTING_PAPER_SELECT).eq("doi", doi).execute()
         if existing.data:
             return existing.data[0]
 
@@ -245,7 +257,7 @@ def _find_existing_paper(supabase: Client, payload: dict, filename: str) -> dict
     if source and source_record_id:
         existing = (
             supabase.table("papers")
-            .select("id,canonical_key,routing_status,current_stage_key")
+            .select(EXISTING_PAPER_SELECT)
             .eq("source", source)
             .eq("source_record_id", source_record_id)
             .execute()
@@ -253,13 +265,21 @@ def _find_existing_paper(supabase: Client, payload: dict, filename: str) -> dict
         if existing.data:
             return existing.data[0]
 
-    existing = supabase.table("papers").select("id,canonical_key,routing_status,current_stage_key").eq("filename", filename).execute()
+    existing = supabase.table("papers").select(EXISTING_PAPER_SELECT).eq("filename", filename).execute()
     if not existing.data:
         return None
     for row in existing.data:
         if not row.get("canonical_key"):
             return row
     return existing.data[0]
+
+
+def _existing_paper_has_closed_ai_route(existing: dict | None) -> bool:
+    if not existing:
+        return False
+    routing_status = str(existing.get("routing_status") or "").strip().lower()
+    latest_ai_extraction_id = str(existing.get("latest_ai_extraction_id") or "").strip()
+    return bool(latest_ai_extraction_id and routing_status in CLOSED_AI_ROUTING_STATUSES)
 
 
 def _lookup_existing_paper_id(
@@ -517,6 +537,7 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
 
             payload = _paper_payload(paper_row, filename)
             existing = _find_existing_paper(supabase, payload, filename)
+            has_closed_ai_route = _existing_paper_has_closed_ai_route(existing)
             if existing:
                 paper_id = int(existing["id"])
                 supabase.table("papers").update(payload).eq("id", paper_id).execute()
@@ -530,14 +551,19 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
                 paper_id_by_key[canonical_key] = paper_id
             uploaded_count += 1
             preserve_human_route = _paper_has_human_outcome(supabase, paper_id)
-            _enqueue_stage_task(
-                supabase,
-                paper_id=paper_id,
-                stage_config=active_stage,
-                filter_score=payload.get("filter_score"),
-                preserve_human_route=preserve_human_route,
-            )
-            print(f"  Enqueued AI routing stage: {active_stage.stage_key}")
+            if preserve_human_route:
+                print("  Existing paper has a human outcome; leaving routing unchanged.")
+            elif has_closed_ai_route:
+                print("  Existing paper already has a closed AI route; leaving routing unchanged.")
+            else:
+                _enqueue_stage_task(
+                    supabase,
+                    paper_id=paper_id,
+                    stage_config=active_stage,
+                    filter_score=payload.get("filter_score"),
+                    preserve_human_route=False,
+                )
+                print(f"  Enqueued AI routing stage: {active_stage.stage_key}")
         except Exception as exc:
             upload_errors.append(f"{filename}: {exc}")
 

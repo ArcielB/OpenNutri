@@ -16,6 +16,8 @@ from ai_routing import (
     ROUTING_BUCKET_HIGH_POSITIVE,
     ROUTING_BUCKET_LOW_NEGATIVE,
     ROUTING_BUCKET_LOW_POSITIVE,
+    ROUTING_STATUS_AI_FINAL_HAS_DATA,
+    ROUTING_STATUS_AI_FINAL_NO_DATA,
     ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
     RoutingStageConfig,
     classify_routing_bucket,
@@ -874,6 +876,47 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.updates[-1][0], "papers")
         self.assertEqual(client.updates[-1][1]["routing_status"], "queued_for_ai")
         self.assertIsNone(client.updates[-1][1]["latest_ai_extraction_id"])
+
+    def test_existing_paper_closed_ai_route_requires_terminal_status_and_latest_extraction(self) -> None:
+        self.assertTrue(
+            upload_to_supabase._existing_paper_has_closed_ai_route(
+                {"routing_status": "human_review_ready", "latest_ai_extraction_id": "ai-1"}
+            )
+        )
+        self.assertTrue(
+            upload_to_supabase._existing_paper_has_closed_ai_route(
+                {
+                    "routing_status": ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
+                    "latest_ai_extraction_id": "ai-2",
+                }
+            )
+        )
+        self.assertTrue(
+            upload_to_supabase._existing_paper_has_closed_ai_route(
+                {
+                    "routing_status": ROUTING_STATUS_AI_FINAL_HAS_DATA,
+                    "latest_ai_extraction_id": "ai-3",
+                }
+            )
+        )
+        self.assertTrue(
+            upload_to_supabase._existing_paper_has_closed_ai_route(
+                {
+                    "routing_status": ROUTING_STATUS_AI_FINAL_NO_DATA,
+                    "latest_ai_extraction_id": "ai-4",
+                }
+            )
+        )
+        self.assertFalse(
+            upload_to_supabase._existing_paper_has_closed_ai_route(
+                {"routing_status": "queued_for_ai", "latest_ai_extraction_id": "ai-5"}
+            )
+        )
+        self.assertFalse(
+            upload_to_supabase._existing_paper_has_closed_ai_route(
+                {"routing_status": "human_review_ready", "latest_ai_extraction_id": None}
+            )
+        )
 
     def test_claim_stage_tasks_calls_rpc_with_requested_limit(self) -> None:
         client = FakeSupabaseClient(rpc_payload=[{"id": "task-1", "paper_id": 11}])

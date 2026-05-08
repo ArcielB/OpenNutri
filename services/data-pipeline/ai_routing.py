@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 
-ACTIVE_STAGE_KEY = "gemini_flash_db_payload_v2"
+ACTIVE_STAGE_KEY = "gemma_proof_extraction_v1"
 AI_MODEL_STAGE_KIND = "ai_model"
 HUMAN_REVIEW_DESTINATION = "human_review"
 FINALIZED_DESTINATION = "finalized"
