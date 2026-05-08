@@ -7,6 +7,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
 - Daily ops now uses Gemma proof extraction before Gemini: cheap Gemma calls screen/extract broadly, Gemma-positive papers enqueue Gemini by priority, and the Gemini budget remains 20 calls/day.
+- GitHub Actions daily ops is scheduled once per America/Los_Angeles day at 00:17 after Gemini reset. The workflow uses separate PDT/PST UTC cron entries and gates by Pacific UTC offset so delayed scheduled runners do not self-skip.
 
 ## Documentation Pointers
 

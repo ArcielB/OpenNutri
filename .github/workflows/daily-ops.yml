@@ -2,9 +2,11 @@ name: Daily OpenNutri Ops
 
 on:
   schedule:
-    # GitHub cron is UTC. The gate step below keeps the 00:05
-    # America/Los_Angeles start in both PDT and PST, with tolerance for runner delay.
-    - cron: "5 7,8 * * *"
+    # GitHub cron is UTC. Two entries cover the America/Los_Angeles
+    # DST offset change; the gate below chooses the active one without
+    # rejecting delayed runners.
+    - cron: "17 7 * * *"
+    - cron: "17 8 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -25,15 +27,15 @@ jobs:
             exit 0
           fi
 
-          pacific_hour="$(TZ=America/Los_Angeles date +%H)"
-          pacific_minute="$(TZ=America/Los_Angeles date +%M)"
-          pacific_time="${pacific_hour}:${pacific_minute}"
-          case "$pacific_time" in
-            00:0[5-9]|00:[1-5][0-9])
+          scheduled_cron="${{ github.event.schedule }}"
+          pacific_offset="$(TZ=America/Los_Angeles date +%z)"
+          case "${scheduled_cron}:${pacific_offset}" in
+            "17 7 * * *:-0700"|"17 8 * * *:-0800")
+              echo "Running scheduled daily ops for cron='$scheduled_cron' at Pacific offset $pacific_offset"
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               ;;
             *)
-              echo "Skipping scheduled run outside Gemini reset start window: $pacific_time America/Los_Angeles"
+              echo "Skipping inactive DST schedule: cron='$scheduled_cron' pacific_offset=$pacific_offset"
               echo "should_run=false" >> "$GITHUB_OUTPUT"
               ;;
           esac
