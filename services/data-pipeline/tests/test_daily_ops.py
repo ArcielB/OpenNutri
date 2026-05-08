@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts import daily_ops_orchestrator, refill_assignment_queue
+from scripts import daily_ops_orchestrator, ensure_paper_stock, refill_assignment_queue
 
 
 def build_args(**overrides):
@@ -23,11 +23,12 @@ def build_args(**overrides):
         "screening_stage_key": "gemma_proof_extraction_v1",
         "extraction_stage_key": "gemini_flash_db_payload_v2",
         "refill_step_en": 4,
-        "refill_step_tr": 4,
+        "refill_step_tr": 0,
         "seed": 20260413,
         "data_dir": "services/data-pipeline/data",
         "query_limit": 50,
         "max_queries": 80,
+        "sources": "europepmc,openalex,semanticscholar",
         "dergipark_journal_limit": 0,
         "dergipark_max_issues_per_journal": 12,
         "skip_feedback": False,
@@ -40,6 +41,11 @@ def build_args(**overrides):
 
 
 class DailyOpsTests(unittest.TestCase):
+    def test_default_stock_targets_are_english_only(self) -> None:
+        args = build_args(target=None, target_en=None, target_tr=None)
+        self.assertEqual(ensure_paper_stock.resolve_language_targets(args), {"en": 20, "tr": 0})
+        self.assertEqual(refill_assignment_queue.language_deficits_for([], 50), {"en": 50, "tr": 0})
+
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
@@ -248,7 +254,7 @@ class DailyOpsTests(unittest.TestCase):
         self.assertEqual(summary["stopped_reason"], "ai_run_budget_exhausted")
         crawl_mock.assert_called_once()
         self.assertEqual(drain_mock.call_count, 1)
-        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 4, "tr": 4})
+        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 4, "tr": 0})
         self.assertEqual(drain_mock.call_args.kwargs["stage_key"], "gemini_flash_db_payload_v2")
         self.assertFalse(crawl_mock.call_args.kwargs["args"].skip_feedback)
         self.assertFalse(crawl_mock.call_args.kwargs["args"].skip_dergipark_refresh)

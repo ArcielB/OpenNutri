@@ -61,6 +61,8 @@ jobs:
                 --target-open 50 \
                 --max-cycles 8 \
                 --max-ai-tasks 5 \
+                --refill-step-en 4 \
+                --refill-step-tr 0 \
                 --daily-ai-call-budget "$daily_ai_call_budget" \
                 --ai-tasks-already-used "$daily_ai_tasks_used" \
                 | tee /tmp/opennutri-daily-ops-last.jsonl \

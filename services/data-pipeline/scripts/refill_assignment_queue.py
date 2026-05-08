@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-open", type=int, default=50, help="Minimum visible papers in the shared general queue")
     parser.add_argument("--max-cycles", type=int, default=8, help="Maximum stock/AI/refill cycles to run")
     parser.add_argument("--refill-step-en", type=int, default=4, help="How many new EN papers to request when queue stock is low")
-    parser.add_argument("--refill-step-tr", type=int, default=4, help="How many new TR papers to request when queue stock is low")
+    parser.add_argument("--refill-step-tr", type=int, default=0, help="How many new TR papers to request when queue stock is low")
     parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum queued AI tasks to process during this run")
     parser.add_argument("--seed", type=int, default=20260413, help="Retained for caller compatibility; no longer used")
     parser.add_argument("--dry-run", action="store_true", help="Report planned stock actions without writing to Supabase")
@@ -175,8 +175,8 @@ def build_profiles(state: dict[str, list[dict]]) -> dict[str, ReviewerProfile]:
 def language_deficits_for(open_available: list[dict], target_open: int) -> dict[str, int]:
     counts = assignment_stock_counts(open_available)
     target_open = max(0, int(target_open))
-    target_en = target_open // 2
-    target_tr = target_open - target_en
+    target_en = target_open
+    target_tr = 0
     return {
         "en": max(0, target_en - counts["en"]),
         "tr": max(0, target_tr - counts["tr"]),

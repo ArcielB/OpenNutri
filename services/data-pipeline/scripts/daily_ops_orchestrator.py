@@ -37,11 +37,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--daily-ai-call-budget", type=int, default=20, help="Daily Gemini call budget to consume before terminal stop")
     parser.add_argument("--ai-tasks-already-used", type=int, default=0, help="Gemini calls already consumed by earlier controller invocations today")
     parser.add_argument("--refill-step-en", type=int, default=4, help="New English papers to request when needed")
-    parser.add_argument("--refill-step-tr", type=int, default=4, help="New Turkish papers to request when needed")
+    parser.add_argument("--refill-step-tr", type=int, default=0, help="New Turkish papers to request when needed")
     parser.add_argument("--seed", type=int, default=20260413, help="Random seed for assignment balancing")
     parser.add_argument("--data-dir", default="services/data-pipeline/data", help="Crawler data directory")
     parser.add_argument("--query-limit", type=int, default=50, help="Max search hits to inspect per query batch")
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count per crawler run")
+    parser.add_argument(
+        "--sources",
+        default="europepmc,openalex,semanticscholar",
+        help="Comma-separated metadata sources for crawler runs. Defaults to English sources only.",
+    )
     parser.add_argument(
         "--dergipark-journal-limit",
         type=int,
@@ -75,6 +80,7 @@ def _crawler_args(args: argparse.Namespace) -> SimpleNamespace:
         max_ai_tasks=args.max_ai_tasks,
         dergipark_journal_limit=args.dergipark_journal_limit,
         dergipark_max_issues_per_journal=args.dergipark_max_issues_per_journal,
+        sources=getattr(args, "sources", "europepmc,openalex,semanticscholar"),
         skip_feedback=args.skip_feedback,
         skip_dergipark_refresh=args.skip_dergipark_refresh,
     )

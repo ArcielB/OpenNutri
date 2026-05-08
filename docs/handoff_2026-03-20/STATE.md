@@ -5,6 +5,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 ## Primary Goal
 
 - Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
+- Current acquisition mode is English-only. Turkish/DergiPark code remains available, but default refill and daily ops request `tr=0`, skip DergiPark, and use Europe PMC/OpenAlex/Semantic Scholar.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
 - Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and the Gemini budget remains 20 calls/day.
 - GitHub Actions daily ops is scheduled once per UTC day at 07:17. The workflow does not gate by current wall-clock time; delayed scheduled runners still execute and the controller retries non-terminal stops every 5 minutes until quota/config terminal stop or the 6-hour job timeout.
@@ -117,7 +118,7 @@ Frontend validation currently passes with:
 - excludes papers with final outcomes or pending/accepted general submissions;
 - excludes unresolved legacy slot assignments and legacy global no-data rows;
 - drains queued Gemma and Gemini stage tasks before requesting crawler refill;
-- triggers crawler refill when visible stock is below `--target-open`.
+- triggers English-only crawler refill when visible stock is below `--target-open`.
 
 `services/data-pipeline/scripts/daily_ops_orchestrator.py` now treats `--target-open` as compatibility/reporting only. Scheduled ops spend Gemma screening calls and maximize the 20-call Gemini budget instead of stopping when the human queue is full.
 
@@ -144,7 +145,7 @@ Non-terminal reasons include:
 - `ai_quota_limited_after_progress`
 - `max_cycles`
 
-Feedback refresh is intentionally tied to crawler refill only; queued-AI draining does not refresh feedback.
+Feedback refresh is intentionally tied to crawler refill only; queued-AI draining does not refresh feedback. DergiPark refresh/search is skipped unless Turkish is explicitly re-enabled with a positive Turkish target and a DergiPark source list.
 
 ## Feedback / Benchmark Boundary
 

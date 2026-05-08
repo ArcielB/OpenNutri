@@ -368,6 +368,17 @@ class CrawlerQuotaTests(unittest.TestCase):
         candidate.pdf_url = f"https://example.com/{title}.pdf"
         return candidate
 
+    def test_default_total_target_is_english_only_for_now(self) -> None:
+        crawler = object.__new__(FoodCompositionCrawlerV2)
+        self.assertEqual(
+            crawler._resolve_target_pdfs_by_language(
+                target_pdfs=12,
+                target_pdfs_en=None,
+                target_pdfs_tr=None,
+            ),
+            {"en": 12, "tr": 0},
+        )
+
     def test_language_query_budget_uses_only_active_languages(self) -> None:
         crawler = object.__new__(FoodCompositionCrawlerV2)
         crawler.target_pdfs_by_language = {"en": 0, "tr": 6}

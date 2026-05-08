@@ -14,7 +14,7 @@ from .language_utils import normalize_language_text
 from .models import CandidatePaper, QuerySpec
 
 
-DEFAULT_SEARCH_SOURCES = ("europepmc", "openalex", "semanticscholar", "dergipark")
+DEFAULT_SEARCH_SOURCES = ("europepmc", "openalex", "semanticscholar")
 OPENALEX_ALLOWED_TYPES = {"article", "preprint"}
 DOI_PATTERN = re.compile(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", re.IGNORECASE)
 PMCID_PATTERN = re.compile(r"PMC\d+", re.IGNORECASE)

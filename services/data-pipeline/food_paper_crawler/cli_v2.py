@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dergipark-scan-budget", type=int, default=0, help="Deprecated alias for --dergipark-max-issues-per-journal")
     parser.add_argument(
         "--sources",
-        default="europepmc,openalex,semanticscholar,dergipark",
+        default="europepmc,openalex,semanticscholar",
         help="Comma-separated metadata sources to search",
     )
     parser.add_argument("--replace-existing", action="store_true", help="Delete previous harvested PDFs first")

@@ -598,9 +598,7 @@ class FoodCompositionCrawlerV2:
             }
 
         total = max(0, int(target_pdfs))
-        en_target = total // 2
-        tr_target = total - en_target
-        return {"en": en_target, "tr": tr_target}
+        return {"en": total, "tr": 0}
 
     def _raw_search_limit(self, query_limit: Optional[int] = None) -> int:
         batch_size = max(1, int(query_limit if query_limit is not None else self.query_limit))

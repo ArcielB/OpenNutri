@@ -13,6 +13,8 @@ from urllib.request import Request, urlopen
 
 
 SUPPORTED_LANGUAGES = ("en", "tr")
+DEFAULT_ENGLISH_ONLY_TARGET = 20
+DEFAULT_SEARCH_SOURCES = "europepmc,openalex,semanticscholar"
 
 
 def fetch_rows(
@@ -151,11 +153,9 @@ def resolve_language_targets(args: argparse.Namespace) -> Dict[str, int]:
 
     if args.target is not None:
         total = max(0, int(args.target))
-        en_target = total // 2
-        tr_target = total - en_target
-        return {"en": en_target, "tr": tr_target}
+        return {"en": total, "tr": 0}
 
-    return {"en": 10, "tr": 10}
+    return {"en": DEFAULT_ENGLISH_ONLY_TARGET, "tr": 0}
 
 
 def deficits_for(targets: Dict[str, int], counts: Dict[str, int]) -> Dict[str, int]:
@@ -338,7 +338,11 @@ def run_refill_cycle(
             allow_failure=True,
         )
 
-    if not args.skip_dergipark_refresh:
+    sources = str(getattr(args, "sources", DEFAULT_SEARCH_SOURCES) or DEFAULT_SEARCH_SOURCES)
+    wants_turkish = deficits.get("tr", 0) > 0
+    wants_dergipark = "dergipark" in {part.strip().lower() for part in sources.split(",") if part.strip()}
+
+    if wants_turkish and wants_dergipark and not args.skip_dergipark_refresh:
         run_command(
             "Refresh DergiPark index",
             [
@@ -354,24 +358,23 @@ def run_refill_cycle(
             env,
         )
 
-    run_command(
-        "Crawler v2",
-        [
-            sys.executable,
-            "services/data-pipeline/main.py",
-            "--data-dir",
-            args.data_dir,
-            "--target-pdfs-en",
-            str(deficits["en"]),
-            "--target-pdfs-tr",
-            str(deficits["tr"]),
-            "--query-limit",
-            str(args.query_limit),
-            "--max-queries",
-            str(args.max_queries),
-        ],
-        env,
-    )
+    crawler_cmd = [
+        sys.executable,
+        "services/data-pipeline/main.py",
+        "--data-dir",
+        args.data_dir,
+        "--target-pdfs-en",
+        str(deficits["en"]),
+        "--target-pdfs-tr",
+        str(deficits["tr"]),
+        "--query-limit",
+        str(args.query_limit),
+        "--max-queries",
+        str(args.max_queries),
+        "--sources",
+        sources,
+    ]
+    run_command("Crawler v2", crawler_cmd, env)
     print_run_summary(args.data_dir)
 
     run_command(
@@ -402,7 +405,7 @@ def run_refill_cycle(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Ensure there are enough bilingual papers for the UI.")
+    parser = argparse.ArgumentParser(description="Ensure there are enough English papers for the UI.")
     parser.add_argument(
         "--threshold",
         type=int,
@@ -413,7 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--target",
         type=int,
         default=None,
-        help="Legacy total paper target; split evenly when --target-en/--target-tr are not set.",
+        help="Legacy total paper target; currently assigned entirely to English unless --target-tr is set.",
     )
     parser.add_argument("--target-en", type=int, default=None, help="Target available English papers")
     parser.add_argument("--target-tr", type=int, default=None, help="Target available Turkish papers")
@@ -425,11 +428,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max search hits to inspect per query batch before moving to the next batch",
     )
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count per crawler run")
+    parser.add_argument(
+        "--sources",
+        default=DEFAULT_SEARCH_SOURCES,
+        help="Comma-separated metadata sources for crawler runs. Defaults to English sources only.",
+    )
     parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum queued AI tasks to process during each AI drain")
     parser.add_argument("--dergipark-journal-limit", type=int, default=0, help="Limit how many configured DergiPark journals are refreshed per cycle (0 = all)")
     parser.add_argument("--dergipark-max-issues-per-journal", type=int, default=12, help="How many newest archive issues to inspect per DergiPark journal refresh")
     parser.add_argument("--dergipark-scan-budget", type=int, default=0, help="Deprecated alias for --dergipark-max-issues-per-journal")
-    parser.add_argument("--max-cycles", type=int, default=5, help="Maximum bilingual refill cycles")
+    parser.add_argument("--max-cycles", type=int, default=5, help="Maximum refill cycles")
     parser.add_argument(
         "--max-effort-tr",
         type=int,
