@@ -699,6 +699,12 @@ class UnifiedEvaluatorParsingTests(unittest.TestCase):
         evaluator.model.generate_content.return_value = Mock(text=json.dumps(payload))
         return evaluator
 
+    def evaluator_with_text(self, text: str) -> UnifiedEvaluator:
+        evaluator = UnifiedEvaluator.__new__(UnifiedEvaluator)
+        evaluator.model = Mock()
+        evaluator.model.generate_content.return_value = Mock(text=text)
+        return evaluator
+
     def test_top_level_array_response_is_treated_as_candidate_rows(self) -> None:
         evaluator = self.evaluator_with_response(
             [
@@ -748,6 +754,52 @@ class UnifiedEvaluatorParsingTests(unittest.TestCase):
         self.assertEqual(result.data[0].food_name, "Pear")
         self.assertEqual(result.data[0].basis, "100g")
         self.assertEqual(result.data[0].source_citation, "Table 2")
+
+    def test_markdown_fenced_json_response_is_parsed(self) -> None:
+        evaluator = self.evaluator_with_text(
+            """```json
+{
+  "reasoning": "No useful composition table.",
+  "decision_kind": "no_usable_data",
+  "is_useful": false,
+  "overall_confidence": 0.7,
+  "data": []
+}
+```"""
+        )
+
+        result = evaluator.evaluate_and_extract({"pmc_id": "paper-4", "title": "Paper", "full_text": "body"})
+
+        self.assertFalse(result.is_useful)
+        self.assertEqual(result.reasoning, "No useful composition table.")
+
+    def test_json_embedded_in_gemma_style_text_is_parsed(self) -> None:
+        evaluator = self.evaluator_with_text(
+            """I will return the final JSON object.
+{
+  "reasoning": "Table contains composition rows.",
+  "decision_kind": "has_data",
+  "is_useful": true,
+  "overall_confidence": 0.82,
+  "data": [
+    {
+      "food_name": "Almond milk",
+      "nutrient_name": "Protein",
+      "amount": 1.2,
+      "unit": "g",
+      "basis": "100g",
+      "confidence": 0.8,
+      "source_citation": "Table 1"
+    }
+  ]
+}
+Done."""
+        )
+
+        result = evaluator.evaluate_and_extract({"pmc_id": "paper-5", "title": "Paper", "full_text": "body"})
+
+        self.assertTrue(result.is_useful)
+        self.assertEqual(result.data[0].food_name, "Almond milk")
 
     def test_db_ids_and_raw_names_are_preserved_on_records(self) -> None:
         evaluator = self.evaluator_with_response(
@@ -1231,7 +1283,7 @@ class QueueAndBackfillTests(unittest.TestCase):
             stage_key="gemma_proof_extraction_v1",
             stage_kind="ai_model",
             display_name="Gemma Proof Extraction v1",
-            model_name="gemma-3-27b-it",
+            model_name="gemma-4-26b-a4b-it",
             prompt_version="opennutri_master_payload_v1",
             active=True,
             positive_threshold=1.0,
@@ -1297,7 +1349,7 @@ class QueueAndBackfillTests(unittest.TestCase):
             stage_key="gemma_proof_extraction_v1",
             stage_kind="ai_model",
             display_name="Gemma Proof Extraction v1",
-            model_name="gemma-3-27b-it",
+            model_name="gemma-4-26b-a4b-it",
             prompt_version="opennutri_master_payload_v1",
             active=True,
             positive_threshold=1.0,

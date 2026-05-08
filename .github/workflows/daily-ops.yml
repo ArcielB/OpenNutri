@@ -2,11 +2,9 @@ name: Daily OpenNutri Ops
 
 on:
   schedule:
-    # GitHub cron is UTC. Two entries cover the America/Los_Angeles
-    # DST offset change; the gate below chooses the active one without
-    # rejecting delayed runners.
+    # GitHub cron is UTC. The exact runner start time is not important;
+    # the controller loops internally until it reaches a terminal quota/config stop.
     - cron: "17 7 * * *"
-    - cron: "17 8 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -19,33 +17,10 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Gate scheduled reset start
-        id: reset_window
-        run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          scheduled_cron="${{ github.event.schedule }}"
-          pacific_offset="$(TZ=America/Los_Angeles date +%z)"
-          case "${scheduled_cron}:${pacific_offset}" in
-            "17 7 * * *:-0700"|"17 8 * * *:-0800")
-              echo "Running scheduled daily ops for cron='$scheduled_cron' at Pacific offset $pacific_offset"
-              echo "should_run=true" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "Skipping inactive DST schedule: cron='$scheduled_cron' pacific_offset=$pacific_offset"
-              echo "should_run=false" >> "$GITHUB_OUTPUT"
-              ;;
-          esac
-
       - name: Check out repository
-        if: steps.reset_window.outputs.should_run == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python
-        if: steps.reset_window.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -53,11 +28,9 @@ jobs:
           cache-dependency-path: services/data-pipeline/requirements.txt
 
       - name: Install system dependencies
-        if: steps.reset_window.outputs.should_run == 'true'
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Cache pipeline data
-        if: steps.reset_window.outputs.should_run == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -68,11 +41,9 @@ jobs:
             opennutri-pipeline-
 
       - name: Install Python dependencies
-        if: steps.reset_window.outputs.should_run == 'true'
         run: python3 -m pip install -r services/data-pipeline/requirements.txt
 
       - name: Run recursive daily ops controller
-        if: steps.reset_window.outputs.should_run == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

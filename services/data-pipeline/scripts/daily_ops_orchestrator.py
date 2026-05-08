@@ -22,7 +22,6 @@ TERMINAL_STOP_REASONS = {
     "ai_stage_configuration_error",
     "daily_ai_call_budget_exhausted",
     "ai_first_task_quota_limited",
-    "no_progress",
     "dry_run",
 }
 

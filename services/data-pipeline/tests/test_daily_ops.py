@@ -336,7 +336,7 @@ class DailyOpsTests(unittest.TestCase):
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
-    def test_crawl_zero_output_stops_no_progress(
+    def test_crawl_zero_output_retries_after_no_progress(
         self,
         fetch_state_mock: Mock,
         drain_mock: Mock,
@@ -350,7 +350,7 @@ class DailyOpsTests(unittest.TestCase):
         summary = daily_ops_orchestrator.run_daily_ops(object(), build_args())
 
         self.assertEqual(summary["stopped_reason"], "no_progress")
-        self.assertTrue(summary["terminal"])
+        self.assertFalse(summary["terminal"])
         crawl_mock.assert_called_once()
         drain_mock.assert_not_called()
 

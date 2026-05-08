@@ -8,6 +8,7 @@ import os
 import json
 from typing import Any, Optional, List, Dict
 from dataclasses import dataclass
+from json import JSONDecodeError
 
 try:
     import google.generativeai as genai
@@ -263,18 +264,9 @@ Full Text:
             
             response = self.model.generate_content(prompt)
             
-            # Clean up response (sometimes LLM adds markdown code blocks)
             response_text = response.text.strip()
-            
-            if response_text.startswith("```"):
-                # Remove code block markers
-                lines = response_text.split("\n")
-                if lines[0].startswith("```json"):
-                    response_text = "\n".join(lines[1:-1])
-                else:
-                    response_text = "\n".join(lines[1:-1])
-            
-            result_json = self._coerce_result_root(json.loads(response_text))
+            parsed_response = self._parse_response_json(response_text)
+            result_json = self._coerce_result_root(parsed_response)
             
             # Parse into our data structure with plausibility checks
             records = []
@@ -356,6 +348,84 @@ Full Text:
                 no_data_reason="extraction_error",
                 source_term=paper.get("source_term", "")
             )
+
+    def _parse_response_json(self, response_text: str) -> Any:
+        cleaned = self._strip_markdown_json_fence(response_text)
+        try:
+            return json.loads(cleaned)
+        except JSONDecodeError as original_error:
+            candidates = list(self._balanced_json_candidates(cleaned))
+            parsed_candidates: list[Any] = []
+            for candidate in candidates:
+                try:
+                    parsed = json.loads(candidate)
+                except JSONDecodeError:
+                    continue
+                if self._looks_like_result_root(parsed):
+                    return parsed
+                parsed_candidates.append(parsed)
+            if parsed_candidates:
+                return parsed_candidates[0]
+            raise original_error
+
+    def _strip_markdown_json_fence(self, response_text: str) -> str:
+        cleaned = response_text.strip()
+        if not cleaned.startswith("```"):
+            return cleaned
+        lines = cleaned.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+
+    def _balanced_json_candidates(self, text: str):
+        for start, char in enumerate(text):
+            if char not in "{[":
+                continue
+            closing = "}" if char == "{" else "]"
+            stack = [closing]
+            in_string = False
+            escape = False
+            for index in range(start + 1, len(text)):
+                current = text[index]
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif current == "\\":
+                        escape = True
+                    elif current == '"':
+                        in_string = False
+                    continue
+                if current == '"':
+                    in_string = True
+                elif current == "{":
+                    stack.append("}")
+                elif current == "[":
+                    stack.append("]")
+                elif current in "}]":
+                    if not stack or current != stack[-1]:
+                        break
+                    stack.pop()
+                    if not stack:
+                        yield text[start : index + 1]
+                        break
+
+    def _looks_like_result_root(self, parsed_json: Any) -> bool:
+        if isinstance(parsed_json, list):
+            return True
+        if not isinstance(parsed_json, dict):
+            return False
+        return any(
+            key in parsed_json
+            for key in (
+                "data",
+                "decision_kind",
+                "is_useful",
+                "reasoning",
+                "overall_confidence",
+            )
+        )
 
     def _coerce_result_root(self, parsed_json: Any) -> dict:
         if isinstance(parsed_json, dict):
