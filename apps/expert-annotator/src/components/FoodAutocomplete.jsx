@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { appendSearchStep, persistSearchSession } from '../utils/searchSessionLogger'
+import { isFuzzyTokenMatch } from '../utils/fuzzyMatch'
 
 const NOISY_PREFIXES = new Set([
     'babyfood',
@@ -135,6 +136,11 @@ function findTokenRelationIndex(tokens, queryToken) {
         return { relation: 'derived', index: derivedIndex }
     }
 
+    const fuzzyIndex = tokens.findIndex((candidate) => isFuzzyTokenMatch(queryToken, candidate))
+    if (fuzzyIndex >= 0) {
+        return { relation: 'fuzzy', index: fuzzyIndex }
+    }
+
     return { relation: 'none', index: -1 }
 }
 
@@ -189,11 +195,22 @@ function buildQueryTerms(query) {
     const normalized = normalizeText(query)
     const words = normalized.split(/\s+/).filter(Boolean)
     const meaningfulWords = words.filter((word) => !STOPWORDS.has(word))
-    const terms = [normalized, ...meaningfulWords]
+    const fuzzyTerms = meaningfulWords.flatMap((word) => buildDeletionVariants(word))
+    const terms = [normalized, ...meaningfulWords, ...fuzzyTerms]
         .filter((term) => term.length >= 2)
-        .slice(0, 4)
+        .slice(0, 8)
 
     return [...new Set(terms)]
+}
+
+function buildDeletionVariants(token) {
+    if (!token || token.length < 4) return []
+    const variants = new Set()
+    for (let index = 0; index < token.length; index += 1) {
+        const candidate = `${token.slice(0, index)}${token.slice(index + 1)}`
+        if (candidate.length >= 3) variants.add(candidate)
+    }
+    return [...variants]
 }
 
 function buildTokenVariants(token) {
@@ -261,7 +278,7 @@ function scoreFoodMatch(food, query) {
         const tokenVariants = new Set(buildTokenVariants(primaryToken))
         const allTokens = [...canonicalTokens, ...aliasTokens]
         const hasUsefulTokenMatch = allTokens.some((token) =>
-            tokenVariants.has(token) || token.startsWith(primaryToken)
+            tokenVariants.has(token) || token.startsWith(primaryToken) || isFuzzyTokenMatch(primaryToken, token)
         )
         if (!hasUsefulTokenMatch) {
             return {
@@ -298,6 +315,9 @@ function scoreFoodMatch(food, query) {
         else if (baseMatch.relation === 'derived') tokenScore = queryLooksGeneric ? 180 : 80
         else if (canonicalMatch.relation === 'derived') tokenScore = queryLooksGeneric ? 120 : 40
         else if (aliasMatch.relation === 'derived') tokenScore = queryLooksGeneric ? 110 : 30
+        else if (baseMatch.relation === 'fuzzy') tokenScore = queryLooksGeneric ? 130 : 60
+        else if (canonicalMatch.relation === 'fuzzy') tokenScore = queryLooksGeneric ? 90 : 45
+        else if (aliasMatch.relation === 'fuzzy') tokenScore = queryLooksGeneric ? 80 : 35
 
         if (tokenScore > 0) {
             matchedTokens += 1

@@ -4,6 +4,17 @@ import {
     appendSearchStep,
     persistSearchSession,
 } from '../utils/searchSessionLogger'
+import {
+    buildTokenVariants,
+    extractAliasSegments,
+    findPrefixMatch,
+    findTokenRelationIndex,
+    isDerivedPrefixMatch,
+    isFuzzyTokenMatch,
+    isInflectionalTokenMatch,
+    normalizeText,
+    tokenize,
+} from '../utils/fuzzyMatch'
 
 const SKIP_NAMES = new Set([
     'proximates', 'minerals', 'lipids', 'vitamins and other components', 'other',
@@ -25,99 +36,6 @@ const STOPWORDS = new Set([
     'total',
 ])
 
-const IRREGULAR_TOKEN_MAP = {
-    mice: 'mouse',
-    geese: 'goose',
-    teeth: 'tooth',
-    feet: 'foot',
-    children: 'child',
-    men: 'man',
-    women: 'woman',
-}
-
-function normalizeText(value) {
-    return (value || '')
-        .toLowerCase()
-        .replace(/['’]/g, '')
-        .replace(/[^a-z0-9()]+/g, ' ')
-        .trim()
-}
-
-function normalizeToken(token) {
-    if (!token) return token
-    if (IRREGULAR_TOKEN_MAP[token]) return IRREGULAR_TOKEN_MAP[token]
-    if (token.endsWith('ies') && token.length > 4) return `${token.slice(0, -3)}y`
-    if (token.endsWith('oes') && token.length > 4) return token.slice(0, -2)
-    if (
-        token.endsWith('s') &&
-        token.length > 3 &&
-        !token.endsWith('ss') &&
-        !token.endsWith('us') &&
-        !token.endsWith('is')
-    ) return token.slice(0, -1)
-    return token
-}
-
-function tokenize(value) {
-    return normalizeText(value)
-        .replace(/[()]/g, ' ')
-        .split(/\s+/)
-        .filter(Boolean)
-        .map(normalizeToken)
-}
-
-function extractAliasSegments(value) {
-    return [...(value || '').matchAll(/\(([^)]+)\)/g)]
-        .map((match) => match[1]?.trim())
-        .filter(Boolean)
-}
-
-function isInflectionalTokenMatch(queryToken, candidateToken) {
-    if (!queryToken || !candidateToken) return false
-    return normalizeToken(queryToken) === normalizeToken(candidateToken)
-}
-
-function isDerivedPrefixMatch(queryToken, candidateToken) {
-    if (!queryToken || !candidateToken) return false
-    if (!candidateToken.startsWith(queryToken)) return false
-    if (isInflectionalTokenMatch(queryToken, candidateToken)) return false
-    return candidateToken.length - queryToken.length >= 2
-}
-
-function findTokenRelationIndex(tokens, queryToken) {
-    const exactIndex = tokens.findIndex((candidate) => isInflectionalTokenMatch(queryToken, candidate))
-    if (exactIndex >= 0) return { relation: 'exact', index: exactIndex }
-
-    const derivedIndex = tokens.findIndex((candidate) => isDerivedPrefixMatch(queryToken, candidate))
-    if (derivedIndex >= 0) return { relation: 'derived', index: derivedIndex }
-
-    return { relation: 'none', index: -1 }
-}
-
-function findPrefixMatch(tokens, queryToken) {
-    let bestIndex = -1
-    let bestDelta = 999
-
-    tokens.forEach((candidate, index) => {
-        if (!candidate.startsWith(queryToken)) return
-        const delta = candidate.length - queryToken.length
-        if (delta < bestDelta) {
-            bestDelta = delta
-            bestIndex = index
-        }
-    })
-
-    if (bestIndex < 0) return { found: false, index: -1, delta: 999 }
-    return { found: true, index: bestIndex, delta: bestDelta }
-}
-
-function buildTokenVariants(token) {
-    const singular = normalizeToken(token)
-    const variants = new Set([token, singular, `${singular}s`, `${singular}oes`])
-    if (singular.endsWith('y')) variants.add(`${singular.slice(0, -1)}ies`)
-    return [...variants].filter((value) => value.length >= 2)
-}
-
 function rankDefaultNutrients(nutrients) {
     return nutrients
         .filter((n) => {
@@ -136,14 +54,14 @@ function rankDefaultNutrients(nutrients) {
 function scoreNutrientMatch(nutrient, query) {
     const name = nutrient.name || ''
     const aliases = extractAliasSegments(name)
-    const normalizedName = normalizeText(name)
+    const normalizedName = normalizeText(name, { keepParens: true })
     const normalizedAliases = aliases.map(normalizeText)
     const queryTokens = tokenize(query).filter((token) => !STOPWORDS.has(token))
-    const nameTokens = tokenize(name)
+    const nameTokens = tokenize(name, { keepParens: true })
     const aliasTokens = tokenize(aliases.join(' '))
     const queryLooksGeneric = queryTokens.length === 1
     const primaryToken = queryTokens[0] || ''
-    const normalizedQuery = normalizeText(query)
+    const normalizedQuery = normalizeText(query, { keepParens: true })
 
     let score = 0
 
@@ -151,7 +69,7 @@ function scoreNutrientMatch(nutrient, query) {
         const tokenVariants = new Set(buildTokenVariants(primaryToken))
         const allTokens = [...nameTokens, ...aliasTokens]
         const hasUsefulTokenMatch = allTokens.some((token) =>
-            tokenVariants.has(token) || token.startsWith(primaryToken)
+            tokenVariants.has(token) || token.startsWith(primaryToken) || isFuzzyTokenMatch(primaryToken, token)
         )
 
         if (!hasUsefulTokenMatch) {
@@ -179,6 +97,8 @@ function scoreNutrientMatch(nutrient, query) {
         else if (nameMatch.relation === 'exact') tokenScore = 180
         else if (aliasMatch.relation === 'derived') tokenScore = queryLooksGeneric ? 150 : 50
         else if (nameMatch.relation === 'derived') tokenScore = queryLooksGeneric ? 110 : 30
+        else if (aliasMatch.relation === 'fuzzy') tokenScore = queryLooksGeneric ? 95 : 45
+        else if (nameMatch.relation === 'fuzzy') tokenScore = queryLooksGeneric ? 80 : 35
 
         if (tokenScore > 0) {
             matchedTokens += 1
@@ -412,3 +332,4 @@ function formatUnit(unitName) {
     if (u === 'IU') return 'IU/100g'
     return `${unitName}/100g`
 }
+
