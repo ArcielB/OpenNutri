@@ -9,6 +9,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
 - Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and the Gemini budget remains 20 calls/day.
 - GitHub Actions daily ops is scheduled once per UTC day at 07:17. The workflow does not gate by current wall-clock time; delayed scheduled runners still execute and the controller retries non-terminal stops every 5 minutes until quota/config terminal stop or the 6-hour job timeout.
+- The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=180`, `GEMINI_REQUEST_TIMEOUT_SECONDS=180`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=60000`. Gemma receives a capped head/tail excerpt; Gemini extraction remains uncapped unless a Gemini-specific cap is set.
 
 ## Documentation Pointers
 
@@ -109,6 +110,8 @@ Frontend validation currently passes with:
 - Gemma `has_data` outputs enqueue Gemini with a computed priority from model confidence, accepted row count, evidence quality, and normalization quality. Gemma/Gemini `no_usable_data` outputs become `ai_provisional_no_usable_data` with `route_destination = provisional_skip`. Gemini `has_data` outputs with normalized rows become `human_review_ready`.
 - Upload/re-upload preserves closed routing state: papers that already have a closed AI route or human outcome can refresh metadata/search-hit audit rows without being sent back through the active model stage.
 - AI-finalized outcomes use `truth_source_kind = ai_model` and remain excluded from human-truth feedback.
+- `process_stage_queue.py` requeues stale `processing` tasks before claiming new work, which lets the next run recover papers left by cancelled GitHub runners or interrupted local workers.
+- Crawler batch acquisition respects remaining per-language targets, so one strong search batch should not download far beyond the requested English refill size.
 
 ## Ops
 
@@ -183,7 +186,7 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 - Live verification confirmed the new `paper_label_submissions` and `paper_label_approvals` tables, approval RPCs, `can_approve_labels`, and `paper_review_outcomes` provenance columns.
 - Live clean-break verification found `0` unresolved legacy slot assignments and `0` unresolved legacy user assignments.
 - Live reviewer config currently has `1` active approver.
-- Current visible general queue stock was `0` immediately after migration, so daily ops/crawler refill needs to add human-ready papers.
+- On 2026-05-09, manual live ops verified the English-only route end to end. The live DB had `49` English papers after crawl/upload, no Turkish papers from the run, `19` completed Gemma tasks, `3` completed Gemini tasks, no stuck `processing` tasks after cleanup, and `2` visible general-queue `human_review_ready` papers with normalized Gemini `has_data` payloads.
 
 ## Still Needs Attention
 

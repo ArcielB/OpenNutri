@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
 from dataclasses import asdict
 from dataclasses import is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 from urllib.request import urlopen
@@ -51,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--stop-on-quota",
         action="store_true",
         help="Stop after the first Gemini quota/rate-limit error instead of burning through the claimed queue.",
+    )
+    parser.add_argument(
+        "--requeue-stale-minutes",
+        type=int,
+        default=120,
+        help="Requeue processing tasks older than this many minutes before claiming new work. Use 0 to disable.",
     )
     parser.add_argument("--json-summary", action="store_true", help="Print a machine-readable run summary.")
     return parser
@@ -99,6 +107,55 @@ def claim_stage_tasks(client: Client, *, stage_key: str, limit: int) -> list[dic
         {"p_stage_key": stage_key, "p_limit": max(1, int(limit))},
     ).execute()
     return response.data or []
+
+
+def requeue_stale_processing_tasks(
+    client: Client,
+    *,
+    stage_key: str | None = None,
+    stale_after_minutes: int = 120,
+) -> int:
+    if int(stale_after_minutes) <= 0:
+        return 0
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=int(stale_after_minutes))).isoformat()
+    query = (
+        client.table("paper_stage_tasks")
+        .select("id,paper_id,stage_key")
+        .eq("status", "processing")
+        .lt("started_at", cutoff)
+    )
+    if stage_key:
+        query = query.eq("stage_key", stage_key)
+    response = query.limit(1000).execute()
+    stale_tasks = response.data or []
+    if not stale_tasks:
+        return 0
+
+    now = _utcnow_iso()
+    for task in stale_tasks:
+        task_id = task.get("id")
+        paper_id = task.get("paper_id")
+        task_stage_key = str(task.get("stage_key") or stage_key or "").strip()
+        if not task_id or not paper_id or not task_stage_key:
+            continue
+        client.table("paper_stage_tasks").update(
+            {
+                "status": "queued",
+                "last_error": f"Requeued stale processing task after {int(stale_after_minutes)} minutes.",
+                "started_at": None,
+                "completed_at": None,
+                "updated_at": now,
+            }
+        ).eq("id", task_id).execute()
+        client.table("papers").update(
+            {
+                "routing_status": ROUTING_STATUS_QUEUED,
+                "current_stage_key": task_stage_key,
+                "route_destination": BLOCKED_DESTINATION,
+                "routing_updated_at": now,
+            }
+        ).eq("id", paper_id).execute()
+    return len(stale_tasks)
 
 
 def fetch_reference_lookups(client: Client) -> dict[str, list[dict]]:
@@ -230,6 +287,53 @@ def extract_pdf_text(filename: str) -> str:
     if not full_text:
         raise RuntimeError(f"Empty PDF text extracted for {filename}")
     return full_text
+
+
+def stage_text_for_model(full_text: str, *, stage_config: RoutingStageConfig) -> str:
+    model_name = str(stage_config.model_name or "").strip().lower()
+    if "gemma" in model_name:
+        default_limit = "60000"
+        limit_value = os.environ.get(
+            "GEMMA_STAGE_TEXT_LIMIT_CHARS",
+            os.environ.get("AI_STAGE_TEXT_LIMIT_CHARS", default_limit),
+        )
+    else:
+        default_limit = "0"
+        limit_value = os.environ.get(
+            "GEMINI_STAGE_TEXT_LIMIT_CHARS",
+            os.environ.get("AI_STAGE_TEXT_LIMIT_CHARS", default_limit),
+        )
+    limit = int(limit_value or default_limit)
+    if limit <= 0 or len(full_text) <= limit:
+        return full_text
+    head_len = max(1, limit // 2)
+    tail_len = max(1, limit - head_len)
+    return (
+        full_text[:head_len]
+        + "\n\n[TRUNCATED FOR AI STAGE INPUT]\n\n"
+        + full_text[-tail_len:]
+    )
+
+
+@contextlib.contextmanager
+def ai_task_timeout(seconds: int):
+    timeout_seconds = int(seconds)
+    if timeout_seconds <= 0 or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def _raise_timeout(_signum, _frame):
+        raise TimeoutError(f"AI evaluation exceeded {timeout_seconds} seconds")
+
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
 
 
 def ai_result_error(ai_result) -> str | None:
@@ -533,19 +637,27 @@ def process_one_task(
 
     try:
         full_text = extract_pdf_text(str(paper.get("filename") or ""))
-        input_hash = input_hash_for_text(title=paper.get("title"), full_text=full_text)
+        stage_full_text = stage_text_for_model(full_text, stage_config=stage_config)
+        input_hash = input_hash_for_text(title=paper.get("title"), full_text=stage_full_text)
         if reference_lookups is not None:
             evaluator.food_candidates = select_food_candidates_for_text(
-                full_text,
+                stage_full_text,
                 (reference_lookups or {}).get("foods") or [],
             )
-        ai_result = evaluator.evaluate_and_extract(
-            {
-                "pmc_id": paper.get("doi") or paper.get("filename") or "",
-                "title": paper.get("title") or "",
-                "full_text": full_text,
-            }
+        task_timeout_seconds = int(
+            os.environ.get(
+                "AI_MODEL_TASK_TIMEOUT_SECONDS",
+                os.environ.get("GEMINI_REQUEST_TIMEOUT_SECONDS", "300"),
+            )
         )
+        with ai_task_timeout(task_timeout_seconds):
+            ai_result = evaluator.evaluate_and_extract(
+                {
+                    "pmc_id": paper.get("doi") or paper.get("filename") or "",
+                    "title": paper.get("title") or "",
+                    "full_text": stage_full_text,
+                }
+            )
         embedded_error = ai_result_error(ai_result)
         if embedded_error:
             raise RuntimeError(embedded_error)
@@ -731,6 +843,7 @@ def _empty_stage_summary(stage_key: str) -> dict[str, object]:
         "quota_limited": False,
         "permanent_model_error": False,
         "claimed": 0,
+        "stale_requeued": 0,
         "stage_key": stage_key,
     }
 
@@ -768,6 +881,7 @@ def drain_stage_queue(
     max_tasks: int = 50,
     verbose: bool = True,
     stop_on_quota: bool = False,
+    requeue_stale_minutes: int = 120,
 ) -> dict[str, object]:
     reference_lookups = fetch_reference_lookups(client)
     evaluator_cache: dict[str, UnifiedEvaluator] = {}
@@ -798,6 +912,11 @@ def drain_stage_queue(
 
     initial_config = get_stage_config(stage_key)
     summary = _empty_stage_summary(stage_key or "all_queued_stages")
+    summary["stale_requeued"] = requeue_stale_processing_tasks(
+        client,
+        stage_key=stage_key,
+        stale_after_minutes=requeue_stale_minutes,
+    )
 
     if stop_on_quota:
         while int(summary["processed"]) < max(1, max_tasks):
@@ -857,6 +976,7 @@ def main() -> None:
         max_tasks=max(1, args.max_tasks),
         verbose=not args.json_summary,
         stop_on_quota=args.stop_on_quota,
+        requeue_stale_minutes=args.requeue_stale_minutes,
     )
     if args.json_summary:
         print(json.dumps(summary, sort_keys=True))

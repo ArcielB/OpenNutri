@@ -486,7 +486,18 @@ class FoodCompositionCrawlerV2:
 
             batch_candidates = list(batch_candidates_by_key.values())
             self._filter_candidates(batch_candidates, batch_hits, [stats], {stat_key: stats})
-            batch_accepted, batch_rejected = self._acquire_batch_candidates(batch_candidates)
+            remaining_by_language = {
+                current_language: max(
+                    0,
+                    self.target_pdfs_by_language.get(current_language, 0)
+                    - accepted_counts.get(current_language, 0),
+                )
+                for current_language in SUPPORTED_LANGUAGES
+            }
+            batch_accepted, batch_rejected = self._acquire_batch_candidates(
+                batch_candidates,
+                remaining_by_language=remaining_by_language,
+            )
             accepted_records.extend(batch_accepted)
             rejected_records.extend(batch_rejected)
             self._update_batch_outcome_stats(stats, batch_accepted, batch_rejected)
@@ -515,9 +526,22 @@ class FoodCompositionCrawlerV2:
     def _acquire_batch_candidates(
         self,
         candidates: List[CandidatePaper],
+        remaining_by_language: Optional[Dict[str, int]] = None,
     ) -> Tuple[List[DownloadRecord], List[DownloadRecord]]:
         accepted_records: List[DownloadRecord] = []
         rejected_records: List[DownloadRecord] = []
+        remaining_slots = {
+            language: max(
+                0,
+                int(
+                    (remaining_by_language or self.target_pdfs_by_language).get(
+                        language,
+                        0,
+                    )
+                ),
+            )
+            for language in SUPPORTED_LANGUAGES
+        }
         ranked_candidates = sorted(
             candidates,
             key=lambda item: (item.filter_pass, item.filter_score, item.search_gate_score),
@@ -525,6 +549,18 @@ class FoodCompositionCrawlerV2:
         )
 
         for candidate in ranked_candidates:
+            candidate_language = (
+                candidate.workflow_language if candidate.workflow_language in SUPPORTED_LANGUAGES else "en"
+            )
+            if (
+                candidate.filter_pass
+                and all(
+                    remaining_slots.get(language, 0) <= 0
+                    for language in self._active_languages()
+                )
+            ):
+                break
+
             if not candidate.filter_pass:
                 if candidate.pdf_url or candidate.pmcid:
                     audit_flag = self._next_audit_flag()
@@ -558,9 +594,16 @@ class FoodCompositionCrawlerV2:
                 )
                 continue
 
+            if remaining_slots.get(candidate_language, 0) <= 0:
+                continue
+
             record = self._download_candidate(candidate)
             if record.status == "success":
                 accepted_records.append(record)
+                remaining_slots[candidate_language] = max(
+                    0,
+                    remaining_slots.get(candidate_language, 0) - 1,
+                )
             else:
                 rejected_records.append(record)
         return accepted_records, rejected_records

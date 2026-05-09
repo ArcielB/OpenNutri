@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -37,7 +38,9 @@ from scripts.process_stage_queue import (
     is_non_retryable_model_error,
     is_quota_error,
     process_one_task,
+    requeue_stale_processing_tasks,
     select_food_candidates_for_text,
+    stage_text_for_model,
 )
 from evaluator.unified_evaluator import UnifiedEvaluator
 
@@ -66,6 +69,7 @@ class FakeTable:
         self.payload = None
         self.on_conflict = None
         self.filters: list[tuple[str, object]] = []
+        self.lt_filters: list[tuple[str, object]] = []
         self.range_start = None
         self.range_end = None
 
@@ -75,6 +79,10 @@ class FakeTable:
 
     def eq(self, field: str, value: object):
         self.filters.append((field, value))
+        return self
+
+    def lt(self, field: str, value: object):
+        self.lt_filters.append((field, value))
         return self
 
     def limit(self, count: int):
@@ -142,7 +150,10 @@ class FakeTable:
         raise AssertionError(f"Unsupported action {self.action!r} on {self.name}")
 
     def _matches(self, row: dict) -> bool:
-        return all(row.get(field) == value for field, value in self.filters)
+        return all(row.get(field) == value for field, value in self.filters) and all(
+            row.get(field) is not None and row.get(field) < value
+            for field, value in self.lt_filters
+        )
 
 
 class FakeSupabaseClient:
@@ -944,6 +955,52 @@ class QueueAndBackfillTests(unittest.TestCase):
             )
         )
         self.assertFalse(is_non_retryable_model_error("Extraction error: 429 quota exceeded"))
+
+    def test_requeue_stale_processing_tasks_restores_paper_route(self) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "paper_stage_tasks": [
+                    {
+                        "id": "task-stale",
+                        "paper_id": 12,
+                        "stage_key": "gemma_proof_extraction_v1",
+                        "status": "processing",
+                        "started_at": "2026-05-09T06:00:00+00:00",
+                    },
+                    {
+                        "id": "task-fresh",
+                        "paper_id": 13,
+                        "stage_key": "gemma_proof_extraction_v1",
+                        "status": "processing",
+                        "started_at": "2999-01-01T00:00:00+00:00",
+                    },
+                ],
+                "papers": [
+                    {"id": 12, "routing_status": "ai_processing"},
+                    {"id": 13, "routing_status": "ai_processing"},
+                ],
+            }
+        )
+
+        count = requeue_stale_processing_tasks(
+            client,
+            stage_key="gemma_proof_extraction_v1",
+            stale_after_minutes=30,
+        )
+
+        self.assertEqual(count, 1)
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "queued")
+        self.assertEqual(client.tables["paper_stage_tasks"][1]["status"], "processing")
+        self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
+        self.assertEqual(client.tables["papers"][0]["current_stage_key"], "gemma_proof_extraction_v1")
+
+    def test_gemma_stage_text_is_capped_with_head_and_tail(self) -> None:
+        stage_config = replace(self.stage_config(), model_name="gemma-4-26b-a4b-it")
+        with patch.dict("os.environ", {"AI_STAGE_TEXT_LIMIT_CHARS": "20"}):
+            text = stage_text_for_model("abcdefghijklmnopqrstuvwxyz", stage_config=stage_config)
+        self.assertTrue(text.startswith("abcdefghij"))
+        self.assertIn("TRUNCATED FOR AI STAGE INPUT", text)
+        self.assertTrue(text.endswith("qrstuvwxyz"))
 
     @patch("scripts.process_stage_queue.process_one_task")
     @patch("scripts.process_stage_queue.claim_stage_tasks")

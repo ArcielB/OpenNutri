@@ -262,7 +262,12 @@ Full Text:
                 food_candidates=self._format_food_candidates(getattr(self, "food_candidates", [])),
             )
             
-            response = self.model.generate_content(prompt)
+            response = self.model.generate_content(
+                prompt,
+                request_options={
+                    "timeout": int(os.environ.get("GEMINI_REQUEST_TIMEOUT_SECONDS", "240"))
+                },
+            )
             
             response_text = response.text.strip()
             parsed_response = self._parse_response_json(response_text)

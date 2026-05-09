@@ -440,7 +440,7 @@ class CrawlerQuotaTests(unittest.TestCase):
         self.assertEqual([record.title for record in accepted], ["en-strong", "tr-strong"])
         self.assertEqual(rejected, [])
 
-    def test_run_search_batches_stops_language_only_after_current_batch(self) -> None:
+    def test_run_search_batches_caps_current_batch_to_language_target(self) -> None:
         crawler = object.__new__(FoodCompositionCrawlerV2)
         crawler.target_pdfs_by_language = {"en": 0, "tr": 1}
         crawler.query_limit = 10
@@ -520,9 +520,9 @@ class CrawlerQuotaTests(unittest.TestCase):
 
         _, _, query_log, _, accepted, _ = crawler._run_search_batches(tasks, set())
 
-        self.assertEqual([record.title for record in accepted], ["tr-first", "tr-second"])
+        self.assertEqual([record.title for record in accepted], ["tr-first"])
         self.assertEqual(len(query_log), 1)
-        self.assertEqual(query_log[0]["accepted"], 2)
+        self.assertEqual(query_log[0]["accepted"], 1)
         self.assertEqual(source.calls, 1)
 
     def test_run_search_batches_counts_query_limit_after_search_gate(self) -> None:
