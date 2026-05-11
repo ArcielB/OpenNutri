@@ -31,6 +31,7 @@ def build_args(**overrides):
         "max_wallclock_minutes": 330,
         "screening_queue_low_watermark": 30,
         "screening_refill_batch_en": 75,
+        "screening_refill_chunk_en": 30,
         "refill_step_en": 4,
         "refill_step_tr": 0,
         "seed": 20260413,
@@ -138,9 +139,9 @@ class DailyOpsTests(unittest.TestCase):
         crawl_mock: Mock,
     ) -> None:
         fetch_state_mock.side_effect = [
-            {"papers": queued_papers(SCREENING_STAGE, 10)},
-            {"papers": queued_papers(SCREENING_STAGE, 75)},
-            {"papers": queued_papers(SCREENING_STAGE, 75)},
+            {"papers": []},
+            {"papers": queued_papers(SCREENING_STAGE, 30)},
+            {"papers": queued_papers(SCREENING_STAGE, 30)},
             {"papers": queued_papers(EXTRACTION_STAGE, 1)},
             {"papers": queued_papers(EXTRACTION_STAGE, 1)},
         ]
@@ -157,9 +158,9 @@ class DailyOpsTests(unittest.TestCase):
         )
 
         crawl_mock.assert_called_once()
-        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 75, "tr": 0})
+        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 30, "tr": 0})
         self.assertFalse(crawl_mock.call_args.kwargs["process_ai_after_upload"])
-        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["refill_requested_en"], 75)
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["refill_requested_en"], 30)
 
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
@@ -223,7 +224,7 @@ class DailyOpsTests(unittest.TestCase):
         )
 
         self.assertEqual(summary["stopped_reason"], "dry_run")
-        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["planned_refill"]["en"], 75)
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["planned_refill"]["en"], 30)
         drain_mock.assert_not_called()
         crawl_mock.assert_not_called()
 

@@ -123,16 +123,18 @@ Frontend validation currently passes with:
 - drains queued Gemma and Gemini stage tasks before requesting crawler refill;
 - triggers English-only crawler refill when visible stock is below `--target-open`.
 
-`services/data-pipeline/scripts/daily_ops_orchestrator.py` treats `--target-open` as compatibility/reporting only. Scheduled ops do not stop when the human queue is full; they keep Gemma fed, exhaust Gemma quota/source first, then spend Gemini on the highest-priority queued follow-up candidates.
+`services/data-pipeline/scripts/daily_ops_orchestrator.py` treats `--target-open` as compatibility/reporting only. Scheduled ops do not stop when the human queue is full; they requeue stale stage tasks, drain existing Gemma work before crawling, keep Gemma fed with chunked refills, exhaust Gemma quota/source first, then spend Gemini on the highest-priority queued follow-up candidates.
 
 Daily ops order:
 
-1. Refill Gemma work when queued screening tasks fall below `30`, currently by crawling/uploading `75` English accepted papers.
-2. Drain Gemma at the configured stage RPM, currently `15` calls/minute.
-3. Sleep `65` seconds after a full RPM window or quota after recent successful calls, then continue Gemma.
-4. Treat quota on the first call after cooldown as Gemma daily quota exhausted and advance to Gemini.
-5. Drain Gemini at the configured stage RPM from highest-priority queued candidates.
-6. Stop on Gemini daily quota, source exhaustion, model configuration error, dry-run, or the `330` minute wall-clock cap.
+1. Requeue stale `processing` stage tasks before queue-count decisions.
+2. Drain any queued Gemma work immediately, even if it is below the low watermark.
+3. When no Gemma work is queued, crawl/upload an English refill chunk, currently `30` accepted papers per crawler call from a `75`-paper refill setting.
+4. Drain Gemma at the configured stage RPM, currently `15` calls/minute.
+5. Sleep `65` seconds after a full RPM window or quota after recent successful calls, then continue Gemma.
+6. Treat quota on the first call after cooldown as Gemma daily quota exhausted and advance to Gemini.
+7. Drain Gemini at the configured stage RPM from highest-priority queued candidates.
+8. Stop on Gemini daily quota, source exhaustion, model configuration error, dry-run, or the `330` minute wall-clock cap.
 
 Terminal stop reasons:
 
@@ -173,7 +175,7 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 - Drain AI routing queue:
   - `python3 services/data-pipeline/scripts/process_stage_queue.py`
 - Run daily ops:
-  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 --quota-cooldown-seconds 65 --max-wallclock-minutes 330 --screening-queue-low-watermark 30 --screening-refill-batch-en 75`
+  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 --quota-cooldown-seconds 65 --max-wallclock-minutes 330 --screening-queue-low-watermark 30 --screening-refill-batch-en 75 --screening-refill-chunk-en 30`
 - Check shared queue stock / trigger refill loop:
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py --target-open 50`
 

@@ -16,7 +16,11 @@ if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
 from scripts import ensure_paper_stock, refill_assignment_queue
-from scripts.process_stage_queue import drain_stage_queue, require_client
+from scripts.process_stage_queue import (
+    drain_stage_queue,
+    requeue_stale_processing_tasks,
+    require_client,
+)
 
 
 TERMINAL_STOP_REASONS = {
@@ -102,6 +106,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=75,
         help="English accepted-paper crawl/upload batch size used to keep Gemma screening fed",
     )
+    parser.add_argument(
+        "--screening-refill-chunk-en",
+        type=int,
+        default=30,
+        help="Largest single English crawl/upload request while refilling Gemma work",
+    )
     return parser
 
 
@@ -149,6 +159,10 @@ def _fetch_queue_counts(client: Any, *, screening_stage_key: str, extraction_sta
         screening_stage_key: queued_screening,
         extraction_stage_key: queued_extraction,
     }
+
+
+def _log(args: argparse.Namespace, message: str) -> None:
+    print(f"[daily-ops] {message}", file=sys.stderr, flush=True)
 
 
 def _parse_stage_rpm(raw_value: object, *, screening_stage_key: str, extraction_stage_key: str) -> dict[str, int]:
@@ -302,15 +316,18 @@ def _run_screening_refill(
     *,
     stage_summary: dict[str, Any],
     cycle_index: int,
+    requested_en: int,
+    requested_tr: int,
 ) -> None:
     del client
     requested = {
-        "en": max(0, int(getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 75)))),
-        "tr": max(0, int(getattr(args, "refill_step_tr", 0))),
+        "en": max(0, int(requested_en)),
+        "tr": max(0, int(requested_tr)),
     }
     stage_summary["refill_cycles"] = int(stage_summary["refill_cycles"]) + 1
     stage_summary["refill_requested_en"] = int(stage_summary["refill_requested_en"]) + requested["en"]
     stage_summary["refill_requested_tr"] = int(stage_summary["refill_requested_tr"]) + requested["tr"]
+    _log(args, f"starting crawler refill {cycle_index}: EN={requested['en']} TR={requested['tr']}")
     ensure_paper_stock.run_refill_cycle(
         deficits=requested,
         env=os.environ.copy(),
@@ -318,6 +335,24 @@ def _run_screening_refill(
         cycle_label=f"Daily ops Gemma refill {cycle_index}",
         process_ai_after_upload=False,
     )
+    _log(args, f"finished crawler refill {cycle_index}: EN={requested['en']} TR={requested['tr']}")
+
+
+def _requeue_stale_stage_tasks(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    stage_key: str,
+    stage_summary: dict[str, Any],
+) -> None:
+    if args.dry_run:
+        return
+    if not hasattr(client, "table"):
+        return
+    stale_requeued = requeue_stale_processing_tasks(client, stage_key=stage_key)
+    if stale_requeued:
+        stage_summary["stale_requeued"] = int(stage_summary.get("stale_requeued") or 0) + int(stale_requeued)
+        _log(args, f"requeued {stale_requeued} stale processing task(s) for {stage_key}")
 
 
 def _drain_stage_quota_led(
@@ -338,12 +373,29 @@ def _drain_stage_quota_led(
     stage_summary = _new_stage_summary(stage_key, rpm=rpm, role=role)
     summary["stage_summaries"][stage_key] = stage_summary
     low_watermark = max(0, int(getattr(args, "screening_queue_low_watermark", 30)))
+    refill_chunk_en = max(
+        1,
+        int(
+            getattr(
+                args,
+                "screening_refill_chunk_en",
+                getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 75)),
+            )
+        ),
+    )
+    _log(args, f"starting stage {stage_key} role={role} rpm={rpm}")
 
     while True:
         if now_fn() >= deadline:
             stage_summary["stop_reason"] = "max_wallclock_reached"
             return "max_wallclock_reached"
 
+        _requeue_stale_stage_tasks(
+            client,
+            args,
+            stage_key=stage_key,
+            stage_summary=stage_summary,
+        )
         queue_counts = _fetch_queue_counts(
             client,
             screening_stage_key=screening_stage_key,
@@ -356,23 +408,38 @@ def _drain_stage_quota_led(
                 "queued_for_stage": queue_count,
             }
         )
+        _log(args, f"{stage_key} queue observation: queued_for_stage={queue_count} total_queued_ai={queue_counts['total']}")
 
-        if refill_screening and queue_count < low_watermark:
+        if refill_screening and 0 < queue_count < low_watermark:
+            _log(args, f"{stage_key} below low watermark with {queue_count} queued task(s); draining available work before refilling")
+
+        if refill_screening and queue_count <= 0:
             stage_summary["low_watermark_events"] = int(stage_summary["low_watermark_events"]) + 1
+            refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 75))))
+            requested_en = min(refill_batch_en, refill_chunk_en)
+            requested_tr = max(0, int(getattr(args, "refill_step_tr", 0)))
             if args.dry_run:
                 stage_summary["stop_reason"] = "dry_run"
                 stage_summary["planned_refill"] = {
-                    "en": max(0, int(getattr(args, "screening_refill_batch_en", 75))),
-                    "tr": max(0, int(getattr(args, "refill_step_tr", 0))),
+                    "en": requested_en,
+                    "tr": requested_tr,
                     "queued_before": queue_count,
                 }
                 return "dry_run"
+
+            if requested_en <= 0 and requested_tr <= 0:
+                stage_summary["source_exhausted"] = True
+                stage_summary["stop_reason"] = "source_exhausted"
+                _log(args, f"{stage_key} below low watermark but no refill was requested")
+                return "source_exhausted"
 
             _run_screening_refill(
                 client,
                 args,
                 stage_summary=stage_summary,
                 cycle_index=int(stage_summary["refill_cycles"]) + 1,
+                requested_en=requested_en,
+                requested_tr=requested_tr,
             )
             queue_counts = _fetch_queue_counts(
                 client,
@@ -390,12 +457,14 @@ def _drain_stage_quota_led(
             if refreshed_count <= 0 and queue_count <= 0:
                 stage_summary["source_exhausted"] = True
                 stage_summary["stop_reason"] = "source_exhausted"
+                _log(args, f"{stage_key} refill produced no queued work; treating source as exhausted")
                 return "source_exhausted"
             queue_count = refreshed_count
 
         if queue_count <= 0:
             stage_summary["queue_empty"] = True
             stage_summary["stop_reason"] = "queue_empty"
+            _log(args, f"{stage_key} queue empty")
             return "queue_empty"
 
         if args.dry_run:
@@ -408,6 +477,15 @@ def _drain_stage_quota_led(
             args,
             max_tasks=min(int(rpm), max(1, queue_count)),
             stage_key=stage_key,
+        )
+        _log(
+            args,
+            f"{stage_key} drain window: processed={int(drain_summary.get('processed') or 0)} "
+            f"human_ready={int(drain_summary.get('human_ready') or 0)} "
+            f"followup_queued={int(drain_summary.get('followup_queued') or 0)} "
+            f"provisional_skipped={int(drain_summary.get('provisional_skipped') or 0)} "
+            f"quota_limited={bool(drain_summary.get('quota_limited'))} "
+            f"permanent_model_error={bool(drain_summary.get('permanent_model_error'))}"
         )
         stage_summary["windows"].append(drain_summary)
         _merge_drain_summary(stage_summary, drain_summary)
@@ -426,8 +504,10 @@ def _drain_stage_quota_led(
                 stage_summary["quota_exhausted"] = True
                 stage_summary["stop_reason"] = "daily_quota_exhausted"
                 summary.setdefault("quota_exhausted_stages", []).append(stage_key)
+                _log(args, f"{stage_key} daily quota exhausted")
                 return "daily_quota_exhausted"
             stage_summary["minute_quota_events"] = int(stage_summary["minute_quota_events"]) + 1
+            _log(args, f"{stage_key} minute quota after {model_calls} successful call(s); cooling down")
             if not _sleep_for_cooldown(
                 args=args,
                 summary=summary,
@@ -443,9 +523,11 @@ def _drain_stage_quota_led(
 
         if int(drain_summary.get("processed") or 0) <= 0:
             stage_summary["stop_reason"] = "no_progress"
+            _log(args, f"{stage_key} made no progress")
             return "no_progress"
 
         if model_calls >= int(rpm):
+            _log(args, f"{stage_key} completed rpm window with {model_calls} call(s); cooling down")
             if not _sleep_for_cooldown(
                 args=args,
                 summary=summary,
@@ -527,6 +609,7 @@ def run_daily_ops(
         "max_wallclock_minutes": max_wallclock_minutes,
         "screening_queue_low_watermark": max(0, int(getattr(args, "screening_queue_low_watermark", 30))),
         "screening_refill_batch_en": max(0, int(getattr(args, "screening_refill_batch_en", 75))),
+        "screening_refill_chunk_en": max(1, int(getattr(args, "screening_refill_chunk_en", 30))),
         "legacy_daily_ai_call_budget": int(getattr(args, "daily_ai_call_budget", 20)),
         "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
         "ai_tasks_used": 0,
