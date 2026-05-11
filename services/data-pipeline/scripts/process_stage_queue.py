@@ -391,7 +391,7 @@ def exceeded_nonquota_attempt_limit(task: dict) -> bool:
     if attempt_count <= max_attempts:
         return False
     last_error = str(task.get("last_error") or "").strip()
-    return bool(last_error) and not is_quota_error(last_error)
+    return not is_quota_error(last_error)
 
 
 def fetch_task_retry_state(client: Client, task_id: str) -> dict:

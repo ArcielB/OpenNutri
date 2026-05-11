@@ -1320,7 +1320,13 @@ class QueueAndBackfillTests(unittest.TestCase):
                 ],
                 "paper_review_outcomes": [],
                 "paper_stage_tasks": [
-                    {"id": "task-18", "paper_id": 18, "status": "processing", "attempt_count": 4}
+                    {
+                        "id": "task-18",
+                        "paper_id": 18,
+                        "status": "processing",
+                        "attempt_count": 4,
+                        "last_error": "Extraction error: 429 quota exceeded",
+                    }
                 ],
             }
         )
@@ -1437,6 +1443,45 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertTrue(result["attempt_limit_exceeded"])
         self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "failed")
         self.assertIn("Exceeded non-quota AI task retry limit", client.tables["paper_stage_tasks"][0]["last_error"])
+        self.assertEqual(client.tables["papers"][0]["routing_status"], "ai_failed")
+        extract_mock.assert_not_called()
+        evaluator.evaluate_and_extract.assert_not_called()
+
+    @patch("scripts.process_stage_queue.extract_pdf_text")
+    def test_high_attempt_claim_with_cleared_last_error_fails_before_model_call(self, extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 21,
+                        "title": "Claim-cleared timeout paper",
+                        "doi": "10.123/claim-cleared",
+                        "filename": "claim-cleared.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [
+                    {"id": "task-21", "paper_id": 21, "status": "processing", "attempt_count": 12}
+                ],
+            }
+        )
+        evaluator = Mock()
+
+        result = process_one_task(
+            client,
+            task={
+                "id": "task-21",
+                "paper_id": 21,
+                "attempt_count": 12,
+            },
+            stage_config=self.stage_config(),
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], "ai_failed")
+        self.assertTrue(result["attempt_limit_exceeded"])
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "failed")
         self.assertEqual(client.tables["papers"][0]["routing_status"], "ai_failed")
         extract_mock.assert_not_called()
         evaluator.evaluate_and_extract.assert_not_called()
