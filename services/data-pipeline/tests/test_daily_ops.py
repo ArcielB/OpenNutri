@@ -31,7 +31,7 @@ def build_args(**overrides):
         "max_wallclock_minutes": 330,
         "screening_queue_low_watermark": 30,
         "screening_refill_batch_en": 75,
-        "screening_refill_chunk_en": 30,
+        "screening_refill_chunk_en": 5,
         "refill_step_en": 4,
         "refill_step_tr": 0,
         "seed": 20260413,
@@ -158,9 +158,9 @@ class DailyOpsTests(unittest.TestCase):
         )
 
         crawl_mock.assert_called_once()
-        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 30, "tr": 0})
+        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 5, "tr": 0})
         self.assertFalse(crawl_mock.call_args.kwargs["process_ai_after_upload"])
-        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["refill_requested_en"], 30)
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["refill_requested_en"], 5)
 
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
@@ -193,9 +193,9 @@ class DailyOpsTests(unittest.TestCase):
         )
 
         crawl_mock.assert_called_once()
-        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 30, "tr": 0})
+        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 5, "tr": 0})
         self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["model_calls"], 0)
-        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["refill_requested_en"], 30)
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["refill_requested_en"], 5)
 
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
@@ -259,7 +259,7 @@ class DailyOpsTests(unittest.TestCase):
         )
 
         self.assertEqual(summary["stopped_reason"], "dry_run")
-        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["planned_refill"]["en"], 30)
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["planned_refill"]["en"], 5)
         drain_mock.assert_not_called()
         crawl_mock.assert_not_called()
 

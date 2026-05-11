@@ -1346,6 +1346,92 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
 
     @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_quota_retry_history_does_not_trip_nonquota_attempt_limit(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 19,
+                        "title": "Quota retry paper",
+                        "doi": "10.123/quota-retry",
+                        "filename": "quota-retry.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [
+                    {"id": "task-19", "paper_id": 19, "status": "processing", "attempt_count": 100}
+                ],
+            }
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=False,
+            reasoning="Extraction error: 429 quota exceeded",
+            overall_confidence=0.0,
+            data=[],
+            raw_response_text="",
+        )
+
+        result = process_one_task(
+            client,
+            task={
+                "id": "task-19",
+                "paper_id": 19,
+                "attempt_count": 100,
+                "last_error": "Extraction error: 429 quota exceeded",
+            },
+            stage_config=self.stage_config(),
+            evaluator=evaluator,
+        )
+
+        self.assertTrue(result["quota_limited"])
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "queued")
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["attempt_count"], 99)
+        evaluator.evaluate_and_extract.assert_called_once()
+
+    @patch("scripts.process_stage_queue.extract_pdf_text")
+    def test_repeated_nonquota_errors_fail_without_another_model_call(self, extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 20,
+                        "title": "Timeout paper",
+                        "doi": "10.123/timeout",
+                        "filename": "timeout.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [
+                    {"id": "task-20", "paper_id": 20, "status": "processing", "attempt_count": 100}
+                ],
+            }
+        )
+        evaluator = Mock()
+
+        result = process_one_task(
+            client,
+            task={
+                "id": "task-20",
+                "paper_id": 20,
+                "attempt_count": 100,
+                "last_error": "Extraction error: AI evaluation exceeded 180 seconds",
+            },
+            stage_config=self.stage_config(),
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], "ai_failed")
+        self.assertTrue(result["attempt_limit_exceeded"])
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "failed")
+        self.assertIn("Exceeded non-quota AI task retry limit", client.tables["paper_stage_tasks"][0]["last_error"])
+        self.assertEqual(client.tables["papers"][0]["routing_status"], "ai_failed")
+        extract_mock.assert_not_called()
+        evaluator.evaluate_and_extract.assert_not_called()
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
     def test_missing_model_error_fails_task_instead_of_retrying_forever(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={

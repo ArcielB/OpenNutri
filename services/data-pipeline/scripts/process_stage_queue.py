@@ -372,6 +372,28 @@ def is_non_retryable_model_error(error_text: object) -> bool:
     ) or "not supported for generatecontent" in text
 
 
+def max_task_attempts() -> int:
+    raw_value = os.environ.get("AI_STAGE_MAX_TASK_ATTEMPTS", "6")
+    try:
+        return max(0, int(raw_value))
+    except (TypeError, ValueError):
+        return 6
+
+
+def exceeded_nonquota_attempt_limit(task: dict) -> bool:
+    max_attempts = max_task_attempts()
+    if max_attempts <= 0:
+        return False
+    try:
+        attempt_count = int(task.get("attempt_count") or 0)
+    except (TypeError, ValueError):
+        attempt_count = 0
+    if attempt_count <= max_attempts:
+        return False
+    last_error = str(task.get("last_error") or "").strip()
+    return bool(last_error) and not is_quota_error(last_error)
+
+
 def update_paper_processing_state(
     client: Client,
     *,
@@ -718,6 +740,30 @@ def process_one_task(
     paper = fetch_paper(client, paper_id)
     existing_outcome = fetch_existing_outcome(client, paper_id)
     preserve_human_route = has_human_truth(existing_outcome)
+    if exceeded_nonquota_attempt_limit(task):
+        error_text = (
+            f"Exceeded non-quota AI task retry limit after {int(task.get('attempt_count') or 0)} attempts. "
+            f"Last error: {str(task.get('last_error') or '').strip()[:500]}"
+        )
+        update_paper_routing_summary(
+            client,
+            paper_id=paper_id,
+            stage_key=stage_config.stage_key,
+            routing_status=ROUTING_STATUS_FAILED,
+            routing_bucket=None,
+            route_destination=BLOCKED_DESTINATION,
+            latest_ai_extraction_id=paper.get("latest_ai_extraction_id"),
+        )
+        mark_task_failed_after_error(client, task_id=task_id, error_text=error_text)
+        return {
+            "paper_id": paper_id,
+            "status": ROUTING_STATUS_FAILED,
+            "route_destination": BLOCKED_DESTINATION,
+            "error": error_text,
+            "quota_limited": False,
+            "permanent_model_error": False,
+            "attempt_limit_exceeded": True,
+        }
     update_paper_processing_state(
         client,
         paper_id=paper_id,

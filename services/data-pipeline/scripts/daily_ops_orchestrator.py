@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--screening-refill-chunk-en",
         type=int,
-        default=30,
+        default=5,
         help="Largest single English crawl/upload request while refilling Gemma work",
     )
     return parser
@@ -625,7 +625,7 @@ def run_daily_ops(
         "max_wallclock_minutes": max_wallclock_minutes,
         "screening_queue_low_watermark": max(0, int(getattr(args, "screening_queue_low_watermark", 30))),
         "screening_refill_batch_en": max(0, int(getattr(args, "screening_refill_batch_en", 75))),
-        "screening_refill_chunk_en": max(1, int(getattr(args, "screening_refill_chunk_en", 30))),
+        "screening_refill_chunk_en": max(1, int(getattr(args, "screening_refill_chunk_en", 5))),
         "legacy_daily_ai_call_budget": int(getattr(args, "daily_ai_call_budget", 20)),
         "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
         "ai_tasks_used": 0,

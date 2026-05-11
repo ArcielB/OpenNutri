@@ -50,6 +50,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_REQUEST_TIMEOUT_SECONDS: "180"
           AI_MODEL_TASK_TIMEOUT_SECONDS: "180"
+          AI_STAGE_MAX_TASK_ATTEMPTS: "6"
           GEMMA_STAGE_TEXT_LIMIT_CHARS: "60000"
           PYTHONUNBUFFERED: "1"
         run: |
@@ -64,7 +65,7 @@ jobs:
               --max-wallclock-minutes 330 \
               --screening-queue-low-watermark 30 \
               --screening-refill-batch-en 75 \
-              --screening-refill-chunk-en 30 \
+              --screening-refill-chunk-en 5 \
               --refill-step-tr 0 \
               | tee /tmp/opennutri-daily-ops-last.jsonl \
               | tail -n 1
