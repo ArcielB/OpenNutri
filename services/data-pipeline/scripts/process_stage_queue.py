@@ -373,11 +373,11 @@ def is_non_retryable_model_error(error_text: object) -> bool:
 
 
 def max_task_attempts() -> int:
-    raw_value = os.environ.get("AI_STAGE_MAX_TASK_ATTEMPTS", "6")
+    raw_value = os.environ.get("AI_STAGE_MAX_TASK_ATTEMPTS", "2")
     try:
         return max(0, int(raw_value))
     except (TypeError, ValueError):
-        return 6
+        return 2
 
 
 def exceeded_nonquota_attempt_limit(task: dict) -> bool:

@@ -50,7 +50,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_REQUEST_TIMEOUT_SECONDS: "180"
           AI_MODEL_TASK_TIMEOUT_SECONDS: "180"
-          AI_STAGE_MAX_TASK_ATTEMPTS: "6"
+          AI_STAGE_MAX_TASK_ATTEMPTS: "2"
           GEMMA_STAGE_TEXT_LIMIT_CHARS: "60000"
           PYTHONUNBUFFERED: "1"
         run: |

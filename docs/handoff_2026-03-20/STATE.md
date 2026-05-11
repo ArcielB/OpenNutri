@@ -9,7 +9,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
 - Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and the runner now drains each model stage until real quota/source/wall-clock stop instead of hard-stopping at a 20-call Gemini budget.
 - GitHub Actions daily ops is scheduled once per UTC day at 07:17. The workflow does not gate by current wall-clock time; delayed scheduled runners still execute. The workflow now runs one long quota-draining controller invocation up to 330 minutes inside the 6-hour job timeout.
-- The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=180`, `AI_STAGE_MAX_TASK_ATTEMPTS=6`, `GEMINI_REQUEST_TIMEOUT_SECONDS=180`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=60000`. Gemma receives a capped head/tail excerpt; Gemini extraction remains uncapped unless a Gemini-specific cap is set.
+- The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=180`, `AI_STAGE_MAX_TASK_ATTEMPTS=2`, `GEMINI_REQUEST_TIMEOUT_SECONDS=180`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=60000`. Gemma receives a capped head/tail excerpt; Gemini extraction remains uncapped unless a Gemini-specific cap is set.
 
 ## Documentation Pointers
 
@@ -133,7 +133,7 @@ Daily ops order:
 4. Drain Gemma at the configured stage RPM, currently `15` calls/minute.
 5. Sleep `65` seconds after a full RPM window or quota after recent successful calls, then continue Gemma.
 6. Treat quota on the first call after cooldown as Gemma daily quota exhausted and advance to Gemini.
-7. Fail non-quota task errors past `AI_STAGE_MAX_TASK_ATTEMPTS=6` instead of retrying forever; quota/rate-limit errors continue to requeue without consuming meaningful attempts.
+7. Fail non-quota task errors past `AI_STAGE_MAX_TASK_ATTEMPTS=2` instead of retrying forever; quota/rate-limit errors continue to requeue without consuming meaningful attempts.
 8. Drain Gemini at the configured stage RPM from highest-priority queued candidates.
 9. Stop on Gemini daily quota, source exhaustion, model configuration error, dry-run, or the `330` minute wall-clock cap.
 
