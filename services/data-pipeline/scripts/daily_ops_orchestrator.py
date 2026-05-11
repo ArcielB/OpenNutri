@@ -414,12 +414,12 @@ def _drain_stage_quota_led(
         _log(args, f"{stage_key} queue observation: queued_for_stage={queue_count} total_queued_ai={queue_counts['total']}")
 
         if refill_screening and 0 < queue_count < low_watermark:
-            _log(args, f"{stage_key} below low watermark with {queue_count} queued task(s); draining available work before refilling")
+            _log(args, f"{stage_key} below low watermark with {queue_count} queued task(s); refilling before draining")
 
         if refill_screening and force_refill_next and queue_count > 0:
             _log(args, f"{stage_key} forcing refill before retrying requeued error-only work")
 
-        if refill_screening and (queue_count <= 0 or force_refill_next):
+        if refill_screening and (queue_count < low_watermark or force_refill_next):
             force_refill_next = False
             stage_summary["low_watermark_events"] = int(stage_summary["low_watermark_events"]) + 1
             refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 75))))

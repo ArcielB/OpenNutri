@@ -394,6 +394,19 @@ def exceeded_nonquota_attempt_limit(task: dict) -> bool:
     return bool(last_error) and not is_quota_error(last_error)
 
 
+def fetch_task_retry_state(client: Client, task_id: str) -> dict:
+    if not task_id:
+        return {}
+    response = (
+        client.table("paper_stage_tasks")
+        .select("id,attempt_count,last_error")
+        .eq("id", task_id)
+        .limit(1)
+        .execute()
+    )
+    return response.data[0] if response.data else {}
+
+
 def update_paper_processing_state(
     client: Client,
     *,
@@ -740,10 +753,12 @@ def process_one_task(
     paper = fetch_paper(client, paper_id)
     existing_outcome = fetch_existing_outcome(client, paper_id)
     preserve_human_route = has_human_truth(existing_outcome)
-    if exceeded_nonquota_attempt_limit(task):
+    retry_state = dict(task)
+    retry_state.update(fetch_task_retry_state(client, task_id))
+    if exceeded_nonquota_attempt_limit(retry_state):
         error_text = (
-            f"Exceeded non-quota AI task retry limit after {int(task.get('attempt_count') or 0)} attempts. "
-            f"Last error: {str(task.get('last_error') or '').strip()[:500]}"
+            f"Exceeded non-quota AI task retry limit after {int(retry_state.get('attempt_count') or 0)} attempts. "
+            f"Last error: {str(retry_state.get('last_error') or '').strip()[:500]}"
         )
         update_paper_routing_summary(
             client,

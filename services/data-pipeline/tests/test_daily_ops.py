@@ -139,8 +139,7 @@ class DailyOpsTests(unittest.TestCase):
         crawl_mock: Mock,
     ) -> None:
         fetch_state_mock.side_effect = [
-            {"papers": []},
-            {"papers": queued_papers(SCREENING_STAGE, 30)},
+            {"papers": queued_papers(SCREENING_STAGE, 10)},
             {"papers": queued_papers(SCREENING_STAGE, 30)},
             {"papers": queued_papers(EXTRACTION_STAGE, 1)},
             {"papers": queued_papers(EXTRACTION_STAGE, 1)},
@@ -173,14 +172,12 @@ class DailyOpsTests(unittest.TestCase):
     ) -> None:
         fetch_state_mock.side_effect = [
             {"papers": queued_papers(SCREENING_STAGE, 1)},
-            {"papers": queued_papers(SCREENING_STAGE, 1)},
             {"papers": queued_papers(SCREENING_STAGE, 31)},
             {"papers": queued_papers(SCREENING_STAGE, 31)},
             {"papers": queued_papers(EXTRACTION_STAGE, 1)},
             {"papers": queued_papers(EXTRACTION_STAGE, 1)},
         ]
         drain_mock.side_effect = [
-            {"processed": 1, "requeued": 1, "quota_limited": False},
             {"processed": 1, "requeued": 1, "quota_limited": True},
             {"processed": 1, "requeued": 1, "quota_limited": True},
         ]

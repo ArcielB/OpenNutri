@@ -128,9 +128,9 @@ Frontend validation currently passes with:
 Daily ops order:
 
 1. Requeue stale `processing` stage tasks before queue-count decisions.
-2. Drain any queued Gemma work immediately, even if it is below the low watermark.
-3. When no Gemma work is queued, crawl/upload an English refill chunk, currently `5` accepted papers per crawler call from a `75`-paper refill setting.
-4. Drain Gemma at the configured stage RPM, currently `15` calls/minute.
+2. When queued Gemma work is below the `30`-task low watermark, crawl/upload an English refill chunk, currently `5` accepted papers per crawler call from a `75`-paper refill setting.
+3. Drain Gemma at the configured stage RPM, currently `15` calls/minute.
+4. Repeat refill/drain windows until Gemma reaches real daily quota, source exhaustion, or wall-clock stop.
 5. Sleep `65` seconds after a full RPM window or quota after recent successful calls, then continue Gemma.
 6. Treat quota on the first call after cooldown as Gemma daily quota exhausted and advance to Gemini.
 7. Fail non-quota task errors past `AI_STAGE_MAX_TASK_ATTEMPTS=2` instead of retrying forever; quota/rate-limit errors continue to requeue without consuming meaningful attempts.

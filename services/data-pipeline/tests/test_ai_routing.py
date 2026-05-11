@@ -1360,7 +1360,13 @@ class QueueAndBackfillTests(unittest.TestCase):
                 ],
                 "paper_review_outcomes": [],
                 "paper_stage_tasks": [
-                    {"id": "task-19", "paper_id": 19, "status": "processing", "attempt_count": 100}
+                    {
+                        "id": "task-19",
+                        "paper_id": 19,
+                        "status": "processing",
+                        "attempt_count": 100,
+                        "last_error": "Extraction error: 429 quota exceeded",
+                    }
                 ],
             }
         )
@@ -1379,7 +1385,6 @@ class QueueAndBackfillTests(unittest.TestCase):
                 "id": "task-19",
                 "paper_id": 19,
                 "attempt_count": 100,
-                "last_error": "Extraction error: 429 quota exceeded",
             },
             stage_config=self.stage_config(),
             evaluator=evaluator,
@@ -1405,7 +1410,13 @@ class QueueAndBackfillTests(unittest.TestCase):
                 ],
                 "paper_review_outcomes": [],
                 "paper_stage_tasks": [
-                    {"id": "task-20", "paper_id": 20, "status": "processing", "attempt_count": 100}
+                    {
+                        "id": "task-20",
+                        "paper_id": 20,
+                        "status": "processing",
+                        "attempt_count": 100,
+                        "last_error": "Extraction error: AI evaluation exceeded 180 seconds",
+                    }
                 ],
             }
         )
@@ -1417,7 +1428,6 @@ class QueueAndBackfillTests(unittest.TestCase):
                 "id": "task-20",
                 "paper_id": 20,
                 "attempt_count": 100,
-                "last_error": "Extraction error: AI evaluation exceeded 180 seconds",
             },
             stage_config=self.stage_config(),
             evaluator=evaluator,
