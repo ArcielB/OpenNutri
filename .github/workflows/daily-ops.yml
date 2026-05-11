@@ -43,7 +43,7 @@ jobs:
       - name: Install Python dependencies
         run: python3 -m pip install -r services/data-pipeline/requirements.txt
 
-      - name: Run quota-draining daily ops controller
+      - name: Run target-led daily ops controller
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
