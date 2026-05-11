@@ -7,9 +7,9 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
 - Current acquisition mode is English-only. Turkish/DergiPark code remains available, but default refill and daily ops request `tr=0`, skip DergiPark, and use Europe PMC/OpenAlex/Semantic Scholar.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
-- Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and the runner now drains each model stage until real quota/source/wall-clock stop instead of hard-stopping at a 20-call Gemini budget.
-- GitHub Actions daily ops is scheduled once per UTC day at 07:17. The workflow does not gate by current wall-clock time; delayed scheduled runners still execute. The workflow now runs one long quota-draining controller invocation up to 330 minutes inside the 6-hour job timeout.
-- The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=180`, `AI_STAGE_MAX_TASK_ATTEMPTS=2`, `GEMINI_REQUEST_TIMEOUT_SECONDS=180`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=60000`. Gemma receives a capped head/tail excerpt; Gemini extraction remains uncapped unless a Gemini-specific cap is set.
+- Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and the runner now preloads enough queued Gemma papers for the 1500-call daily target before spending Gemma calls.
+- GitHub Actions daily ops is scheduled once per UTC day at 04:17. The workflow does not gate by current wall-clock time; delayed scheduled runners still execute. The workflow now runs one long target-led controller invocation with no internal wall-clock cutoff; GitHub Actions still enforces the job cap.
+- The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=900`, `AI_STAGE_MAX_TASK_ATTEMPTS=2`, `GEMINI_REQUEST_TIMEOUT_SECONDS=900`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=60000`. Gemma receives a capped head/tail excerpt; Gemini extraction remains uncapped unless a Gemini-specific cap is set.
 
 ## Documentation Pointers
 
@@ -123,19 +123,19 @@ Frontend validation currently passes with:
 - drains queued Gemma and Gemini stage tasks before requesting crawler refill;
 - triggers English-only crawler refill when visible stock is below `--target-open`.
 
-`services/data-pipeline/scripts/daily_ops_orchestrator.py` treats `--target-open` as compatibility/reporting only. Scheduled ops do not stop when the human queue is full; they requeue stale stage tasks, drain existing Gemma work before crawling, keep Gemma fed with chunked refills, exhaust Gemma quota/source first, then spend Gemini on the highest-priority queued follow-up candidates.
+`services/data-pipeline/scripts/daily_ops_orchestrator.py` treats `--target-open` as compatibility/reporting only. Scheduled ops do not stop when the human queue is full; they requeue stale stage tasks, prefill queued Gemma work to the configured daily target before crawling is considered done, drain Gemma to that target, then spend Gemini on the highest-priority queued follow-up candidates.
 
 Daily ops order:
 
 1. Requeue stale `processing` stage tasks before queue-count decisions.
-2. When queued Gemma work is below the `30`-task low watermark, crawl/upload an English refill chunk, currently `5` accepted papers per crawler call from a `75`-paper refill setting.
-3. Drain Gemma at the configured stage RPM, currently `15` calls/minute.
-4. Repeat refill/drain windows until Gemma reaches real daily quota, source exhaustion, or wall-clock stop.
-5. Sleep `65` seconds after a full RPM window or quota after recent successful calls, then continue Gemma.
-6. Treat quota on the first call after cooldown as Gemma daily quota exhausted and advance to Gemini.
+2. Count queued Gemma work. If it is below `--screening-daily-target 1500`, crawl/upload English papers for the remaining deficit before spending Gemma calls.
+3. Continue prefill refills while queued Gemma work grows; stop as `source_exhausted` only after `--screening-prefill-stall-limit 3` consecutive refills do not increase queued Gemma work.
+4. Drain Gemma at the configured stage RPM, currently `15` calls/minute, until `1500` Gemma model calls have completed for the scheduled run.
+5. Sleep `65` seconds after a full RPM window or quota after recent successful calls, then continue the same stage.
+6. Treat quota on the first call after cooldown as a real stage quota stop and advance only if the Gemma target cannot continue.
 7. Fail non-quota task errors past `AI_STAGE_MAX_TASK_ATTEMPTS=2` instead of retrying forever; quota/rate-limit errors continue to requeue without consuming meaningful attempts.
 8. Drain Gemini at the configured stage RPM from highest-priority queued candidates.
-9. Stop on Gemini daily quota, source exhaustion, model configuration error, dry-run, or the `330` minute wall-clock cap.
+9. Stop on Gemini daily quota, source exhaustion, model configuration error, dry-run, or GitHub Actions job termination.
 
 Terminal stop reasons:
 

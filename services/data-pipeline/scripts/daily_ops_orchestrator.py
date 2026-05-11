@@ -36,7 +36,7 @@ TERMINAL_STOP_REASONS = {
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the daily quota-draining OpenNutri queue controller."
+        description="Run the daily target-led OpenNutri queue controller."
     )
     parser.add_argument("--target-open", type=int, default=50, help="Retained for stock reporting compatibility; daily ops does not stop on visible stock")
     parser.add_argument("--max-cycles", type=int, default=8, help="Legacy compatibility option; wall-clock and quota now bound the controller")
@@ -91,26 +91,38 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-wallclock-minutes",
         type=int,
-        default=330,
-        help="Maximum controller runtime, leaving margin inside the 6-hour GitHub Actions job",
+        default=0,
+        help="Maximum controller runtime in minutes; 0 disables the internal wall-clock stop",
+    )
+    parser.add_argument(
+        "--screening-daily-target",
+        type=int,
+        default=1500,
+        help="Gemma screening calls to run each day after preloading enough queued papers",
     )
     parser.add_argument(
         "--screening-queue-low-watermark",
         type=int,
         default=30,
-        help="Refill Gemma screening work whenever queued screening tasks drop below this count",
+        help="Legacy low-watermark refill threshold used only when --screening-daily-target is 0",
     )
     parser.add_argument(
         "--screening-refill-batch-en",
         type=int,
-        default=75,
-        help="English accepted-paper crawl/upload batch size used to keep Gemma screening fed",
+        default=1500,
+        help="English accepted-paper crawl/upload target used to preload Gemma screening work",
     )
     parser.add_argument(
         "--screening-refill-chunk-en",
         type=int,
-        default=5,
-        help="Largest single English crawl/upload request while refilling Gemma work",
+        default=1500,
+        help="Largest single English crawl/upload request while preloading Gemma work",
+    )
+    parser.add_argument(
+        "--screening-prefill-stall-limit",
+        type=int,
+        default=3,
+        help="Stop as source_exhausted after this many consecutive prefill refills do not increase queued Gemma work; 0 disables the guard",
     )
     return parser
 
@@ -222,11 +234,13 @@ def _assign_new_human_ready_after_ai(
     )
 
 
-def _new_stage_summary(stage_key: str, *, rpm: int, role: str) -> dict[str, Any]:
+def _new_stage_summary(stage_key: str, *, rpm: int, role: str, daily_target: int | None = None) -> dict[str, Any]:
     return {
         "stage_key": stage_key,
         "role": role,
         "rpm": int(rpm),
+        "daily_target": daily_target,
+        "daily_target_reached": False,
         "processed": 0,
         "model_calls": 0,
         "finalized": 0,
@@ -246,6 +260,10 @@ def _new_stage_summary(stage_key: str, *, rpm: int, role: str) -> dict[str, Any]
         "refill_cycles": 0,
         "refill_requested_en": 0,
         "refill_requested_tr": 0,
+        "prefill_target": None,
+        "prefill_satisfied": False,
+        "prefill_stalled_refills": 0,
+        "prefill_stall_limit": None,
         "low_watermark_events": 0,
         "source_exhausted": False,
         "queue_empty": False,
@@ -289,17 +307,20 @@ def _sleep_for_cooldown(
     summary: dict[str, Any],
     stage_key: str,
     reason: str,
-    deadline: float,
+    deadline: float | None,
     now_fn: Callable[[], float],
     sleep_fn: Callable[[float], None],
 ) -> bool:
     cooldown = max(0, int(getattr(args, "quota_cooldown_seconds", 65)))
     if cooldown <= 0:
         return True
-    remaining = deadline - now_fn()
-    if remaining <= 0:
-        return False
-    sleep_seconds = min(float(cooldown), max(0.0, remaining))
+    if deadline is None:
+        sleep_seconds = float(cooldown)
+    else:
+        remaining = deadline - now_fn()
+        if remaining <= 0:
+            return False
+        sleep_seconds = min(float(cooldown), max(0.0, remaining))
     summary.setdefault("cooldowns", []).append(
         {
             "stage_key": stage_key,
@@ -309,7 +330,7 @@ def _sleep_for_cooldown(
     )
     if not args.dry_run and sleep_seconds > 0:
         sleep_fn(sleep_seconds)
-    return now_fn() < deadline
+    return deadline is None or now_fn() < deadline
 
 
 def _run_screening_refill(
@@ -357,6 +378,137 @@ def _requeue_stale_stage_tasks(
         _log(args, f"requeued {stale_requeued} stale processing task(s) for {stage_key}")
 
 
+def _deadline_reached(deadline: float | None, now_fn: Callable[[], float]) -> bool:
+    return deadline is not None and now_fn() >= deadline
+
+
+def _refill_request_size(args: argparse.Namespace, deficit: int) -> tuple[int, int]:
+    deficit = max(0, int(deficit))
+    refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 1500))))
+    refill_chunk_en = max(
+        1,
+        int(getattr(args, "screening_refill_chunk_en", refill_batch_en or getattr(args, "refill_step_en", 1500))),
+    )
+    requested_en = min(deficit, refill_batch_en if refill_batch_en > 0 else deficit, refill_chunk_en)
+    requested_tr = max(0, int(getattr(args, "refill_step_tr", 0)))
+    return requested_en, requested_tr
+
+
+def _ensure_screening_queue_target(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    stage_key: str,
+    screening_stage_key: str,
+    extraction_stage_key: str,
+    stage_summary: dict[str, Any],
+    summary: dict[str, Any],
+    target_count: int,
+    deadline: float | None,
+    now_fn: Callable[[], float],
+) -> tuple[str, int]:
+    del summary
+    target_count = max(0, int(target_count))
+    stage_summary["prefill_target"] = target_count
+    if target_count <= 0:
+        stage_summary["prefill_satisfied"] = True
+        return "target_reached", 0
+    stall_limit = max(0, int(getattr(args, "screening_prefill_stall_limit", 3)))
+    stalled_refills = 0
+    stage_summary["prefill_stall_limit"] = stall_limit
+
+    while True:
+        if _deadline_reached(deadline, now_fn):
+            stage_summary["stop_reason"] = "max_wallclock_reached"
+            return "max_wallclock_reached", 0
+
+        _requeue_stale_stage_tasks(
+            client,
+            args,
+            stage_key=stage_key,
+            stage_summary=stage_summary,
+        )
+        queue_counts = _fetch_queue_counts(
+            client,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+        queue_count = int(queue_counts.get(stage_key) or 0)
+        stage_summary["queue_observations"].append(
+            {
+                "total": queue_counts["total"],
+                "queued_for_stage": queue_count,
+                "prefill": True,
+                "prefill_target": target_count,
+            }
+        )
+        _log(args, f"{stage_key} prefill observation: queued_for_stage={queue_count} target={target_count}")
+
+        if queue_count >= target_count:
+            stage_summary["prefill_satisfied"] = True
+            return "target_reached", queue_count
+
+        deficit = target_count - queue_count
+        requested_en, requested_tr = _refill_request_size(args, deficit)
+        if args.dry_run:
+            stage_summary["stop_reason"] = "dry_run"
+            stage_summary["planned_refill"] = {
+                "en": requested_en,
+                "tr": requested_tr,
+                "queued_before": queue_count,
+                "target": target_count,
+            }
+            return "dry_run", queue_count
+
+        if requested_en <= 0 and requested_tr <= 0:
+            stage_summary["source_exhausted"] = True
+            stage_summary["stop_reason"] = "source_exhausted"
+            _log(args, f"{stage_key} needs {deficit} more queued task(s), but no refill was requested")
+            return "source_exhausted", queue_count
+
+        _log(args, f"{stage_key} prefill needs {deficit} more queued task(s); crawling EN={requested_en} TR={requested_tr}")
+        _run_screening_refill(
+            client,
+            args,
+            stage_summary=stage_summary,
+            cycle_index=int(stage_summary["refill_cycles"]) + 1,
+            requested_en=requested_en,
+            requested_tr=requested_tr,
+        )
+        refreshed_counts = _fetch_queue_counts(
+            client,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+        refreshed_count = int(refreshed_counts.get(stage_key) or 0)
+        stage_summary["queue_observations"].append(
+            {
+                "total": refreshed_counts["total"],
+                "queued_for_stage": refreshed_count,
+                "after_refill": True,
+                "prefill": True,
+                "prefill_target": target_count,
+            }
+        )
+        if refreshed_count >= target_count:
+            stage_summary["prefill_satisfied"] = True
+            return "target_reached", refreshed_count
+        if refreshed_count <= queue_count:
+            stalled_refills += 1
+            stage_summary["prefill_stalled_refills"] = stalled_refills
+            _log(
+                args,
+                f"{stage_key} prefill did not increase queued work "
+                f"({refreshed_count}/{target_count}); stalled_refills={stalled_refills}/{stall_limit or 'unlimited'}",
+            )
+            if stall_limit > 0 and stalled_refills >= stall_limit:
+                stage_summary["source_exhausted"] = True
+                stage_summary["stop_reason"] = "source_exhausted"
+                return "source_exhausted", refreshed_count
+        else:
+            stalled_refills = 0
+
+
 def _drain_stage_quota_led(
     client: Any,
     args: argparse.Namespace,
@@ -368,28 +520,26 @@ def _drain_stage_quota_led(
     extraction_stage_key: str,
     refill_screening: bool,
     summary: dict[str, Any],
-    deadline: float,
+    deadline: float | None,
     now_fn: Callable[[], float],
     sleep_fn: Callable[[float], None],
+    daily_target: int | None = None,
 ) -> str:
-    stage_summary = _new_stage_summary(stage_key, rpm=rpm, role=role)
+    target_limit = None if daily_target is None else max(0, int(daily_target))
+    stage_summary = _new_stage_summary(stage_key, rpm=rpm, role=role, daily_target=target_limit)
     summary["stage_summaries"][stage_key] = stage_summary
     low_watermark = max(0, int(getattr(args, "screening_queue_low_watermark", 30)))
-    refill_chunk_en = max(
-        1,
-        int(
-            getattr(
-                args,
-                "screening_refill_chunk_en",
-                getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 75)),
-            )
-        ),
-    )
-    _log(args, f"starting stage {stage_key} role={role} rpm={rpm}")
+    _log(args, f"starting stage {stage_key} role={role} rpm={rpm} daily_target={target_limit}")
     force_refill_next = False
 
     while True:
-        if now_fn() >= deadline:
+        if target_limit is not None and int(stage_summary.get("model_calls") or 0) >= target_limit:
+            stage_summary["daily_target_reached"] = True
+            stage_summary["stop_reason"] = "daily_target_reached"
+            _log(args, f"{stage_key} daily target reached: {target_limit} model call(s)")
+            return "daily_target_reached"
+
+        if _deadline_reached(deadline, now_fn):
             stage_summary["stop_reason"] = "max_wallclock_reached"
             return "max_wallclock_reached"
 
@@ -413,18 +563,36 @@ def _drain_stage_quota_led(
         )
         _log(args, f"{stage_key} queue observation: queued_for_stage={queue_count} total_queued_ai={queue_counts['total']}")
 
-        if refill_screening and 0 < queue_count < low_watermark:
-            _log(args, f"{stage_key} below low watermark with {queue_count} queued task(s); refilling before draining")
+        remaining_target = None
+        if target_limit is not None:
+            remaining_target = max(0, target_limit - int(stage_summary.get("model_calls") or 0))
 
-        if refill_screening and force_refill_next and queue_count > 0:
-            _log(args, f"{stage_key} forcing refill before retrying requeued error-only work")
+        if refill_screening and remaining_target is not None and queue_count < remaining_target:
+            stage_summary["low_watermark_events"] = int(stage_summary["low_watermark_events"]) + 1
+            prefill_reason, refreshed_count = _ensure_screening_queue_target(
+                client,
+                args,
+                stage_key=stage_key,
+                screening_stage_key=screening_stage_key,
+                extraction_stage_key=extraction_stage_key,
+                stage_summary=stage_summary,
+                summary=summary,
+                target_count=remaining_target,
+                deadline=deadline,
+                now_fn=now_fn,
+            )
+            if prefill_reason in {"dry_run", "max_wallclock_reached", "source_exhausted"}:
+                return prefill_reason
+            queue_count = refreshed_count
 
-        if refill_screening and (queue_count < low_watermark or force_refill_next):
+        elif refill_screening and target_limit is None and (queue_count < low_watermark or force_refill_next):
+            if 0 < queue_count < low_watermark:
+                _log(args, f"{stage_key} below low watermark with {queue_count} queued task(s); refilling before draining")
+            if force_refill_next and queue_count > 0:
+                _log(args, f"{stage_key} forcing refill before retrying requeued error-only work")
             force_refill_next = False
             stage_summary["low_watermark_events"] = int(stage_summary["low_watermark_events"]) + 1
-            refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 75))))
-            requested_en = min(refill_batch_en, refill_chunk_en)
-            requested_tr = max(0, int(getattr(args, "refill_step_tr", 0)))
+            requested_en, requested_tr = _refill_request_size(args, max(1, low_watermark - queue_count))
             if args.dry_run:
                 stage_summary["stop_reason"] = "dry_run"
                 stage_summary["planned_refill"] = {
@@ -479,10 +647,14 @@ def _drain_stage_quota_led(
             stage_summary["would_process"] = min(int(rpm), queue_count)
             return "dry_run"
 
+        drain_limit = min(int(rpm), max(1, queue_count))
+        if remaining_target is not None:
+            drain_limit = min(drain_limit, max(1, remaining_target))
+
         drain_summary = _run_ai_drain(
             client,
             args,
-            max_tasks=min(int(rpm), max(1, queue_count)),
+            max_tasks=drain_limit,
             stage_key=stage_key,
         )
         _log(
@@ -505,6 +677,12 @@ def _drain_stage_quota_led(
         if drain_summary.get("permanent_model_error"):
             stage_summary["stop_reason"] = "ai_stage_configuration_error"
             return "ai_stage_configuration_error"
+
+        if target_limit is not None and int(stage_summary.get("model_calls") or 0) >= target_limit:
+            stage_summary["daily_target_reached"] = True
+            stage_summary["stop_reason"] = "daily_target_reached"
+            _log(args, f"{stage_key} daily target reached: {target_limit} model call(s)")
+            return "daily_target_reached"
 
         if drain_summary.get("quota_limited"):
             if model_calls <= 0:
@@ -609,8 +787,10 @@ def run_daily_ops(
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
     )
-    max_wallclock_minutes = max(1, int(getattr(args, "max_wallclock_minutes", 330)))
-    deadline = now_fn() + max_wallclock_minutes * 60
+    max_wallclock_minutes = max(0, int(getattr(args, "max_wallclock_minutes", 0)))
+    deadline = None if max_wallclock_minutes <= 0 else now_fn() + max_wallclock_minutes * 60
+    screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
+    screening_target_for_drain = screening_daily_target if screening_daily_target > 0 else None
     summary: dict[str, Any] = {
         "dry_run": bool(args.dry_run),
         "target_open": int(args.target_open),
@@ -623,9 +803,11 @@ def run_daily_ops(
         },
         "quota_cooldown_seconds": max(0, int(getattr(args, "quota_cooldown_seconds", 65))),
         "max_wallclock_minutes": max_wallclock_minutes,
+        "screening_daily_target": screening_daily_target,
         "screening_queue_low_watermark": max(0, int(getattr(args, "screening_queue_low_watermark", 30))),
-        "screening_refill_batch_en": max(0, int(getattr(args, "screening_refill_batch_en", 75))),
-        "screening_refill_chunk_en": max(1, int(getattr(args, "screening_refill_chunk_en", 5))),
+        "screening_refill_batch_en": max(0, int(getattr(args, "screening_refill_batch_en", 1500))),
+        "screening_refill_chunk_en": max(1, int(getattr(args, "screening_refill_chunk_en", 1500))),
+        "screening_prefill_stall_limit": max(0, int(getattr(args, "screening_prefill_stall_limit", 3))),
         "legacy_daily_ai_call_budget": int(getattr(args, "daily_ai_call_budget", 20)),
         "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
         "ai_tasks_used": 0,
@@ -649,9 +831,10 @@ def run_daily_ops(
         deadline=deadline,
         now_fn=now_fn,
         sleep_fn=sleep_fn,
+        daily_target=screening_target_for_drain,
     )
 
-    if screening_reason in {"ai_stage_configuration_error", "dry_run", "max_wallclock_reached"}:
+    if screening_reason in {"ai_stage_configuration_error", "dry_run", "max_wallclock_reached", "source_exhausted"}:
         summary["stopped_reason"] = screening_reason
         return _finish_summary(
             client,

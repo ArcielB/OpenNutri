@@ -28,10 +28,12 @@ def build_args(**overrides):
         "extraction_stage_key": EXTRACTION_STAGE,
         "stage_rpm": f"{SCREENING_STAGE}=15,{EXTRACTION_STAGE}=15",
         "quota_cooldown_seconds": 65,
-        "max_wallclock_minutes": 330,
+        "max_wallclock_minutes": 0,
+        "screening_daily_target": 1500,
         "screening_queue_low_watermark": 30,
-        "screening_refill_batch_en": 75,
-        "screening_refill_chunk_en": 5,
+        "screening_refill_batch_en": 1500,
+        "screening_refill_chunk_en": 1500,
+        "screening_prefill_stall_limit": 3,
         "refill_step_en": 4,
         "refill_step_tr": 0,
         "seed": 20260413,
@@ -70,32 +72,39 @@ class DailyOpsTests(unittest.TestCase):
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
-    def test_gemma_drains_before_gemini_until_daily_quota(
+    def test_prefills_gemma_daily_target_before_draining(
         self,
         fetch_state_mock: Mock,
         drain_mock: Mock,
         crawl_mock: Mock,
     ) -> None:
-        fetch_state_mock.return_value = {
-            "papers": queued_papers(SCREENING_STAGE, 60) + queued_papers(EXTRACTION_STAGE, 60)
-        }
+        fetch_calls = {"count": 0}
+
+        def fetch_state(_client: object) -> dict[str, list[dict]]:
+            fetch_calls["count"] += 1
+            queued = 60 if fetch_calls["count"] <= 2 else 1500
+            return {"papers": queued_papers(SCREENING_STAGE, queued)}
+
+        fetch_state_mock.side_effect = fetch_state
         drain_mock.side_effect = [
-            {"processed": 1, "requeued": 1, "quota_limited": True},
-            {"processed": 1, "requeued": 1, "quota_limited": True},
+            {"processed": 1500, "followup_queued": 0, "quota_limited": False}
         ]
 
         summary = daily_ops_orchestrator.run_daily_ops(
             object(),
-            build_args(),
+            build_args(stage_rpm=f"{SCREENING_STAGE}=1500,{EXTRACTION_STAGE}=15"),
             sleep_fn=Mock(),
             now_fn=Mock(return_value=0.0),
         )
 
-        self.assertEqual(summary["stopped_reason"], "all_stage_quotas_exhausted")
-        self.assertEqual(summary["quota_exhausted_stages"], [SCREENING_STAGE, EXTRACTION_STAGE])
+        self.assertEqual(summary["stopped_reason"], "no_extraction_candidates")
+        self.assertEqual(summary["screened"], 1500)
+        self.assertTrue(summary["stage_summaries"][SCREENING_STAGE]["daily_target_reached"])
+        crawl_mock.assert_called_once()
+        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 1440, "tr": 0})
         self.assertEqual(drain_mock.call_args_list[0].kwargs["stage_key"], SCREENING_STAGE)
-        self.assertEqual(drain_mock.call_args_list[1].kwargs["stage_key"], EXTRACTION_STAGE)
-        crawl_mock.assert_not_called()
+        self.assertEqual(drain_mock.call_count, 1)
+        self.assertEqual(drain_mock.call_args_list[0].kwargs["max_tasks"], 1500)
 
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
@@ -106,7 +115,7 @@ class DailyOpsTests(unittest.TestCase):
         drain_mock: Mock,
         crawl_mock: Mock,
     ) -> None:
-        fetch_state_mock.return_value = {"papers": queued_papers(SCREENING_STAGE, 60)}
+        fetch_state_mock.return_value = {"papers": queued_papers(SCREENING_STAGE, 1500)}
         drain_mock.side_effect = [
             {"processed": 8, "requeued": 1, "quota_limited": True},
             {"processed": 1, "requeued": 1, "quota_limited": True},
@@ -132,13 +141,14 @@ class DailyOpsTests(unittest.TestCase):
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
-    def test_screening_low_watermark_refills_english_batch(
+    def test_screening_prefill_refills_english_batch(
         self,
         fetch_state_mock: Mock,
         drain_mock: Mock,
         crawl_mock: Mock,
     ) -> None:
         fetch_state_mock.side_effect = [
+            {"papers": queued_papers(SCREENING_STAGE, 10)},
             {"papers": queued_papers(SCREENING_STAGE, 10)},
             {"papers": queued_papers(SCREENING_STAGE, 30)},
             {"papers": queued_papers(EXTRACTION_STAGE, 1)},
@@ -151,7 +161,11 @@ class DailyOpsTests(unittest.TestCase):
 
         summary = daily_ops_orchestrator.run_daily_ops(
             object(),
-            build_args(),
+            build_args(
+                screening_daily_target=30,
+                screening_refill_batch_en=75,
+                screening_refill_chunk_en=5,
+            ),
             sleep_fn=Mock(),
             now_fn=Mock(return_value=0.0),
         )
@@ -184,7 +198,11 @@ class DailyOpsTests(unittest.TestCase):
 
         summary = daily_ops_orchestrator.run_daily_ops(
             object(),
-            build_args(),
+            build_args(
+                screening_daily_target=0,
+                screening_refill_batch_en=75,
+                screening_refill_chunk_en=5,
+            ),
             sleep_fn=Mock(),
             now_fn=Mock(return_value=0.0),
         )
@@ -213,7 +231,6 @@ class DailyOpsTests(unittest.TestCase):
             {"processed": 15, "followup_queued": 9, "quota_limited": False},
             {"processed": 15, "followup_queued": 8, "quota_limited": False},
             {"processed": 2, "followup_queued": 1, "requeued": 1, "quota_limited": True},
-            {"processed": 1, "requeued": 1, "quota_limited": True},
             {"processed": 15, "human_ready": 6, "quota_limited": False},
             {"processed": 6, "human_ready": 2, "requeued": 1, "quota_limited": True},
             {"processed": 1, "requeued": 1, "quota_limited": True},
@@ -222,18 +239,18 @@ class DailyOpsTests(unittest.TestCase):
 
         summary = daily_ops_orchestrator.run_daily_ops(
             object(),
-            build_args(),
+            build_args(screening_daily_target=31),
             sleep_fn=sleep_mock,
             now_fn=Mock(return_value=0.0),
         )
 
-        self.assertEqual(summary["stopped_reason"], "all_stage_quotas_exhausted")
+        self.assertEqual(summary["stopped_reason"], "extraction_daily_quota_exhausted")
         self.assertEqual(summary["screened"], 31)
         self.assertEqual(summary["routed_to_gemini"], 18)
         self.assertEqual(summary["gemini_used"], 20)
         self.assertEqual(summary["human_ready"], 8)
-        self.assertEqual(summary["quota_exhausted_stages"], [SCREENING_STAGE, EXTRACTION_STAGE])
-        self.assertEqual(sleep_mock.call_count, 5)
+        self.assertEqual(summary["quota_exhausted_stages"], [EXTRACTION_STAGE])
+        self.assertEqual(sleep_mock.call_count, 4)
         self.assertEqual(assign_mock.call_count, 1)
         crawl_mock.assert_not_called()
 
@@ -256,7 +273,7 @@ class DailyOpsTests(unittest.TestCase):
         )
 
         self.assertEqual(summary["stopped_reason"], "dry_run")
-        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["planned_refill"]["en"], 5)
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["planned_refill"]["en"], 1500)
         drain_mock.assert_not_called()
         crawl_mock.assert_not_called()
 
