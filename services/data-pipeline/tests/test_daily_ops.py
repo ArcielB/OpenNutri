@@ -165,6 +165,41 @@ class DailyOpsTests(unittest.TestCase):
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    def test_requeued_error_only_screening_task_does_not_monopolize_refill(
+        self,
+        fetch_state_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+    ) -> None:
+        fetch_state_mock.side_effect = [
+            {"papers": queued_papers(SCREENING_STAGE, 1)},
+            {"papers": queued_papers(SCREENING_STAGE, 1)},
+            {"papers": queued_papers(SCREENING_STAGE, 31)},
+            {"papers": queued_papers(SCREENING_STAGE, 31)},
+            {"papers": queued_papers(EXTRACTION_STAGE, 1)},
+            {"papers": queued_papers(EXTRACTION_STAGE, 1)},
+        ]
+        drain_mock.side_effect = [
+            {"processed": 1, "requeued": 1, "quota_limited": False},
+            {"processed": 1, "requeued": 1, "quota_limited": True},
+            {"processed": 1, "requeued": 1, "quota_limited": True},
+        ]
+
+        summary = daily_ops_orchestrator.run_daily_ops(
+            object(),
+            build_args(),
+            sleep_fn=Mock(),
+            now_fn=Mock(return_value=0.0),
+        )
+
+        crawl_mock.assert_called_once()
+        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 30, "tr": 0})
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["model_calls"], 0)
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["refill_requested_en"], 30)
+
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.assign_ready_papers")
     def test_quota_drain_simulation_reports_stage_totals(
         self,

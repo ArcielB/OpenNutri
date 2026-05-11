@@ -278,7 +278,9 @@ def _model_calls_before_quota(drain_summary: dict[str, object]) -> int:
         return 0
     if drain_summary.get("quota_limited"):
         return max(0, processed - 1)
-    return processed
+    requeued = int(drain_summary.get("requeued") or 0)
+    failed = int(drain_summary.get("failed") or 0)
+    return max(0, processed - requeued - failed)
 
 
 def _sleep_for_cooldown(
@@ -384,6 +386,7 @@ def _drain_stage_quota_led(
         ),
     )
     _log(args, f"starting stage {stage_key} role={role} rpm={rpm}")
+    force_refill_next = False
 
     while True:
         if now_fn() >= deadline:
@@ -413,7 +416,11 @@ def _drain_stage_quota_led(
         if refill_screening and 0 < queue_count < low_watermark:
             _log(args, f"{stage_key} below low watermark with {queue_count} queued task(s); draining available work before refilling")
 
-        if refill_screening and queue_count <= 0:
+        if refill_screening and force_refill_next and queue_count > 0:
+            _log(args, f"{stage_key} forcing refill before retrying requeued error-only work")
+
+        if refill_screening and (queue_count <= 0 or force_refill_next):
+            force_refill_next = False
             stage_summary["low_watermark_events"] = int(stage_summary["low_watermark_events"]) + 1
             refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 75))))
             requested_en = min(refill_batch_en, refill_chunk_en)
@@ -519,6 +526,15 @@ def _drain_stage_quota_led(
             ):
                 stage_summary["stop_reason"] = "max_wallclock_reached"
                 return "max_wallclock_reached"
+            continue
+
+        if (
+            refill_screening
+            and model_calls <= 0
+            and int(drain_summary.get("requeued") or 0) > 0
+        ):
+            force_refill_next = True
+            _log(args, f"{stage_key} had only requeued error work; refilling before another retry")
             continue
 
         if int(drain_summary.get("processed") or 0) <= 0:
