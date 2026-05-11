@@ -444,6 +444,12 @@ Full Text:
                 parsed_json["data"] = []
             return parsed_json
         if isinstance(parsed_json, list):
+            if (
+                len(parsed_json) == 1
+                and isinstance(parsed_json[0], dict)
+                and self._looks_like_result_root(parsed_json[0])
+            ):
+                return self._coerce_result_root(dict(parsed_json[0]))
             return {
                 "reasoning": "Model returned a top-level data array; treating it as candidate food composition rows.",
                 "decision_kind": "has_data" if parsed_json else "no_usable_data",

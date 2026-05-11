@@ -538,13 +538,13 @@ def _standardize_unit(raw_unit: object, raw_basis: object) -> str | None:
         return None
 
     if unit_text in {"%", "percent", "percentage"}:
-        if basis_text and not _is_supported_100g_basis(basis_text):
+        if basis_text and not _is_supported_basis_modifier_or_100g(basis_text):
             return None
         return "%"
 
     compound = _unit_from_compound_100g(unit_text)
     if compound:
-        if basis_text and not _is_supported_100g_basis(basis_text):
+        if basis_text and not _is_supported_basis_modifier_or_100g(basis_text):
             return None
         return compound
 
@@ -594,7 +594,7 @@ def _canonical_base_unit(unit_text: str) -> str | None:
 
 def _is_supported_100g_basis(basis_text: str) -> bool:
     compact = _compact_unit_text(basis_text)
-    return compact in {
+    if compact in {
         "100g",
         "per100g",
         "/100g",
@@ -603,6 +603,41 @@ def _is_supported_100g_basis(basis_text: str) -> bool:
         "100grams",
         "per100gram",
         "per100grams",
+    }:
+        return True
+    if not any(marker in compact for marker in ("100g", "100gram", "100grams")):
+        return False
+    if any(marker in compact for marker in ("dry", "dm", "drymatter")):
+        return False
+    return any(
+        marker in compact
+        for marker in (
+            "fresh",
+            "freshweight",
+            "wet",
+            "wetweight",
+            "asis",
+            "asreceived",
+            "edibleportion",
+        )
+    )
+
+
+def _is_supported_basis_modifier_or_100g(basis_text: str) -> bool:
+    if _is_supported_100g_basis(basis_text):
+        return True
+    compact = _compact_unit_text(basis_text)
+    if any(marker in compact for marker in ("dry", "dm", "drymatter")):
+        return False
+    return compact in {
+        "fresh",
+        "freshweight",
+        "wet",
+        "wetweight",
+        "wetbasis",
+        "asis",
+        "asreceived",
+        "edibleportion",
     }
 
 

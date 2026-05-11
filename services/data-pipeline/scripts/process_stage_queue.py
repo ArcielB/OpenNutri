@@ -412,6 +412,29 @@ def mark_task_requeued_after_error(client: Client, *, task_id: str, error_text: 
     ).eq("id", task_id).execute()
 
 
+def mark_task_requeued_after_quota_error(
+    client: Client,
+    *,
+    task_id: str,
+    task: dict,
+    error_text: str,
+) -> None:
+    try:
+        previous_attempt_count = max(0, int(task.get("attempt_count") or 1) - 1)
+    except (TypeError, ValueError):
+        previous_attempt_count = 0
+    client.table("paper_stage_tasks").update(
+        {
+            "status": "queued",
+            "attempt_count": previous_attempt_count,
+            "last_error": error_text[:4000],
+            "started_at": None,
+            "completed_at": None,
+            "updated_at": _utcnow_iso(),
+        }
+    ).eq("id", task_id).execute()
+
+
 def mark_task_failed_after_error(client: Client, *, task_id: str, error_text: str) -> None:
     client.table("paper_stage_tasks").update(
         {
@@ -459,12 +482,19 @@ def enqueue_followup_stage_task(
 
 
 def score_followup_priority(*, ai_result, normalization_summary: dict, normalized_payload_json: dict) -> int:
-    confidence = float(getattr(ai_result, "overall_confidence", 0.0) or 0.0)
+    confidence_values = []
+    for field in ("overall_confidence", "paper_decision_confidence", "extraction_confidence"):
+        try:
+            confidence_values.append(float(getattr(ai_result, field, 0.0) or 0.0))
+        except (TypeError, ValueError):
+            continue
+    confidence = max(confidence_values) if confidence_values else 0.0
     accepted_rows = int(normalization_summary.get("accepted_row_count") or 0)
     rejected_rows = int(normalization_summary.get("rejected_row_count") or 0)
     unmapped_foods = int(normalization_summary.get("unmapped_food_count") or 0)
     unmapped_nutrients = int(normalization_summary.get("unmapped_nutrient_count") or 0)
     evidence_rows = 0
+    per_100g_rows = 0
     for food_item in normalized_payload_json.get("food_items") or []:
         if not isinstance(food_item, dict):
             continue
@@ -474,14 +504,74 @@ def score_followup_priority(*, ai_result, normalization_summary: dict, normalize
             metadata = nutrient.get("metadata") if isinstance(nutrient.get("metadata"), dict) else {}
             if nutrient.get("source_citation") or metadata.get("table_label") or metadata.get("source_quote"):
                 evidence_rows += 1
+            unit = str(nutrient.get("unit") or "").strip().lower()
+            basis = str(nutrient.get("basis") or "").strip().lower()
+            if unit.endswith("/100g") or unit == "%" or basis == "per_100g":
+                per_100g_rows += 1
+    signal_text = " ".join(
+        str(value or "")
+        for value in (
+            getattr(ai_result, "reasoning", ""),
+            getattr(ai_result, "paper_type", ""),
+            getattr(ai_result, "database_value", ""),
+        )
+    ).casefold()
+    direct_fit_bonus = 0
+    if any(marker in signal_text for marker in ("food composition", "proximate composition", "nutritional composition", "ordinary_food_composition")):
+        direct_fit_bonus += 40
+    if any(marker in signal_text for marker in ("food product", "real-world food", "commercial product", "database_value\": \"high", "database value high")):
+        direct_fit_bonus += 20
+    penalty = 0
+    penalty_markers = (
+        ("review", 35),
+        ("meta-analysis", 35),
+        ("database aggregate", 35),
+        ("food composition database", 20),
+        ("feed", 30),
+        ("digestibility", 30),
+        ("sensory", 25),
+        ("outcome", 25),
+        ("biomarker", 25),
+        ("one-off formulation", 35),
+        ("experimental formulation", 30),
+        ("treatment", 20),
+        ("supplement", 20),
+    )
+    for marker, weight in penalty_markers:
+        if marker in signal_text:
+            penalty += weight
     score = (
-        100 * confidence
-        + min(80, accepted_rows * 4)
-        + min(40, evidence_rows * 3)
+        120 * confidence
+        + min(120, accepted_rows * 6)
+        + min(60, evidence_rows * 4)
+        + min(50, per_100g_rows * 3)
+        + direct_fit_bonus
         - min(60, rejected_rows * 5)
         - min(30, (unmapped_foods + unmapped_nutrients) * 2)
+        - min(120, penalty)
     )
     return max(-1000, min(1000, int(round(score))))
+
+
+def _raw_has_data_decision(ai_result) -> bool:
+    raw_decision_kind = getattr(ai_result, "decision_kind", "")
+    decision_kind = raw_decision_kind.strip().lower() if isinstance(raw_decision_kind, str) else ""
+    if decision_kind:
+        return decision_kind == "has_data"
+    return bool(getattr(ai_result, "is_useful", False))
+
+
+def _strong_raw_has_data_decision(ai_result) -> bool:
+    if not _raw_has_data_decision(ai_result):
+        return False
+    confidence_values = []
+    for field in ("overall_confidence", "paper_decision_confidence"):
+        try:
+            confidence_values.append(float(getattr(ai_result, field, 0.0) or 0.0))
+        except (TypeError, ValueError):
+            continue
+    confidence = max(confidence_values) if confidence_values else 0.0
+    return confidence >= 0.85
 
 
 def finalize_ai_outcome(
@@ -669,8 +759,16 @@ def process_one_task(
         )
         normalized_payload_json = normalization.payload
         normalized_is_useful = normalization.has_data
+        followup_stage_key = str(stage_config.next_stage_on_has_data or "").strip()
+        strong_raw_followup = (
+            bool(followup_stage_key)
+            and not preserve_human_route
+            and not normalized_is_useful
+            and _strong_raw_has_data_decision(ai_result)
+        )
+        routing_is_useful = normalized_is_useful or strong_raw_followup
         routing_bucket = classify_routing_bucket(
-            is_useful=normalized_is_useful,
+            is_useful=routing_is_useful,
             overall_confidence=ai_result.overall_confidence,
             positive_threshold=stage_config.positive_threshold,
             negative_threshold=stage_config.negative_threshold,
@@ -686,7 +784,6 @@ def process_one_task(
             audit_sampled=audit_sampled,
             has_human_truth=preserve_human_route,
         )
-        followup_stage_key = str(stage_config.next_stage_on_has_data or "").strip()
         followup_priority = score_followup_priority(
             ai_result=ai_result,
             normalization_summary=normalization.summary(),
@@ -694,7 +791,7 @@ def process_one_task(
         )
         actual_route_destination = route_destination
         actual_finalized_without_human = finalized_without_human
-        if normalized_is_useful and followup_stage_key and not preserve_human_route:
+        if (normalized_is_useful or strong_raw_followup) and followup_stage_key and not preserve_human_route:
             actual_route_destination = NEXT_STAGE_DESTINATION
             actual_finalized_without_human = False
         elif (
@@ -717,7 +814,7 @@ def process_one_task(
             audit_sampled=audit_sampled,
             finalized_without_human=actual_finalized_without_human,
         )
-        if normalized_is_useful and followup_stage_key and not preserve_human_route:
+        if (normalized_is_useful or strong_raw_followup) and followup_stage_key and not preserve_human_route:
             enqueue_followup_stage_task(
                 client,
                 paper_id=paper_id,
@@ -742,6 +839,7 @@ def process_one_task(
                 "finalized_without_human": False,
                 "followup_stage_key": followup_stage_key,
                 "followup_priority": followup_priority,
+                "strong_raw_followup": strong_raw_followup,
             }
         if (
             not normalized_is_useful
@@ -821,13 +919,22 @@ def process_one_task(
             route_destination=BLOCKED_DESTINATION,
             latest_ai_extraction_id=paper.get("latest_ai_extraction_id"),
         )
-        mark_task_requeued_after_error(client, task_id=task_id, error_text=error_text)
+        quota_limited = is_quota_error(error_text)
+        if quota_limited:
+            mark_task_requeued_after_quota_error(
+                client,
+                task_id=task_id,
+                task=task,
+                error_text=error_text,
+            )
+        else:
+            mark_task_requeued_after_error(client, task_id=task_id, error_text=error_text)
         return {
             "paper_id": paper_id,
             "status": ROUTING_STATUS_QUEUED,
             "route_destination": BLOCKED_DESTINATION,
             "error": error_text,
-            "quota_limited": is_quota_error(error_text),
+            "quota_limited": quota_limited,
         }
 
 

@@ -4,9 +4,10 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -20,25 +21,28 @@ from scripts.process_stage_queue import drain_stage_queue, require_client
 
 TERMINAL_STOP_REASONS = {
     "ai_stage_configuration_error",
-    "daily_ai_call_budget_exhausted",
-    "ai_first_task_quota_limited",
+    "all_stage_quotas_exhausted",
     "dry_run",
+    "extraction_daily_quota_exhausted",
+    "max_wallclock_reached",
+    "no_extraction_candidates",
+    "source_exhausted",
 }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the daily recursive OpenNutri queue operation loop."
+        description="Run the daily quota-draining OpenNutri queue controller."
     )
-    parser.add_argument("--target-open", type=int, default=50, help="Retained for stock reporting compatibility; daily ops no longer stops on this target")
-    parser.add_argument("--max-cycles", type=int, default=8, help="Maximum AI/crawl cycles to run in this invocation")
-    parser.add_argument("--max-ai-tasks", type=int, default=5, help="Maximum AI tasks to process in this controller invocation")
-    parser.add_argument("--max-screening-tasks", type=int, default=50, help="Maximum cheap screening-stage tasks to process in this controller invocation")
-    parser.add_argument("--daily-ai-call-budget", type=int, default=20, help="Daily Gemini call budget to consume before terminal stop")
-    parser.add_argument("--ai-tasks-already-used", type=int, default=0, help="Gemini calls already consumed by earlier controller invocations today")
-    parser.add_argument("--refill-step-en", type=int, default=4, help="New English papers to request when needed")
-    parser.add_argument("--refill-step-tr", type=int, default=0, help="New Turkish papers to request when needed")
-    parser.add_argument("--seed", type=int, default=20260413, help="Random seed for assignment balancing")
+    parser.add_argument("--target-open", type=int, default=50, help="Retained for stock reporting compatibility; daily ops does not stop on visible stock")
+    parser.add_argument("--max-cycles", type=int, default=8, help="Legacy compatibility option; wall-clock and quota now bound the controller")
+    parser.add_argument("--max-ai-tasks", type=int, default=5, help="Legacy compatibility option; use --stage-rpm for scheduled quota pacing")
+    parser.add_argument("--max-screening-tasks", type=int, default=50, help="Legacy compatibility option; use --stage-rpm for scheduled quota pacing")
+    parser.add_argument("--daily-ai-call-budget", type=int, default=20, help="Legacy compatibility option; real model quota now stops the extraction stage")
+    parser.add_argument("--ai-tasks-already-used", type=int, default=0, help="Legacy compatibility option retained for old callers")
+    parser.add_argument("--refill-step-en", type=int, default=4, help="Legacy crawl batch size; scheduled daily ops uses --screening-refill-batch-en")
+    parser.add_argument("--refill-step-tr", type=int, default=0, help="New Turkish papers to request when Turkish ops are explicitly re-enabled")
+    parser.add_argument("--seed", type=int, default=20260413, help="Random seed for stock reporting compatibility")
     parser.add_argument("--data-dir", default="services/data-pipeline/data", help="Crawler data directory")
     parser.add_argument("--query-limit", type=int, default=50, help="Max search hits to inspect per query batch")
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count per crawler run")
@@ -68,7 +72,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Report planned work without writes or network jobs")
     parser.add_argument("--json-summary", action="store_true", help="Print a final JSON summary")
     parser.add_argument("--screening-stage-key", default="gemma_proof_extraction_v1", help="Cheap first-pass model stage key")
-    parser.add_argument("--extraction-stage-key", default="gemini_flash_db_payload_v2", help="Gemini extraction stage key counted against daily budget")
+    parser.add_argument("--extraction-stage-key", default="gemini_flash_db_payload_v2", help="Downstream Gemini extraction stage key")
+    parser.add_argument(
+        "--stage-rpm",
+        default="gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15",
+        help="Comma-separated per-stage request pacing, for example stage_a=15,stage_b=15",
+    )
+    parser.add_argument(
+        "--quota-cooldown-seconds",
+        type=int,
+        default=65,
+        help="Seconds to sleep after an RPM window or per-minute quota event before retrying the same stage",
+    )
+    parser.add_argument(
+        "--max-wallclock-minutes",
+        type=int,
+        default=330,
+        help="Maximum controller runtime, leaving margin inside the 6-hour GitHub Actions job",
+    )
+    parser.add_argument(
+        "--screening-queue-low-watermark",
+        type=int,
+        default=30,
+        help="Refill Gemma screening work whenever queued screening tasks drop below this count",
+    )
+    parser.add_argument(
+        "--screening-refill-batch-en",
+        type=int,
+        default=75,
+        help="English accepted-paper crawl/upload batch size used to keep Gemma screening fed",
+    )
     return parser
 
 
@@ -103,6 +136,46 @@ def _queued_ai_paper_count_for_stage(papers: list[dict], stage_key: str) -> int:
     )
 
 
+def _fetch_queue_counts(client: Any, *, screening_stage_key: str, extraction_stage_key: str) -> dict[str, int]:
+    state = refill_assignment_queue.fetch_state(client)
+    papers = state.get("papers", [])
+    queued_total = _queued_ai_paper_count(papers)
+    queued_screening = _queued_ai_paper_count_for_stage(papers, screening_stage_key)
+    queued_extraction = _queued_ai_paper_count_for_stage(papers, extraction_stage_key)
+    if queued_total > 0 and queued_screening <= 0 and queued_extraction <= 0:
+        queued_extraction = queued_total
+    return {
+        "total": queued_total,
+        screening_stage_key: queued_screening,
+        extraction_stage_key: queued_extraction,
+    }
+
+
+def _parse_stage_rpm(raw_value: object, *, screening_stage_key: str, extraction_stage_key: str) -> dict[str, int]:
+    stage_rpm = {
+        screening_stage_key: 15,
+        extraction_stage_key: 15,
+    }
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return stage_rpm
+    for chunk in raw.split(","):
+        if not chunk.strip():
+            continue
+        if "=" not in chunk:
+            raise ValueError(f"Invalid --stage-rpm entry {chunk!r}; expected stage_key=integer")
+        key, value = chunk.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError(f"Invalid --stage-rpm entry {chunk!r}; stage key is empty")
+        try:
+            rpm = int(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid --stage-rpm value for {key!r}: {value!r}") from exc
+        stage_rpm[key] = max(1, rpm)
+    return stage_rpm
+
+
 def _run_ai_drain(
     client: Any,
     args: argparse.Namespace,
@@ -135,269 +208,402 @@ def _assign_new_human_ready_after_ai(
     )
 
 
-def _quota_stop_reason(ai_summary: dict[str, object]) -> str:
-    processed = int(ai_summary.get("processed") or 0)
-    successful_routes = int(ai_summary.get("human_ready") or 0) + int(ai_summary.get("finalized") or 0)
-    if processed <= 1 and successful_routes <= 0:
-        return "ai_first_task_quota_limited"
-    return "ai_quota_limited_after_progress"
+def _new_stage_summary(stage_key: str, *, rpm: int, role: str) -> dict[str, Any]:
+    return {
+        "stage_key": stage_key,
+        "role": role,
+        "rpm": int(rpm),
+        "processed": 0,
+        "model_calls": 0,
+        "finalized": 0,
+        "human_ready": 0,
+        "followup_queued": 0,
+        "provisional_skipped": 0,
+        "requeued": 0,
+        "failed": 0,
+        "claimed": 0,
+        "stale_requeued": 0,
+        "quota_limited": False,
+        "quota_exhausted": False,
+        "minute_quota_events": 0,
+        "permanent_model_error": False,
+        "queue_observations": [],
+        "windows": [],
+        "refill_cycles": 0,
+        "refill_requested_en": 0,
+        "refill_requested_tr": 0,
+        "low_watermark_events": 0,
+        "source_exhausted": False,
+        "queue_empty": False,
+        "stop_reason": None,
+    }
 
 
-def run_daily_ops(client: Any, args: argparse.Namespace) -> dict[str, Any]:
-    daily_ai_call_budget = max(1, int(getattr(args, "daily_ai_call_budget", 20)))
-    ai_tasks_already_used = max(0, int(getattr(args, "ai_tasks_already_used", 0)))
-    invocation_ai_task_limit = max(1, int(args.max_ai_tasks))
+def _merge_drain_summary(stage_summary: dict[str, Any], drain_summary: dict[str, object]) -> None:
+    for key in (
+        "processed",
+        "finalized",
+        "human_ready",
+        "followup_queued",
+        "provisional_skipped",
+        "requeued",
+        "failed",
+        "claimed",
+        "stale_requeued",
+    ):
+        stage_summary[key] = int(stage_summary.get(key) or 0) + int(drain_summary.get(key) or 0)
+    if drain_summary.get("quota_limited"):
+        stage_summary["quota_limited"] = True
+    if drain_summary.get("permanent_model_error"):
+        stage_summary["permanent_model_error"] = True
+
+
+def _model_calls_before_quota(drain_summary: dict[str, object]) -> int:
+    processed = int(drain_summary.get("processed") or 0)
+    if processed <= 0:
+        return 0
+    if drain_summary.get("quota_limited"):
+        return max(0, processed - 1)
+    return processed
+
+
+def _sleep_for_cooldown(
+    *,
+    args: argparse.Namespace,
+    summary: dict[str, Any],
+    stage_key: str,
+    reason: str,
+    deadline: float,
+    now_fn: Callable[[], float],
+    sleep_fn: Callable[[float], None],
+) -> bool:
+    cooldown = max(0, int(getattr(args, "quota_cooldown_seconds", 65)))
+    if cooldown <= 0:
+        return True
+    remaining = deadline - now_fn()
+    if remaining <= 0:
+        return False
+    sleep_seconds = min(float(cooldown), max(0.0, remaining))
+    summary.setdefault("cooldowns", []).append(
+        {
+            "stage_key": stage_key,
+            "reason": reason,
+            "seconds": sleep_seconds,
+        }
+    )
+    if not args.dry_run and sleep_seconds > 0:
+        sleep_fn(sleep_seconds)
+    return now_fn() < deadline
+
+
+def _run_screening_refill(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    stage_summary: dict[str, Any],
+    cycle_index: int,
+) -> None:
+    del client
+    requested = {
+        "en": max(0, int(getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 75)))),
+        "tr": max(0, int(getattr(args, "refill_step_tr", 0))),
+    }
+    stage_summary["refill_cycles"] = int(stage_summary["refill_cycles"]) + 1
+    stage_summary["refill_requested_en"] = int(stage_summary["refill_requested_en"]) + requested["en"]
+    stage_summary["refill_requested_tr"] = int(stage_summary["refill_requested_tr"]) + requested["tr"]
+    ensure_paper_stock.run_refill_cycle(
+        deficits=requested,
+        env=os.environ.copy(),
+        args=_crawler_args(args),
+        cycle_label=f"Daily ops Gemma refill {cycle_index}",
+        process_ai_after_upload=False,
+    )
+
+
+def _drain_stage_quota_led(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    stage_key: str,
+    role: str,
+    rpm: int,
+    screening_stage_key: str,
+    extraction_stage_key: str,
+    refill_screening: bool,
+    summary: dict[str, Any],
+    deadline: float,
+    now_fn: Callable[[], float],
+    sleep_fn: Callable[[float], None],
+) -> str:
+    stage_summary = _new_stage_summary(stage_key, rpm=rpm, role=role)
+    summary["stage_summaries"][stage_key] = stage_summary
+    low_watermark = max(0, int(getattr(args, "screening_queue_low_watermark", 30)))
+
+    while True:
+        if now_fn() >= deadline:
+            stage_summary["stop_reason"] = "max_wallclock_reached"
+            return "max_wallclock_reached"
+
+        queue_counts = _fetch_queue_counts(
+            client,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+        queue_count = int(queue_counts.get(stage_key) or 0)
+        stage_summary["queue_observations"].append(
+            {
+                "total": queue_counts["total"],
+                "queued_for_stage": queue_count,
+            }
+        )
+
+        if refill_screening and queue_count < low_watermark:
+            stage_summary["low_watermark_events"] = int(stage_summary["low_watermark_events"]) + 1
+            if args.dry_run:
+                stage_summary["stop_reason"] = "dry_run"
+                stage_summary["planned_refill"] = {
+                    "en": max(0, int(getattr(args, "screening_refill_batch_en", 75))),
+                    "tr": max(0, int(getattr(args, "refill_step_tr", 0))),
+                    "queued_before": queue_count,
+                }
+                return "dry_run"
+
+            _run_screening_refill(
+                client,
+                args,
+                stage_summary=stage_summary,
+                cycle_index=int(stage_summary["refill_cycles"]) + 1,
+            )
+            queue_counts = _fetch_queue_counts(
+                client,
+                screening_stage_key=screening_stage_key,
+                extraction_stage_key=extraction_stage_key,
+            )
+            refreshed_count = int(queue_counts.get(stage_key) or 0)
+            stage_summary["queue_observations"].append(
+                {
+                    "total": queue_counts["total"],
+                    "queued_for_stage": refreshed_count,
+                    "after_refill": True,
+                }
+            )
+            if refreshed_count <= 0 and queue_count <= 0:
+                stage_summary["source_exhausted"] = True
+                stage_summary["stop_reason"] = "source_exhausted"
+                return "source_exhausted"
+            queue_count = refreshed_count
+
+        if queue_count <= 0:
+            stage_summary["queue_empty"] = True
+            stage_summary["stop_reason"] = "queue_empty"
+            return "queue_empty"
+
+        if args.dry_run:
+            stage_summary["stop_reason"] = "dry_run"
+            stage_summary["would_process"] = min(int(rpm), queue_count)
+            return "dry_run"
+
+        drain_summary = _run_ai_drain(
+            client,
+            args,
+            max_tasks=min(int(rpm), max(1, queue_count)),
+            stage_key=stage_key,
+        )
+        stage_summary["windows"].append(drain_summary)
+        _merge_drain_summary(stage_summary, drain_summary)
+        model_calls = _model_calls_before_quota(drain_summary)
+        stage_summary["model_calls"] = int(stage_summary["model_calls"]) + model_calls
+        if role == "extraction":
+            summary["ai_tasks_used"] = int(summary.get("ai_tasks_used") or 0) + model_calls
+            summary["daily_ai_tasks_used"] = int(summary.get("ai_tasks_already_used") or 0) + int(summary["ai_tasks_used"])
+
+        if drain_summary.get("permanent_model_error"):
+            stage_summary["stop_reason"] = "ai_stage_configuration_error"
+            return "ai_stage_configuration_error"
+
+        if drain_summary.get("quota_limited"):
+            if model_calls <= 0:
+                stage_summary["quota_exhausted"] = True
+                stage_summary["stop_reason"] = "daily_quota_exhausted"
+                summary.setdefault("quota_exhausted_stages", []).append(stage_key)
+                return "daily_quota_exhausted"
+            stage_summary["minute_quota_events"] = int(stage_summary["minute_quota_events"]) + 1
+            if not _sleep_for_cooldown(
+                args=args,
+                summary=summary,
+                stage_key=stage_key,
+                reason="minute_quota_after_progress",
+                deadline=deadline,
+                now_fn=now_fn,
+                sleep_fn=sleep_fn,
+            ):
+                stage_summary["stop_reason"] = "max_wallclock_reached"
+                return "max_wallclock_reached"
+            continue
+
+        if int(drain_summary.get("processed") or 0) <= 0:
+            stage_summary["stop_reason"] = "no_progress"
+            return "no_progress"
+
+        if model_calls >= int(rpm):
+            if not _sleep_for_cooldown(
+                args=args,
+                summary=summary,
+                stage_key=stage_key,
+                reason="rpm_window_complete",
+                deadline=deadline,
+                now_fn=now_fn,
+                sleep_fn=sleep_fn,
+            ):
+                stage_summary["stop_reason"] = "max_wallclock_reached"
+                return "max_wallclock_reached"
+
+
+def _final_queue_snapshot(
+    client: Any,
+    *,
+    screening_stage_key: str,
+    extraction_stage_key: str,
+) -> dict[str, int]:
+    return _fetch_queue_counts(
+        client,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+
+
+def _finish_summary(
+    client: Any,
+    summary: dict[str, Any],
+    *,
+    screening_stage_key: str,
+    extraction_stage_key: str,
+) -> dict[str, Any]:
+    screening_summary = summary["stage_summaries"].get(screening_stage_key, {})
+    extraction_summary = summary["stage_summaries"].get(extraction_stage_key, {})
+    summary["screened"] = int(screening_summary.get("model_calls") or 0)
+    summary["routed_to_gemini"] = int(screening_summary.get("followup_queued") or 0)
+    summary["gemini_used"] = int(extraction_summary.get("model_calls") or 0)
+    summary["human_ready"] = int(extraction_summary.get("human_ready") or 0)
+    try:
+        summary["remaining_queued"] = _final_queue_snapshot(
+            client,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+    except Exception as exc:
+        summary["remaining_queued_error"] = str(exc)
+    summary["terminal"] = True
+    return summary
+
+
+def run_daily_ops(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    now_fn: Callable[[], float] = time.monotonic,
+) -> dict[str, Any]:
     screening_stage_key = str(getattr(args, "screening_stage_key", "gemma_proof_extraction_v1") or "gemma_proof_extraction_v1")
     extraction_stage_key = str(getattr(args, "extraction_stage_key", "gemini_flash_db_payload_v2") or "gemini_flash_db_payload_v2")
-    max_screening_tasks = max(1, int(getattr(args, "max_screening_tasks", 50)))
-    ai_tasks_used = 0
+    stage_rpm = _parse_stage_rpm(
+        getattr(args, "stage_rpm", ""),
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+    max_wallclock_minutes = max(1, int(getattr(args, "max_wallclock_minutes", 330)))
+    deadline = now_fn() + max_wallclock_minutes * 60
     summary: dict[str, Any] = {
         "dry_run": bool(args.dry_run),
         "target_open": int(args.target_open),
-        "max_ai_tasks": invocation_ai_task_limit,
-        "max_screening_tasks": max_screening_tasks,
         "screening_stage_key": screening_stage_key,
         "extraction_stage_key": extraction_stage_key,
-        "daily_ai_call_budget": daily_ai_call_budget,
-        "ai_tasks_already_used": ai_tasks_already_used,
-        "ai_tasks_used": ai_tasks_used,
-        "daily_ai_tasks_used": ai_tasks_already_used,
-        "cycles": [],
+        "stage_order": [screening_stage_key, extraction_stage_key],
+        "stage_rpm": {
+            screening_stage_key: int(stage_rpm.get(screening_stage_key, 15)),
+            extraction_stage_key: int(stage_rpm.get(extraction_stage_key, 15)),
+        },
+        "quota_cooldown_seconds": max(0, int(getattr(args, "quota_cooldown_seconds", 65))),
+        "max_wallclock_minutes": max_wallclock_minutes,
+        "screening_queue_low_watermark": max(0, int(getattr(args, "screening_queue_low_watermark", 30))),
+        "screening_refill_batch_en": max(0, int(getattr(args, "screening_refill_batch_en", 75))),
+        "legacy_daily_ai_call_budget": int(getattr(args, "daily_ai_call_budget", 20)),
+        "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
+        "ai_tasks_used": 0,
+        "daily_ai_tasks_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
+        "stage_summaries": {},
+        "quota_exhausted_stages": [],
+        "cooldowns": [],
         "stopped_reason": None,
     }
 
-    if ai_tasks_already_used >= daily_ai_call_budget:
-        summary["stopped_reason"] = "daily_ai_call_budget_exhausted"
-        summary["terminal"] = True
-        return summary
+    screening_reason = _drain_stage_quota_led(
+        client,
+        args,
+        stage_key=screening_stage_key,
+        role="screening",
+        rpm=int(stage_rpm.get(screening_stage_key, 15)),
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+        refill_screening=True,
+        summary=summary,
+        deadline=deadline,
+        now_fn=now_fn,
+        sleep_fn=sleep_fn,
+    )
 
-    for cycle in range(1, max(1, int(args.max_cycles)) + 1):
-        if not args.json_summary:
-            print(f"\nDaily ops cycle {cycle}")
-        cycle_summary: dict[str, Any] = {"cycle": cycle}
-
-        state = refill_assignment_queue.fetch_state(client)
-        queued_before = _queued_ai_paper_count(state.get("papers", []))
-        queued_extraction_before = _queued_ai_paper_count_for_stage(state.get("papers", []), extraction_stage_key)
-        queued_screening_before = _queued_ai_paper_count_for_stage(state.get("papers", []), screening_stage_key)
-        if queued_before > 0 and queued_extraction_before <= 0 and queued_screening_before <= 0:
-            queued_extraction_before = queued_before
-        cycle_summary["queued_ai_before"] = queued_before
-        cycle_summary["queued_extraction_before"] = queued_extraction_before
-        cycle_summary["queued_screening_before"] = queued_screening_before
-        remaining_daily_ai_tasks = daily_ai_call_budget - (ai_tasks_already_used + ai_tasks_used)
-        remaining_invocation_ai_tasks = invocation_ai_task_limit - ai_tasks_used
-        remaining_ai_tasks = min(remaining_daily_ai_tasks, remaining_invocation_ai_tasks)
-
-        if remaining_ai_tasks <= 0:
-            summary["stopped_reason"] = (
-                "daily_ai_call_budget_exhausted"
-                if ai_tasks_already_used + ai_tasks_used >= daily_ai_call_budget
-                else "ai_run_budget_exhausted"
-            )
-            summary["cycles"].append(cycle_summary)
-            break
-
-        if queued_extraction_before > 0:
-            if args.dry_run:
-                cycle_summary["ai"] = {"would_process": True}
-                summary["stopped_reason"] = "dry_run"
-                summary["cycles"].append(cycle_summary)
-                break
-            ai_summary = _run_ai_drain(
-                client,
-                args,
-                max_tasks=remaining_ai_tasks,
-                stage_key=extraction_stage_key,
-            )
-            ai_tasks_used += int(ai_summary.get("processed") or 0)
-            summary["ai_tasks_used"] = ai_tasks_used
-            summary["daily_ai_tasks_used"] = ai_tasks_already_used + ai_tasks_used
-            cycle_summary["ai"] = ai_summary
-            if ai_summary.get("permanent_model_error"):
-                summary["stopped_reason"] = "ai_stage_configuration_error"
-                summary["cycles"].append(cycle_summary)
-                break
-            if ai_summary.get("quota_limited"):
-                assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
-                if assignment_after_ai is not None:
-                    cycle_summary["assignment_after_ai"] = assignment_after_ai
-                summary["stopped_reason"] = _quota_stop_reason(ai_summary)
-                summary["cycles"].append(cycle_summary)
-                break
-            if int(ai_summary.get("processed") or 0) > 0:
-                if ai_tasks_already_used + ai_tasks_used >= daily_ai_call_budget:
-                    assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
-                    if assignment_after_ai is not None:
-                        cycle_summary["assignment_after_ai"] = assignment_after_ai
-                    summary["stopped_reason"] = "daily_ai_call_budget_exhausted"
-                    summary["cycles"].append(cycle_summary)
-                    break
-                if ai_tasks_used >= invocation_ai_task_limit:
-                    assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
-                    if assignment_after_ai is not None:
-                        cycle_summary["assignment_after_ai"] = assignment_after_ai
-                    summary["stopped_reason"] = "ai_run_budget_exhausted"
-                    summary["cycles"].append(cycle_summary)
-                    break
-                summary["cycles"].append(cycle_summary)
-                continue
-        elif queued_screening_before > 0:
-            if args.dry_run:
-                cycle_summary["screening"] = {"would_process": True}
-                summary["stopped_reason"] = "dry_run"
-                summary["cycles"].append(cycle_summary)
-                break
-            screening_summary = _run_ai_drain(
-                client,
-                args,
-                max_tasks=max_screening_tasks,
-                stage_key=screening_stage_key,
-            )
-            cycle_summary["screening"] = screening_summary
-            if screening_summary.get("permanent_model_error"):
-                summary["stopped_reason"] = "ai_stage_configuration_error"
-                summary["cycles"].append(cycle_summary)
-                break
-            if screening_summary.get("quota_limited"):
-                summary["stopped_reason"] = _quota_stop_reason(screening_summary)
-                summary["cycles"].append(cycle_summary)
-                break
-            if int(screening_summary.get("processed") or 0) > 0:
-                summary["cycles"].append(cycle_summary)
-                continue
-
-        requested = {
-            "en": max(0, int(args.refill_step_en)),
-            "tr": max(0, int(args.refill_step_tr)),
-        }
-        cycle_summary["crawl_need"] = {
-            "requested": requested,
-            "mode": "max_ai_usage",
-        }
-        if requested["en"] <= 0 and requested["tr"] <= 0:
-            summary["stopped_reason"] = "no_progress"
-            summary["cycles"].append(cycle_summary)
-            break
-
-        if args.dry_run:
-            cycle_summary["crawl"] = {"would_run": True, "requested": requested}
-            summary["stopped_reason"] = "dry_run"
-            summary["cycles"].append(cycle_summary)
-            break
-
-        ensure_paper_stock.run_refill_cycle(
-            deficits=requested,
-            env=os.environ.copy(),
-            args=_crawler_args(args),
-            cycle_label=f"Daily ops cycle {cycle} crawler refill",
-            process_ai_after_upload=False,
-        )
-        cycle_summary["crawl"] = {"requested": requested}
-
-        state_after_crawl = refill_assignment_queue.fetch_state(client)
-        queued_after_crawl = _queued_ai_paper_count(state_after_crawl.get("papers", []))
-        cycle_summary["queued_ai_after_crawl"] = queued_after_crawl
-        if queued_after_crawl <= 0 and queued_before <= 0:
-            summary["stopped_reason"] = "no_progress"
-            summary["cycles"].append(cycle_summary)
-            break
-
-        queued_screening_after_crawl = _queued_ai_paper_count_for_stage(
-            state_after_crawl.get("papers", []),
-            screening_stage_key,
-        )
-        if queued_screening_after_crawl > 0:
-            screening_summary = _run_ai_drain(
-                client,
-                args,
-                max_tasks=max_screening_tasks,
-                stage_key=screening_stage_key,
-            )
-            cycle_summary["screening_after_crawl"] = screening_summary
-            if screening_summary.get("permanent_model_error"):
-                summary["stopped_reason"] = "ai_stage_configuration_error"
-                summary["cycles"].append(cycle_summary)
-                break
-            if screening_summary.get("quota_limited"):
-                summary["stopped_reason"] = _quota_stop_reason(screening_summary)
-                summary["cycles"].append(cycle_summary)
-                break
-            state_after_crawl = refill_assignment_queue.fetch_state(client)
-
-        remaining_daily_ai_tasks = daily_ai_call_budget - (ai_tasks_already_used + ai_tasks_used)
-        remaining_invocation_ai_tasks = invocation_ai_task_limit - ai_tasks_used
-        remaining_ai_tasks = min(remaining_daily_ai_tasks, remaining_invocation_ai_tasks)
-        if remaining_ai_tasks <= 0:
-            cycle_summary["ai_after_crawl"] = {"skipped": "run_or_daily_ai_task_budget_exhausted"}
-            summary["stopped_reason"] = (
-                "daily_ai_call_budget_exhausted"
-                if ai_tasks_already_used + ai_tasks_used >= daily_ai_call_budget
-                else "ai_run_budget_exhausted"
-            )
-            summary["cycles"].append(cycle_summary)
-            break
-        queued_extraction_after_crawl = _queued_ai_paper_count_for_stage(
-            state_after_crawl.get("papers", []),
-            extraction_stage_key,
-        )
-        if queued_after_crawl > 0 and queued_extraction_after_crawl <= 0 and queued_screening_after_crawl <= 0:
-            queued_extraction_after_crawl = queued_after_crawl
-        if queued_extraction_after_crawl <= 0:
-            cycle_summary["ai_after_crawl"] = {"skipped": "no_extraction_stage_tasks_ready"}
-            if int((cycle_summary.get("screening_after_crawl") or {}).get("processed") or 0) > 0:
-                summary["cycles"].append(cycle_summary)
-                continue
-            summary["stopped_reason"] = "no_progress"
-            summary["cycles"].append(cycle_summary)
-            break
-
-        ai_summary = _run_ai_drain(
+    if screening_reason in {"ai_stage_configuration_error", "dry_run", "max_wallclock_reached"}:
+        summary["stopped_reason"] = screening_reason
+        return _finish_summary(
             client,
-            args,
-            max_tasks=remaining_ai_tasks,
-            stage_key=extraction_stage_key,
+            summary,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
         )
-        ai_tasks_used += int(ai_summary.get("processed") or 0)
-        summary["ai_tasks_used"] = ai_tasks_used
-        summary["daily_ai_tasks_used"] = ai_tasks_already_used + ai_tasks_used
-        cycle_summary["ai_after_crawl"] = ai_summary
-        if ai_summary.get("permanent_model_error"):
-            summary["stopped_reason"] = "ai_stage_configuration_error"
-            summary["cycles"].append(cycle_summary)
-            break
-        if ai_summary.get("quota_limited"):
-            assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
-            if assignment_after_ai is not None:
-                cycle_summary["assignment_after_ai"] = assignment_after_ai
-            summary["stopped_reason"] = _quota_stop_reason(ai_summary)
-            summary["cycles"].append(cycle_summary)
-            break
-        if int(ai_summary.get("processed") or 0) <= 0 and queued_after_crawl <= queued_before:
-            summary["stopped_reason"] = "no_progress"
-            summary["cycles"].append(cycle_summary)
-            break
-        if int(ai_summary.get("processed") or 0) > 0 and ai_tasks_already_used + ai_tasks_used >= daily_ai_call_budget:
-            assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
-            if assignment_after_ai is not None:
-                cycle_summary["assignment_after_ai"] = assignment_after_ai
-            summary["stopped_reason"] = "daily_ai_call_budget_exhausted"
-            summary["cycles"].append(cycle_summary)
-            break
-        if int(ai_summary.get("processed") or 0) > 0 and ai_tasks_used >= invocation_ai_task_limit:
-            assignment_after_ai = _assign_new_human_ready_after_ai(client, args, ai_summary)
-            if assignment_after_ai is not None:
-                cycle_summary["assignment_after_ai"] = assignment_after_ai
-            summary["stopped_reason"] = "ai_run_budget_exhausted"
-            summary["cycles"].append(cycle_summary)
-            break
 
-        summary["cycles"].append(cycle_summary)
+    extraction_reason = _drain_stage_quota_led(
+        client,
+        args,
+        stage_key=extraction_stage_key,
+        role="extraction",
+        rpm=int(stage_rpm.get(extraction_stage_key, 15)),
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+        refill_screening=False,
+        summary=summary,
+        deadline=deadline,
+        now_fn=now_fn,
+        sleep_fn=sleep_fn,
+    )
 
-    if summary["stopped_reason"] is None:
-        summary["stopped_reason"] = "max_cycles"
-    summary["terminal"] = summary["stopped_reason"] in TERMINAL_STOP_REASONS
-    return summary
+    extraction_summary = summary["stage_summaries"].get(extraction_stage_key, {})
+    assignment_after_ai = _assign_new_human_ready_after_ai(client, args, extraction_summary)
+    if assignment_after_ai is not None:
+        summary["assignment_after_ai"] = assignment_after_ai
+
+    if extraction_reason in {"ai_stage_configuration_error", "dry_run", "max_wallclock_reached"}:
+        summary["stopped_reason"] = extraction_reason
+    elif extraction_reason == "daily_quota_exhausted":
+        if screening_reason == "daily_quota_exhausted":
+            summary["stopped_reason"] = "all_stage_quotas_exhausted"
+        else:
+            summary["stopped_reason"] = "extraction_daily_quota_exhausted"
+    elif extraction_reason == "queue_empty":
+        if screening_reason == "source_exhausted":
+            summary["stopped_reason"] = "source_exhausted"
+        else:
+            summary["stopped_reason"] = "no_extraction_candidates"
+    elif extraction_reason == "no_progress":
+        summary["stopped_reason"] = "no_progress"
+    else:
+        summary["stopped_reason"] = extraction_reason or screening_reason or "no_progress"
+
+    return _finish_summary(
+        client,
+        summary,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
 
 
 def main() -> None:

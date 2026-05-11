@@ -39,6 +39,7 @@ from scripts.process_stage_queue import (
     is_quota_error,
     process_one_task,
     requeue_stale_processing_tasks,
+    score_followup_priority,
     select_food_candidates_for_text,
     stage_text_for_model,
 )
@@ -344,6 +345,23 @@ class RoutingLogicTests(unittest.TestCase):
         self.assertEqual(result.rejected_row_count, 2)
         self.assertEqual(result.rejection_reasons, {"unsupported_unit_or_basis": 2})
 
+    def test_normalize_ai_payload_accepts_explicit_fresh_wet_as_is_100g_bases(self) -> None:
+        result = normalize_ai_payload_with_summary(
+            is_useful=True,
+            records=[
+                {"food_name": "Apple", "nutrient_name": "Iron", "amount": 1, "unit": "mg", "basis": "100 g fresh weight"},
+                {"food_name": "Apple", "nutrient_name": "Zinc", "amount": 2, "unit": "mg/100 g", "basis": "wet basis"},
+                {"food_name": "Apple", "nutrient_name": "Moisture", "amount": 84, "unit": "%", "basis": "as-is"},
+                {"food_name": "Apple", "nutrient_name": "Calcium", "amount": 3, "unit": "mg", "basis": "fresh weight"},
+                {"food_name": "Apple", "nutrient_name": "Protein", "amount": 4, "unit": "g", "basis": "100 g dry weight"},
+            ],
+        )
+
+        nutrients = result.payload["food_items"][0]["nutrients"]
+        self.assertEqual(result.accepted_row_count, 3)
+        self.assertEqual(result.rejected_row_count, 2)
+        self.assertEqual([row["unit"] for row in nutrients], ["mg/100g", "%", "mg/100g"])
+
     def test_normalize_ai_payload_turns_empty_standardized_rows_into_no_usable_data(self) -> None:
         payload = normalize_ai_payload(
             is_useful=True,
@@ -528,6 +546,86 @@ class RoutingLogicTests(unittest.TestCase):
         self.assertEqual(nutrient["raw_nutrient_name"], "crude protein")
         self.assertEqual(nutrient["source_citation"], "Table 1, row 2")
         self.assertEqual(nutrient["confidence"], 0.9)
+
+    def test_unified_evaluator_unwraps_single_result_object_array(self) -> None:
+        evaluator = object.__new__(UnifiedEvaluator)
+        root = evaluator._coerce_result_root(
+            [
+                {
+                    "reasoning": "Useful direct table.",
+                    "decision_kind": "has_data",
+                    "is_useful": True,
+                    "overall_confidence": 0.91,
+                    "data": [
+                        {
+                            "food_name": "Apple",
+                            "nutrient_name": "Protein",
+                            "amount": 0.3,
+                            "unit": "g",
+                            "basis": "100g",
+                        }
+                    ],
+                }
+            ]
+        )
+
+        self.assertEqual(root["reasoning"], "Useful direct table.")
+        self.assertTrue(root["is_useful"])
+        self.assertEqual(root["data"][0]["food_name"], "Apple")
+
+    def test_followup_priority_rewards_composition_evidence_and_soft_penalizes_outcomes(self) -> None:
+        good_result = Mock(
+            overall_confidence=0.92,
+            paper_decision_confidence=0.95,
+            extraction_confidence=0.9,
+            reasoning="Direct food composition table with proximate composition for a real-world food product.",
+            paper_type="ordinary_food_composition",
+            database_value="high",
+        )
+        weak_result = Mock(
+            overall_confidence=0.92,
+            paper_decision_confidence=0.95,
+            extraction_confidence=0.9,
+            reasoning="Review of sensory outcome and digestibility for one-off formulation treatments.",
+            paper_type="review",
+            database_value="low",
+        )
+        payload = {
+            "decision_kind": "has_data",
+            "food_items": [
+                {
+                    "food_name": "Apple",
+                    "nutrients": [
+                        {
+                            "nutrient_name": "Protein",
+                            "unit": "g/100g",
+                            "basis": "per_100g",
+                            "source_citation": "Table 1",
+                            "metadata": {"table_label": "Table 1", "source_quote": "Protein 0.3 g/100 g"},
+                        }
+                    ],
+                }
+            ],
+        }
+        normalization_summary = {
+            "accepted_row_count": 8,
+            "rejected_row_count": 0,
+            "unmapped_food_count": 0,
+            "unmapped_nutrient_count": 0,
+        }
+
+        self.assertGreater(
+            score_followup_priority(
+                ai_result=good_result,
+                normalization_summary=normalization_summary,
+                normalized_payload_json=payload,
+            ),
+            score_followup_priority(
+                ai_result=weak_result,
+                normalization_summary=normalization_summary,
+                normalized_payload_json=payload,
+            ),
+        )
 
 
 class StockAndFeedbackTests(unittest.TestCase):
@@ -1208,6 +1306,46 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.inserts, [])
 
     @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_quota_errors_requeue_without_inflating_attempt_count(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 18,
+                        "title": "Quota paper",
+                        "doi": "10.123/quota",
+                        "filename": "quota.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [
+                    {"id": "task-18", "paper_id": 18, "status": "processing", "attempt_count": 4}
+                ],
+            }
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=False,
+            reasoning="Extraction error: 429 quota exceeded",
+            overall_confidence=0.0,
+            data=[],
+            raw_response_text="",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-18", "paper_id": 18, "attempt_count": 4},
+            stage_config=self.stage_config(),
+            evaluator=evaluator,
+        )
+
+        self.assertTrue(result["quota_limited"])
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "queued")
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["attempt_count"], 3)
+        self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
     def test_missing_model_error_fails_task_instead_of_retrying_forever(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -1482,6 +1620,67 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.upserts, [])
         self.assertEqual(client.tables["papers"][0]["routing_status"], ROUTING_STATUS_AI_PROVISIONAL_NO_DATA)
         self.assertEqual(client.tables["papers"][0]["route_destination"], PROVISIONAL_SKIP_DESTINATION)
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_strong_screening_has_data_enqueues_followup_even_when_normalization_is_empty(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 19,
+                        "title": "Useful but sparse Gemma output",
+                        "doi": "10.123/sparse",
+                        "filename": "paper.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-19", "paper_id": 19, "status": "processing"}],
+            }
+        )
+        stage = RoutingStageConfig(
+            stage_key="gemma_proof_extraction_v1",
+            stage_kind="ai_model",
+            display_name="Gemma Proof Extraction v1",
+            model_name="gemma-4-26b-a4b-it",
+            prompt_version="opennutri_master_payload_v1",
+            active=True,
+            positive_threshold=1.0,
+            negative_threshold=1.0,
+            audit_rate=0.0,
+            next_stage_on_low_confidence="gemini_flash_db_payload_v2",
+            counts_as_truth=False,
+            next_stage_on_has_data="gemini_flash_db_payload_v2",
+            no_data_route_destination=PROVISIONAL_SKIP_DESTINATION,
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=True,
+            decision_kind="has_data",
+            reasoning="Strong direct composition table, but rows were malformed.",
+            overall_confidence=0.92,
+            paper_decision_confidence=0.93,
+            extraction_confidence=0.1,
+            data=[
+                {"food_name": "Apple", "nutrient_name": "Color", "amount": 12, "unit": "a*", "basis": "100g"},
+            ],
+            raw_response_text="{}",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-19", "paper_id": 19},
+            stage_config=stage,
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], "queued_for_ai")
+        self.assertTrue(result["strong_raw_followup"])
+        self.assertEqual(result["followup_stage_key"], "gemini_flash_db_payload_v2")
+        self.assertEqual(client.upserts[0][0], "paper_stage_tasks")
+        self.assertEqual(client.upserts[0][1]["stage_key"], "gemini_flash_db_payload_v2")
+        self.assertEqual(client.inserts[0][1][0]["normalized_payload_json"], {"decision_kind": "no_usable_data", "food_items": []})
+        self.assertEqual(client.inserts[0][1][0]["route_destination"], "next_stage")
 
 
 if __name__ == "__main__":

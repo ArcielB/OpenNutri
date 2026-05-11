@@ -7,8 +7,8 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
 - Current acquisition mode is English-only. Turkish/DergiPark code remains available, but default refill and daily ops request `tr=0`, skip DergiPark, and use Europe PMC/OpenAlex/Semantic Scholar.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
-- Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and the Gemini budget remains 20 calls/day.
-- GitHub Actions daily ops is scheduled once per UTC day at 07:17. The workflow does not gate by current wall-clock time; delayed scheduled runners still execute and the controller retries non-terminal stops every 5 minutes until quota/config terminal stop or the 6-hour job timeout.
+- Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and the runner now drains each model stage until real quota/source/wall-clock stop instead of hard-stopping at a 20-call Gemini budget.
+- GitHub Actions daily ops is scheduled once per UTC day at 07:17. The workflow does not gate by current wall-clock time; delayed scheduled runners still execute. The workflow now runs one long quota-draining controller invocation up to 330 minutes inside the 6-hour job timeout.
 - The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=180`, `GEMINI_REQUEST_TIMEOUT_SECONDS=180`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=60000`. Gemma receives a capped head/tail excerpt; Gemini extraction remains uncapped unless a Gemini-specific cap is set.
 
 ## Documentation Pointers
@@ -123,30 +123,28 @@ Frontend validation currently passes with:
 - drains queued Gemma and Gemini stage tasks before requesting crawler refill;
 - triggers English-only crawler refill when visible stock is below `--target-open`.
 
-`services/data-pipeline/scripts/daily_ops_orchestrator.py` now treats `--target-open` as compatibility/reporting only. Scheduled ops spend Gemma screening calls and maximize the 20-call Gemini budget instead of stopping when the human queue is full.
+`services/data-pipeline/scripts/daily_ops_orchestrator.py` treats `--target-open` as compatibility/reporting only. Scheduled ops do not stop when the human queue is full; they keep Gemma fed, exhaust Gemma quota/source first, then spend Gemini on the highest-priority queued follow-up candidates.
 
 Daily ops order:
 
-1. Drain queued Gemini extraction work within the daily Gemini budget.
-2. Drain queued Gemma proof-extraction work when Gemini has no ready tasks.
-3. Crawl/upload when no queued model work is available.
-4. Process new Gemma work, then newly queued Gemini work.
-5. Sleep 5 minutes in GitHub Actions after non-terminal per-invocation budget stops.
-6. Repeat until terminal.
+1. Refill Gemma work when queued screening tasks fall below `30`, currently by crawling/uploading `75` English accepted papers.
+2. Drain Gemma at the configured stage RPM, currently `15` calls/minute.
+3. Sleep `65` seconds after a full RPM window or quota after recent successful calls, then continue Gemma.
+4. Treat quota on the first call after cooldown as Gemma daily quota exhausted and advance to Gemini.
+5. Drain Gemini at the configured stage RPM from highest-priority queued candidates.
+6. Stop on Gemini daily quota, source exhaustion, model configuration error, dry-run, or the `330` minute wall-clock cap.
 
 Terminal stop reasons:
 
-- `daily_ai_call_budget_exhausted`: 20 Gemini calls consumed for the day.
-- `ai_first_task_quota_limited`
+- `all_stage_quotas_exhausted`
+- `extraction_daily_quota_exhausted`
+- `max_wallclock_reached`
+- `no_extraction_candidates`
+- `source_exhausted`
 - `ai_stage_configuration_error`
 - `dry_run`
 
-Non-terminal reasons include:
-
-- `no_progress`: crawler/AI pass produced no queued or processed work.
-- `ai_run_budget_exhausted`
-- `ai_quota_limited_after_progress`
-- `max_cycles`
+The JSON summary reports screened calls, candidates routed to Gemini, Gemini calls used, new human-ready papers, quota-exhausted stages, per-stage windows, and remaining queued candidates.
 
 Feedback refresh is intentionally tied to crawler refill only; queued-AI draining does not refresh feedback. DergiPark refresh/search is skipped unless Turkish is explicitly re-enabled with a positive Turkish target and a DergiPark source list.
 
@@ -175,7 +173,7 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 - Drain AI routing queue:
   - `python3 services/data-pipeline/scripts/process_stage_queue.py`
 - Run daily ops:
-  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --daily-ai-call-budget 20 --max-ai-tasks 5`
+  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 --quota-cooldown-seconds 65 --max-wallclock-minutes 330 --screening-queue-low-watermark 30 --screening-refill-batch-en 75`
 - Check shared queue stock / trigger refill loop:
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py --target-open 50`
 
