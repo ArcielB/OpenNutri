@@ -581,8 +581,16 @@ def _drain_stage_quota_led(
                 deadline=deadline,
                 now_fn=now_fn,
             )
-            if prefill_reason in {"dry_run", "max_wallclock_reached", "source_exhausted"}:
+            if prefill_reason in {"dry_run", "max_wallclock_reached"}:
                 return prefill_reason
+            if prefill_reason == "source_exhausted":
+                if refreshed_count <= 0:
+                    return prefill_reason
+                _log(
+                    args,
+                    f"{stage_key} prefill source exhausted with {refreshed_count} queued task(s); "
+                    "draining available work before stopping",
+                )
             queue_count = refreshed_count
 
         elif refill_screening and target_limit is None and (queue_count < low_watermark or force_refill_next):

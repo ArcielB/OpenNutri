@@ -109,6 +109,46 @@ class DailyOpsTests(unittest.TestCase):
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    def test_prefill_source_exhaustion_still_drains_available_gemma_work(
+        self,
+        fetch_state_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+    ) -> None:
+        fetch_state_mock.side_effect = [
+            {"papers": queued_papers(SCREENING_STAGE, 1497)},
+            {"papers": queued_papers(SCREENING_STAGE, 1497)},
+            {"papers": queued_papers(SCREENING_STAGE, 1497)},
+            {"papers": []},
+            {"papers": []},
+            {"papers": []},
+            {"papers": []},
+        ]
+        drain_mock.side_effect = [
+            {"processed": 1497, "followup_queued": 12, "quota_limited": False}
+        ]
+
+        summary = daily_ops_orchestrator.run_daily_ops(
+            object(),
+            build_args(
+                stage_rpm=f"{SCREENING_STAGE}=1500,{EXTRACTION_STAGE}=15",
+                screening_prefill_stall_limit=1,
+            ),
+            sleep_fn=Mock(),
+            now_fn=Mock(return_value=0.0),
+        )
+
+        self.assertEqual(summary["stopped_reason"], "source_exhausted")
+        self.assertEqual(summary["screened"], 1497)
+        self.assertEqual(summary["routed_to_gemini"], 12)
+        self.assertEqual(drain_mock.call_count, 1)
+        self.assertEqual(drain_mock.call_args_list[0].kwargs["stage_key"], SCREENING_STAGE)
+        self.assertEqual(drain_mock.call_args_list[0].kwargs["max_tasks"], 1497)
+        self.assertEqual(crawl_mock.call_count, 2)
+
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
     def test_minute_quota_after_progress_sleeps_and_resumes_same_stage(
         self,
         fetch_state_mock: Mock,
