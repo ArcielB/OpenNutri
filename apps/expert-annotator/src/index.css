@@ -1511,6 +1511,45 @@ body {
   background: rgba(255, 255, 255, 0.01);
 }
 
+.suggestion-status-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  min-width: 152px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 34px 8px 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) calc(50% - 2px),
+    calc(100% - 11px) calc(50% - 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.suggestion-status-select:hover:not(:disabled) {
+  border-color: var(--brand);
+}
+
+.suggestion-status-select:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(107, 139, 255, 0.2);
+}
+
+.suggestion-status-select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .table-title-cell {
   min-width: 280px;
 }
