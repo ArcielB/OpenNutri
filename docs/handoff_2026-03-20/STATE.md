@@ -9,7 +9,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
 - Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and the runner now preloads enough queued Gemma papers for the 1500-call daily target before spending Gemma calls.
 - GitHub Actions daily ops is scheduled once per UTC day at 04:17. The workflow does not gate by current wall-clock time; delayed scheduled runners still execute. The workflow now runs one long target-led controller invocation with no internal wall-clock cutoff; GitHub Actions still enforces the job cap.
-- The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=900`, `AI_STAGE_MAX_TASK_ATTEMPTS=2`, `GEMINI_REQUEST_TIMEOUT_SECONDS=900`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=60000`. Gemma receives a capped head/tail excerpt; Gemini extraction remains uncapped unless a Gemini-specific cap is set.
+- The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=300`, `AI_STAGE_MAX_TASK_ATTEMPTS=2`, `GEMINI_REQUEST_TIMEOUT_SECONDS=300`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=60000`. Gemma receives a capped head/tail excerpt; Gemini extraction remains uncapped unless a Gemini-specific cap is set. The 300-second model timeout is intentional so one slow paper cannot consume a large fraction of the GitHub Actions job cap.
 
 ## Documentation Pointers
 
