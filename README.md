@@ -218,7 +218,7 @@ Data pipeline and ETL:
 - `GEMINI_API_KEY` (required for LLM evaluator/extractor)
 - `AI_MODEL_TASK_TIMEOUT_SECONDS` / `GEMINI_REQUEST_TIMEOUT_SECONDS` (optional AI worker timeout controls)
 - `AI_STAGE_MAX_TASK_ATTEMPTS` (optional retry ceiling for non-quota task errors; scheduled ops sets `2`)
-- `GEMMA_STAGE_TEXT_LIMIT_CHARS` (optional Gemma screening text cap; scheduled ops sets this explicitly)
+- `GEMMA_STAGE_TEXT_LIMIT_CHARS` (optional Gemma screening text cap; default and scheduled ops use `24000`)
 - `GEMINI_STAGE_TEXT_LIMIT_CHARS` / `AI_STAGE_TEXT_LIMIT_CHARS` (optional extraction text caps; normally unset)
 - `SUPABASE_RESOLVE_IP` (optional; IP pinning for SR legacy ETL)
 - `DATABASE_URL` (required for `apps/expert-annotator/run-migration.js`)

@@ -292,7 +292,7 @@ def extract_pdf_text(filename: str) -> str:
 def stage_text_for_model(full_text: str, *, stage_config: RoutingStageConfig) -> str:
     model_name = str(stage_config.model_name or "").strip().lower()
     if "gemma" in model_name:
-        default_limit = "60000"
+        default_limit = "24000"
         limit_value = os.environ.get(
             "GEMMA_STAGE_TEXT_LIMIT_CHARS",
             os.environ.get("AI_STAGE_TEXT_LIMIT_CHARS", default_limit),
