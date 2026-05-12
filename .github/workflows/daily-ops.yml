@@ -2,9 +2,9 @@ name: Daily OpenNutri Ops
 
 on:
   schedule:
-    # GitHub cron is UTC. 04:17 UTC is 07:17 Europe/Istanbul.
-    # The controller preloads the daily Gemma queue before spending model calls.
-    - cron: "17 4 * * *"
+    # GitHub cron is UTC. Run a small resumable tick every 5 minutes.
+    # Each tick checks the UTC day state, does the next bounded phase slice, and exits.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -43,7 +43,7 @@ jobs:
       - name: Install Python dependencies
         run: python3 -m pip install -r services/data-pipeline/requirements.txt
 
-      - name: Run target-led daily ops controller
+      - name: Run resumable daily ops tick
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -59,11 +59,14 @@ jobs:
           summary="$(
             python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
               --json-summary \
+              --tick-mode \
               --target-open 50 \
               --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 \
-              --quota-cooldown-seconds 65 \
               --max-wallclock-minutes 0 \
               --screening-daily-target 1500 \
+              --screening-tick-tasks 15 \
+              --extraction-daily-target 20 \
+              --extraction-tick-tasks 15 \
               --screening-refill-batch-en 1500 \
               --screening-refill-chunk-en 1500 \
               --screening-prefill-stall-limit 3 \
@@ -71,4 +74,4 @@ jobs:
               | tee /tmp/opennutri-daily-ops-last.jsonl \
               | tail -n 1
           )"
-          python3 -c 'import json, sys; data=json.loads(sys.argv[1]); screening=(data.get("stage_summaries") or {}).get(data.get("screening_stage_key"), {}); print("Daily ops stopped_reason={reason} screening_target={target} prefill_refills={refills} screened={screened} routed_to_gemini={routed} gemini_used={gemini} human_ready={human} quota_exhausted_stages={quota}".format(reason=data.get("stopped_reason", ""), target=data.get("screening_daily_target", 0), refills=screening.get("refill_cycles", 0), screened=data.get("screened", 0), routed=data.get("routed_to_gemini", 0), gemini=data.get("gemini_used", 0), human=data.get("human_ready", 0), quota=data.get("quota_exhausted_stages", [])))' "$summary"
+          python3 -c 'import json, sys; data=json.loads(sys.argv[1]); screening=(data.get("stage_summaries") or {}).get(data.get("screening_stage_key"), {}); daily=data.get("daily_completed") or {}; print("Daily ops mode={mode} stopped_reason={reason} screening_target={target} extraction_target={xtarget} daily_completed={daily} prefill_refills={refills} screened={screened} routed_to_gemini={routed} gemini_used={gemini} human_ready={human} quota_exhausted_stages={quota}".format(mode=data.get("mode", "legacy"), reason=data.get("stopped_reason", ""), target=data.get("screening_daily_target", 0), xtarget=data.get("extraction_daily_target", 0), daily=daily, refills=screening.get("refill_cycles", 0), screened=data.get("screened", 0), routed=data.get("routed_to_gemini", 0), gemini=data.get("gemini_used", 0), human=data.get("human_ready", 0), quota=data.get("quota_exhausted_stages", [])))' "$summary"

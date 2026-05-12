@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -75,6 +76,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dry-run", action="store_true", help="Report planned work without writes or network jobs")
     parser.add_argument("--json-summary", action="store_true", help="Print a final JSON summary")
+    parser.add_argument(
+        "--tick-mode",
+        action="store_true",
+        help="Run one resumable daily-ops tick and exit; intended for frequent GitHub cron recalls.",
+    )
     parser.add_argument("--screening-stage-key", default="gemma_proof_extraction_v1", help="Cheap first-pass model stage key")
     parser.add_argument("--extraction-stage-key", default="gemini_flash_db_payload_v2", help="Downstream Gemini extraction stage key")
     parser.add_argument(
@@ -99,6 +105,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1500,
         help="Gemma screening calls to run each day after preloading enough queued papers",
+    )
+    parser.add_argument(
+        "--screening-tick-tasks",
+        type=int,
+        default=15,
+        help="Maximum Gemma tasks to process in one tick-mode invocation.",
+    )
+    parser.add_argument(
+        "--extraction-daily-target",
+        type=int,
+        default=20,
+        help="Gemini extraction calls to run each UTC day in tick mode.",
+    )
+    parser.add_argument(
+        "--extraction-tick-tasks",
+        type=int,
+        default=15,
+        help="Maximum Gemini tasks to process in one tick-mode invocation.",
     )
     parser.add_argument(
         "--screening-queue-low-watermark",
@@ -175,6 +199,32 @@ def _fetch_queue_counts(client: Any, *, screening_stage_key: str, extraction_sta
 
 def _log(args: argparse.Namespace, message: str) -> None:
     print(f"[daily-ops] {message}", file=sys.stderr, flush=True)
+
+
+def _utc_day_start_iso(now: datetime | None = None) -> str:
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    return current.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def _count_completed_stage_tasks_since(client: Any, *, stage_key: str, since_iso: str) -> int:
+    if not hasattr(client, "table"):
+        return 0
+    response = (
+        client.table("paper_stage_tasks")
+        .select("id", count="exact")
+        .eq("stage_key", stage_key)
+        .eq("status", "completed")
+        .gte("completed_at", since_iso)
+        .limit(1)
+        .execute()
+    )
+    count = getattr(response, "count", None)
+    if count is None:
+        return 0
+    return int(count)
 
 
 def _parse_stage_rpm(raw_value: object, *, screening_stage_key: str, extraction_stage_key: str) -> dict[str, int]:
@@ -392,6 +442,24 @@ def _refill_request_size(args: argparse.Namespace, deficit: int) -> tuple[int, i
     requested_en = min(deficit, refill_batch_en if refill_batch_en > 0 else deficit, refill_chunk_en)
     requested_tr = max(0, int(getattr(args, "refill_step_tr", 0)))
     return requested_en, requested_tr
+
+
+def _tick_refill_request_size(args: argparse.Namespace, deficit: int) -> tuple[int, int]:
+    deficit = max(0, int(deficit))
+    refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", 1500)))
+    refill_chunk_en = max(1, int(getattr(args, "screening_refill_chunk_en", refill_batch_en or 1500)))
+    requested_en = min(max(deficit, refill_batch_en), refill_chunk_en)
+    requested_tr = max(0, int(getattr(args, "refill_step_tr", 0)))
+    return requested_en, requested_tr
+
+
+def _screening_tick_prefill_target(*, completed_today: int, daily_target: int, tick_tasks: int) -> int:
+    remaining_today = max(0, int(daily_target) - int(completed_today))
+    if remaining_today <= 0:
+        return 0
+    if int(completed_today) < max(1, int(tick_tasks)):
+        return remaining_today
+    return min(remaining_today, max(1, int(tick_tasks)))
 
 
 def _ensure_screening_queue_target(
@@ -896,10 +964,312 @@ def run_daily_ops(
     )
 
 
+def _tick_stage_summary(summary: dict[str, Any], stage_key: str, *, rpm: int, role: str, daily_target: int) -> dict[str, Any]:
+    stage_summary = _new_stage_summary(stage_key, rpm=rpm, role=role, daily_target=daily_target)
+    summary["stage_summaries"][stage_key] = stage_summary
+    return stage_summary
+
+
+def _tick_drain_stage(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    stage_key: str,
+    stage_summary: dict[str, Any],
+    max_tasks: int,
+    summary: dict[str, Any],
+    role: str,
+) -> str:
+    if args.dry_run:
+        stage_summary["stop_reason"] = "dry_run"
+        stage_summary["would_process"] = max(0, int(max_tasks))
+        return "dry_run"
+
+    drain_summary = _run_ai_drain(
+        client,
+        args,
+        max_tasks=max(1, int(max_tasks)),
+        stage_key=stage_key,
+    )
+    _log(
+        args,
+        f"{stage_key} tick drain: processed={int(drain_summary.get('processed') or 0)} "
+        f"human_ready={int(drain_summary.get('human_ready') or 0)} "
+        f"followup_queued={int(drain_summary.get('followup_queued') or 0)} "
+        f"provisional_skipped={int(drain_summary.get('provisional_skipped') or 0)} "
+        f"quota_limited={bool(drain_summary.get('quota_limited'))} "
+        f"permanent_model_error={bool(drain_summary.get('permanent_model_error'))}"
+    )
+    stage_summary["windows"].append(drain_summary)
+    _merge_drain_summary(stage_summary, drain_summary)
+    model_calls = _model_calls_before_quota(drain_summary)
+    stage_summary["model_calls"] = int(stage_summary["model_calls"]) + model_calls
+    if role == "extraction":
+        summary["ai_tasks_used"] = int(summary.get("ai_tasks_used") or 0) + model_calls
+        summary["daily_ai_tasks_used"] = int(summary.get("ai_tasks_already_used") or 0) + int(summary["ai_tasks_used"])
+
+    if drain_summary.get("permanent_model_error"):
+        stage_summary["stop_reason"] = "ai_stage_configuration_error"
+        return "ai_stage_configuration_error"
+    if drain_summary.get("quota_limited") and model_calls <= 0:
+        stage_summary["quota_exhausted"] = True
+        stage_summary["stop_reason"] = "daily_quota_exhausted"
+        summary.setdefault("quota_exhausted_stages", []).append(stage_key)
+        return "daily_quota_exhausted"
+    if int(drain_summary.get("processed") or 0) <= 0:
+        stage_summary["stop_reason"] = "no_progress"
+        return "no_progress"
+    stage_summary["stop_reason"] = "tick_complete"
+    return "tick_complete"
+
+
+def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
+    screening_stage_key = str(getattr(args, "screening_stage_key", "gemma_proof_extraction_v1") or "gemma_proof_extraction_v1")
+    extraction_stage_key = str(getattr(args, "extraction_stage_key", "gemini_flash_db_payload_v2") or "gemini_flash_db_payload_v2")
+    stage_rpm = _parse_stage_rpm(
+        getattr(args, "stage_rpm", ""),
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+    screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
+    extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
+    screening_tick_tasks = max(1, int(getattr(args, "screening_tick_tasks", stage_rpm.get(screening_stage_key, 15))))
+    extraction_tick_tasks = max(1, int(getattr(args, "extraction_tick_tasks", stage_rpm.get(extraction_stage_key, 15))))
+    day_start_iso = _utc_day_start_iso()
+
+    summary: dict[str, Any] = {
+        "mode": "tick",
+        "dry_run": bool(args.dry_run),
+        "target_open": int(args.target_open),
+        "screening_stage_key": screening_stage_key,
+        "extraction_stage_key": extraction_stage_key,
+        "stage_order": [screening_stage_key, extraction_stage_key],
+        "stage_rpm": {
+            screening_stage_key: int(stage_rpm.get(screening_stage_key, 15)),
+            extraction_stage_key: int(stage_rpm.get(extraction_stage_key, 15)),
+        },
+        "screening_daily_target": screening_daily_target,
+        "extraction_daily_target": extraction_daily_target,
+        "screening_tick_tasks": screening_tick_tasks,
+        "extraction_tick_tasks": extraction_tick_tasks,
+        "day_start_utc": day_start_iso,
+        "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
+        "ai_tasks_used": 0,
+        "daily_ai_tasks_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
+        "stage_summaries": {},
+        "quota_exhausted_stages": [],
+        "cooldowns": [],
+        "stopped_reason": None,
+    }
+
+    screening_completed_today = _count_completed_stage_tasks_since(
+        client,
+        stage_key=screening_stage_key,
+        since_iso=day_start_iso,
+    )
+    extraction_completed_today = _count_completed_stage_tasks_since(
+        client,
+        stage_key=extraction_stage_key,
+        since_iso=day_start_iso,
+    )
+    summary["daily_completed"] = {
+        screening_stage_key: screening_completed_today,
+        extraction_stage_key: extraction_completed_today,
+    }
+
+    if screening_completed_today < screening_daily_target:
+        stage_summary = _tick_stage_summary(
+            summary,
+            screening_stage_key,
+            rpm=int(stage_rpm.get(screening_stage_key, 15)),
+            role="screening",
+            daily_target=screening_daily_target,
+        )
+        _requeue_stale_stage_tasks(client, args, stage_key=screening_stage_key, stage_summary=stage_summary)
+        queue_counts = _fetch_queue_counts(
+            client,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+        queue_count = int(queue_counts.get(screening_stage_key) or 0)
+        stage_summary["queue_observations"].append(
+            {
+                "total": queue_counts["total"],
+                "queued_for_stage": queue_count,
+                "tick": True,
+            }
+        )
+        _log(args, f"{screening_stage_key} tick observation: completed_today={screening_completed_today} queued_for_stage={queue_count}")
+
+        prefill_target = _screening_tick_prefill_target(
+            completed_today=screening_completed_today,
+            daily_target=screening_daily_target,
+            tick_tasks=screening_tick_tasks,
+        )
+        stage_summary["tick_prefill_target"] = prefill_target
+        if queue_count < prefill_target:
+            requested_en, requested_tr = _tick_refill_request_size(args, prefill_target - queue_count)
+            stage_summary["low_watermark_events"] = int(stage_summary["low_watermark_events"]) + 1
+            if args.dry_run:
+                stage_summary["planned_refill"] = {
+                    "en": requested_en,
+                    "tr": requested_tr,
+                    "queued_before": queue_count,
+                    "target": prefill_target,
+                }
+                summary["stopped_reason"] = "dry_run"
+                return _finish_summary(
+                    client,
+                    summary,
+                    screening_stage_key=screening_stage_key,
+                    extraction_stage_key=extraction_stage_key,
+                )
+            if requested_en > 0 or requested_tr > 0:
+                _log(args, f"{screening_stage_key} tick refill: queued_for_stage={queue_count} target={prefill_target} crawling EN={requested_en} TR={requested_tr}")
+                _run_screening_refill(
+                    client,
+                    args,
+                    stage_summary=stage_summary,
+                    cycle_index=int(stage_summary["refill_cycles"]) + 1,
+                    requested_en=requested_en,
+                    requested_tr=requested_tr,
+                )
+                queue_counts = _fetch_queue_counts(
+                    client,
+                    screening_stage_key=screening_stage_key,
+                    extraction_stage_key=extraction_stage_key,
+                )
+                queue_count = int(queue_counts.get(screening_stage_key) or 0)
+                stage_summary["queue_observations"].append(
+                    {
+                        "total": queue_counts["total"],
+                        "queued_for_stage": queue_count,
+                        "after_refill": True,
+                        "tick": True,
+                    }
+                )
+
+        if queue_count <= 0:
+            stage_summary["queue_empty"] = True
+            stage_summary["stop_reason"] = "queue_empty"
+            summary["stopped_reason"] = "source_exhausted"
+            return _finish_summary(
+                client,
+                summary,
+                screening_stage_key=screening_stage_key,
+                extraction_stage_key=extraction_stage_key,
+            )
+
+        remaining_today = max(0, screening_daily_target - screening_completed_today)
+        drain_limit = min(screening_tick_tasks, remaining_today, queue_count)
+        reason = _tick_drain_stage(
+            client,
+            args,
+            stage_key=screening_stage_key,
+            stage_summary=stage_summary,
+            max_tasks=drain_limit,
+            summary=summary,
+            role="screening",
+        )
+        if reason == "daily_quota_exhausted":
+            summary["stopped_reason"] = "screening_daily_quota_exhausted"
+        elif reason == "ai_stage_configuration_error":
+            summary["stopped_reason"] = reason
+        elif screening_completed_today + int(stage_summary.get("model_calls") or 0) >= screening_daily_target:
+            stage_summary["daily_target_reached"] = True
+            summary["stopped_reason"] = "screening_daily_target_reached"
+        else:
+            summary["stopped_reason"] = reason
+        return _finish_summary(
+            client,
+            summary,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+
+    stage_summary = _tick_stage_summary(
+        summary,
+        extraction_stage_key,
+        rpm=int(stage_rpm.get(extraction_stage_key, 15)),
+        role="extraction",
+        daily_target=extraction_daily_target,
+    )
+    if extraction_completed_today >= extraction_daily_target:
+        stage_summary["daily_target_reached"] = True
+        stage_summary["stop_reason"] = "daily_target_reached"
+        summary["stopped_reason"] = "daily_targets_reached"
+        return _finish_summary(
+            client,
+            summary,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+
+    _requeue_stale_stage_tasks(client, args, stage_key=extraction_stage_key, stage_summary=stage_summary)
+    queue_counts = _fetch_queue_counts(
+        client,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+    queue_count = int(queue_counts.get(extraction_stage_key) or 0)
+    stage_summary["queue_observations"].append(
+        {
+            "total": queue_counts["total"],
+            "queued_for_stage": queue_count,
+            "tick": True,
+        }
+    )
+    _log(args, f"{extraction_stage_key} tick observation: completed_today={extraction_completed_today} queued_for_stage={queue_count}")
+    if queue_count <= 0:
+        stage_summary["queue_empty"] = True
+        stage_summary["stop_reason"] = "queue_empty"
+        summary["stopped_reason"] = "no_extraction_candidates"
+        return _finish_summary(
+            client,
+            summary,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+
+    remaining_today = max(0, extraction_daily_target - extraction_completed_today)
+    drain_limit = min(extraction_tick_tasks, remaining_today, queue_count)
+    reason = _tick_drain_stage(
+        client,
+        args,
+        stage_key=extraction_stage_key,
+        stage_summary=stage_summary,
+        max_tasks=drain_limit,
+        summary=summary,
+        role="extraction",
+    )
+    assignment_after_ai = _assign_new_human_ready_after_ai(client, args, stage_summary)
+    if assignment_after_ai is not None:
+        summary["assignment_after_ai"] = assignment_after_ai
+
+    if reason == "daily_quota_exhausted":
+        summary["stopped_reason"] = "extraction_daily_quota_exhausted"
+    elif reason == "ai_stage_configuration_error":
+        summary["stopped_reason"] = reason
+    elif extraction_completed_today + int(stage_summary.get("model_calls") or 0) >= extraction_daily_target:
+        stage_summary["daily_target_reached"] = True
+        summary["stopped_reason"] = "daily_targets_reached"
+    else:
+        summary["stopped_reason"] = reason
+    return _finish_summary(
+        client,
+        summary,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+
+
 def main() -> None:
     args = build_parser().parse_args()
     client = require_client()
-    summary = run_daily_ops(client, args)
+    if getattr(args, "tick_mode", False):
+        summary = run_daily_ops_tick(client, args)
+    else:
+        summary = run_daily_ops(client, args)
     if args.json_summary:
         print(json.dumps(summary, sort_keys=True))
     else:
