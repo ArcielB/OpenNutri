@@ -25,6 +25,7 @@ from ai_routing import (
     RoutingStageConfig,
 )
 from food_paper_crawler.models import build_search_batch_key, build_search_hit_key
+from pdf_limits import max_paper_pdf_bytes, pdf_size_limit_message
 
 
 EXISTING_PAPER_SELECT = "id,canonical_key,routing_status,current_stage_key,latest_ai_extraction_id"
@@ -34,6 +35,21 @@ CLOSED_AI_ROUTING_STATUSES = {
     ROUTING_STATUS_AI_FINAL_HAS_DATA,
     ROUTING_STATUS_AI_FINAL_NO_DATA,
 }
+
+
+def _is_payload_too_large_error(exc: Exception) -> bool:
+    values = [type(exc).__name__, str(exc)]
+    for attr in ("status_code", "statusCode", "code", "error", "message"):
+        value = getattr(exc, attr, None)
+        if value not in {None, ""}:
+            values.append(str(value))
+    text = " ".join(values).casefold()
+    return (
+        "413" in text
+        or "payload too large" in text
+        or "maximum allowed size" in text
+        or "object exceeded" in text
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -508,8 +524,10 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
 
     paper_id_by_key: dict[str, int] = {}
     upload_errors: list[str] = []
+    skipped_uploads: list[str] = []
     uploaded_count = 0
     active_stage = _fetch_active_stage_config(supabase)
+    max_upload_bytes = max_paper_pdf_bytes()
 
     for record in upload_candidates:
         file_path = _resolve_crawl_path(manifest_path, str(record.get("file") or ""))
@@ -523,6 +541,13 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
         paper_row = {**candidate_row, **record}
 
         print(f"\nProcessing {filename}...")
+        file_size = file_path.stat().st_size
+        if file_size > max_upload_bytes:
+            reason = pdf_size_limit_message(file_size, limit_bytes=max_upload_bytes)
+            skipped_uploads.append(f"{filename}: {reason}")
+            print(f"  Skipped oversized PDF: {reason}.")
+            continue
+
         try:
             with file_path.open("rb") as handle:
                 supabase.storage.from_("papers").upload(
@@ -565,6 +590,11 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
                 )
                 print(f"  Enqueued AI routing stage: {active_stage.stage_key}")
         except Exception as exc:
+            if _is_payload_too_large_error(exc):
+                reason = f"Supabase Storage rejected PDF as too large: {exc}"
+                skipped_uploads.append(f"{filename}: {reason}")
+                print(f"  Skipped oversized PDF: {reason}")
+                continue
             upload_errors.append(f"{filename}: {exc}")
 
     if upload_errors:
@@ -609,6 +639,10 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
         print(f"Successfully uploaded and registered {uploaded_count} PDFs.")
     else:
         print("No PDFs were accepted in this run; persisted metadata-stage search hits only.")
+    if skipped_uploads:
+        print(f"Skipped {len(skipped_uploads)} oversized PDF(s):")
+        for skipped in skipped_uploads:
+            print(f"  - {skipped}")
     print(f"Persisted {inserted_hits} metadata-stage search hits.")
     print(f"Persisted {inserted_batches} search batches.")
     print(f"Persisted {inserted_batch_hits} search batch-hit links.")

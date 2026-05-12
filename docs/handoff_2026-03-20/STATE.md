@@ -110,6 +110,7 @@ Frontend validation currently passes with:
 - AI-provided DB IDs are verified against current DB rows before acceptance.
 - Gemma `has_data` outputs enqueue Gemini with a computed priority from model confidence, accepted row count, evidence quality, and normalization quality. Gemma/Gemini `no_usable_data` outputs become `ai_provisional_no_usable_data` with `route_destination = provisional_skip`. Gemini `has_data` outputs with normalized rows become `human_review_ready`.
 - Upload/re-upload preserves closed routing state: papers that already have a closed AI route or human outcome can refresh metadata/search-hit audit rows without being sent back through the active model stage.
+- Oversized PDFs are not allowed to abort an ops batch. Crawler v2 treats PDFs above the shared upload limit as `pdf_fetch` failures before counting them accepted, and `upload_to_supabase.py` skips any oversized local file or Supabase Storage 413 while continuing to persist the rest of the batch. The shared limit defaults to 50 MiB and can be overridden with `OPENNUTRI_MAX_PAPER_PDF_BYTES` or `SUPABASE_PAPER_MAX_UPLOAD_BYTES`.
 - AI-finalized outcomes use `truth_source_kind = ai_model` and remain excluded from human-truth feedback.
 - `process_stage_queue.py` requeues stale `processing` tasks before claiming new work, which lets the next run recover papers left by cancelled GitHub runners or interrupted local workers.
 - Crawler batch acquisition respects remaining per-language targets, so one strong search batch should not download far beyond the requested English refill size.

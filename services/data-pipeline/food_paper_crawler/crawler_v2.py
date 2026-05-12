@@ -40,6 +40,7 @@ from .models import (
 from .ranking import SOFT_NEGATIVE_TERMS, STRONG_NEGATIVE_SIGNAL_TERMS, validate_pdf_text
 from .search_sources import DEFAULT_SEARCH_SOURCES, build_search_sources
 from .supabase_terms import fetch_food_terms_by_language, fetch_nutrient_terms_by_language
+from pdf_limits import max_paper_pdf_bytes, pdf_size_limit_message
 
 
 HEALTH_OUTCOME_TERMS_BY_LANGUAGE = {
@@ -1685,6 +1686,13 @@ class FoodCompositionCrawlerV2:
             candidate.pdf_url = source_url
         except Exception as exc:
             return self._failed_record(candidate, str(exc), audit=force_audit, decision_stage="pdf_fetch")
+
+        max_pdf_bytes = max_paper_pdf_bytes()
+        if len(content) > max_pdf_bytes:
+            reason = pdf_size_limit_message(len(content), limit_bytes=max_pdf_bytes)
+            self._append_reason(candidate.reason_details, "pdf_too_large", reason)
+            candidate.reasons = [detail["text"] for detail in candidate.reason_details]
+            return self._failed_record(candidate, reason, audit=force_audit, decision_stage="pdf_fetch")
 
         file_name = self._build_filename(candidate)
         destination = self.raw_pdf_dir / file_name

@@ -22,6 +22,7 @@ from food_paper_crawler.models import CandidatePaper, DiscoveryHit, DownloadReco
 from food_paper_crawler.ranking import score_candidate, validate_pdf_text
 from food_paper_crawler.search_sources import DergiParkOAISource, OAI_NS, OpenAlexSearchSource, SemanticScholarSearchSource
 from food_paper_crawler import supabase_terms
+from pdf_limits import pdf_size_exceeds_limit, pdf_size_limit_message
 from scripts import upload_to_supabase
 
 
@@ -997,6 +998,19 @@ class FeedbackDeduplicationTests(unittest.TestCase):
 
 
 class UploadTests(unittest.TestCase):
+    def test_pdf_limit_helpers_report_oversized_papers(self) -> None:
+        self.assertTrue(pdf_size_exceeds_limit(11, limit_bytes=10))
+        self.assertFalse(pdf_size_exceeds_limit(10, limit_bytes=10))
+        self.assertIn("exceeds Supabase upload limit", pdf_size_limit_message(11, limit_bytes=10))
+
+    def test_supabase_payload_too_large_error_is_nonfatal_upload_case(self) -> None:
+        self.assertTrue(
+            upload_to_supabase._is_payload_too_large_error(
+                Exception("{'statusCode': 413, 'error': Payload too large, 'message': The object exceeded the maximum allowed size}")
+            )
+        )
+        self.assertFalse(upload_to_supabase._is_payload_too_large_error(Exception("connection reset")))
+
     def test_prepare_search_hits_keeps_metadata_only_rows_and_uses_existing_paper_lookup(self) -> None:
         rows = [
             {
