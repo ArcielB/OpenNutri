@@ -286,6 +286,86 @@ function formatBytesLabel(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function SuggestionAttachmentsCell({ rowKey, attachments }) {
+  const [expandedKey, setExpandedKey] = useState(null)
+  const [resolvedUrls, setResolvedUrls] = useState({})
+  const [loadingKeys, setLoadingKeys] = useState({})
+  const [errorsByKey, setErrorsByKey] = useState({})
+
+  const handleToggleAttachment = useCallback(async (attachment, index) => {
+    const attachmentKey = `${rowKey}:${attachment.path || attachment.directUrl || index}`
+    if (expandedKey === attachmentKey) {
+      setExpandedKey(null)
+      return
+    }
+
+    setExpandedKey(attachmentKey)
+    if (resolvedUrls[attachmentKey] || loadingKeys[attachmentKey]) return
+
+    if (attachment.directUrl) {
+      setResolvedUrls((previous) => ({ ...previous, [attachmentKey]: attachment.directUrl }))
+      return
+    }
+    if (!attachment.path) {
+      setErrorsByKey((previous) => ({ ...previous, [attachmentKey]: 'Attachment path is missing.' }))
+      return
+    }
+
+    setLoadingKeys((previous) => ({ ...previous, [attachmentKey]: true }))
+    try {
+      const { data, error } = await supabase.storage.from(attachment.bucket).createSignedUrl(attachment.path, 60 * 60)
+      if (error) throw error
+      if (!data?.signedUrl) {
+        throw new Error('No URL returned')
+      }
+      setResolvedUrls((previous) => ({ ...previous, [attachmentKey]: data.signedUrl }))
+      setErrorsByKey((previous) => ({ ...previous, [attachmentKey]: '' }))
+    } catch (error) {
+      console.error('Suggestion attachment URL resolution failed:', error)
+      setErrorsByKey((previous) => ({ ...previous, [attachmentKey]: error.message || 'Unable to load attachment.' }))
+    } finally {
+      setLoadingKeys((previous) => ({ ...previous, [attachmentKey]: false }))
+    }
+  }, [expandedKey, loadingKeys, resolvedUrls, rowKey])
+
+  if (!attachments.length) return '-'
+
+  return (
+    <div className="suggestion-review-attachments">
+      {attachments.map((attachment, index) => {
+        const attachmentKey = `${rowKey}:${attachment.path || attachment.directUrl || index}`
+        const isExpanded = expandedKey === attachmentKey
+        const resolvedUrl = resolvedUrls[attachmentKey] || null
+        const loading = Boolean(loadingKeys[attachmentKey])
+        const error = errorsByKey[attachmentKey]
+        const downloadableUrl = resolvedUrl || attachment.directUrl || null
+        return (
+          <div key={attachmentKey} className="suggestion-review-attachment-item">
+            <button className="nav-btn" onClick={() => handleToggleAttachment(attachment, index)}>
+              {attachment.fileName} {formatBytesLabel(attachment.fileSize)}
+            </button>
+            {isExpanded && (
+              <div className="suggestion-review-attachment-meta">
+                {loading && <div className="suggestion-review-attachment-unavailable">Loading image preview...</div>}
+                {!loading && error && <div className="suggestion-review-attachment-unavailable">{error}</div>}
+                {!loading && !error && !downloadableUrl && (
+                  <div className="suggestion-review-attachment-unavailable">Attachment URL is unavailable.</div>
+                )}
+                {!loading && !error && downloadableUrl && (
+                  <>
+                    <a href={downloadableUrl} target="_blank" rel="noreferrer">Open full image</a>
+                    <img src={downloadableUrl} alt={attachment.fileName || 'Suggestion attachment'} className="suggestion-review-attachment-thumb" />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function countCorrectionItems(diff) {
   if (!diff || typeof diff !== 'object') return 0
   return (
@@ -1100,8 +1180,6 @@ function AllPapersView({ cockpitData, reviewerById, onRefresh }) {
 }
 
 function SuggestionsReviewView({ suggestionItems, onRefresh, onSaveReview, savingSuggestionId }) {
-  const [expandedAttachment, setExpandedAttachment] = useState(null)
-
   return (
     <div className="dashboard-page">
       <div className="dashboard-header">
@@ -1136,18 +1214,11 @@ function SuggestionsReviewView({ suggestionItems, onRefresh, onSaveReview, savin
                     <td><span className={`status-badge ${getStatusBadgeClass(item.status)}`}>{formatStatusLabel(item.status)}</span></td>
                     <td>{item.suggestion_text}</td>
                     <td>
-                      {attachments.length === 0 ? '-' : attachments.map((attachment, index) => (
-                        <button
-                          key={`${item.id}-${attachment.path || index}`}
-                          className="nav-btn"
-                          onClick={() => setExpandedAttachment(expandedAttachment === `${item.id}:${index}` ? null : `${item.id}:${index}`)}
-                        >
-                          {attachment.fileName} {formatBytesLabel(attachment.fileSize)}
-                        </button>
-                      ))}
+                      <SuggestionAttachmentsCell rowKey={`admin:${item.id}`} attachments={attachments} />
                     </td>
                     <td>
                       <select
+                        className="suggestion-status-select"
                         value={item.status || 'new'}
                         disabled={savingSuggestionId === item.id}
                         onChange={(event) => onSaveReview(item.id, { status: event.target.value })}
@@ -1189,23 +1260,28 @@ function MySuggestionsView({ suggestionItems, loading, onRefresh }) {
                 <th>Type</th>
                 <th>Status</th>
                 <th>Message</th>
+                <th>Attachments</th>
                 <th>Reviewed</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="5">Loading your suggestions...</td></tr>
+                <tr><td colSpan="6">Loading your suggestions...</td></tr>
               ) : suggestionItems.length === 0 ? (
-                <tr><td colSpan="5">You have not submitted any suggestions yet.</td></tr>
-              ) : suggestionItems.map((item) => (
-                <tr key={item.id}>
-                  <td>{formatDate(item.created_at)}</td>
-                  <td>{item.context?.request_kind === 'general_queue_help_request' ? 'Help Request' : 'Suggestion'}</td>
-                  <td><span className={`status-badge ${getStatusBadgeClass(item.status)}`}>{formatStatusLabel(item.status)}</span></td>
-                  <td>{item.suggestion_text}</td>
-                  <td>{formatDate(item.reviewed_at)}</td>
-                </tr>
-              ))}
+                <tr><td colSpan="6">You have not submitted any suggestions yet.</td></tr>
+              ) : suggestionItems.map((item) => {
+                const attachments = normalizeSuggestionAttachments(item.attachments)
+                return (
+                  <tr key={item.id}>
+                    <td>{formatDate(item.created_at)}</td>
+                    <td>{item.context?.request_kind === 'general_queue_help_request' ? 'Help Request' : 'Suggestion'}</td>
+                    <td><span className={`status-badge ${getStatusBadgeClass(item.status)}`}>{formatStatusLabel(item.status)}</span></td>
+                    <td>{item.suggestion_text}</td>
+                    <td><SuggestionAttachmentsCell rowKey={`self:${item.id}`} attachments={attachments} /></td>
+                    <td>{formatDate(item.reviewed_at)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
