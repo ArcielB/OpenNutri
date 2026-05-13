@@ -744,7 +744,7 @@ function QueueView({
                 />
               ))}
               {isEditable && (
-                <button className="add-food-btn" onClick={addFoodItem}>+ Add Another Food Item</button>
+                <button className="add-food-btn" onClick={addFoodItem}>Add Food</button>
               )}
             </>
           )}
@@ -762,7 +762,7 @@ function QueueView({
           </div>
           <div className="action-row">
             <button className="btn btn-success" onClick={() => saveAnnotation(true, 'done')} disabled={saving || !isEditable}>
-              {saving ? 'Saving...' : 'Submit Final Extraction'}
+              {saving ? 'Saving...' : 'Submit Reviewed Data'}
             </button>
           </div>
         </div>
@@ -884,7 +884,7 @@ function ApprovalView({
                           />
                         ))}
                         {canApprove && (
-                          <button className="add-food-btn" onClick={addApprovalFoodItem}>+ Add Another Food Item</button>
+                          <button className="add-food-btn" onClick={addApprovalFoodItem}>Add Food</button>
                         )}
                       </>
                     ) : (

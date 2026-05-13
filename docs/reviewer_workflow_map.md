@@ -69,7 +69,7 @@ Core RPCs:
 - Labelers do not see other labeler names, submission counts, or approval status.
 - Every visible queue paper must already have a latest Gemini `has_data` extraction with normalized output. If a paper has no saved annotation, the form initializes from that `ai_extractions.normalized_payload_json` and preloads editable DB-compliant food/nutrient rows. AI `no_usable_data` decisions are provisional skips outside the labeler queue. AI reasoning is not shown in the labeling queue.
 - `Save Draft` writes only the user's annotation/food/nutrient rows.
-- `Submit Final Extraction` or `No Usable Data` writes annotation rows, inserts a `paper_label_events` audit row, then calls `submit_general_label()`.
+- `Submit Reviewed Data` or `No Usable Data` writes annotation rows, inserts a `paper_label_events` audit row, then calls `submit_general_label()`.
 - `Ask for Help` inserts a `backlog_review_items` row with `context.request_kind = general_queue_help_request`.
 
 ### Approval

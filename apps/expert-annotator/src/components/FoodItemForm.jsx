@@ -41,7 +41,7 @@ export default function FoodItemForm({ index, data, onChange, onDelete, allNutri
     return (
         <div className="food-item-card">
             <div className="card-header">
-                <h3>Food Item {index + 1}</h3>
+                <h3>Food {index + 1}</h3>
                 <button className="delete-btn" onClick={onDelete} title="Remove food item">
                     ✕
                 </button>
