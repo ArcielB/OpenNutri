@@ -8,18 +8,16 @@ import { appendTestEvent, isTestModeEnabled, setTestModeEnabled } from '../utils
 const SUPPORTED_WORKFLOW_LANGUAGES = ['en', 'tr']
 const SUGGESTION_REVIEW_STATUSES = ['new', 'triaged', 'planned', 'dismissed', 'done']
 const DEFAULT_PIPELINE_FILTERS = {
-  range: 'today_utc',
+  range: 'all',
   startAt: '',
   endAt: '',
-  language: 'all',
-  paperId: '',
 }
 const PIPELINE_RANGE_OPTIONS = [
-  { value: 'today_utc', label: 'Today UTC' },
-  { value: 'last_24h', label: 'Last 24h' },
-  { value: 'last_7d', label: 'Last 7d' },
-  { value: 'last_30d', label: 'Last 30d' },
   { value: 'all', label: 'All time' },
+  { value: 'today_utc', label: 'Today' },
+  { value: 'last_24h', label: '24 hours' },
+  { value: 'last_7d', label: '7 days' },
+  { value: 'last_30d', label: '30 days' },
   { value: 'custom', label: 'Custom' },
 ]
 
@@ -51,15 +49,6 @@ function formatPercent(numerator, denominator) {
   return `${Math.round((toNumber(numerator) / total) * 100)}%`
 }
 
-function formatDuration(seconds) {
-  const value = toNumber(seconds)
-  if (value <= 0) return '-'
-  if (value < 60) return `${value.toFixed(value < 10 ? 1 : 0)}s`
-  const minutes = Math.floor(value / 60)
-  const remainingSeconds = Math.round(value % 60)
-  return `${minutes}m ${remainingSeconds}s`
-}
-
 function getTodayUtcStartIso() {
   const now = new Date()
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString()
@@ -81,13 +70,11 @@ function getPipelineFilterWindow(filters) {
 
 function buildPipelineRpcParams(filters) {
   const window = getPipelineFilterWindow(filters)
-  const paperId = String(filters.paperId || '').trim()
-  const parsedPaperId = paperId ? Number.parseInt(paperId, 10) : null
   return {
     p_start_at: window.startAt,
     p_end_at: window.endAt,
-    p_workflow_language: filters.language === 'all' ? null : filters.language,
-    p_paper_id: Number.isFinite(parsedPaperId) ? parsedPaperId : null,
+    p_workflow_language: null,
+    p_paper_id: null,
   }
 }
 
@@ -108,121 +95,70 @@ function buildPipelineSteps(snapshot) {
     ? toNumber(crawler.batch_search_gate_rejected) + toNumber(crawler.batch_metadata_rejected) + toNumber(crawler.batch_duplicates)
     : toNumber(crawler.search_gate_rejected) + toNumber(crawler.metadata_rejected) + toNumber(crawler.duplicates)
   const uploadEntered = searchPassed
-  const uploadAccepted = hasBatchCounts ? toNumber(crawler.batch_accepted) : toNumber(papers.uploaded)
-  const uploadRejected = (
-    toNumber(crawler.batch_pdf_fetch_fail) +
-    toNumber(crawler.batch_pdf_validation_fail) +
-    toNumber(crawler.batch_skipped_seen)
-  )
+  const uploadAccepted = Math.max(toNumber(crawler.batch_accepted), toNumber(papers.uploaded), toNumber(gemma.entered))
+  const gemmaRejected = toNumber(gemma.rejected) + toNumber(gemma.provisional_skips) + toNumber(gemma.failed)
+  const geminiRejected = toNumber(gemini.rejected) + toNumber(gemini.provisional_skips) + toNumber(gemini.failed)
+  const geminiEntered = toNumber(gemini.entered)
+  const gemmaKept = Math.max(toNumber(gemma.accepted), geminiEntered)
 
   return [
     {
       key: 'search',
-      label: 'Crawler Search',
-      caption: 'Metadata found by Europe PMC, OpenAlex, Semantic Scholar, or enabled sources.',
-      entered: searchEntered,
-      accepted: searchPassed,
-      rejected: searchRejected,
-      passedNext: searchPassed,
-      pending: toNumber(crawler.search_hits) - toNumber(crawler.linked_to_paper),
+      label: 'Found by search',
+      count: searchEntered,
+      rejectedHere: 0,
+      note: 'Papers found by the crawler.',
+    },
+    {
+      key: 'filter',
+      label: 'Passed first filter',
+      count: searchPassed,
+      rejectedHere: searchRejected,
+      note: 'Still looks like food composition.',
     },
     {
       key: 'upload',
-      label: 'PDF Acquisition',
-      caption: 'Candidates that survived metadata filtering and became uploaded paper rows.',
-      entered: uploadEntered,
-      accepted: uploadAccepted,
-      rejected: uploadRejected,
-      passedNext: uploadAccepted,
-      pending: Math.max(0, uploadEntered - uploadAccepted - uploadRejected),
+      label: 'PDF saved',
+      count: uploadAccepted,
+      rejectedHere: Math.max(0, uploadEntered - uploadAccepted),
+      note: 'The paper PDF was downloaded and stored.',
     },
     {
-      key: 'gemma',
-      label: 'Gemma Screening',
-      caption: 'Broad proof extraction. Has-data papers are ranked and passed to Gemini.',
-      entered: toNumber(gemma.entered),
-      accepted: toNumber(gemma.accepted),
-      rejected: toNumber(gemma.rejected) + toNumber(gemma.provisional_skips),
-      passedNext: toNumber(gemma.passed_next),
-      pending: toNumber(gemma.queued) + toNumber(gemma.processing),
-      failed: toNumber(gemma.failed),
+      key: 'gemma-start',
+      label: 'Sent to Gemma',
+      count: toNumber(gemma.entered),
+      rejectedHere: Math.max(0, uploadAccepted - toNumber(gemma.entered)),
+      note: 'Gemma checks many papers cheaply.',
     },
     {
-      key: 'gemini',
-      label: 'Gemini Extraction',
-      caption: 'Scarce extraction pass. Useful normalized payloads enter the human queue.',
-      entered: toNumber(gemini.entered),
-      accepted: toNumber(gemini.accepted),
-      rejected: toNumber(gemini.rejected) + toNumber(gemini.provisional_skips),
-      passedNext: toNumber(gemini.passed_next),
-      pending: toNumber(gemini.queued) + toNumber(gemini.processing),
-      failed: toNumber(gemini.failed),
+      key: 'gemma-useful',
+      label: 'Gemma kept',
+      count: gemmaKept,
+      rejectedHere: gemmaRejected,
+      note: 'Gemma found possible usable data.',
+    },
+    {
+      key: 'gemini-start',
+      label: 'Sent to Gemini',
+      count: geminiEntered,
+      rejectedHere: Math.max(0, gemmaKept - geminiEntered),
+      note: 'Only the best candidates use Gemini.',
+    },
+    {
+      key: 'gemini-useful',
+      label: 'Sent to humans',
+      count: toNumber(gemini.passed_next),
+      rejectedHere: geminiRejected,
+      note: 'Gemini produced usable rows.',
     },
     {
       key: 'human',
-      label: 'Human Review',
-      caption: 'Gemini-positive papers reviewed by labelers and accepted by the approver.',
-      entered: toNumber(human.ready_current) + toNumber(human.submitted),
-      accepted: toNumber(human.approved_has_data),
-      rejected: toNumber(human.approved_no_data),
-      passedNext: toNumber(human.outcomes),
-      pending: toNumber(human.ready_current) + toNumber(human.pending_approval_current),
+      label: 'Accepted by humans',
+      count: toNumber(human.outcomes_has_data),
+      rejectedHere: toNumber(human.outcomes_no_data),
+      note: 'Final approved useful papers.',
     },
   ]
-}
-
-function buildPipelineTraceRows(trace) {
-  if (!trace?.paper) return []
-  const rows = []
-  for (const hit of trace.search_hits || []) {
-    rows.push({
-      at: hit.discovered_at,
-      step: 'Crawler Search',
-      status: hit.filter_pass ? 'Accepted' : hit.search_gate_pass ? 'Scored' : 'Rejected',
-      detail: `${hit.source || 'source'} · ${hit.template_id || 'template'} · score ${hit.filter_score ?? hit.search_gate_score ?? '-'}`,
-    })
-  }
-  for (const task of trace.stage_tasks || []) {
-    rows.push({
-      at: task.completed_at || task.updated_at || task.created_at,
-      step: task.stage_key,
-      status: formatStatusLabel(task.status),
-      detail: `attempts ${task.attempt_count ?? 0}${task.last_error ? ` · ${String(task.last_error).slice(0, 160)}` : ''}`,
-    })
-  }
-  for (const extraction of trace.ai_extractions || []) {
-    rows.push({
-      at: extraction.created_at,
-      step: extraction.stage_key,
-      status: formatDecisionLabel(extraction.decision_kind),
-      detail: `${formatRouteDestinationLabel(extraction.route_destination)} · rows ${extraction.accepted_row_count || 0}/${toNumber(extraction.accepted_row_count) + toNumber(extraction.rejected_row_count)}`,
-    })
-  }
-  for (const submission of trace.label_submissions || []) {
-    rows.push({
-      at: submission.reviewed_at || submission.submitted_at,
-      step: 'Human Submission',
-      status: formatStatusLabel(submission.status),
-      detail: `${formatDecisionLabel(submission.decision_kind)} · ${submission.food_count || 0} foods`,
-    })
-  }
-  for (const approval of trace.label_approvals || []) {
-    rows.push({
-      at: approval.approved_at,
-      step: 'Approval',
-      status: formatDecisionLabel(approval.decision_kind),
-      detail: `${approval.food_count || 0} foods`,
-    })
-  }
-  for (const outcome of trace.review_outcomes || []) {
-    rows.push({
-      at: outcome.resolved_at,
-      step: 'Final Outcome',
-      status: formatDecisionLabel(outcome.decision_kind),
-      detail: outcome.resolution_source || '-',
-    })
-  }
-  return rows.sort((left, right) => new Date(left.at || 0).getTime() - new Date(right.at || 0).getTime())
 }
 
 function parseUnitFromDescription(desc) {
@@ -1390,16 +1326,22 @@ function PipelineOpsView({
   loading,
   error,
   onRefresh,
-  autoRefresh,
-  setAutoRefresh,
 }) {
   const steps = useMemo(() => buildPipelineSteps(snapshot), [snapshot])
   const gemma = getPipelineStage(snapshot, 'gemma_proof_extraction_v1')
   const gemini = getPipelineStage(snapshot, 'gemini_flash_db_payload_v2')
-  const papers = snapshot?.papers || {}
   const human = snapshot?.human_review || {}
-  const trace = snapshot?.paper_trace || null
-  const traceRows = useMemo(() => buildPipelineTraceRows(trace), [trace])
+  const papers = snapshot?.papers || {}
+  const maxCount = Math.max(...steps.map((step) => step.count), 1)
+  const queueCards = [
+    { key: 'gemma-queued', label: 'Waiting for Gemma', value: gemma.queued, tone: 'blue' },
+    { key: 'gemma-processing', label: 'Gemma running', value: gemma.processing, tone: 'yellow' },
+    { key: 'gemini-queued', label: 'Waiting for Gemini', value: gemini.queued, tone: 'blue' },
+    { key: 'gemini-processing', label: 'Gemini running', value: gemini.processing, tone: 'yellow' },
+    { key: 'human-ready', label: 'Ready for labelers', value: human.ready_current, tone: 'green' },
+    { key: 'approval', label: 'Waiting approval', value: human.pending_approval_current, tone: 'yellow' },
+    { key: 'failed', label: 'AI failed', value: papers.ai_failed_current, tone: 'red' },
+  ]
 
   const handleFilterChange = (field, value) => {
     onFilterChange((previous) => ({ ...previous, [field]: value }))
@@ -1409,279 +1351,107 @@ function PipelineOpsView({
     <div className="dashboard-page pipeline-page">
       <div className="dashboard-header pipeline-header">
         <div>
-          <h2>Pipeline Ops</h2>
-          <p>Crawler, AI routing, Gemini extraction, and human-review movement in one operational view.</p>
+          <h2>Pipeline</h2>
+          <p>How many papers are waiting now, and how many made it through each step.</p>
         </div>
-        <div className="pipeline-header-actions">
-          <label className="pipeline-auto-toggle">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(event) => setAutoRefresh(event.target.checked)}
-            />
-            Auto refresh
-          </label>
-          <button className="btn btn-outline" onClick={onRefresh} disabled={loading}>
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-      </div>
-
-      <div className="pipeline-filter-bar">
-        <label>
-          Window
-          <select value={filters.range} onChange={(event) => handleFilterChange('range', event.target.value)}>
-            {PIPELINE_RANGE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Start
-          <input
-            type="datetime-local"
-            value={filters.startAt}
-            disabled={filters.range !== 'custom'}
-            onChange={(event) => handleFilterChange('startAt', event.target.value)}
-          />
-        </label>
-        <label>
-          End
-          <input
-            type="datetime-local"
-            value={filters.endAt}
-            disabled={filters.range !== 'custom'}
-            onChange={(event) => handleFilterChange('endAt', event.target.value)}
-          />
-        </label>
-        <label>
-          Language
-          <select value={filters.language} onChange={(event) => handleFilterChange('language', event.target.value)}>
-            <option value="all">All</option>
-            <option value="en">English</option>
-            <option value="tr">Turkish</option>
-          </select>
-        </label>
-        <label>
-          Paper ID
-          <input
-            type="number"
-            min="1"
-            inputMode="numeric"
-            placeholder="optional"
-            value={filters.paperId}
-            onChange={(event) => handleFilterChange('paperId', event.target.value)}
-          />
-        </label>
+        <button className="btn btn-outline" onClick={onRefresh} disabled={loading}>
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
       </div>
 
       {error && <div className="profile-warning pipeline-error">Pipeline snapshot failed: {error}</div>}
 
-      <div className="dashboard-grid dashboard-grid-summary pipeline-summary-grid">
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Uploaded In Window</div>
-          <div className="dashboard-card-value">{formatCount(papers.uploaded)}</div>
+      <section className="pipeline-section">
+        <div className="pipeline-section-title">
+          <div>
+            <h3>Right Now</h3>
+            <p>Current queues and blockers.</p>
+          </div>
+          <span>{formatDate(snapshot?.generated_at)}</span>
         </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Gemma Queue Now</div>
-          <div className="dashboard-card-value">{formatCount(gemma.queued)}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Gemini Queue Now</div>
-          <div className="dashboard-card-value">{formatCount(gemini.queued)}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="dashboard-card-label">Human Ready Now</div>
-          <div className="dashboard-card-value">{formatCount(human.ready_current)}</div>
-        </div>
-      </div>
-
-      <div className="pipeline-flow">
-        {steps.map((step, index) => {
-          const denominator = step.entered || step.accepted + step.rejected + step.pending
-          const passPercent = denominator > 0 ? Math.min(100, Math.round((step.passedNext / denominator) * 100)) : 0
-          return (
-            <div className="pipeline-step" key={step.key}>
-              <div className="pipeline-step-topline">
-                <span className="pipeline-step-index">{index + 1}</span>
-                <div>
-                  <h3>{step.label}</h3>
-                  <p>{step.caption}</p>
-                </div>
-              </div>
-              <div className="pipeline-pass-number">
-                <strong>{formatCount(step.passedNext)}</strong>
-                <span>passed onward</span>
-              </div>
-              <div className="pipeline-progress-bar">
-                <span style={{ width: `${passPercent}%` }} />
-              </div>
-              <div className="pipeline-step-stats">
-                <span><strong>{formatCount(step.entered)}</strong> entered</span>
-                <span><strong>{formatCount(step.accepted)}</strong> accepted</span>
-                <span><strong>{formatCount(step.rejected)}</strong> rejected</span>
-                <span><strong>{formatCount(step.pending)}</strong> pending</span>
-                {!!step.failed && <span><strong>{formatCount(step.failed)}</strong> failed</span>}
-              </div>
+        <div className="pipeline-queue-grid">
+          {queueCards.map((card) => (
+            <div className={`pipeline-queue-card pipeline-queue-${card.tone}`} key={card.key}>
+              <span>{card.label}</span>
+              <strong>{formatCount(card.value)}</strong>
             </div>
-          )
-        })}
-      </div>
+          ))}
+        </div>
+      </section>
 
-      <div className="dashboard-grid dashboard-grid-main pipeline-main-grid">
-        <div className="dashboard-card dashboard-card-table">
-          <div className="dashboard-card-title">AI Stage Detail</div>
-          <div className="table-scroll">
-            <table className="dashboard-table pipeline-stage-table">
-              <thead>
-                <tr>
-                  <th>Stage</th>
-                  <th>Current</th>
-                  <th>Window</th>
-                  <th>Decision</th>
-                  <th>Timing</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(snapshot?.stages || []).length === 0 ? (
-                  <tr><td colSpan="5">No AI stage data loaded.</td></tr>
-                ) : (snapshot?.stages || []).map((stage) => (
-                  <tr key={stage.stage_key}>
-                    <td className="table-title-cell">
-                      <div className="table-primary-line">{stage.display_name || stage.stage_key}</div>
-                      <div className="table-secondary-line">{stage.model_name || '-'} · {stage.prompt_version || '-'}</div>
-                    </td>
-                    <td>
-                      <div className="table-cell-stack">
-                        <span>{formatCount(stage.queued)} queued</span>
-                        <span>{formatCount(stage.processing)} processing</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="table-cell-stack">
-                        <span>{formatCount(stage.entered)} entered</span>
-                        <span>{formatCount(stage.completed)} completed</span>
-                        <span>{formatCount(stage.failed)} failed</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="table-cell-stack">
-                        <span>{formatCount(stage.accepted)} accepted</span>
-                        <span>{formatCount(stage.rejected)} rejected</span>
-                        <span>{formatCount(stage.passed_next)} passed next</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="table-cell-stack">
-                        <span>{formatDuration(stage.avg_seconds)} average</span>
-                        <span className="table-secondary-line">last {formatDate(stage.last_completed_at)}</span>
-                      </div>
-                    </td>
-                  </tr>
+      <section className="pipeline-section">
+        <div className="pipeline-section-title">
+          <div>
+            <h3>Paper Funnel</h3>
+            <p>Each row shows how many papers reached that step.</p>
+          </div>
+          <div className="pipeline-filter-simple">
+            <label>
+              Time
+              <select value={filters.range} onChange={(event) => handleFilterChange('range', event.target.value)}>
+                {PIPELINE_RANGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
-              </tbody>
-            </table>
+              </select>
+            </label>
+            {filters.range === 'custom' && (
+              <>
+                <label>
+                  Start
+                  <input
+                    type="datetime-local"
+                    value={filters.startAt}
+                    onChange={(event) => handleFilterChange('startAt', event.target.value)}
+                  />
+                </label>
+                <label>
+                  End
+                  <input
+                    type="datetime-local"
+                    value={filters.endAt}
+                    onChange={(event) => handleFilterChange('endAt', event.target.value)}
+                  />
+                </label>
+              </>
+            )}
           </div>
         </div>
 
-        <div className="dashboard-card">
-          <div className="dashboard-card-title">Current Paper Routing</div>
-          <div className="pipeline-routing-list">
-            {(snapshot?.routing_status || []).map((row) => (
-              <div className="pipeline-routing-row" key={row.routing_status}>
-                <span>{formatRoutingStatusLabel(row.routing_status === 'unset' ? null : row.routing_status)}</span>
-                <strong>{formatCount(row.count)}</strong>
-              </div>
-            ))}
-          </div>
-          <div className="pipeline-routing-footer">
-            <span>Approved outcomes in window</span>
-            <strong>{formatCount(human.outcomes)} total</strong>
-            <span>{formatCount(human.outcomes_has_data)} usable · {formatCount(human.outcomes_no_data)} no data</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-card dashboard-card-table">
-        <div className="dashboard-card-title">Recent AI Task Errors</div>
-        <div className="table-scroll">
-          <table className="dashboard-table">
-            <thead>
-              <tr>
-                <th>Paper</th>
-                <th>Stage</th>
-                <th>Status</th>
-                <th>Updated</th>
-                <th>Error</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(snapshot?.recent_errors || []).length === 0 ? (
-                <tr><td colSpan="5">No recent AI task errors in this filter window.</td></tr>
-              ) : (snapshot?.recent_errors || []).map((row, index) => (
-                <tr key={`${row.paper_id}-${row.stage_key}-${index}`}>
-                  <td className="table-title-cell">
-                    <div className="table-primary-line">{row.title || `Paper ${row.paper_id}`}</div>
-                    <div className="table-secondary-line">Paper {row.paper_id}</div>
-                  </td>
-                  <td>{row.stage_key}</td>
-                  <td>{formatStatusLabel(row.status)} · attempts {row.attempt_count ?? 0}</td>
-                  <td>{formatDate(row.updated_at)}</td>
-                  <td className="pipeline-error-cell">{row.last_error}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {filters.paperId && (
-        <div className="dashboard-card dashboard-card-table pipeline-trace-card">
-          <div className="dashboard-card-title">Paper Trace</div>
-          {!trace?.paper ? (
-            <div className="empty-panel">No paper found for ID {filters.paperId}.</div>
-          ) : (
-            <>
-              <div className="pipeline-trace-heading">
-                <div>
-                  <div className="table-primary-line">{trace.paper.title || trace.paper.filename || `Paper ${trace.paper.id}`}</div>
-                  <div className="table-secondary-line">
-                    Paper {trace.paper.id} · {trace.paper.workflow_language?.toUpperCase() || '-'} · {formatRoutingStatusLabel(trace.paper.routing_status)}
+        <div className="pipeline-funnel">
+          {steps.map((step, index) => {
+            const previous = index > 0 ? steps[index - 1] : null
+            const width = step.count > 0 ? Math.max(5, Math.round((step.count / maxCount) * 100)) : 0
+            const retained = previous ? formatPercent(step.count, previous.count) : '100%'
+            const dropped = previous ? Math.max(0, toNumber(previous.count) - toNumber(step.count)) : 0
+            return (
+              <div className="pipeline-funnel-row" key={step.key}>
+                <div className="pipeline-funnel-label">
+                  <span className="pipeline-step-index">{index + 1}</span>
+                  <div>
+                    <strong>{step.label}</strong>
+                    <span>{step.note}</span>
                   </div>
                 </div>
-                <span className="status-badge status-pending">{formatRouteDestinationLabel(trace.paper.route_destination)}</span>
+                <div className="pipeline-funnel-bar-wrap">
+                  <div className={`pipeline-funnel-bar ${step.count <= 0 ? 'pipeline-funnel-bar-empty' : ''}`} style={{ width: `${width}%` }}>
+                    {step.count > 0 && <span>{formatCount(step.count)}</span>}
+                  </div>
+                </div>
+                <div className="pipeline-funnel-meta">
+                  <strong>{formatCount(step.count)}</strong>
+                  <span>{index === 0 ? 'start' : `${retained} kept`}</span>
+                  {index > 0 && (
+                    <span>{formatCount(dropped)} did not reach this step</span>
+                  )}
+                </div>
               </div>
-              <div className="table-scroll">
-                <table className="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Step</th>
-                      <th>Status</th>
-                      <th>Detail</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {traceRows.length === 0 ? (
-                      <tr><td colSpan="4">No trace rows for this paper yet.</td></tr>
-                    ) : traceRows.map((row, index) => (
-                      <tr key={`${row.step}-${row.at}-${index}`}>
-                        <td>{formatDate(row.at)}</td>
-                        <td>{row.step}</td>
-                        <td>{row.status}</td>
-                        <td>{row.detail}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+            )
+          })}
         </div>
-      )}
+      </section>
 
       <div className="pipeline-generated-at">
-        Snapshot generated {formatDate(snapshot?.generated_at)} · pass rates are {formatPercent(steps.reduce((sum, step) => sum + step.passedNext, 0), steps.reduce((sum, step) => sum + step.entered, 0))} across entered items in this view.
+        Showing {filters.range === 'all' ? 'all time' : PIPELINE_RANGE_OPTIONS.find((option) => option.value === filters.range)?.label.toLowerCase()}.
       </div>
     </div>
   )
@@ -1913,7 +1683,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [pipelineSnapshot, setPipelineSnapshot] = useState(null)
   const [pipelineError, setPipelineError] = useState(null)
   const [loadingPipeline, setLoadingPipeline] = useState(false)
-  const [pipelineAutoRefresh, setPipelineAutoRefresh] = useState(true)
   const paperListRef = useRef(null)
 
   const reviewerById = useMemo(() => buildReviewerMap(cockpitData.reviewerProfiles), [cockpitData.reviewerProfiles])
@@ -2152,14 +1921,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     if (!canSeeCockpit || activeView !== 'pipeline') return
     void refreshPipeline()
   }, [activeView, canSeeCockpit, refreshPipeline])
-
-  useEffect(() => {
-    if (!canSeeCockpit || activeView !== 'pipeline' || !pipelineAutoRefresh) return undefined
-    const intervalId = window.setInterval(() => {
-      void refreshPipeline()
-    }, 60000)
-    return () => window.clearInterval(intervalId)
-  }, [activeView, canSeeCockpit, pipelineAutoRefresh, refreshPipeline])
 
   useEffect(() => {
     if (reviewerProfile && !canSeeCockpit && activeView !== 'queue' && activeView !== 'my-suggestions') {
@@ -2881,8 +2642,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           loading={loadingPipeline}
           error={pipelineError}
           onRefresh={refreshPipeline}
-          autoRefresh={pipelineAutoRefresh}
-          setAutoRefresh={setPipelineAutoRefresh}
         />
       )}
 

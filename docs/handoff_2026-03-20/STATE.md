@@ -67,7 +67,7 @@ Important RPCs/functions:
 - `approve_label_submission(p_label_submission_id, p_approval_annotation_id, p_decision_kind, p_approval_note)`
 - `build_label_payload_diff(original, final)`
 - `current_user_can_approve_labels()`
-- `get_pipeline_ops_snapshot(p_start_at, p_end_at, p_workflow_language, p_paper_id)`: cockpit-only aggregate/trace endpoint for the Pipeline tab. It is security-definer because `paper_stage_tasks` remains service-role managed.
+- `get_pipeline_ops_snapshot(p_start_at, p_end_at, p_workflow_language, p_paper_id)`: cockpit-only aggregate endpoint for the Pipeline tab. It is security-definer because `paper_stage_tasks` remains service-role managed.
 
 Legacy tables preserved for audit/history:
 
@@ -87,7 +87,7 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 - `Queue`: shared available paper list, AI prefill from latest Gemini `has_data` `ai_extractions.normalized_payload_json`, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized useful AI output; AI `no_usable_data` decisions are provisional skips outside the labeler queue, and AI reasoning is not shown to labelers.
 - `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers.
 - `Dashboard`: labeler performance and detailed correction history.
-- `Pipeline`: cockpit-only operational funnel for crawler search, PDF acquisition, Gemma screening, Gemini extraction, and human review. It uses the `get_pipeline_ops_snapshot` RPC to show accepted/rejected/pass-forward counts by step, current stage queues, recent AI task errors, time/language filters, and a paper-ID trace without exposing raw model reasoning.
+- `Pipeline`: cockpit-only operational view for crawler search, PDF acquisition, Gemma screening, Gemini extraction, and human review. It uses the `get_pipeline_ops_snapshot` RPC to show a simple "Right Now" queue block plus an all-time-by-default funnel with a time filter.
 - `Useful Papers`: useful paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload. Provisional AI no-data skips are hidden from this default overview.
 - `Reviewers`: admin table for active/tester/cockpit/approval flags.
 - `Suggestions`: cockpit/admin-only suggestion and general queue help triage.
@@ -193,7 +193,7 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 - Live clean-break verification found `0` unresolved legacy slot assignments and `0` unresolved legacy user assignments.
 - Live reviewer config currently has `1` active approver.
 - On 2026-05-09, manual live ops verified the English-only route end to end. The live DB had `49` English papers after crawl/upload, no Turkish papers from the run, `19` completed Gemma tasks, `3` completed Gemini tasks, no stuck `processing` tasks after cleanup, and `2` visible general-queue `human_review_ready` papers with normalized Gemini `has_data` payloads.
-- On 2026-05-13, the Pipeline Ops RPC/view migration was applied to the live Supabase DB and verified with a cockpit-profile claim. A 24-hour English snapshot returned live crawler/stage/human counts, including Gemma, Gemini, current queue, and recent task-error aggregates.
+- On 2026-05-13, the Pipeline RPC/view migration was applied to the live Supabase DB and verified with a cockpit-profile claim. The view was later simplified to presentation-first current queues plus an all-time paper funnel.
 
 ## Still Needs Attention
 
