@@ -44,6 +44,7 @@ async function main() {
         'submit_general_label',
         'approve_label_submission',
         'build_label_payload_diff',
+        'get_pipeline_ops_snapshot',
         'touch_assignment_workspace',
         'upsert_reviewer_admin_config',
         'mark_assignment_global_no_data',

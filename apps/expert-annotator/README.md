@@ -64,6 +64,10 @@ If you change highlighting behavior:
 - test words near punctuation
 - test across several PDFs, not only one
 
+## Cockpit Ops
+
+The cockpit `Pipeline` tab is backed by `get_pipeline_ops_snapshot`. After schema changes, apply `migration.sql` before deploying the frontend so the tab can read crawler, stage-task, AI, and human-review aggregates.
+
 ## Deployment
 
 This app is linked to a Vercel project through `.vercel/project.json`.

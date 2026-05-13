@@ -1,6 +1,6 @@
 # OpenNutri Reviewer Workflow Map
 
-Last verified: 2026-05-02 against `apps/expert-annotator/src/pages/Annotate.jsx`, `apps/expert-annotator/migration.sql`, `services/data-pipeline/scripts/refill_assignment_queue.py`, `services/data-pipeline/scripts/daily_ops_orchestrator.py`, and `services/data-pipeline/scripts/ensure_paper_stock.py`.
+Last verified: 2026-05-13 against `apps/expert-annotator/src/pages/Annotate.jsx`, `apps/expert-annotator/migration.sql`, `services/data-pipeline/scripts/refill_assignment_queue.py`, `services/data-pipeline/scripts/daily_ops_orchestrator.py`, and `services/data-pipeline/scripts/ensure_paper_stock.py`.
 
 This is the maintained internal map for the active reviewer workflow. The old slot/cross-check workflow remains in historical tables only; do not use it as the source of truth for new work.
 
@@ -58,6 +58,7 @@ Core RPCs:
 - `submit_general_label(p_annotation_id, p_decision_kind, p_submission_metadata)`: freezes a labeler payload. If the caller can approve labels, it also creates approval and final outcome.
 - `approve_label_submission(p_label_submission_id, p_approval_annotation_id, p_decision_kind, p_approval_note)`: approver-only finalization. It preserves the original labeler payload, stores the corrected reviewer payload, supersedes other pending submissions for the paper, and writes `paper_review_outcomes`.
 - `build_label_payload_diff(original, final)`: deterministic correction summary used for dashboard mistake detail.
+- `get_pipeline_ops_snapshot(p_start_at, p_end_at, p_workflow_language, p_paper_id)`: cockpit-only `SECURITY DEFINER` RPC that powers the Pipeline tab. It aggregates crawler/search, protected `paper_stage_tasks`, AI extraction, routing, and human-review counts and can return a per-paper trace without exposing raw model reasoning.
 
 ## UI Behavior
 
@@ -84,6 +85,14 @@ Core RPCs:
 - Built from `paper_label_submissions`, `paper_label_approvals`, and `paper_review_outcomes`.
 - Summarizes submitted, pending, accepted, corrected, superseded, and correction-item counts per labeler.
 - Detail rows show the original decision/payload count, final decision/payload count, correction count, decision changes, and approval notes.
+
+### Pipeline
+
+- Visible to cockpit/approver accounts.
+- Shows the operational funnel from crawler search to PDF acquisition, Gemma screening, Gemini extraction, human-ready queue, submissions, approvals, and final outcomes.
+- Supports time window, language, and paper-ID filters. Default time window is the current UTC day to match scheduled daily ops counters.
+- Stage counts use `paper_stage_tasks` for entered/current/completed/failed work and `ai_extractions` for accepted/rejected/pass-forward decisions.
+- The paper trace shows search hits, task state, AI stage decisions, submissions, approvals, and final outcome for one paper ID. It must stay operational and normalized; do not show raw model reasoning in this trace.
 
 ### Useful Papers
 

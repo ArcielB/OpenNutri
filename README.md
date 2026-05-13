@@ -39,6 +39,7 @@ Features:
 - Exact-match general submission snapshots are stored in `paper_label_submissions`; accepted/corrected reviewer payloads and mistake diffs are stored in `paper_label_approvals`.
 - Cockpit users can inspect general queue health, pending approval, labeler performance, source yield, and detailed correction history.
 - Cockpit users can also inspect AI-routing state, edit stage thresholds (`positive_threshold`, `negative_threshold`, `audit_rate`), and review each useful paper's latest normalized AI extraction from the Useful Papers screen.
+- Cockpit users can inspect the full Pipeline Ops funnel from crawler search to PDF acquisition, Gemma, Gemini, and human review. The view supports UTC/time-window, language, and paper-ID filters, shows accepted/rejected/pass-forward counts per step, current Gemma/Gemini queues, recent task errors, and a per-paper trace.
 - The cockpit-only Useful Papers view shows useful paper routing state, latest AI extraction details, general submissions, approval status, and final outcomes. Provisional AI no-data skips are hidden from this default overview.
 - Cockpit write actions remain restricted to non-tester cockpit users through `current_user_has_cockpit_write_access()`.
 - Test mode toggle to disable DB writes and store actions locally.
@@ -72,6 +73,7 @@ Notes:
   `current_stage_key`, `routing_status`, `routing_bucket`, `route_destination`, `latest_ai_extraction_id`, `routing_updated_at`.
 - `paper_search_hits` stores metadata-stage search discoveries separately from downloaded papers, including source, language, rendered query text, search-gate score, filter score, and duplicate status.
 - `paper_search_batches` and `paper_search_batch_hits` now store per-query-batch history separately from hit evidence, so the crawler can evaluate exact query batches by downstream label yield without duplicating raw hit rows.
+- `get_pipeline_ops_snapshot(p_start_at, p_end_at, p_workflow_language, p_paper_id)` is the cockpit-only RPC backing the Pipeline Ops tab. It is `SECURITY DEFINER` so cockpit users can see aggregate `paper_stage_tasks` queue/error state without granting direct task-table reads to every authenticated user.
 - Suggestion images are stored in the private `suggestion-attachments` Supabase Storage bucket; attachment metadata is saved in `backlog_review_items.attachments`.
 
 Frontend config and templates:
@@ -236,7 +238,7 @@ GitHub Actions daily ops requires repository secrets with these same names:
   Arciel currently has `can_approve_labels=true`; approval rights are configurable in reviewer admin.
   Arciel submissions auto-accept; other submissions go to Approval, where Arciel can edit and accept the final payload.
   `paper_label_approvals.correction_diff_json` records what changed between the labeler payload and accepted reviewer payload.
-  `tester_access` keeps an account read-only, while `tester_access + cockpit_access` can inspect Approval, Dashboard, and Useful Papers without mutating live state.
+  `tester_access` keeps an account read-only, while `tester_access + cockpit_access` can inspect Approval, Dashboard, Pipeline, and Useful Papers without mutating live state.
   Legacy slot membership tables remain in the schema for old audit data but should not be used for new queue work.
 - PDF highlighting is table-scoped and precision-first.
   The viewer builds a page-local allowlist from PDF.js text content and only highlights detected table body/header cells plus table caption/title lines.

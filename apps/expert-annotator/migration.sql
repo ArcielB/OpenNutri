@@ -4517,3 +4517,505 @@ BEGIN
             ON paper_global_labels FOR ALL TO service_role USING (true) WITH CHECK (true);
     END IF;
 END $$;
+
+CREATE INDEX IF NOT EXISTS idx_paper_stage_tasks_stage_completed
+    ON paper_stage_tasks(stage_key, completed_at DESC)
+    WHERE completed_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ai_extractions_stage_created
+    ON ai_extractions(stage_key, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_paper_review_outcomes_resolved
+    ON paper_review_outcomes(resolved_at DESC);
+
+CREATE OR REPLACE FUNCTION public.get_pipeline_ops_snapshot(
+    p_start_at TIMESTAMPTZ DEFAULT NULL,
+    p_end_at TIMESTAMPTZ DEFAULT NULL,
+    p_workflow_language TEXT DEFAULT NULL,
+    p_paper_id INTEGER DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_language TEXT := NULLIF(lower(trim(coalesce(p_workflow_language, ''))), '');
+    v_crawler JSONB;
+    v_papers JSONB;
+    v_routing JSONB;
+    v_stages JSONB;
+    v_human JSONB;
+    v_recent_errors JSONB;
+    v_trace JSONB := NULL;
+BEGIN
+    IF NOT public.current_user_has_cockpit_access() THEN
+        RAISE EXCEPTION 'Cockpit access required'
+            USING ERRCODE = '42501';
+    END IF;
+
+    IF v_language NOT IN ('en', 'tr') THEN
+        v_language := NULL;
+    END IF;
+
+    SELECT jsonb_build_object(
+        'search_hits', count(*),
+        'search_gate_passed', count(*) FILTER (WHERE h.search_gate_pass IS TRUE),
+        'search_gate_rejected', count(*) FILTER (WHERE h.search_gate_pass IS FALSE),
+        'metadata_passed', count(*) FILTER (WHERE h.filter_pass IS TRUE),
+        'metadata_rejected', count(*) FILTER (WHERE h.filter_pass IS FALSE),
+        'duplicates', count(*) FILTER (WHERE h.is_duplicate IS TRUE),
+        'linked_to_paper', count(*) FILTER (WHERE h.paper_id IS NOT NULL)
+    )
+    INTO v_crawler
+    FROM paper_search_hits h
+    LEFT JOIN papers p ON p.id = h.paper_id
+    WHERE (p_start_at IS NULL OR h.discovered_at >= p_start_at)
+      AND (p_end_at IS NULL OR h.discovered_at < p_end_at)
+      AND (v_language IS NULL OR h.workflow_language = v_language)
+      AND (p_paper_id IS NULL OR h.paper_id = p_paper_id);
+
+    v_crawler := v_crawler || (
+        SELECT jsonb_build_object(
+            'batch_results', coalesce(sum(b.results), 0),
+            'batch_search_gate_passed', coalesce(sum(b.search_gate_passed), 0),
+            'batch_search_gate_rejected', coalesce(sum(greatest(b.results - b.search_gate_passed, 0)), 0),
+            'batch_filter_passed', coalesce(sum(b.filter_passed), 0),
+            'batch_duplicates', coalesce(sum(b.duplicates), 0),
+            'batch_skipped_seen', coalesce(sum(b.skipped_seen), 0),
+            'batch_accepted', coalesce(sum(b.accepted), 0),
+            'batch_metadata_rejected', coalesce(sum(b.metadata_rejected), 0),
+            'batch_pdf_fetch_fail', coalesce(sum(b.pdf_fetch_fail), 0),
+            'batch_pdf_validation_fail', coalesce(sum(b.pdf_validation_fail), 0)
+        )
+        FROM paper_search_batches b
+        WHERE p_paper_id IS NULL
+          AND (p_start_at IS NULL OR b.created_at >= p_start_at)
+          AND (p_end_at IS NULL OR b.created_at < p_end_at)
+          AND (v_language IS NULL OR b.workflow_language = v_language)
+    );
+
+    SELECT jsonb_build_object(
+        'uploaded', count(*) FILTER (
+            WHERE (p_start_at IS NULL OR p.created_at >= p_start_at)
+              AND (p_end_at IS NULL OR p.created_at < p_end_at)
+        ),
+        'total_in_scope', count(*),
+        'with_latest_ai', count(*) FILTER (WHERE p.latest_ai_extraction_id IS NOT NULL),
+        'human_review_ready_current', count(*) FILTER (WHERE p.routing_status = 'human_review_ready'),
+        'ai_processing_current', count(*) FILTER (WHERE p.routing_status = 'ai_processing'),
+        'queued_for_ai_current', count(*) FILTER (WHERE p.routing_status = 'queued_for_ai'),
+        'provisional_skip_current', count(*) FILTER (WHERE p.routing_status = 'ai_provisional_no_usable_data'),
+        'ai_failed_current', count(*) FILTER (WHERE p.routing_status = 'ai_failed')
+    )
+    INTO v_papers
+    FROM papers p
+    WHERE (v_language IS NULL OR p.workflow_language = v_language)
+      AND (p_paper_id IS NULL OR p.id = p_paper_id);
+
+    SELECT coalesce(
+        jsonb_agg(
+            jsonb_build_object(
+                'routing_status', coalesce(grouped.routing_status, 'unset'),
+                'count', grouped.count
+            )
+            ORDER BY grouped.routing_status
+        ),
+        '[]'::jsonb
+    )
+    INTO v_routing
+    FROM (
+        SELECT p.routing_status, count(*) AS count
+        FROM papers p
+        WHERE (v_language IS NULL OR p.workflow_language = v_language)
+          AND (p_paper_id IS NULL OR p.id = p_paper_id)
+        GROUP BY p.routing_status
+    ) grouped;
+
+    SELECT coalesce(
+        jsonb_agg(
+            jsonb_build_object(
+                'stage_key', c.stage_key,
+                'display_name', c.display_name,
+                'model_name', c.model_name,
+                'prompt_version', c.prompt_version,
+                'active', c.active,
+                'stage_order', c.stage_order,
+                'entered', (
+                    SELECT count(*)
+                    FROM paper_stage_tasks t
+                    JOIN papers p ON p.id = t.paper_id
+                    WHERE t.stage_key = c.stage_key
+                      AND (p_start_at IS NULL OR t.created_at >= p_start_at)
+                      AND (p_end_at IS NULL OR t.created_at < p_end_at)
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'queued', (
+                    SELECT count(*)
+                    FROM paper_stage_tasks t
+                    JOIN papers p ON p.id = t.paper_id
+                    WHERE t.stage_key = c.stage_key
+                      AND t.status = 'queued'
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'processing', (
+                    SELECT count(*)
+                    FROM paper_stage_tasks t
+                    JOIN papers p ON p.id = t.paper_id
+                    WHERE t.stage_key = c.stage_key
+                      AND t.status = 'processing'
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'completed', (
+                    SELECT count(*)
+                    FROM paper_stage_tasks t
+                    JOIN papers p ON p.id = t.paper_id
+                    WHERE t.stage_key = c.stage_key
+                      AND t.status = 'completed'
+                      AND (p_start_at IS NULL OR t.completed_at >= p_start_at)
+                      AND (p_end_at IS NULL OR t.completed_at < p_end_at)
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'failed', (
+                    SELECT count(*)
+                    FROM paper_stage_tasks t
+                    JOIN papers p ON p.id = t.paper_id
+                    WHERE t.stage_key = c.stage_key
+                      AND t.status = 'failed'
+                      AND (p_start_at IS NULL OR t.updated_at >= p_start_at)
+                      AND (p_end_at IS NULL OR t.updated_at < p_end_at)
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'cancelled', (
+                    SELECT count(*)
+                    FROM paper_stage_tasks t
+                    JOIN papers p ON p.id = t.paper_id
+                    WHERE t.stage_key = c.stage_key
+                      AND t.status = 'cancelled'
+                      AND (p_start_at IS NULL OR t.updated_at >= p_start_at)
+                      AND (p_end_at IS NULL OR t.updated_at < p_end_at)
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'accepted', (
+                    SELECT count(*)
+                    FROM ai_extractions a
+                    JOIN papers p ON p.id = a.paper_id
+                    WHERE a.stage_key = c.stage_key
+                      AND coalesce(a.normalized_payload_json ->> 'decision_kind', CASE WHEN a.is_useful THEN 'has_data' ELSE 'no_usable_data' END) = 'has_data'
+                      AND (p_start_at IS NULL OR a.created_at >= p_start_at)
+                      AND (p_end_at IS NULL OR a.created_at < p_end_at)
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'rejected', (
+                    SELECT count(*)
+                    FROM ai_extractions a
+                    JOIN papers p ON p.id = a.paper_id
+                    WHERE a.stage_key = c.stage_key
+                      AND coalesce(a.normalized_payload_json ->> 'decision_kind', CASE WHEN a.is_useful THEN 'has_data' ELSE 'no_usable_data' END) = 'no_usable_data'
+                      AND (p_start_at IS NULL OR a.created_at >= p_start_at)
+                      AND (p_end_at IS NULL OR a.created_at < p_end_at)
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'passed_next', (
+                    SELECT count(*)
+                    FROM ai_extractions a
+                    JOIN papers p ON p.id = a.paper_id
+                    WHERE a.stage_key = c.stage_key
+                      AND coalesce(a.normalized_payload_json ->> 'decision_kind', CASE WHEN a.is_useful THEN 'has_data' ELSE 'no_usable_data' END) = 'has_data'
+                      AND a.route_destination IN ('next_stage', 'human_review', 'finalized')
+                      AND (p_start_at IS NULL OR a.created_at >= p_start_at)
+                      AND (p_end_at IS NULL OR a.created_at < p_end_at)
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'provisional_skips', (
+                    SELECT count(*)
+                    FROM ai_extractions a
+                    JOIN papers p ON p.id = a.paper_id
+                    WHERE a.stage_key = c.stage_key
+                      AND a.route_destination = 'provisional_skip'
+                      AND (p_start_at IS NULL OR a.created_at >= p_start_at)
+                      AND (p_end_at IS NULL OR a.created_at < p_end_at)
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'avg_seconds', (
+                    SELECT round(avg(extract(epoch FROM (t.completed_at - t.started_at)))::numeric, 1)
+                    FROM paper_stage_tasks t
+                    JOIN papers p ON p.id = t.paper_id
+                    WHERE t.stage_key = c.stage_key
+                      AND t.status = 'completed'
+                      AND t.started_at IS NOT NULL
+                      AND t.completed_at IS NOT NULL
+                      AND (p_start_at IS NULL OR t.completed_at >= p_start_at)
+                      AND (p_end_at IS NULL OR t.completed_at < p_end_at)
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                ),
+                'last_completed_at', (
+                    SELECT max(t.completed_at)
+                    FROM paper_stage_tasks t
+                    JOIN papers p ON p.id = t.paper_id
+                    WHERE t.stage_key = c.stage_key
+                      AND t.status = 'completed'
+                      AND (v_language IS NULL OR p.workflow_language = v_language)
+                      AND (p_paper_id IS NULL OR p.id = p_paper_id)
+                )
+            )
+            ORDER BY c.stage_order, c.stage_key
+        ),
+        '[]'::jsonb
+    )
+    INTO v_stages
+    FROM routing_stage_configs c
+    WHERE c.stage_kind = 'ai_model';
+
+    SELECT jsonb_build_object(
+        'ready_current', count(*) FILTER (WHERE p.routing_status = 'human_review_ready'),
+        'submitted', (
+            SELECT count(*)
+            FROM paper_label_submissions s
+            JOIN papers p2 ON p2.id = s.paper_id
+            WHERE (p_start_at IS NULL OR s.submitted_at >= p_start_at)
+              AND (p_end_at IS NULL OR s.submitted_at < p_end_at)
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        ),
+        'pending_approval_current', (
+            SELECT count(*)
+            FROM paper_label_submissions s
+            JOIN papers p2 ON p2.id = s.paper_id
+            WHERE s.status = 'pending_approval'
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        ),
+        'accepted_submissions', (
+            SELECT count(*)
+            FROM paper_label_submissions s
+            JOIN papers p2 ON p2.id = s.paper_id
+            WHERE s.status = 'accepted'
+              AND (p_start_at IS NULL OR coalesce(s.reviewed_at, s.submitted_at) >= p_start_at)
+              AND (p_end_at IS NULL OR coalesce(s.reviewed_at, s.submitted_at) < p_end_at)
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        ),
+        'superseded_submissions', (
+            SELECT count(*)
+            FROM paper_label_submissions s
+            JOIN papers p2 ON p2.id = s.paper_id
+            WHERE s.status = 'superseded'
+              AND (p_start_at IS NULL OR coalesce(s.reviewed_at, s.submitted_at) >= p_start_at)
+              AND (p_end_at IS NULL OR coalesce(s.reviewed_at, s.submitted_at) < p_end_at)
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        ),
+        'approvals', (
+            SELECT count(*)
+            FROM paper_label_approvals a
+            JOIN papers p2 ON p2.id = a.paper_id
+            WHERE (p_start_at IS NULL OR a.approved_at >= p_start_at)
+              AND (p_end_at IS NULL OR a.approved_at < p_end_at)
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        ),
+        'approved_has_data', (
+            SELECT count(*)
+            FROM paper_label_approvals a
+            JOIN papers p2 ON p2.id = a.paper_id
+            WHERE a.decision_kind = 'has_data'
+              AND (p_start_at IS NULL OR a.approved_at >= p_start_at)
+              AND (p_end_at IS NULL OR a.approved_at < p_end_at)
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        ),
+        'approved_no_data', (
+            SELECT count(*)
+            FROM paper_label_approvals a
+            JOIN papers p2 ON p2.id = a.paper_id
+            WHERE a.decision_kind = 'no_usable_data'
+              AND (p_start_at IS NULL OR a.approved_at >= p_start_at)
+              AND (p_end_at IS NULL OR a.approved_at < p_end_at)
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        ),
+        'outcomes', (
+            SELECT count(*)
+            FROM paper_review_outcomes o
+            JOIN papers p2 ON p2.id = o.paper_id
+            WHERE (p_start_at IS NULL OR o.resolved_at >= p_start_at)
+              AND (p_end_at IS NULL OR o.resolved_at < p_end_at)
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        ),
+        'outcomes_has_data', (
+            SELECT count(*)
+            FROM paper_review_outcomes o
+            JOIN papers p2 ON p2.id = o.paper_id
+            WHERE o.decision_kind = 'has_data'
+              AND (p_start_at IS NULL OR o.resolved_at >= p_start_at)
+              AND (p_end_at IS NULL OR o.resolved_at < p_end_at)
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        ),
+        'outcomes_no_data', (
+            SELECT count(*)
+            FROM paper_review_outcomes o
+            JOIN papers p2 ON p2.id = o.paper_id
+            WHERE o.decision_kind = 'no_usable_data'
+              AND (p_start_at IS NULL OR o.resolved_at >= p_start_at)
+              AND (p_end_at IS NULL OR o.resolved_at < p_end_at)
+              AND (v_language IS NULL OR p2.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p2.id = p_paper_id)
+        )
+    )
+    INTO v_human
+    FROM papers p
+    WHERE (v_language IS NULL OR p.workflow_language = v_language)
+      AND (p_paper_id IS NULL OR p.id = p_paper_id);
+
+    SELECT coalesce(
+        jsonb_agg(
+            jsonb_build_object(
+                'paper_id', errors.paper_id,
+                'title', errors.title,
+                'stage_key', errors.stage_key,
+                'status', errors.status,
+                'attempt_count', errors.attempt_count,
+                'updated_at', errors.updated_at,
+                'last_error', left(errors.last_error, 800)
+            )
+            ORDER BY errors.updated_at DESC
+        ),
+        '[]'::jsonb
+    )
+    INTO v_recent_errors
+    FROM (
+        SELECT t.paper_id, p.title, t.stage_key, t.status, t.attempt_count, t.updated_at, t.last_error
+        FROM paper_stage_tasks t
+        JOIN papers p ON p.id = t.paper_id
+        WHERE t.last_error IS NOT NULL
+          AND t.last_error <> ''
+          AND (p_start_at IS NULL OR t.updated_at >= p_start_at)
+          AND (p_end_at IS NULL OR t.updated_at < p_end_at)
+          AND (v_language IS NULL OR p.workflow_language = v_language)
+          AND (p_paper_id IS NULL OR p.id = p_paper_id)
+        ORDER BY t.updated_at DESC
+        LIMIT 12
+    ) errors;
+
+    IF p_paper_id IS NOT NULL THEN
+        SELECT jsonb_build_object(
+            'paper', coalesce((
+                SELECT to_jsonb(p)
+                FROM papers p
+                WHERE p.id = p_paper_id
+            ), 'null'::jsonb),
+            'search_hits', coalesce((
+                SELECT jsonb_agg(to_jsonb(h) ORDER BY h.discovered_at DESC)
+                FROM (
+                    SELECT id, source, source_record_id, external_id, pmcid, doi, title,
+                           workflow_language, template_id, source_term, term_type,
+                           query_phrase, search_gate_score, search_gate_pass, filter_score,
+                           filter_pass, is_duplicate, discovered_at
+                    FROM paper_search_hits
+                    WHERE paper_id = p_paper_id
+                    ORDER BY discovered_at DESC
+                    LIMIT 25
+                ) h
+            ), '[]'::jsonb),
+            'stage_tasks', coalesce((
+                SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at)
+                FROM (
+                    SELECT id, stage_key, status, priority, attempt_count, last_error,
+                           created_at, started_at, completed_at, updated_at
+                    FROM paper_stage_tasks
+                    WHERE paper_id = p_paper_id
+                    ORDER BY created_at
+                ) t
+            ), '[]'::jsonb),
+            'ai_extractions', coalesce((
+                SELECT jsonb_agg(
+                    jsonb_build_object(
+                        'id', a.id,
+                        'stage_key', a.stage_key,
+                        'model_name', a.model_name,
+                        'prompt_version', a.prompt_version,
+                        'decision_kind', coalesce(a.normalized_payload_json ->> 'decision_kind', CASE WHEN a.is_useful THEN 'has_data' ELSE 'no_usable_data' END),
+                        'overall_confidence', a.overall_confidence,
+                        'routing_bucket', a.routing_bucket,
+                        'route_destination', a.route_destination,
+                        'status', a.status,
+                        'audit_sampled', a.audit_sampled,
+                        'finalized_without_human', a.finalized_without_human,
+                        'accepted_row_count', coalesce(a.raw_data #>> '{normalization_summary,accepted_row_count}', '0'),
+                        'rejected_row_count', coalesce(a.raw_data #>> '{normalization_summary,rejected_row_count}', '0'),
+                        'created_at', a.created_at
+                    )
+                    ORDER BY a.created_at
+                )
+                FROM ai_extractions a
+                WHERE a.paper_id = p_paper_id
+            ), '[]'::jsonb),
+            'label_submissions', coalesce((
+                SELECT jsonb_agg(to_jsonb(s) ORDER BY s.submitted_at)
+                FROM (
+                    SELECT id, reviewer_profile_id, decision_kind, status, submitted_at, reviewed_at,
+                           jsonb_array_length(coalesce(payload_json -> 'food_items', '[]'::jsonb)) AS food_count
+                    FROM paper_label_submissions
+                    WHERE paper_id = p_paper_id
+                    ORDER BY submitted_at
+                ) s
+            ), '[]'::jsonb),
+            'label_approvals', coalesce((
+                SELECT jsonb_agg(to_jsonb(a) ORDER BY a.approved_at)
+                FROM (
+                    SELECT id, label_submission_id, approver_profile_id, decision_kind, approved_at,
+                           jsonb_array_length(coalesce(payload_json -> 'food_items', '[]'::jsonb)) AS food_count
+                    FROM paper_label_approvals
+                    WHERE paper_id = p_paper_id
+                    ORDER BY approved_at
+                ) a
+            ), '[]'::jsonb),
+            'review_outcomes', coalesce((
+                SELECT jsonb_agg(to_jsonb(o) ORDER BY o.resolved_at)
+                FROM (
+                    SELECT id, decision_kind, resolution_source, truth_source_kind, source_stage_key,
+                           source_model_name, source_confidence, resolved_at
+                    FROM paper_review_outcomes
+                    WHERE paper_id = p_paper_id
+                    ORDER BY resolved_at
+                ) o
+            ), '[]'::jsonb)
+        )
+        INTO v_trace;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'generated_at', now(),
+        'filters', jsonb_build_object(
+            'start_at', p_start_at,
+            'end_at', p_end_at,
+            'workflow_language', v_language,
+            'paper_id', p_paper_id
+        ),
+        'crawler', coalesce(v_crawler, '{}'::jsonb),
+        'papers', coalesce(v_papers, '{}'::jsonb),
+        'routing_status', coalesce(v_routing, '[]'::jsonb),
+        'stages', coalesce(v_stages, '[]'::jsonb),
+        'human_review', coalesce(v_human, '{}'::jsonb),
+        'recent_errors', coalesce(v_recent_errors, '[]'::jsonb),
+        'paper_trace', v_trace
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_pipeline_ops_snapshot(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, INTEGER) TO authenticated;
