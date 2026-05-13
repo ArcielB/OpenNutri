@@ -68,6 +68,7 @@ Core RPCs:
 - Labelers only see available papers and their own draft content.
 - Labelers do not see other labeler names, submission counts, or approval status.
 - Every visible queue paper must already have a latest Gemini `has_data` extraction with normalized output. If a paper has no saved annotation, the form initializes from that `ai_extractions.normalized_payload_json` and preloads editable DB-compliant food/nutrient rows. AI `no_usable_data` decisions are provisional skips outside the labeler queue. AI reasoning is not shown in the labeling queue.
+- Queue papers show a compact AI evidence strip when normalized rows carry source evidence. Badges are deduplicated by broad table/paragraph/page location; matched table labels or source quotes highlight the PDF text region, page-only hints scroll without coloring the full page, and unmatched hints stay visible as unverified.
 - `Save Draft` writes only the user's annotation/food/nutrient rows.
 - `Submit Reviewed Data` or `No Usable Data` writes annotation rows, inserts a `paper_label_events` audit row, then calls `submit_general_label()`.
 - `Ask for Help` inserts a `backlog_review_items` row with `context.request_kind = general_queue_help_request`.
@@ -79,6 +80,7 @@ Core RPCs:
 - Arciel can approve as-is or edit before approval; both paths call `approve_label_submission()`.
 - The original submission is never overwritten.
 - Other pending submissions for that paper become `superseded` after final approval.
+- Approval uses the same broad evidence strip for the editable final payload so Arciel can jump to table/paragraph evidence while reviewing corrections.
 
 ### Dashboard
 

@@ -1037,6 +1037,25 @@ body {
   background: rgba(91, 107, 240, 0.45);
 }
 
+.textLayer .evidence-highlight {
+  background: rgba(245, 158, 11, 0.22);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.24);
+  position: relative;
+  z-index: 0;
+}
+
+.textLayer .evidence-highlight-active {
+  background: rgba(34, 197, 94, 0.26);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.42);
+}
+
+.textLayer .evidence-highlight .nutrient-highlight {
+  z-index: 2;
+}
+
 /* ===== NUTRIENT POPOVER ===== */
 .nutrient-popover {
   position: fixed;
@@ -1258,6 +1277,92 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-secondary);
+}
+
+.evidence-strip {
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
+.conflict-header + .evidence-strip {
+  margin: 0;
+  padding: 10px 16px;
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+}
+
+.evidence-strip-label {
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.evidence-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.evidence-badge {
+  min-width: 124px;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-family: var(--font);
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.evidence-badge:hover,
+.evidence-badge.active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.evidence-badge-main,
+.evidence-badge-meta {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.evidence-badge-main {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.evidence-badge-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.evidence-badge-matched {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.11);
+}
+
+.evidence-badge-hinted {
+  border-color: rgba(245, 158, 11, 0.42);
+  background: rgba(245, 158, 11, 0.10);
+}
+
+.evidence-badge-unverified {
+  border-color: rgba(148, 163, 184, 0.35);
 }
 
 .dashboard-page {

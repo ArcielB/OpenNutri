@@ -3,6 +3,11 @@ import { supabase } from '../supabaseClient'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
 import SuggestionModal from '../components/SuggestionModal'
+import {
+  buildEvidenceLocationsFromFoodItems,
+  getDefaultEvidenceStatus,
+  getEvidenceDisplayLabel,
+} from '../utils/EvidenceLocations'
 import { appendTestEvent, isTestModeEnabled, setTestModeEnabled } from '../utils/testMode'
 
 const SUPPORTED_WORKFLOW_LANGUAGES = ['en', 'tr']
@@ -557,6 +562,46 @@ function AiPrefillStatus({ extraction, initializedExtractionId }) {
   )
 }
 
+function EvidenceStrip({ locations, statuses, selectedEvidenceId, onSelect }) {
+  if (!locations.length) return null
+
+  return (
+    <div className="evidence-strip">
+      <div className="evidence-strip-label">Evidence</div>
+      <div className="evidence-badge-row">
+        {locations.map((location) => {
+          const status = statuses[location.id] || getDefaultEvidenceStatus(location)
+          const pageLabel = status.pageNumber || location.pageHint ? `Page ${status.pageNumber || location.pageHint}` : null
+          const rowLabel = `${location.rowCount} ${location.rowCount === 1 ? 'row' : 'rows'}`
+          return (
+            <button
+              key={location.id}
+              type="button"
+              className={`evidence-badge evidence-badge-${status.status} ${selectedEvidenceId === location.id ? 'active' : ''}`}
+              title={buildEvidenceTitle(location, status)}
+              onClick={() => onSelect(location)}
+            >
+              <span className="evidence-badge-main">{getEvidenceDisplayLabel(location)}</span>
+              <span className="evidence-badge-meta">
+                {[status.label, pageLabel, rowLabel].filter(Boolean).join(' · ')}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function buildEvidenceTitle(location, status) {
+  return [
+    getEvidenceDisplayLabel(location),
+    status.label,
+    location.sourceCitation,
+    location.sourceQuote,
+  ].filter(Boolean).join(' · ')
+}
+
 function PayloadSummary({ submission, reviewer, title = null }) {
   const payload = submission?.payload_json || {}
   const foodItems = Array.isArray(payload?.food_items) ? payload.food_items : []
@@ -655,9 +700,33 @@ function QueueView({
   saveAnnotation,
   aiPrefillExtractionId,
 }) {
+  const evidenceFoodItems = useMemo(() => {
+    const hasVisibleRows = (foodItems || []).some((item) => (item?.nutrients || []).length > 0)
+    if (hasVisibleRows) return foodItems
+    return buildFoodItemsFromPayload(currentItem?.latest_ai_extraction?.normalized_payload_json)
+  }, [currentItem?.latest_ai_extraction?.normalized_payload_json, foodItems])
+  const evidenceLocations = useMemo(
+    () => buildEvidenceLocationsFromFoodItems(evidenceFoodItems),
+    [evidenceFoodItems]
+  )
+  const [evidenceStatuses, setEvidenceStatuses] = useState({})
+  const [activeEvidence, setActiveEvidence] = useState(null)
+  const activeEvidenceId = evidenceLocations.some((location) => location.id === activeEvidence?.id)
+    ? activeEvidence.id
+    : null
+
   return (
     <div className="workspace">
-      <PdfViewer pdfUrl={pdfUrl} allNutrients={allNutrients} onAddNutrient={handlePdfNutrientAdd} theme={theme} />
+      <PdfViewer
+        pdfUrl={pdfUrl}
+        allNutrients={allNutrients}
+        onAddNutrient={handlePdfNutrientAdd}
+        theme={theme}
+        evidenceLocations={evidenceLocations}
+        activeEvidenceId={activeEvidenceId}
+        activeEvidenceRequestId={activeEvidenceId ? activeEvidence?.requestId || null : null}
+        onEvidenceStatusesChange={setEvidenceStatuses}
+      />
 
       <div className="annotation-panel">
         <div className="queue-assignment-header">
@@ -730,6 +799,12 @@ function QueueView({
                 </div>
               )}
               <AiPrefillStatus extraction={currentItem.latest_ai_extraction} initializedExtractionId={aiPrefillExtractionId} />
+              <EvidenceStrip
+                locations={evidenceLocations}
+                statuses={evidenceStatuses}
+                selectedEvidenceId={activeEvidenceId}
+                onSelect={(location) => setActiveEvidence({ id: location.id, requestId: Date.now() })}
+              />
               {foodItems.map((item, index) => (
                 <FoodItemForm
                   key={`${currentItem.id}-${index}`}
@@ -798,6 +873,19 @@ function ApprovalView({
 }) {
   const submitter = selectedSubmission ? reviewerById[selectedSubmission.reviewer_profile_id] : null
   const approvalHasFood = approvalFoodItems.filter(isValidFoodItem).length > 0
+  const evidenceFoodItems = useMemo(
+    () => approvalDecision === 'has_data' ? approvalFoodItems : [],
+    [approvalDecision, approvalFoodItems]
+  )
+  const evidenceLocations = useMemo(
+    () => buildEvidenceLocationsFromFoodItems(evidenceFoodItems),
+    [evidenceFoodItems]
+  )
+  const [evidenceStatuses, setEvidenceStatuses] = useState({})
+  const [activeEvidence, setActiveEvidence] = useState(null)
+  const activeEvidenceId = evidenceLocations.some((location) => location.id === activeEvidence?.id)
+    ? activeEvidence.id
+    : null
 
   return (
     <div className="workspace conflict-workspace">
@@ -823,7 +911,16 @@ function ApprovalView({
         </div>
       </div>
 
-      <PdfViewer pdfUrl={pdfUrl} allNutrients={allNutrients} onAddNutrient={handleApprovalPdfNutrientAdd} theme={theme} />
+      <PdfViewer
+        pdfUrl={pdfUrl}
+        allNutrients={allNutrients}
+        onAddNutrient={handleApprovalPdfNutrientAdd}
+        theme={theme}
+        evidenceLocations={evidenceLocations}
+        activeEvidenceId={activeEvidenceId}
+        activeEvidenceRequestId={activeEvidenceId ? activeEvidence?.requestId || null : null}
+        onEvidenceStatusesChange={setEvidenceStatuses}
+      />
 
       <div className="annotation-panel conflict-panel">
         {!selectedSubmission ? (
@@ -841,6 +938,12 @@ function ApprovalView({
                 {formatStatusLabel(selectedSubmission.status)}
               </div>
             </div>
+            <EvidenceStrip
+              locations={evidenceLocations}
+              statuses={evidenceStatuses}
+              selectedEvidenceId={activeEvidenceId}
+              onSelect={(location) => setActiveEvidence({ id: location.id, requestId: Date.now() })}
+            />
 
             <div className="annotation-scroll conflict-scroll">
               <div className="payload-grid">

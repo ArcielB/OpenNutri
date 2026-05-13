@@ -36,6 +36,14 @@ SUPPORTED_STANDARD_UNITS = {
     "IU/100g",
     "%",
 }
+EVIDENCE_METADATA_KEYS = (
+    "table_label",
+    "page_hint",
+    "source_quote",
+    "source_location_type",
+    "section_heading",
+    "paragraph_hint",
+)
 
 
 @dataclass(frozen=True)
@@ -344,7 +352,7 @@ def normalize_ai_payload_with_summary(
             unmapped_nutrient_count += 1
 
         metadata = _normalize_metadata(row.get("metadata"))
-        for evidence_key in ("table_label", "page_hint", "source_quote"):
+        for evidence_key in EVIDENCE_METADATA_KEYS:
             if row.get(evidence_key) is not None:
                 metadata[evidence_key] = _json_safe_value(row.get(evidence_key))
         flags = _normalize_string_list(row.get("flags"))
@@ -773,6 +781,9 @@ def _record_to_mapping(record: object) -> Mapping[str, object]:
         "table_label": getattr(record, "table_label", None),
         "page_hint": getattr(record, "page_hint", None),
         "source_quote": getattr(record, "source_quote", None),
+        "source_location_type": getattr(record, "source_location_type", None),
+        "section_heading": getattr(record, "section_heading", None),
+        "paragraph_hint": getattr(record, "paragraph_hint", None),
         "flags": getattr(record, "flags", None),
         "raw_food_name": getattr(record, "raw_food_name", None),
         "raw_nutrient_name": getattr(record, "raw_nutrient_name", None),

@@ -1,3 +1,5 @@
+import { EVIDENCE_STATUS } from './EvidenceLocations.js'
+
 /**
  * PdfTextScanner renders highlight markup for individual PDF text items,
  * builds precision-first table-only highlight plans from PDF.js text content,
@@ -14,6 +16,7 @@ const SKIP_NAMES = new Set([
 ])
 
 const CAPTION_PREFIX_RE = /^(table|tablo|çizelge)\s+(\d+)(?=$|[\s.:-])/iu
+const SOURCE_TABLE_LABEL_RE = /\b(?:table|tablo|çizelge)\s*[.:#-]?\s*([0-9]+[A-Za-z]?)/iu
 const HEADER_TOKEN_RE = /\b(%RSD|RSD|ANAL[Iİ]T)\b/iu
 const UNIT_TOKEN_RE = /\([^)]{1,24}\)/u
 const LETTER_RE = /[A-Za-zÇĞİÖŞÜçğıöşü]/g
@@ -21,6 +24,7 @@ const LOWER_LETTER_RE = /[a-zçğıöşü]/g
 const TOKEN_SPLIT_RE = /\s+/u
 const PURE_WHITESPACE_RE = /^\s*$/u
 const NUMERIC_TOKEN_RE = /^[<>~]?\d+(?:[.,]\d+)?$/u
+const ELLIPSIS_SPLIT_RE = /(?:\.{2,}|…)/u
 const SAMPLE_CODE_RE = /^(?:[A-Za-z]{1,4}\d{1,3}|\d{1,3}[A-Za-z]{1,4}|[A-Za-z]-\d{1,3}|\d{1,3}-[A-Za-z]|[A-Za-z]{1,4}\d{1,3}-[A-Za-z]{1,4})$/u
 const ABBREVIATION_TOKEN_RE = /^(?:[A-ZÇĞİÖŞÜ]\.){1,4}$/u
 
@@ -95,6 +99,87 @@ export function buildPageTableHighlightPlan(textContent) {
     }
 }
 
+export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = [], pageNumber = null) {
+    const locations = Array.isArray(evidenceLocations) ? evidenceLocations : []
+    const itemEvidenceIds = new Map()
+    const matches = []
+
+    if (locations.length === 0) {
+        return { itemEvidenceIds, matches }
+    }
+
+    const items = extractPositionedTextItems(textContent)
+    if (items.length === 0) {
+        return {
+            itemEvidenceIds,
+            matches: buildPageHintMatches(locations, pageNumber),
+        }
+    }
+
+    const metrics = buildPageMetrics(items)
+    const rows = groupItemsIntoRows(items, metrics)
+    if (rows.length === 0) {
+        return {
+            itemEvidenceIds,
+            matches: buildPageHintMatches(locations, pageNumber),
+        }
+    }
+
+    const tableRegions = buildConfidentTableRegions(rows, metrics)
+
+    for (const location of locations) {
+        if (!location?.id) continue
+
+        const pageMatchesHint = pageNumber && Number(location.pageHint) === Number(pageNumber)
+        const shouldSearchPage = !location.pageHint || pageMatchesHint
+        let matched = false
+
+        if (shouldSearchPage) {
+            const tableRegion = findMatchingTableRegion(tableRegions, location)
+            if (tableRegion) {
+                const itemIndexes = Array.from(tableRegion.allowedItemIndexes)
+                addEvidenceItemIndexes(itemEvidenceIds, itemIndexes, location.id)
+                matches.push({
+                    evidenceId: location.id,
+                    status: EVIDENCE_STATUS.MATCHED,
+                    matchType: 'table',
+                    pageNumber,
+                    itemIndexes,
+                })
+                matched = true
+            }
+        }
+
+        if (!matched && shouldSearchPage && location.sourceQuote) {
+            const quoteMatch = findSourceQuoteRowMatch(rows, location.sourceQuote)
+            if (quoteMatch) {
+                const itemIndexes = Array.from(itemIndexesForRows(quoteMatch.rows))
+                addEvidenceItemIndexes(itemEvidenceIds, itemIndexes, location.id)
+                matches.push({
+                    evidenceId: location.id,
+                    status: EVIDENCE_STATUS.MATCHED,
+                    matchType: 'quote',
+                    pageNumber,
+                    itemIndexes,
+                })
+                matched = true
+            }
+        }
+
+        if (!matched && pageMatchesHint) {
+            matches.push({
+                evidenceId: location.id,
+                status: EVIDENCE_STATUS.HINTED,
+                matchType: 'page_hint',
+                pageNumber,
+                itemIndexes: [],
+            })
+        }
+    }
+
+    return { itemEvidenceIds, matches }
+}
+
 export function scanTextForNutrients(text, matcher) {
     const matchedIds = new Set()
 
@@ -142,6 +227,18 @@ export function renderTextItemWithNutrientHighlights(text, matcher, options = {}
     }
 
     return html
+}
+
+export function renderTextItemWithEvidenceHighlight(renderedHtml, evidenceIds, activeEvidenceId = null) {
+    if (!evidenceIds || evidenceIds.size === 0) {
+        return renderedHtml
+    }
+
+    const ids = Array.from(evidenceIds).sort()
+    const isActive = activeEvidenceId && ids.includes(activeEvidenceId)
+    const className = `evidence-highlight${isActive ? ' evidence-highlight-active' : ''}`
+
+    return `<span class="${className}" data-evidence-ids="${escapeHtmlAttribute(ids.join(' '))}">${renderedHtml}</span>`
 }
 
 export function bindNutrientHighlightInteractions(interactionRootEl, onNutrientClick) {
@@ -617,6 +714,143 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
         bodyRowCount: new Set(bodyRowIndexes).size,
         allowedItemIndexes,
     }
+}
+
+function buildConfidentTableRegions(rows, metrics) {
+    const captionBlocks = buildCaptionBlocks(rows, metrics)
+    if (captionBlocks.length === 0) {
+        return []
+    }
+
+    const confidentRegions = []
+    for (let index = 0; index < captionBlocks.length; index += 1) {
+        const block = captionBlocks[index]
+        const nextBlock = captionBlocks[index + 1] || null
+        const region = buildTableRegionForCaptionBlock(block, rows, metrics, nextBlock?.startRowIndex ?? rows.length)
+        if (region.isConfident) {
+            confidentRegions.push(region)
+        }
+    }
+
+    return confidentRegions
+}
+
+function buildPageHintMatches(locations, pageNumber) {
+    if (!pageNumber) return []
+    return locations
+        .filter((location) => location?.id && Number(location.pageHint) === Number(pageNumber))
+        .map((location) => ({
+            evidenceId: location.id,
+            status: EVIDENCE_STATUS.HINTED,
+            matchType: 'page_hint',
+            pageNumber,
+            itemIndexes: [],
+        }))
+}
+
+function findMatchingTableRegion(tableRegions, location) {
+    const tableNumber = parseTableNumber(location.tableLabel || location.sourceCitation)
+    if (tableNumber !== null) {
+        const numberedMatch = tableRegions.find((region) => Number(region.captionNumber) === tableNumber)
+        if (numberedMatch) return numberedMatch
+    }
+
+    const tableLabel = normalizeSearchText(location.tableLabel)
+    if (!tableLabel) return null
+
+    return tableRegions.find((region) => normalizeSearchText(region.captionText).includes(tableLabel)) || null
+}
+
+function findSourceQuoteRowMatch(rows, sourceQuote) {
+    const matcher = buildSourceQuoteMatcher(sourceQuote)
+    if (!matcher) return null
+
+    const maxWindowSize = Math.min(4, rows.length)
+    for (let windowSize = 1; windowSize <= maxWindowSize; windowSize += 1) {
+        for (let startIndex = 0; startIndex <= rows.length - windowSize; startIndex += 1) {
+            const endIndex = startIndex + windowSize
+            const windowText = rows.slice(startIndex, endIndex).map(rowSearchText).join(' ')
+            if (sourceQuoteMatchesText(matcher, windowText)) {
+                return {
+                    rows: rows.slice(startIndex, endIndex),
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+function buildSourceQuoteMatcher(sourceQuote) {
+    const normalizedQuote = normalizeSearchText(sourceQuote)
+    if (normalizedQuote.length < 8) return null
+
+    const chunks = String(sourceQuote || '')
+        .split(ELLIPSIS_SPLIT_RE)
+        .map(normalizeSearchText)
+        .filter((chunk) => chunk.length >= 4)
+
+    return {
+        normalizedQuote,
+        chunks: chunks.length > 1 ? chunks : [],
+    }
+}
+
+function sourceQuoteMatchesText(matcher, text) {
+    const normalizedText = normalizeSearchText(text)
+    if (normalizedText.includes(matcher.normalizedQuote)) {
+        return true
+    }
+
+    if (matcher.chunks.length === 0) {
+        return false
+    }
+
+    let cursor = 0
+    for (const chunk of matcher.chunks) {
+        const index = normalizedText.indexOf(chunk, cursor)
+        if (index < 0) return false
+        cursor = index + chunk.length
+    }
+    return true
+}
+
+function rowSearchText(row) {
+    return row.fragments.map((fragment) => fragment.normalizedText).join(' ')
+}
+
+function itemIndexesForRows(rows) {
+    const itemIndexes = new Set()
+    for (const row of rows) {
+        for (const fragment of row.fragments) {
+            fragment.visibleItemIndexes.forEach((itemIndex) => itemIndexes.add(itemIndex))
+        }
+    }
+    return itemIndexes
+}
+
+function addEvidenceItemIndexes(itemEvidenceIds, itemIndexes, evidenceId) {
+    for (const itemIndex of itemIndexes) {
+        if (!itemEvidenceIds.has(itemIndex)) {
+            itemEvidenceIds.set(itemIndex, new Set())
+        }
+        itemEvidenceIds.get(itemIndex).add(evidenceId)
+    }
+}
+
+function parseTableNumber(value) {
+    const match = String(value || '').match(SOURCE_TABLE_LABEL_RE)
+    if (!match) return null
+    const parsed = Number.parseInt(match[1], 10)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeSearchText(value) {
+    return String(value || '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}%]+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
 }
 
 function expandSpan(span, margin) {

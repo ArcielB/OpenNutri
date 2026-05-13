@@ -31,7 +31,7 @@ Features:
 - Editable queue papers with no saved annotation open as AI-prefilled verification tasks from the latest `ai_extractions.normalized_payload_json`; the AI output is preloaded into editable food/nutrient rows, existing drafts/submissions are never overwritten, and labelers see only DB-compliant extraction rows plus compact matched/custom/rejected row badges, not AI reasoning.
 - Reviewer approval workflow: Arciel currently has `can_approve_labels=true`; Arciel submissions auto-accept, while non-Arciel submissions go to an approver-only Approval page where Arciel can edit and accept final truth.
 - Read-only tester/developer cockpit accounts can inspect Approval, Dashboard, and Useful Papers views but cannot approve or mutate live rows.
-- PDF viewer with table-scoped nutrient-name highlighting and click-to-add popover.
+- PDF viewer with table-scoped nutrient-name highlighting, click-to-add popover, and broad AI evidence badges that jump to matched table/paragraph text or page hints.
 - Food and nutrient autocomplete with ranking and search logging.
 - Save draft, submit usable-data extraction, or submit no-usable-data.
 - Labelers can send an `Ask for Help` request from a general-queue paper when the data is confusing; this creates a cockpit-visible review item with paper, AI, reviewer, and draft-food context.
@@ -99,7 +99,7 @@ Accepted papers now pass through a staged model router before humans ever see th
 `crawl -> upload -> Gemma proof extraction -> Gemini extraction -> human_review_ready or provisional skip`.
 The active enqueue stage is currently `gemma_proof_extraction_v1` using `gemma-4-26b-a4b-it`; `gemini_flash_db_payload_v2` is the second extraction stage.
 The AI model may extract broad candidate rows, but routing and AI finalization use a deterministic `normalized_payload_json` with the same contract as general human label submissions:
-`decision_kind`, DB/custom food identity, raw food name, preparation state, DB/custom nutrient identity, raw nutrient name, value, unit, basis, sample size, confidence, source citation, and row metadata.
+`decision_kind`, DB/custom food identity, raw food name, preparation state, DB/custom nutrient identity, raw nutrient name, value, unit, basis, sample size, confidence, source citation, and row metadata. Row metadata preserves broad evidence hints such as `table_label`, `page_hint`, `source_quote`, `source_location_type`, `section_heading`, and `paragraph_hint`.
 The AI extraction prompt is scoped to useful OpenNutri food composition data only. Papers about what a nutrient, supplement, extract, dose, diet, or food does to health outcomes, biomarkers, cells, animals, microbes, processing results, sensory scores, or other responses are treated as empty unless they also report useful direct food/product composition tables. One-off experimental treatment/formulation variants are no usable data unless they represent stable real-world foods/products worth adding to the DB.
 The evaluator prompt includes the full `master_nutrients` ID/name catalog plus high-signal food candidates matched from the paper text, but not the full food catalog. The normalizer accepts only DB-compatible units (`g/100g`, `mg/100g`, `μg/100g`, `kcal/100g`, `kJ/100g`, `IU/100g`, `%`) on supported bases, verifies AI-provided DB IDs against current reference rows, falls back to exact food/nutrient name or alias matching, and preserves unresolved foods/nutrients as explicit custom rows. Unsupported rows are rejected before routing. Raw model responses and normalization summaries remain in `ai_extractions.raw_data`; the DB-aligned review payload now preserves the row context needed for approval and hashing.
 The evaluator accepts the requested JSON object shape plus three common model variants: a top-level array of candidate composition rows, a single result object wrapped in a top-level array, and nested `food -> nutrients[]` rows. Those variants are flattened before normalization so valid model output does not become a retry-loop parse error.
@@ -240,10 +240,12 @@ GitHub Actions daily ops requires repository secrets with these same names:
   `paper_label_approvals.correction_diff_json` records what changed between the labeler payload and accepted reviewer payload.
   `tester_access` keeps an account read-only, while `tester_access + cockpit_access` can inspect Approval, Dashboard, Pipeline, and Useful Papers without mutating live state.
   Legacy slot membership tables remain in the schema for old audit data but should not be used for new queue work.
-- PDF highlighting is table-scoped and precision-first.
+- PDF highlighting is table-scoped and precision-first for nutrient-name click targets.
   The viewer builds a page-local allowlist from PDF.js text content and only highlights detected table body/header cells plus table caption/title lines.
   If a page has no confident local table anchor, or a table continues onto a captionless page, the viewer suppresses highlights on that page instead of falling back to page-wide prose matching.
   Highlight markup is still injected through `react-pdf` `customTextRenderer` on single PDF text items, so matches split across multiple items inside a table are still a separate follow-up.
+- AI evidence highlighting is broad location guidance, not exact nutrient-coordinate matching.
+  Queue and Approval build deduplicated evidence badges from normalized payload rows. A table label can highlight the detected table region, a source quote can highlight the matching line/paragraph block, and a page-only hint scrolls to that page without coloring the whole page. Unmatched AI evidence remains visible as unverified.
 
 **Contributing**
 When taking a backlog item:

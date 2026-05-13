@@ -547,6 +547,33 @@ class RoutingLogicTests(unittest.TestCase):
         self.assertEqual(nutrient["source_citation"], "Table 1, row 2")
         self.assertEqual(nutrient["confidence"], 0.9)
 
+    def test_normalized_payload_preserves_broad_evidence_metadata(self) -> None:
+        payload = normalize_ai_payload(
+            is_useful=True,
+            records=[
+                {
+                    "food_name": "Apple, raw",
+                    "nutrient_name": "Protein",
+                    "amount": 0.31,
+                    "unit": "g",
+                    "basis": "100g",
+                    "source_citation": "Results paragraph",
+                    "source_location_type": "paragraph",
+                    "section_heading": "Results",
+                    "paragraph_hint": "Composition paragraph",
+                    "source_quote": "Apple protein was 0.31 g per 100 g.",
+                    "page_hint": 6,
+                }
+            ],
+        )
+
+        metadata = payload["food_items"][0]["nutrients"][0]["metadata"]
+        self.assertEqual(metadata["source_location_type"], "paragraph")
+        self.assertEqual(metadata["section_heading"], "Results")
+        self.assertEqual(metadata["paragraph_hint"], "Composition paragraph")
+        self.assertEqual(metadata["source_quote"], "Apple protein was 0.31 g per 100 g.")
+        self.assertEqual(metadata["page_hint"], 6)
+
     def test_unified_evaluator_unwraps_single_result_object_array(self) -> None:
         evaluator = object.__new__(UnifiedEvaluator)
         root = evaluator._coerce_result_root(
@@ -942,6 +969,38 @@ Done."""
         self.assertEqual(result.data[0].raw_food_name, "Fuji apple")
         self.assertEqual(result.data[0].nutrient_id, "nutrient-vitc")
         self.assertEqual(result.data[0].raw_nutrient_name, "Ascorbic acid")
+
+    def test_broad_evidence_fields_are_copied_into_record_metadata(self) -> None:
+        evaluator = self.evaluator_with_response(
+            {
+                "reasoning": "Paragraph contains direct composition data.",
+                "is_useful": True,
+                "overall_confidence": 0.9,
+                "data": [
+                    {
+                        "food_name": "Pear",
+                        "nutrient_name": "Vitamin C",
+                        "amount": 4.6,
+                        "unit": "mg",
+                        "basis": "100g",
+                        "confidence": 0.8,
+                        "source_citation": "Results paragraph",
+                        "source_location_type": "paragraph",
+                        "section_heading": "Results",
+                        "paragraph_hint": "Composition paragraph",
+                        "source_quote": "Pear samples contained 4.6 mg vitamin C per 100 g.",
+                    }
+                ],
+            }
+        )
+
+        result = evaluator.evaluate_and_extract({"pmc_id": "paper-6", "title": "Paper", "full_text": "body"})
+
+        metadata = result.data[0].metadata
+        self.assertEqual(metadata["source_location_type"], "paragraph")
+        self.assertEqual(metadata["section_heading"], "Results")
+        self.assertEqual(metadata["paragraph_hint"], "Composition paragraph")
+        self.assertEqual(metadata["source_quote"], "Pear samples contained 4.6 mg vitamin C per 100 g.")
 
 
 class QueueAndBackfillTests(unittest.TestCase):

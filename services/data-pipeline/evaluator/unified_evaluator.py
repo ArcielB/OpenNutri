@@ -95,7 +95,8 @@ class UnifiedEvaluator:
 6. For each data point, preserve the explicit unit and basis from the paper so downstream validation can standardize it to the database payload.
 7. Use the nutrient catalog below. When a paper nutrient exactly matches a catalog row, output that row's nutrient_id and standard nutrient_name exactly. When no confident exact match exists, set nutrient_id to null and preserve the paper's nutrient name.
 8. Do not invent food IDs. If high-signal food candidates are provided and a paper food exactly matches a candidate's canonical_name or alias, output its food_fdc_id; otherwise set food_fdc_id to null and preserve the paper's food name.
-9. Preserve row context needed for database review: raw paper names, preparation state, sample size, confidence, source citation, page/table hints, short source quote, and metadata such as cultivar, location, edible portion, analysis method, storage, and harvest date.
+9. Preserve row context needed for database review: raw paper names, preparation state, sample size, confidence, broad source location, page/table/paragraph hints, short source quote, and metadata such as cultivar, location, edible portion, analysis method, storage, and harvest date.
+10. Every extracted row must include enough broad evidence-location detail for a reviewer to navigate the PDF. Prefer one shared table-level location for many rows from the same table instead of inventing per-nutrient coordinates.
 
 **Nutrient Catalog**:
 {nutrient_catalog}
@@ -134,6 +135,9 @@ class UnifiedEvaluator:
       "page_hint": 5,
       "source_quote": "Fuji apple ... Vitamin C ... 4.6 mg/100g",
       "metadata": {{
+        "source_location_type": "table",
+        "section_heading": "Results",
+        "paragraph_hint": null,
         "cultivar": "Fuji",
         "location": "Japan",
         "harvest_date": "2024-09",
@@ -159,16 +163,19 @@ class UnifiedEvaluator:
 - preparation_state: State of the food (raw, cooked, boiled, dried, etc.).
 - sample_size: Number of samples (n=) as an integer, or null if not stated.
 - confidence: 0.0-1.0 score for THIS specific data point.
-- source_citation: SPECIFIC location (e.g., "Table 1, Row 2").
-- table_label: Table identifier if available (e.g., "Table 1"), otherwise null.
-- page_hint: PDF page number if available, otherwise null.
-- source_quote: Short exact excerpt containing the food/nutrient/value/unit evidence. Keep it under 40 words.
+- source_citation: Broad location label that a reviewer can recognize (e.g., "Table 1", "Table 1, row 2", "Results paragraph on vitamin C").
+- table_label: Table identifier if available (e.g., "Table 1"), otherwise null. Reuse the same table_label for all rows from the same table.
+- page_hint: PDF page number if available, otherwise null. This is a navigation hint, not a coordinate.
+- source_quote: Short exact excerpt from the table caption/header/body row or paragraph containing the evidence. Keep it under 40 words. Do not paraphrase.
+- metadata.source_location_type: "table", "paragraph", or "section".
+- metadata.section_heading: Nearby section heading if visible, otherwise null.
+- metadata.paragraph_hint: Short paragraph/location hint when the evidence is not in a table, otherwise null.
 
 **Critical Rules**:
 1. Return ONLY valid JSON.
 2. Do NOT hallucinate values.
 3. If is_useful is false, return an empty "data" array.
-4. Extract ALL nutrients from tables, not just a sample.
+4. Extract ALL nutrients from tables, not just a sample. For table rows, prefer table-level evidence shared across the table and use source_quote from the caption, header, or representative body row.
 5. Prefer rows reported per 100g or as percentages. Rows on other bases may be included as candidates only when the basis is explicit.
 6. Do not treat clinical outcomes, health effects, intervention outcomes, dose-response results, digestibility metrics, antioxidant assays, pH, color, texture, yield, microbial counts, enzyme activity, gene expression, blood/serum/tissue biomarkers, body composition, growth, survival, sensory scores, or other non-composition measurements as food composition nutrient values.
 7. Do not extract values that describe an administered nutrient amount, supplement dose, diet formulation dose, treatment concentration, or experimental exposure unless the table also reports the nutrient composition of the food itself.
@@ -279,7 +286,14 @@ Full Text:
                 metadata = item.get("metadata", {})
                 if not isinstance(metadata, dict):
                     metadata = {}
-                for evidence_key in ("table_label", "page_hint", "source_quote"):
+                for evidence_key in (
+                    "table_label",
+                    "page_hint",
+                    "source_quote",
+                    "source_location_type",
+                    "section_heading",
+                    "paragraph_hint",
+                ):
                     if item.get(evidence_key) is not None:
                         metadata[evidence_key] = item.get(evidence_key)
                 record = NutrientRecord(

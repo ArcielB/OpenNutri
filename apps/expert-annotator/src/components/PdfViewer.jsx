@@ -5,22 +5,35 @@ import 'react-pdf/dist/Page/TextLayer.css'
 import NutrientPopover from './NutrientPopover'
 import {
     bindNutrientHighlightInteractions,
+    buildPageEvidenceHighlightPlan,
     buildNutrientMatcher,
     buildPageTableHighlightPlan,
+    renderTextItemWithEvidenceHighlight,
     renderTextItemWithNutrientHighlights,
 } from '../utils/PdfTextScanner'
+import { mergeEvidenceStatuses } from '../utils/EvidenceLocations'
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
-export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }) {
+export default function PdfViewer({
+    pdfUrl,
+    allNutrients,
+    onAddNutrient,
+    theme,
+    evidenceLocations = [],
+    activeEvidenceId = null,
+    activeEvidenceRequestId = null,
+    onEvidenceStatusesChange = null,
+}) {
     const [numPages, setNumPages] = useState(null)
     const [currentPageNumber, setCurrentPageNumber] = useState(1)
     const [scale, setScale] = useState(1.2)
     const [popover, setPopover] = useState(null) // { nutrient, rect }
-    const [pageHighlightPlans, setPageHighlightPlans] = useState(() => ({}))
+    const [pageTextContents, setPageTextContents] = useState(() => ({}))
     const containerRef = useRef(null)
     const cleanupRef = useRef(null)
+    const lastEvidenceStatusesRef = useRef('')
 
     const nutrientMatcher = useMemo(() => {
         if (!allNutrients || allNutrients.length === 0) {
@@ -30,23 +43,53 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
         return buildNutrientMatcher(allNutrients)
     }, [allNutrients])
 
+    const buildPageHighlightPlan = useCallback(
+        (pageNumber, textContent) => {
+            const nextTablePlan = buildPageTableHighlightPlan(textContent)
+            const nextEvidencePlan = buildPageEvidenceHighlightPlan(textContent, evidenceLocations, pageNumber)
+
+            return {
+                isReady: true,
+                allowedItemIndexes: nextTablePlan.allowedItemIndexes,
+                evidenceItemIdsByIndex: nextEvidencePlan.itemEvidenceIds,
+                evidenceMatches: nextEvidencePlan.matches,
+            }
+        },
+        [evidenceLocations]
+    )
+
+    const pageHighlightPlans = useMemo(
+        () => Object.fromEntries(
+            Object.entries(pageTextContents).map(([pageNumber, textContent]) => [
+                Number(pageNumber),
+                buildPageHighlightPlan(Number(pageNumber), textContent),
+            ])
+        ),
+        [buildPageHighlightPlan, pageTextContents]
+    )
+
     const buildCustomTextRenderer = useCallback(
         (pageNumber) =>
             ({ str, itemIndex }) => {
                 const pagePlan = pageHighlightPlans[pageNumber]
-                return renderTextItemWithNutrientHighlights(str, nutrientMatcher, {
+                const nutrientHtml = renderTextItemWithNutrientHighlights(str, nutrientMatcher, {
                     allowHighlight: Boolean(
                         pagePlan?.isReady && pagePlan.allowedItemIndexes.has(itemIndex)
                     ),
                 })
+                return renderTextItemWithEvidenceHighlight(
+                    nutrientHtml,
+                    pagePlan?.evidenceItemIdsByIndex?.get(itemIndex),
+                    activeEvidenceId
+                )
             },
-        [nutrientMatcher, pageHighlightPlans]
+        [activeEvidenceId, nutrientMatcher, pageHighlightPlans]
     )
 
     function onDocumentLoadSuccess({ numPages }) {
         setNumPages(numPages)
         setCurrentPageNumber(1)
-        setPageHighlightPlans({})
+        setPageTextContents({})
     }
 
     const handleNutrientClick = useCallback((nutrient, rect) => {
@@ -58,14 +101,9 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
     })
 
     const handlePageTextSuccess = useCallback((pageNumber, textContent) => {
-        const nextPlan = buildPageTableHighlightPlan(textContent)
-
-        setPageHighlightPlans((previous) => ({
+        setPageTextContents((previous) => ({
             ...previous,
-            [pageNumber]: {
-                isReady: true,
-                allowedItemIndexes: nextPlan.allowedItemIndexes,
-            },
+            [pageNumber]: textContent,
         }))
     }, [])
 
@@ -86,6 +124,18 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
     useEffect(() => {
         closePopover()
     }, [pdfUrl, scale])
+
+    useEffect(() => {
+        if (!onEvidenceStatusesChange) return
+
+        const pageMatches = Object.values(pageHighlightPlans).flatMap((plan) => plan.evidenceMatches || [])
+        const statuses = mergeEvidenceStatuses(evidenceLocations, pageMatches)
+        const signature = JSON.stringify(statuses)
+        if (signature === lastEvidenceStatusesRef.current) return
+
+        lastEvidenceStatusesRef.current = signature
+        onEvidenceStatusesChange(statuses)
+    }, [evidenceLocations, onEvidenceStatusesChange, pageHighlightPlans])
 
     useEffect(() => {
         return () => {
@@ -132,6 +182,46 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
 
         return () => observer.disconnect()
     }, [numPages, pdfUrl, scale])
+
+    useEffect(() => {
+        if (!activeEvidenceId || !activeEvidenceRequestId) return
+        const panel = containerRef.current
+        if (!panel) return
+
+        const frameId = window.requestAnimationFrame(() => {
+            const matchedNode = Array.from(panel.querySelectorAll('[data-evidence-ids]'))
+                .find((node) => (node.dataset.evidenceIds || '').split(/\s+/).includes(activeEvidenceId))
+
+            if (matchedNode) {
+                matchedNode.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+                const pageNode = matchedNode.closest('[data-page-number]')
+                const pageNumber = Number(pageNode?.getAttribute('data-page-number') || 0)
+                if (Number.isFinite(pageNumber) && pageNumber > 0) {
+                    setCurrentPageNumber(pageNumber)
+                }
+                return
+            }
+
+            const targetPage =
+                findEvidenceMatchedPage(pageHighlightPlans, activeEvidenceId) ||
+                evidenceLocations.find((location) => location.id === activeEvidenceId)?.pageHint ||
+                null
+
+            if (!targetPage) return
+            const pageNode = panel.querySelector(`[data-page-number="${targetPage}"]`)
+            if (pageNode) {
+                pageNode.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'smooth' })
+                setCurrentPageNumber(Number(targetPage))
+            }
+        })
+
+        return () => window.cancelAnimationFrame(frameId)
+    }, [
+        activeEvidenceId,
+        activeEvidenceRequestId,
+        evidenceLocations,
+        pageHighlightPlans,
+    ])
 
     const handlePopoverAdd = (nutrientEntry) => {
         if (onAddNutrient) {
@@ -201,4 +291,14 @@ export default function PdfViewer({ pdfUrl, allNutrients, onAddNutrient, theme }
             )}
         </div>
     )
+}
+
+function findEvidenceMatchedPage(pageHighlightPlans, evidenceId) {
+    for (const [pageNumber, plan] of Object.entries(pageHighlightPlans || {})) {
+        const hasMatch = (plan.evidenceMatches || []).some(
+            (match) => match.evidenceId === evidenceId && match.status === 'matched'
+        )
+        if (hasMatch) return Number(pageNumber)
+    }
+    return null
 }

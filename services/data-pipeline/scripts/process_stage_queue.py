@@ -26,6 +26,7 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 from ai_routing import (
     BLOCKED_DESTINATION,
+    EVIDENCE_METADATA_KEYS,
     HUMAN_REVIEW_DESTINATION,
     NEXT_STAGE_DESTINATION,
     PROVISIONAL_SKIP_DESTINATION,
@@ -537,7 +538,7 @@ def score_followup_priority(*, ai_result, normalization_summary: dict, normalize
             if not isinstance(nutrient, dict):
                 continue
             metadata = nutrient.get("metadata") if isinstance(nutrient.get("metadata"), dict) else {}
-            if nutrient.get("source_citation") or metadata.get("table_label") or metadata.get("source_quote"):
+            if nutrient.get("source_citation") or any(metadata.get(key) for key in EVIDENCE_METADATA_KEYS):
                 evidence_rows += 1
             unit = str(nutrient.get("unit") or "").strip().lower()
             basis = str(nutrient.get("basis") or "").strip().lower()
@@ -714,6 +715,9 @@ def _serialize_ai_record(record) -> dict:
         "table_label": getattr(record, "table_label", None),
         "page_hint": getattr(record, "page_hint", None),
         "source_quote": getattr(record, "source_quote", None),
+        "source_location_type": getattr(record, "source_location_type", None),
+        "section_heading": getattr(record, "section_heading", None),
+        "paragraph_hint": getattr(record, "paragraph_hint", None),
         "metadata": getattr(record, "metadata", None),
         "flags": getattr(record, "flags", None),
     }
