@@ -538,22 +538,20 @@ function AiPrefillStatus({ extraction, initializedExtractionId }) {
   if (!extraction) return null
   const stats = getAiPrefillStats(extraction)
   const initialized = Boolean(initializedExtractionId && initializedExtractionId === extraction.id)
+  const customParts = [
+    stats.custom_food_count > 0 ? `${stats.custom_food_count} custom ${stats.custom_food_count === 1 ? 'food' : 'foods'}` : null,
+    stats.custom_nutrient_count > 0 ? `${stats.custom_nutrient_count} custom ${stats.custom_nutrient_count === 1 ? 'nutrient' : 'nutrients'}` : null,
+  ].filter(Boolean)
 
   return (
     <div className="ai-prefill-status">
       <span className={`status-badge ${initialized ? 'status-done' : 'status-pending'}`}>
-        {initialized ? 'AI Loaded' : 'AI Available'}
+        {initialized ? 'AI prefill ready' : 'AI suggestion available'}
       </span>
-      <span className={`status-badge ${stats.decision_kind === 'has_data' ? 'status-done' : 'status-skipped'}`}>
-        {formatDecisionLabel(stats.decision_kind)}
-      </span>
-      <span className="status-badge status-pending">{stats.accepted_row_count} rows</span>
-      <span className="status-badge status-done">{stats.matched_food_count} DB foods</span>
-      <span className="status-badge status-draft">{stats.custom_food_count} custom foods</span>
-      <span className="status-badge status-done">{stats.matched_nutrient_count} DB nutrients</span>
-      <span className="status-badge status-draft">{stats.custom_nutrient_count} custom nutrients</span>
+      <span className="status-badge status-pending">{stats.accepted_row_count} extracted rows</span>
+      {customParts.length > 0 && <span className="status-badge status-draft">{customParts.join(' · ')}</span>}
       {stats.rejected_row_count > 0 && (
-        <span className="status-badge status-skipped">{stats.rejected_row_count} rejected</span>
+        <span className="status-badge status-skipped">{stats.rejected_row_count} ignored rows</span>
       )}
     </div>
   )
@@ -2520,7 +2518,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       <div className="top-bar">
         <div className="top-bar-left">
           <span className="app-name">OpenNutri</span>
-          {testMode && <span className="test-mode-pill">TEST MODE</span>}
+          {testMode && <span className="test-mode-pill">{reviewerProfile?.tester_access ? 'READ ONLY' : 'TEST MODE'}</span>}
           {reviewerProfile?.can_approve_labels && <span className="status-badge status-done">APPROVER</span>}
         </div>
 
@@ -2558,9 +2556,11 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
             </div>
           )}
           {canSubmitSuggestion && (
-            <button className="suggestion-btn" onClick={() => setShowSuggestion(true)} title="Send a suggestion">💡</button>
+            <button className="suggestion-btn" onClick={() => setShowSuggestion(true)}>Suggest</button>
           )}
-          <button className={`test-mode-toggle ${testMode ? 'active' : ''}`} onClick={handleToggleTestMode}>Test Mode</button>
+          {!reviewerProfile?.tester_access && (
+            <button className={`test-mode-toggle ${testMode ? 'active' : ''}`} onClick={handleToggleTestMode}>Test Mode</button>
+          )}
           <button className="theme-toggle" onClick={toggleTheme} title="Toggle light/dark mode">
             {theme === 'dark' ? 'Light' : 'Dark'}
           </button>

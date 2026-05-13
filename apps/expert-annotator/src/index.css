@@ -2496,19 +2496,20 @@ body {
 }
 
 .suggestion-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
+  background: var(--accent-light);
+  border: 1px solid rgba(91, 107, 240, 0.28);
+  color: var(--accent);
   padding: 6px 10px;
   border-radius: var(--radius);
   cursor: pointer;
   font-size: 13px;
+  font-weight: 600;
   transition: all 0.2s;
 }
 
 .suggestion-btn:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  background: rgba(91, 107, 240, 0.18);
 }
 
 .test-mode-toggle {
