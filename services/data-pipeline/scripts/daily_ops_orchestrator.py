@@ -81,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run one resumable daily-ops tick and exit; intended for frequent GitHub cron recalls.",
     )
+    parser.add_argument(
+        "--interleave-extraction",
+        action="store_true",
+        help="In tick mode, also drain a bounded Gemini slice from already-ranked candidates after the Gemma slice.",
+    )
     parser.add_argument("--screening-stage-key", default="gemma_proof_extraction_v1", help="Cheap first-pass model stage key")
     parser.add_argument("--extraction-stage-key", default="gemini_flash_db_payload_v2", help="Downstream Gemini extraction stage key")
     parser.add_argument(
@@ -1023,6 +1028,76 @@ def _tick_drain_stage(
     return "tick_complete"
 
 
+def _tick_drain_extraction_if_available(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    summary: dict[str, Any],
+    screening_stage_key: str,
+    extraction_stage_key: str,
+    extraction_daily_target: int,
+    extraction_tick_tasks: int,
+    stage_rpm: dict[str, int],
+    day_start_iso: str,
+) -> str | None:
+    extraction_completed_today = _count_completed_stage_tasks_since(
+        client,
+        stage_key=extraction_stage_key,
+        since_iso=day_start_iso,
+    )
+    summary.setdefault("daily_completed", {})[extraction_stage_key] = extraction_completed_today
+    stage_summary = summary["stage_summaries"].get(extraction_stage_key)
+    if stage_summary is None:
+        stage_summary = _tick_stage_summary(
+            summary,
+            extraction_stage_key,
+            rpm=int(stage_rpm.get(extraction_stage_key, 15)),
+            role="extraction",
+            daily_target=extraction_daily_target,
+        )
+    if extraction_completed_today >= extraction_daily_target:
+        stage_summary["daily_target_reached"] = True
+        stage_summary["stop_reason"] = "daily_target_reached"
+        return "daily_target_reached"
+
+    _requeue_stale_stage_tasks(client, args, stage_key=extraction_stage_key, stage_summary=stage_summary)
+    queue_counts = _fetch_queue_counts(
+        client,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+    queue_count = int(queue_counts.get(extraction_stage_key) or 0)
+    stage_summary["queue_observations"].append(
+        {
+            "total": queue_counts["total"],
+            "queued_for_stage": queue_count,
+            "tick": True,
+            "interleaved": True,
+        }
+    )
+    _log(args, f"{extraction_stage_key} interleaved tick observation: completed_today={extraction_completed_today} queued_for_stage={queue_count}")
+    if queue_count <= 0:
+        stage_summary["queue_empty"] = True
+        stage_summary["stop_reason"] = "queue_empty"
+        return "no_extraction_candidates"
+
+    remaining_today = max(0, extraction_daily_target - extraction_completed_today)
+    drain_limit = min(extraction_tick_tasks, remaining_today, queue_count)
+    reason = _tick_drain_stage(
+        client,
+        args,
+        stage_key=extraction_stage_key,
+        stage_summary=stage_summary,
+        max_tasks=drain_limit,
+        summary=summary,
+        role="extraction",
+    )
+    assignment_after_ai = _assign_new_human_ready_after_ai(client, args, stage_summary)
+    if assignment_after_ai is not None:
+        summary["assignment_after_ai"] = assignment_after_ai
+    return reason
+
+
 def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
     screening_stage_key = str(getattr(args, "screening_stage_key", "gemma_proof_extraction_v1") or "gemma_proof_extraction_v1")
     extraction_stage_key = str(getattr(args, "extraction_stage_key", "gemini_flash_db_payload_v2") or "gemini_flash_db_payload_v2")
@@ -1052,6 +1127,7 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         "extraction_daily_target": extraction_daily_target,
         "screening_tick_tasks": screening_tick_tasks,
         "extraction_tick_tasks": extraction_tick_tasks,
+        "interleave_extraction": bool(getattr(args, "interleave_extraction", False)),
         "day_start_utc": day_start_iso,
         "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
         "ai_tasks_used": 0,
@@ -1180,6 +1256,19 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             summary["stopped_reason"] = "screening_daily_target_reached"
         else:
             summary["stopped_reason"] = reason
+        if bool(getattr(args, "interleave_extraction", False)) and reason not in {"ai_stage_configuration_error", "daily_quota_exhausted", "dry_run"}:
+            extraction_reason = _tick_drain_extraction_if_available(
+                client,
+                args,
+                summary=summary,
+                screening_stage_key=screening_stage_key,
+                extraction_stage_key=extraction_stage_key,
+                extraction_daily_target=extraction_daily_target,
+                extraction_tick_tasks=extraction_tick_tasks,
+                stage_rpm=stage_rpm,
+                day_start_iso=day_start_iso,
+            )
+            summary["interleaved_extraction_reason"] = extraction_reason
         return _finish_summary(
             client,
             summary,

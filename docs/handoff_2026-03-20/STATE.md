@@ -7,8 +7,8 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
 - Current acquisition mode is English-only. Turkish/DergiPark code remains available, but default refill and daily ops request `tr=0`, skip DergiPark, and use Europe PMC/OpenAlex/Semantic Scholar.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
-- Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and scheduled ops now run as recurring ticks keyed to UTC-day completion counts: prefill queued Gemma papers for the remaining 1500/day target at phase start, drain bounded Gemma slices without repeatedly crawling as the queue naturally falls, then drain Gemini candidates until 20 Gemini tasks complete that UTC day.
-- GitHub Actions daily ops is scheduled every 5 minutes. Each workflow invocation runs one `daily_ops_orchestrator.py --tick-mode` pass and exits, so delayed or cancelled runners are recovered by later ticks instead of relying on one long daily job.
+- Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and scheduled ops now run as recurring ticks keyed to UTC-day completion counts: prefill queued Gemma papers for the remaining 1500/day target at phase start, drain bounded Gemma slices without repeatedly crawling as the queue naturally falls, and interleave a small Gemini slice from already-ranked candidates so useful papers can reach humans before the full Gemma target completes.
+- GitHub Actions daily ops is scheduled every 5 minutes. Each workflow invocation runs one `daily_ops_orchestrator.py --tick-mode --interleave-extraction` pass and exits, so delayed or cancelled runners are recovered by later ticks instead of relying on one long daily job. The workflow intentionally allows overlapping scheduled ticks; DB task claiming prevents duplicate model work, and one serialized runner was too slow for the 1500/day Gemma target.
 - The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=300`, `AI_STAGE_MAX_TASK_ATTEMPTS=2`, `GEMINI_REQUEST_TIMEOUT_SECONDS=300`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=24000`. Gemma receives a capped head/tail excerpt small enough to avoid repeated 300-second Gemma timeouts; Gemini extraction remains uncapped unless a Gemini-specific cap is set. The 300-second model timeout is intentional so one slow paper cannot consume a large fraction of the GitHub Actions job cap.
 
 ## Documentation Pointers
@@ -125,7 +125,7 @@ Frontend validation currently passes with:
 - drains queued Gemma and Gemini stage tasks before requesting crawler refill;
 - triggers English-only crawler refill when visible stock is below `--target-open`.
 
-`services/data-pipeline/scripts/daily_ops_orchestrator.py` treats `--target-open` as compatibility/reporting only. Scheduled ops do not stop when the human queue is full; in `--tick-mode`, each run requeues stale stage tasks, checks UTC-day completed task counts, preloads or tops up Gemma stock only when the current phase/slice needs it, drains one bounded stage slice, and exits for the next cron recall.
+`services/data-pipeline/scripts/daily_ops_orchestrator.py` treats `--target-open` as compatibility/reporting only. Scheduled ops do not stop when the human queue is full; in `--tick-mode --interleave-extraction`, each run requeues stale stage tasks, checks UTC-day completed task counts, preloads or tops up Gemma stock only when the current phase/slice needs it, drains one bounded Gemma slice, drains a small Gemini slice when ranked candidates exist, and exits for the next cron recall.
 
 Daily ops order:
 
@@ -134,7 +134,7 @@ Daily ops order:
 3. Count queued Gemma work. At Gemma phase start, if queued work is below the remaining 1500/day target, crawl/upload English papers using the 1500-paper refill batch/chunk settings and `--refill-step-tr 0`; after the phase has started, only refill when the next bounded slice lacks queued work.
 4. Drain at most `--screening-tick-tasks 15` Gemma tasks, bounded by the remaining daily Gemma target and queued count, then exit.
 5. Once today's completed Gemma count is at least 1500, requeue stale Gemini `processing` tasks.
-6. Drain Gemini at highest-priority order for at most `--extraction-tick-tasks 15`, bounded by `--extraction-daily-target 20`, then assign any new `human_review_ready` papers.
+6. In scheduled interleaved mode, drain Gemini at highest-priority order for at most `--extraction-tick-tasks 2`, bounded by `--extraction-daily-target 20`, after each Gemma slice when ranked candidates exist; assign any new `human_review_ready` papers immediately.
 7. Fail non-quota task errors past `AI_STAGE_MAX_TASK_ATTEMPTS=2` instead of retrying forever; quota/rate-limit errors continue to requeue without consuming meaningful attempts.
 8. Stop on daily targets reached, stage quota, source exhaustion/no candidates, model configuration error, dry-run, or GitHub Actions job termination. The next 5-minute tick resumes from database state.
 
@@ -179,7 +179,7 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 - Drain AI routing queue:
   - `python3 services/data-pipeline/scripts/process_stage_queue.py`
 - Run daily ops:
-  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --json-summary --tick-mode --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 --max-wallclock-minutes 0 --screening-daily-target 1500 --screening-tick-tasks 15 --extraction-daily-target 20 --extraction-tick-tasks 15 --screening-refill-batch-en 1500 --screening-refill-chunk-en 1500 --screening-prefill-stall-limit 3 --refill-step-tr 0`
+  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --json-summary --tick-mode --interleave-extraction --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 --max-wallclock-minutes 0 --screening-daily-target 1500 --screening-tick-tasks 15 --extraction-daily-target 20 --extraction-tick-tasks 2 --screening-refill-batch-en 1500 --screening-refill-chunk-en 1500 --screening-prefill-stall-limit 3 --refill-step-tr 0`
 - Check shared queue stock / trigger refill loop:
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py --target-open 50`
 

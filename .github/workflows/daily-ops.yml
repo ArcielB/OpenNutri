@@ -7,10 +7,6 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
-concurrency:
-  group: opennutri-daily-ops
-  cancel-in-progress: false
-
 jobs:
   daily-ops:
     runs-on: ubuntu-latest
@@ -60,13 +56,14 @@ jobs:
             python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
               --json-summary \
               --tick-mode \
+              --interleave-extraction \
               --target-open 50 \
               --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 \
               --max-wallclock-minutes 0 \
               --screening-daily-target 1500 \
               --screening-tick-tasks 15 \
               --extraction-daily-target 20 \
-              --extraction-tick-tasks 15 \
+              --extraction-tick-tasks 2 \
               --screening-refill-batch-en 1500 \
               --screening-refill-chunk-en 1500 \
               --screening-prefill-stall-limit 3 \
