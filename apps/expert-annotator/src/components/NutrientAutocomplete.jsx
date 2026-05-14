@@ -281,7 +281,7 @@ export default function NutrientAutocomplete({ allNutrients, addedNutrientIds, o
             <input
                 type="text"
                 className="nutrient-search-input"
-                placeholder="🔍 Add nutrient..."
+                placeholder="Add nutrient..."
                 value={query}
                 onChange={handleInputChange}
                 onFocus={() => {
@@ -332,4 +332,3 @@ function formatUnit(unitName) {
     if (u === 'IU') return 'IU/100g'
     return `${unitName}/100g`
 }
-

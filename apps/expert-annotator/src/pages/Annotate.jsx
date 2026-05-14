@@ -539,57 +539,62 @@ function buildGeneralHelpContext({ item, paper, reviewerProfile, foodItems, init
   }
 }
 
-function AiPrefillStatus({ extraction, initializedExtractionId }) {
-  if (!extraction) return null
-  const stats = getAiPrefillStats(extraction)
-  const initialized = Boolean(initializedExtractionId && initializedExtractionId === extraction.id)
-  const customParts = [
-    stats.custom_food_count > 0 ? `${stats.custom_food_count} custom ${stats.custom_food_count === 1 ? 'food' : 'foods'}` : null,
-    stats.custom_nutrient_count > 0 ? `${stats.custom_nutrient_count} custom ${stats.custom_nutrient_count === 1 ? 'nutrient' : 'nutrients'}` : null,
-  ].filter(Boolean)
-
-  return (
-    <div className="ai-prefill-status">
-      <span className={`status-badge ${initialized ? 'status-done' : 'status-pending'}`}>
-        {initialized ? 'AI prefill ready' : 'AI suggestion available'}
-      </span>
-      <span className="status-badge status-pending">{stats.accepted_row_count} extracted rows</span>
-      {customParts.length > 0 && <span className="status-badge status-draft">{customParts.join(' · ')}</span>}
-      {stats.rejected_row_count > 0 && (
-        <span className="status-badge status-skipped">{stats.rejected_row_count} ignored rows</span>
-      )}
-    </div>
-  )
-}
-
 function EvidenceStrip({ locations, statuses, selectedEvidenceId, onSelect }) {
   if (!locations.length) return null
 
   return (
-    <div className="evidence-strip">
-      <div className="evidence-strip-label">Evidence</div>
-      <div className="evidence-badge-row">
+    <div className="evidence-strip" aria-label="Source hints">
+      <div className="evidence-strip-heading">
+        <span className="evidence-strip-label">Sources</span>
+        <span className="evidence-strip-count">{locations.length}</span>
+      </div>
+      <div className="evidence-badge-row" role="list">
         {locations.map((location) => {
           const status = statuses[location.id] || getDefaultEvidenceStatus(location)
+          const displayLabel = getEvidenceDisplayLabel(location)
           const pageLabel = status.pageNumber || location.pageHint ? `Page ${status.pageNumber || location.pageHint}` : null
-          const rowLabel = `${location.rowCount} ${location.rowCount === 1 ? 'row' : 'rows'}`
+          const secondaryLabel = pageLabel && pageLabel !== displayLabel ? pageLabel : null
           return (
             <button
               key={location.id}
               type="button"
               className={`evidence-badge evidence-badge-${status.status} ${selectedEvidenceId === location.id ? 'active' : ''}`}
               title={buildEvidenceTitle(location, status)}
+              aria-pressed={selectedEvidenceId === location.id}
               onClick={() => onSelect(location)}
             >
-              <span className="evidence-badge-main">{getEvidenceDisplayLabel(location)}</span>
-              <span className="evidence-badge-meta">
-                {[status.label, pageLabel, rowLabel].filter(Boolean).join(' · ')}
-              </span>
+              <span className={`evidence-status-dot evidence-status-dot-${status.status}`} aria-hidden="true" />
+              <span className="evidence-badge-main">{displayLabel}</span>
+              {secondaryLabel && <span className="evidence-badge-page">{secondaryLabel}</span>}
             </button>
           )
         })}
       </div>
     </div>
+  )
+}
+
+function ThemeIcon({ theme }) {
+  if (theme === 'dark') {
+    return (
+      <svg className="theme-toggle-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2" />
+        <path d="M12 20v2" />
+        <path d="m4.93 4.93 1.41 1.41" />
+        <path d="m17.66 17.66 1.41 1.41" />
+        <path d="M2 12h2" />
+        <path d="M20 12h2" />
+        <path d="m6.34 17.66-1.41 1.41" />
+        <path d="m19.07 4.93-1.41 1.41" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg className="theme-toggle-svg" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8Z" />
+    </svg>
   )
 }
 
@@ -698,7 +703,6 @@ function QueueView({
   handlePdfNutrientAdd,
   handleRequestHelp,
   saveAnnotation,
-  aiPrefillExtractionId,
 }) {
   const evidenceFoodItems = useMemo(() => {
     const hasVisibleRows = (foodItems || []).some((item) => (item?.nutrients || []).length > 0)
@@ -734,8 +738,9 @@ function QueueView({
             <div className="queue-assignment-toolbar">
               <div className="queue-toolbar-group">
                 <div className="paper-list-toggle" ref={paperListRef}>
-                  <button className="nav-btn" onClick={() => setShowPaperList((open) => !open)}>
-                    {currentIndex >= 0 ? `Paper ${currentIndex + 1}/${items.length}` : 'Queue'} ▾
+                  <button className="nav-btn nav-btn-with-icon" onClick={() => setShowPaperList((open) => !open)}>
+                    <span>{currentIndex >= 0 ? `Paper ${currentIndex + 1}/${items.length}` : 'Queue'}</span>
+                    <span className="chevron-icon" aria-hidden="true" />
                   </button>
                   {showPaperList && (
                     <div className="paper-list-dropdown">
@@ -798,7 +803,6 @@ function QueueView({
                   This account is read-only for live labeling.
                 </div>
               )}
-              <AiPrefillStatus extraction={currentItem.latest_ai_extraction} initializedExtractionId={aiPrefillExtractionId} />
               <EvidenceStrip
                 locations={evidenceLocations}
                 statuses={evidenceStatuses}
@@ -2664,8 +2668,13 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
           {!reviewerProfile?.tester_access && (
             <button className={`test-mode-toggle ${testMode ? 'active' : ''}`} onClick={handleToggleTestMode}>Test Mode</button>
           )}
-          <button className="theme-toggle" onClick={toggleTheme} title="Toggle light/dark mode">
-            {theme === 'dark' ? 'Light' : 'Dark'}
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            <ThemeIcon theme={theme} />
           </button>
           <span className="user-name">{reviewerProfile?.display_name || user.email}</span>
           <button className="btn btn-outline" onClick={onLogout}>Logout</button>
@@ -2701,7 +2710,6 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
             setShowHelpRequest(true)
           }}
           saveAnnotation={saveAnnotation}
-          aiPrefillExtractionId={currentItem ? aiPrefillSources[currentItem.id] : null}
         />
       )}
 

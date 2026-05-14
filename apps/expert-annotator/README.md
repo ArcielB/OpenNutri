@@ -8,6 +8,12 @@ Annotators use it to:
 - add food items and nutrient values
 - save usable or unusable paper outcomes
 
+## UI Notes
+
+- Queue AI prefill is intentionally quiet: normalized Gemini rows are loaded directly into editable food/nutrient fields without a visible AI-prefill banner.
+- Queue and Approval source navigation use the compact `Sources` strip; it still jumps to matched table/paragraph/page evidence.
+- Avoid emoji-dependent controls in the main workflow. Use stable text labels or icon-only buttons with accessible labels.
+
 ## Stack
 
 - React

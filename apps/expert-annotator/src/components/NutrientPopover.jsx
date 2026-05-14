@@ -82,7 +82,10 @@ export default function NutrientPopover({ nutrient, anchorRect, onAdd, onClose }
         <div className="nutrient-popover" ref={popoverRef}>
             <div className="popover-header">
                 <span className="popover-nutrient-name">{nutrient.name}</span>
-                <button className="popover-close" onClick={onClose}>✕</button>
+                <button type="button" className="popover-close icon-only-btn" onClick={onClose}>
+                    <span className="icon-x" aria-hidden="true" />
+                    <span className="visually-hidden">Close</span>
+                </button>
             </div>
             <div className="popover-body">
                 <input

@@ -42,8 +42,9 @@ export default function FoodItemForm({ index, data, onChange, onDelete, allNutri
         <div className="food-item-card">
             <div className="card-header">
                 <h3>Food {index + 1}</h3>
-                <button className="delete-btn" onClick={onDelete} title="Remove food item">
-                    ✕
+                <button type="button" className="delete-btn icon-only-btn" onClick={onDelete} title="Remove food item">
+                    <span className="icon-x" aria-hidden="true" />
+                    <span className="visually-hidden">Remove food item</span>
                 </button>
             </div>
 
@@ -84,11 +85,13 @@ export default function FoodItemForm({ index, data, onChange, onDelete, allNutri
                                 ))}
                             </select>
                             <button
+                                type="button"
                                 className="nutrient-row-remove"
                                 onClick={() => handleRemoveNutrient(idx)}
                                 title="Remove nutrient"
                             >
-                                ✕
+                                <span className="icon-x" aria-hidden="true" />
+                                <span className="visually-hidden">Remove nutrient</span>
                             </button>
                         </div>
                     ))}

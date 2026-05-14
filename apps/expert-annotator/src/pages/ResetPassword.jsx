@@ -95,7 +95,7 @@ export default function ResetPassword({ onDone }) {
     return (
         <div className="login-page">
             <div className="login-card">
-                <span className="logo">🔐</span>
+                <span className="logo" aria-hidden="true">ON</span>
                 <h1>Reset your password</h1>
                 <p className="subtitle">Create a new password for your account</p>
 

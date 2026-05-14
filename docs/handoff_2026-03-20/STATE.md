@@ -84,14 +84,14 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 
 `apps/expert-annotator/src/pages/Annotate.jsx` now exposes:
 
-- `Queue`: shared available paper list, AI prefill from latest Gemini `has_data` `ai_extractions.normalized_payload_json`, broad AI evidence badges for table/paragraph/page navigation, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized useful AI output; AI `no_usable_data` decisions are provisional skips outside the labeler queue, and AI reasoning is not shown to labelers.
-- `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers. The editable final payload uses the same broad evidence badges so approvers can jump to matched PDF table/paragraph regions or page hints.
+- `Queue`: shared available paper list, quiet AI prefill from latest Gemini `has_data` `ai_extractions.normalized_payload_json`, compact Sources strip for table/paragraph/page navigation, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized useful AI output; AI `no_usable_data` decisions are provisional skips outside the labeler queue, and AI reasoning or AI-prefill status banners are not shown to labelers.
+- `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers. The editable final payload uses the same compact Sources strip so approvers can jump to matched PDF table/paragraph regions or page hints.
 - `Dashboard`: labeler performance and detailed correction history.
 - `Pipeline`: cockpit-only operational view for crawler search, PDF acquisition, Gemma screening, Gemini extraction, and human review. It uses the `get_pipeline_ops_snapshot` RPC to show a simple "Right Now" queue block plus an all-time-by-default funnel with a time filter.
 - `Useful Papers`: useful paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload. Provisional AI no-data skips are hidden from this default overview.
 - `Reviewers`: admin table for active/tester/cockpit/approval flags.
 - `Suggestions`: cockpit/admin-only suggestion and general queue help triage.
-- `My Suggestions`: regular-labeler view that shows each of their submitted suggestion/help-request statuses; the `💡` submit button is hidden for cockpit/admin users.
+- `My Suggestions`: regular-labeler view that shows each of their submitted suggestion/help-request statuses; the `Suggest` submit button is hidden for cockpit/admin users.
 - Suggestion attachments are previewed from per-file signed storage URLs in both `Suggestions` (cockpit/admin) and `My Suggestions` (regular labeler) views, with an `Open full image` link per attachment.
 
 Frontend validation currently passes with:
@@ -105,7 +105,7 @@ Frontend validation currently passes with:
 - Active shared prompt contract is `opennutri_evidence_payload_v1` for Gemma and Gemini.
 - Upload enqueues `paper_stage_tasks` instead of running models inline.
 - AI extraction stores deterministic `normalized_payload_json` using the same top-level contract as human payloads, including DB/custom food identity, raw food name, preparation state, DB/custom nutrient identity, raw nutrient name, value, unit, basis, sample size, confidence, source citation, and row metadata. Evidence metadata now preserves `table_label`, `page_hint`, `source_quote`, `source_location_type`, `section_heading`, and `paragraph_hint` for reviewer PDF navigation.
-- The annotator treats that payload as the reviewer-facing AI output: it preloads editable queue rows when there is no saved annotation, and cockpit Details shows the normalized payload/normalization summary without model reasoning.
+- The annotator treats that payload as the reviewer-facing AI output: it silently preloads editable queue rows when there is no saved annotation, and cockpit Details shows the normalized payload/normalization summary without model reasoning.
 - The AI prompt target is useful OpenNutri food composition data only. Intervention/effect/outcome papers about nutrient doses, supplements, extracts, diets, biomarkers, cells, animals, microbes, health effects, processing outcomes, sensory scores, or similar responses are empty unless they also report useful direct food/product composition tables. One-off treatment/formulation variants are no usable data unless they represent stable real-world foods/products worth adding to the DB.
 - `UnifiedEvaluator` accepts requested JSON object output, top-level candidate-row arrays, and nested `food -> nutrients[]` arrays.
 - The prompt requires broad evidence locations per extracted row. Shared table-level evidence is preferred for rows from the same table; paragraph/section evidence uses short exact source quotes and metadata hints rather than stored coordinates.
@@ -199,4 +199,4 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 ## Still Needs Attention
 
 - L2 classifier training is still deferred until more accepted human-review outcomes exist.
-- PDF nutrient-name click highlights remain precision-first/table-only; continuation-page recall and cross-text-item nutrient phrase matching are still future work. Broad AI evidence badges now cover table/paragraph/page navigation separately.
+- PDF nutrient-name click highlights remain precision-first/table-only; continuation-page recall and cross-text-item nutrient phrase matching are still future work. Compact AI source strips now cover table/paragraph/page navigation separately.

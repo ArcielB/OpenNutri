@@ -623,7 +623,7 @@ export default function FoodAutocomplete({ value, foodFdcId, onChange, allFoods 
                 onKeyDown={handleKeyDown}
             />
             {foodFdcId && (
-                <span className="food-match-badge">✓ Matched</span>
+                <span className="food-match-badge">Matched</span>
             )}
             {!foodFdcId && query && (
                 <span className="food-custom-badge">Custom</span>

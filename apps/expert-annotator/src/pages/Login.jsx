@@ -71,7 +71,7 @@ export default function Login({ onLogin }) {
     return (
         <div className="login-page">
             <div className="login-card">
-                <span className="logo">🔬</span>
+                <span className="logo" aria-hidden="true">ON</span>
                 <h1>OpenNutri Annotator</h1>
                 <p className="subtitle">Food composition data labeling workspace</p>
 
@@ -138,4 +138,3 @@ export default function Login({ onLogin }) {
         </div>
     )
 }
-
