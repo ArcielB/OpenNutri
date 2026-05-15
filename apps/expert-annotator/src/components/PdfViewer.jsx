@@ -85,9 +85,9 @@ export default function PdfViewer({
         [nutrientMatcher, pageHighlightPlans]
     )
 
-    const activeEvidenceOverlaysByPage = useMemo(
-        () => buildActiveEvidenceOverlays(pageHighlightPlans, activeEvidenceId, pageDimensionsByPage),
-        [activeEvidenceId, pageDimensionsByPage, pageHighlightPlans]
+    const evidenceOverlaysByPage = useMemo(
+        () => buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage),
+        [pageDimensionsByPage, pageHighlightPlans]
     )
 
     function onDocumentLoadSuccess({ numPages }) {
@@ -231,7 +231,8 @@ export default function PdfViewer({
             if (!targetPage) return
             const pageNode = panel.querySelector(`[data-page-number="${targetPage}"]`)
             if (pageNode) {
-                const overlay = activeEvidenceOverlaysByPage[Number(targetPage)]?.[0] || null
+                const overlay = (evidenceOverlaysByPage[Number(targetPage)] || [])
+                    .find((entry) => entry.evidenceId === activeEvidenceId) || null
                 if (overlay) {
                     scrollPageRegionIntoView(panel, pageNode, overlay)
                 } else {
@@ -249,7 +250,7 @@ export default function PdfViewer({
     }, [
         activeEvidenceId,
         activeEvidenceRequestId,
-        activeEvidenceOverlaysByPage,
+        evidenceOverlaysByPage,
         evidenceLocations,
         numPages,
         pageHighlightPlans,
@@ -312,7 +313,7 @@ export default function PdfViewer({
                                             handlePageTextSuccess(pageNumber, textContent)
                                         }
                                     />
-                                    <EvidenceRegionOverlay overlays={activeEvidenceOverlaysByPage[pageNumber] || []} />
+                                    <EvidenceRegionOverlay overlays={evidenceOverlaysByPage[pageNumber] || []} />
                                 </div>
                             </div>
                         )
@@ -340,7 +341,7 @@ function EvidenceRegionOverlay({ overlays }) {
         <div className="evidence-region-overlay" aria-hidden="true">
             {overlays.map((overlay, index) => (
                 <div
-                    key={`${overlay.type}-${index}`}
+                    key={`${overlay.evidenceId}-${overlay.type}-${index}`}
                     className={`evidence-region-box evidence-region-box-${overlay.type}`}
                     data-evidence-region-id={overlay.evidenceId}
                     style={{
@@ -370,28 +371,25 @@ function findEvidenceMatchedEntry(pageHighlightPlans, evidenceId) {
     return null
 }
 
-function buildActiveEvidenceOverlays(pageHighlightPlans, activeEvidenceId, pageDimensionsByPage) {
+function buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage) {
     const overlaysByPage = {}
-    if (!activeEvidenceId) return overlaysByPage
 
     for (const [pageNumber, plan] of Object.entries(pageHighlightPlans || {})) {
-        const match = (plan.evidenceMatches || []).find(
+        const overlays = (plan.evidenceMatches || []).map(
             (entry) =>
-                entry.evidenceId === activeEvidenceId &&
-                entry.status === EVIDENCE_STATUS.MATCHED &&
-                entry.regionBounds
-        )
-        if (!match) continue
+                entry.status === EVIDENCE_STATUS.MATCHED && entry.regionBounds
+                    ? buildOverlayForRegionBounds(
+                        entry.regionBounds,
+                        pageDimensionsByPage[Number(pageNumber)],
+                        entry.matchType,
+                        entry.evidenceId
+                    )
+                    : null
+        ).filter(Boolean)
 
-        const overlay = buildOverlayForRegionBounds(
-            match.regionBounds,
-            pageDimensionsByPage[Number(pageNumber)],
-            match.matchType,
-            activeEvidenceId
-        )
-        if (!overlay) continue
-
-        overlaysByPage[Number(pageNumber)] = [overlay]
+        if (overlays.length > 0) {
+            overlaysByPage[Number(pageNumber)] = overlays
+        }
     }
 
     return overlaysByPage
