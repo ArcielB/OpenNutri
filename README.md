@@ -223,7 +223,8 @@ Data pipeline and ETL:
 - `GEMMA_STAGE_TEXT_LIMIT_CHARS` (optional Gemma screening text cap; default and scheduled ops use `24000`)
 - `GEMINI_STAGE_TEXT_LIMIT_CHARS` / `AI_STAGE_TEXT_LIMIT_CHARS` (optional extraction text caps; normally unset)
 - `SUPABASE_RESOLVE_IP` (optional; IP pinning for SR legacy ETL)
-- `DATABASE_URL` (required for `apps/expert-annotator/run-migration.js`)
+- `DATABASE_URL` (required for `apps/expert-annotator/run-migration.js` and DB utility scripts such as `create_bucket.js`, `check_db.js`, and `test_pg.py`)
+- `SIGNUP_EMAIL` / `SIGNUP_PASSWORD` (required only for `apps/expert-annotator/add_user.js`)
 
 GitHub Actions daily ops requires repository secrets with these same names:
 - `SUPABASE_URL`
@@ -261,9 +262,4 @@ Moved into `legacy/` because these are not used by the current app/pipeline but 
 - `legacy/expert-annotator-vercel-recovery/`: Vercel deployment artifact snapshot and notes.
 
 **Security / Secrets Note**
-Some scripts and configs include hardcoded Supabase URLs/keys or database credentials, intended for internal use. Before sharing the repo, review and rotate:
-- `services/data-pipeline/config.py`
-- `services/data-pipeline/test_pg.py`
-- `services/data-pipeline/scripts/check_db.js`
-- `apps/expert-annotator/add_user.js`
-- `apps/expert-annotator/create_bucket.js`
+Runtime credentials must come from environment variables or GitHub/Vercel/Supabase secret stores. Do not commit API keys, database URLs, Supabase service-role keys, personal access tokens, or test passwords. The legacy compatibility files and utility scripts fail fast when required credentials are missing from the environment.

@@ -113,7 +113,8 @@ Do not spend tokens on these unless the task explicitly needs them:
 - `Keys and links` is the main local source for GitHub, Supabase, and database credentials.
 - For Supabase database access, prefer the shared/session pooler connection from `Keys and links` on IPv4 networks; use the direct connection on IPv6-capable networks if the pooler path is unavailable.
 - For GitHub network operations, use the GitHub token from `Keys and links` through a non-interactive auth path such as `GIT_ASKPASS`; do not rely on memory or interactive prompts.
-- Hardcoded credentials also exist in some internal files such as `services/data-pipeline/config.py`; treat that as sensitive debt, not documentation.
+- Runtime credentials must come from environment variables or local secret stores. Do not reintroduce hardcoded API keys, database URLs, Supabase service-role keys, personal access tokens, or test passwords in tracked files.
+- If a secret is exposed in git history or a public repository alert, treat it as compromised: remove current tracked occurrences, rotate/revoke the secret at the provider, and discuss history rewriting/force-push before attempting it.
 - Never copy secret values into `AGENTS.md`, `README.md`, commits, tickets, or model responses.
 - Refer to secrets by env var name only, for example `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `GEMINI_API_KEY`.
 

@@ -186,6 +186,12 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 - Check shared queue stock / trigger refill loop:
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py --target-open 50`
 
+## Security / Secrets
+
+- Runtime credentials are environment-only. Do not commit API keys, database URLs, Supabase service-role keys, personal access tokens, or test passwords.
+- Legacy compatibility and DB utility scripts read credentials from `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_KEY`, `VITE_SUPABASE_ANON_KEY`, `DATABASE_URL`, `GEMINI_API_KEY`, `SIGNUP_EMAIL`, and `SIGNUP_PASSWORD` as needed, and fail fast when required values are missing.
+- Public-repo secret alerts mean the provider secret is compromised. Remove current tracked occurrences immediately, rotate/revoke the provider secret, and treat historical git occurrences as compromised even after source cleanup.
+
 ## Live Migration Status
 
 - The general queue + approval migration was applied to the live Supabase DB on 2026-05-02.
