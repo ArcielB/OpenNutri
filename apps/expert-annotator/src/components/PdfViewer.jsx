@@ -384,7 +384,8 @@ function buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage) {
                 entry.regionBounds,
                 pageDimensionsByPage[Number(pageNumber)],
                 entry.matchType,
-                entry.evidenceId
+                entry.evidenceId,
+                entry.regionKey
             )
             if (!overlay) continue
 
@@ -406,7 +407,7 @@ function buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage) {
     return overlaysByPage
 }
 
-function buildOverlayForRegionBounds(regionBounds, pageDimensions, matchType, evidenceId) {
+function buildOverlayForRegionBounds(regionBounds, pageDimensions, matchType, evidenceId, regionKey = null) {
     if (!regionBounds || !pageDimensions) {
         return null
     }
@@ -457,7 +458,7 @@ function buildOverlayForRegionBounds(regionBounds, pageDimensions, matchType, ev
     return {
         type: matchType === 'table' ? 'table' : 'paragraph',
         evidenceIds: [evidenceId],
-        regionKey: buildOverlayRegionKey(matchType, left, top, width, height),
+        regionKey: regionKey || buildOverlayRegionKey(matchType, left, top, width, height),
         left,
         top,
         width,

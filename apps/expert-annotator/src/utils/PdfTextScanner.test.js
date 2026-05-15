@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { EVIDENCE_STATUS } from './EvidenceLocations.js'
-import { buildPageEvidenceHighlightPlan, detectPrintedPageNumber } from './PdfTextScanner.js'
+import { buildPageEvidenceHighlightPlan, buildPageTableHighlightPlan, detectPrintedPageNumber } from './PdfTextScanner.js'
 
 function textItem(str, x, y, width = 200, height = 10) {
     return {
@@ -187,6 +187,56 @@ test('uses one stable paragraph block for separate quotes in the same paragraph'
     assert.equal(plan.matches.length, 2)
     assert.deepEqual(plan.matches[0].regionBounds, plan.matches[1].regionBounds)
     assert.deepEqual(plan.matches[0].itemIndexes, plan.matches[1].itemIndexes)
+})
+
+test('keeps numeric abstract evidence in one paragraph block without side metadata', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Department of Chemistry, Example University', 80, 573, 360),
+                textItem('Abstract', 210, 555, 60),
+                textItem('Article History:', 435, 545, 80),
+                textItem('Leaves of sweet potato grown in Tepi area was studied for their class of', 62, 544, 350),
+                textItem('phytochemicals, mineral and proximate composition using standard analytical methods. The', 62, 534, 350),
+                textItem('revealed potassium (3608.854mg/100g), sodium', 62, 524, 350),
+                textItem('continued with (32.079+/-0.12mg/100g), calcium (320.125+/-0.36 mg/100g), magnesium (118.75+/-0.02mg', 62, 514, 350),
+                textItem('/100g), copper (1.828+/-0.11mg/100g), zinc (5.647+/-0.14mg/100g), and iron (73.881+/-0.03mg/100g)', 62, 504, 350),
+                textItem('and manganese (9.590+/-0.06mg/100g). These results revealed that the leaves of sweet', 62, 494, 350),
+                textItem('Ipomoea batatas', 435, 499, 70),
+                textItem('Copyright@2014 Journal. All Rights Reserved.', 210, 426, 240),
+            ],
+        },
+        [
+            { id: 'evidence-1', sourceQuote: '(32.079+/-0.12mg/100g)' },
+            { id: 'evidence-2', sourceQuote: 'magnesium (118.75+/-0.02mg /100g)' },
+            { id: 'evidence-3', sourceQuote: 'manganese (9.590+/-0.06mg/100g)' },
+        ],
+        1
+    )
+
+    assert.equal(plan.matches.length, 3)
+    assert.deepEqual(plan.matches[0].regionBounds, plan.matches[1].regionBounds)
+    assert.deepEqual(plan.matches[0].regionBounds, plan.matches[2].regionBounds)
+    assert.equal(plan.matches[0].regionBounds.left, 62)
+    assert.equal(plan.matches[0].regionBounds.right, 412)
+    assert.equal(plan.matches[0].regionBounds.bottom, 494)
+    assert.equal(plan.matches[0].regionBounds.top, 524)
+})
+
+test('does not treat narrative prose after a table as nutrient highlight eligible', () => {
+    const plan = buildPageTableHighlightPlan({
+        items: [
+            textItem('Table 1: Results of proximate analysis', 50, 700, 260),
+            textItem('Constituent Value (%)', 50, 680, 200),
+            textItem('Protein 6.37', 50, 660, 120),
+            textItem('The result revealed that the leaves Ipomoea batatas leaves are a source of protein.', 300, 650, 360),
+        ],
+    })
+
+    assert.equal(plan.allowedItemIndexes.has(0), true)
+    assert.equal(plan.allowedItemIndexes.has(1), true)
+    assert.equal(plan.allowedItemIndexes.has(2), true)
+    assert.equal(plan.allowedItemIndexes.has(3), false)
 })
 
 test('keeps different paragraph blocks non-overlapping', () => {

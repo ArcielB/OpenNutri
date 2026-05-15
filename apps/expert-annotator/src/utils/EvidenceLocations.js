@@ -94,6 +94,7 @@ export function mergeEvidenceStatuses(locations, pageMatches) {
                 label: match.matchType === 'table' ? 'Matched table' : 'Matched text',
                 pageNumber: match.pageNumber || current.pageNumber || null,
                 matchType: match.matchType || 'text',
+                regionKey: match.regionKey || null,
             }
             continue
         }
@@ -114,6 +115,36 @@ export function mergeEvidenceStatuses(locations, pageMatches) {
     }
 
     return statuses
+}
+
+export function buildEvidenceDisplayGroups(locations, statuses = {}) {
+    const groups = new Map()
+
+    for (const location of locations || []) {
+        if (!location?.id) continue
+
+        const status = statuses[location.id] || getDefaultEvidenceStatus(location)
+        const displayKey = buildEvidenceDisplayGroupKey(location, status)
+        const existing = groups.get(displayKey)
+
+        if (existing) {
+            existing.locations.push(location)
+            existing.evidenceIds.push(location.id)
+            existing.rowCount += Number(location.rowCount || 0)
+            continue
+        }
+
+        groups.set(displayKey, {
+            id: displayKey,
+            location,
+            locations: [location],
+            evidenceIds: [location.id],
+            status,
+            rowCount: Number(location.rowCount || 0),
+        })
+    }
+
+    return Array.from(groups.values())
 }
 
 function buildEvidenceLocationFromNutrient(nutrient) {
@@ -186,6 +217,32 @@ function buildEvidenceGroupKey(location) {
         ].join('|')
     }
     return ['page', pagePart].join('|')
+}
+
+function buildEvidenceDisplayGroupKey(location, status) {
+    if (status?.status === EVIDENCE_STATUS.MATCHED && status.regionKey) {
+        return [
+            'matched',
+            status.matchType || 'text',
+            status.pageNumber || '?',
+            status.regionKey,
+        ].join('|')
+    }
+
+    if (
+        status?.status === EVIDENCE_STATUS.HINTED &&
+        status.pageNumber &&
+        !location?.tableLabel &&
+        !location?.sourceQuote
+    ) {
+        return [
+            'hinted',
+            status.matchType || 'page_hint',
+            status.pageNumber,
+        ].join('|')
+    }
+
+    return location?.groupKey || location?.id || 'unknown'
 }
 
 function compareEvidenceLocations(left, right) {

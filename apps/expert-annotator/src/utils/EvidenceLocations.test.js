@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
     EVIDENCE_STATUS,
+    buildEvidenceDisplayGroups,
     buildEvidenceLocationsFromFoodItems,
     getDefaultEvidenceStatus,
     getEvidenceDisplayLabel,
@@ -41,6 +42,52 @@ test('groups repeated normalized payload rows into one table evidence location',
     assert.equal(locations[0].tableLabel, 'Table 2')
     assert.equal(locations[0].pageHint, 5)
     assert.equal(getEvidenceDisplayLabel(locations[0]), 'Table 2')
+})
+
+test('groups source chips that resolve to the same matched region', () => {
+    const locations = buildEvidenceLocationsFromFoodItems([
+        {
+            food_name: 'Sweet potato leaves',
+            nutrients: [
+                {
+                    nutrient_name: 'Potassium',
+                    metadata: {
+                        source_location_type: 'paragraph',
+                        source_quote: 'potassium (3608.854mg/100g)',
+                    },
+                },
+                {
+                    nutrient_name: 'Sodium',
+                    metadata: {
+                        source_location_type: 'paragraph',
+                        source_quote: 'sodium (32.079mg/100g)',
+                    },
+                },
+            ],
+        },
+    ])
+
+    const statuses = {
+        [locations[0].id]: {
+            status: EVIDENCE_STATUS.MATCHED,
+            label: 'Matched text',
+            pageNumber: 1,
+            matchType: 'paragraph',
+            regionKey: 'paragraph:62.4:411.7:436.8:542.9',
+        },
+        [locations[1].id]: {
+            status: EVIDENCE_STATUS.MATCHED,
+            label: 'Matched text',
+            pageNumber: 1,
+            matchType: 'paragraph',
+            regionKey: 'paragraph:62.4:411.7:436.8:542.9',
+        },
+    }
+
+    const groups = buildEvidenceDisplayGroups(locations, statuses)
+
+    assert.equal(groups.length, 1)
+    assert.deepEqual(groups[0].evidenceIds, [locations[0].id, locations[1].id])
 })
 
 test('keeps paragraph and page-only evidence visible as unverified hints', () => {

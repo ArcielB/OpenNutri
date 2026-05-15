@@ -22,6 +22,7 @@ const NUMBER_WITH_PAGE_LABEL_RE = /\b([0-9]{1,4})\s*(?:[|/:.-]\s*)?(?:page|sayfa
 const STANDALONE_PAGE_NUMBER_RE = /^[^\p{L}\p{N}]?([0-9]{1,4})[^\p{L}\p{N}]?$/u
 const HEADER_TOKEN_RE = /\b(%RSD|RSD|ANAL[Iİ]T)\b/iu
 const UNIT_TOKEN_RE = /\([^)]{1,24}\)/u
+const UNIT_CODE_TOKEN_RE = /^\d+(?:g|mg|ug|µg|μg|kg|ml|l|kcal|kj|iu)$/iu
 const LETTER_RE = /[A-Za-zÇĞİÖŞÜçğıöşü]/g
 const LOWER_LETTER_RE = /[a-zçğıöşü]/g
 const TOKEN_SPLIT_RE = /\s+/u
@@ -30,7 +31,11 @@ const NUMERIC_TOKEN_RE = /^[<>~]?\d+(?:[.,]\d+)?$/u
 const ELLIPSIS_SPLIT_RE = /(?:\.{2,}|…)/u
 const SAMPLE_CODE_RE = /^(?:[A-Za-z]{1,4}\d{1,3}|\d{1,3}[A-Za-z]{1,4}|[A-Za-z]-\d{1,3}|\d{1,3}-[A-Za-z]|[A-Za-z]{1,4}\d{1,3}-[A-Za-z]{1,4})$/u
 const ABBREVIATION_TOKEN_RE = /^(?:[A-ZÇĞİÖŞÜ]\.){1,4}$/u
-const MAX_PARAGRAPH_FRAGMENT_COUNT = 14
+const SENTENCE_PUNCTUATION_RE = /[.!?;]/g
+const TEXT_PUNCTUATION_RE = /[,.!?;]/g
+const NARRATIVE_CONNECTOR_RE = /\b(?:that|which|with|using|revealed|showed|contained|compared|while|because|therefore|however|between|among|through|from|into|after|before)\b/iu
+const DOCUMENT_CHROME_RE = /\b(?:department of|university|article information|article history|received|revised|accepted|keywords?|corresponding author|e-?mail|copyright|all rights reserved)\b/iu
+const MAX_PARAGRAPH_FRAGMENT_COUNT = 32
 
 export function buildNutrientMatcher(nutrients) {
     const patterns = []
@@ -159,6 +164,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
                     pageNumber,
                     itemIndexes,
                     regionBounds: tableRegion.regionBounds,
+                    regionKey: buildRegionBoundsKey('table', tableRegion.regionBounds),
                 })
                 matched = true
             }
@@ -176,6 +182,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
                     pageNumber,
                     itemIndexes,
                     regionBounds: quoteMatch.regionBounds,
+                    regionKey: buildRegionBoundsKey(quoteMatch.matchType, quoteMatch.regionBounds),
                 })
                 matched = true
             }
@@ -522,6 +529,8 @@ function createFragment(items, rowIndex) {
     const wordCount = tokens.length
     const lowerLetterRatio = lowerLetterCount / Math.max(1, letterCount)
     const digitRatio = digitCount / Math.max(1, normalizedText.replace(/\s+/g, '').length)
+    const sentencePunctuationCount = countMatches(normalizedText, SENTENCE_PUNCTUATION_RE)
+    const textPunctuationCount = countMatches(normalizedText, TEXT_PUNCTUATION_RE)
 
     const looksProseLike =
         !hasCaptionMatch &&
@@ -533,9 +542,24 @@ function createFragment(items, rowIndex) {
         sampleCodeCount === 0 &&
         allCapsTokenCount === 0
 
+    const looksNarrativeLike =
+        !hasCaptionMatch &&
+        !hasHeaderToken &&
+        wordCount >= 8 &&
+        letterCount >= 12 &&
+        lowerLetterRatio >= 0.45 &&
+        sampleCodeCount === 0 &&
+        allCapsTokenCount <= 1 &&
+        majorClusterCount <= 2 &&
+        (
+            sentencePunctuationCount > 0 ||
+            textPunctuationCount >= 2 ||
+            NARRATIVE_CONNECTOR_RE.test(normalizedText)
+        )
+
     let tableScore = 0
 
-    if (!looksProseLike) {
+    if (!looksProseLike && !looksNarrativeLike) {
         if (hasHeaderToken) tableScore += 3
         if (hasUnitLabel) tableScore += 2
         if (allCapsTokenCount > 0 && wordCount <= 3) tableScore += 2
@@ -560,11 +584,15 @@ function createFragment(items, rowIndex) {
         wordCount,
         numericTokenCount,
         sampleCodeCount,
+        lowerLetterRatio,
+        sentencePunctuationCount,
+        textPunctuationCount,
         hasHeaderToken,
         hasUnitLabel,
         hasCaptionAnchor: Boolean(hasCaptionMatch),
         captionNumber: hasCaptionMatch ? Number(hasCaptionMatch[2]) : null,
         looksProseLike,
+        looksNarrativeLike,
         tableScore,
         isTableLike: tableScore >= 2,
         x: Math.min(...visibleItems.map((item) => item.x)),
@@ -842,6 +870,22 @@ function findSourceQuoteTextMatch(rows, location, metrics, tableRegions = [], pa
     const matcher = buildSourceQuoteMatcher(location.sourceQuote)
     if (!matcher) return null
 
+    const paragraphFragments = (paragraphBlocks || []).flatMap((block) => block.entries || [])
+    const paragraphFragmentMatch = findSourceQuoteFragmentMatch(paragraphFragments, matcher)
+    if (paragraphFragmentMatch) {
+        const matchedFragments = paragraphFragments.slice(paragraphFragmentMatch.startIndex, paragraphFragmentMatch.endIndex)
+        const matchedItemIndexes = itemIndexesForSearchFragments(matchedFragments)
+        return buildBlockMatchForItemIndexes(matchedItemIndexes, {
+            tableRegions,
+            paragraphBlocks,
+            fallbackMatch: () => ({
+                itemIndexes: matchedItemIndexes,
+                matchType: 'paragraph',
+                regionBounds: boundsFromSearchFragments(matchedFragments),
+            }),
+        })
+    }
+
     const fragments = buildSearchFragments(rows)
     const fragmentMatch = findSourceQuoteFragmentMatch(fragments, matcher)
     if (fragmentMatch) {
@@ -934,6 +978,86 @@ function buildSearchFragments(rows) {
     return fragments
 }
 
+function buildParagraphCandidateEntries(rows, tableItemIndexes, metrics) {
+    const entries = []
+
+    for (const row of rows) {
+        const usableFragments = row.fragments.filter((fragment) =>
+            !fragmentHasAnyItemIndex(fragment, tableItemIndexes) &&
+            !isDocumentChromeFragment(fragment)
+        )
+        if (usableFragments.length === 0) continue
+
+        const segments = splitFragmentsIntoLineSegments(usableFragments, metrics)
+        segments.forEach((segment, segmentIndex) => {
+            if (!isParagraphCandidateSegment(segment)) {
+                return
+            }
+
+            const paragraphSegmentKey = `${row.rowIndex}:${segmentIndex}`
+            segment.forEach((fragment) => {
+                entries.push({
+                    row,
+                    fragment,
+                    paragraphSegmentKey,
+                })
+            })
+        })
+    }
+
+    return entries
+}
+
+function splitFragmentsIntoLineSegments(fragments, metrics) {
+    const sorted = [...fragments].sort((left, right) => left.x - right.x)
+    const segments = []
+    let current = []
+    const gapThreshold = Math.max(metrics.fragmentGapThreshold, metrics.medianHeight * 2)
+
+    for (const fragment of sorted) {
+        const previous = current[current.length - 1]
+        const gap = previous ? fragment.x - previous.right : 0
+
+        if (previous && gap > gapThreshold) {
+            segments.push(current)
+            current = [fragment]
+            continue
+        }
+
+        current.push(fragment)
+    }
+
+    if (current.length > 0) {
+        segments.push(current)
+    }
+
+    return segments
+}
+
+function isParagraphCandidateSegment(segment) {
+    if (!segment?.length) return false
+    if (segment.some(isParagraphCandidateFragment)) return true
+
+    const text = segment.map((fragment) => fragment.normalizedText).join(' ')
+    const tokens = text.split(TOKEN_SPLIT_RE).filter(Boolean)
+    const wordCount = tokens.length
+    const letterCount = countMatches(text, LETTER_RE)
+    const lowerLetterCount = countMatches(text, LOWER_LETTER_RE)
+    const lowerLetterRatio = lowerLetterCount / Math.max(1, letterCount)
+    const textPunctuationCount = countMatches(text, TEXT_PUNCTUATION_RE)
+    const numericTokenCount = tokens.filter((token) => NUMERIC_TOKEN_RE.test(stripEdgePunctuation(token))).length
+    const sampleCodeCount = tokens.filter((token) => isSampleCodeToken(token)).length
+
+    return (
+        wordCount >= 5 &&
+        letterCount >= 8 &&
+        lowerLetterRatio >= 0.35 &&
+        textPunctuationCount >= 1 &&
+        sampleCodeCount === 0 &&
+        numericTokenCount < wordCount
+    )
+}
+
 function buildParagraphBlocks(rows, tableRegions, metrics) {
     const tableItemIndexes = new Set()
     for (const region of tableRegions || []) {
@@ -942,11 +1066,7 @@ function buildParagraphBlocks(rows, tableRegions, metrics) {
         }
     }
 
-    const fragments = buildSearchFragments(rows)
-        .filter((entry) =>
-            isParagraphCandidateFragment(entry.fragment) &&
-            !fragmentHasAnyItemIndex(entry.fragment, tableItemIndexes)
-        )
+    const fragments = buildParagraphCandidateEntries(rows, tableItemIndexes, metrics)
 
     const blocks = []
     const assigned = new Set()
@@ -956,7 +1076,6 @@ function buildParagraphBlocks(rows, tableRegions, metrics) {
 
         const blockEntries = [fragments[index]]
         assigned.add(index)
-        let baseSpan = spanFromFragment(fragments[index].fragment)
         let anchorIndex = index
 
         while (blockEntries.length < MAX_PARAGRAPH_FRAGMENT_COUNT) {
@@ -964,7 +1083,6 @@ function buildParagraphBlocks(rows, tableRegions, metrics) {
                 fragments,
                 anchorIndex,
                 1,
-                baseSpan,
                 rows,
                 metrics
             )
@@ -973,7 +1091,6 @@ function buildParagraphBlocks(rows, tableRegions, metrics) {
             blockEntries.push(fragments[candidateIndex])
             assigned.add(candidateIndex)
             anchorIndex = candidateIndex
-            baseSpan = unionSpan(baseSpan, spanFromFragment(fragments[candidateIndex].fragment))
         }
 
         blocks.push({
@@ -1011,10 +1128,6 @@ function expandFragmentsToParagraph(fragments, startIndex, endIndex, rows, metri
         selected.add(index)
     }
 
-    let baseSpan = fragments
-        .slice(startIndex, endIndex)
-        .map((entry) => spanFromFragment(entry.fragment))
-        .reduce((span, nextSpan) => unionSpan(span, nextSpan))
     let firstIndex = startIndex
     let lastIndex = endIndex - 1
 
@@ -1023,14 +1136,12 @@ function expandFragmentsToParagraph(fragments, startIndex, endIndex, rows, metri
             fragments,
             firstIndex,
             -1,
-            baseSpan,
             rows,
             metrics
         )
         if (candidateIndex === null) break
         selected.add(candidateIndex)
         firstIndex = candidateIndex
-        baseSpan = unionSpan(baseSpan, spanFromFragment(fragments[candidateIndex].fragment))
     }
 
     while (selected.size < MAX_PARAGRAPH_FRAGMENT_COUNT) {
@@ -1038,14 +1149,12 @@ function expandFragmentsToParagraph(fragments, startIndex, endIndex, rows, metri
             fragments,
             lastIndex,
             1,
-            baseSpan,
             rows,
             metrics
         )
         if (candidateIndex === null) break
         selected.add(candidateIndex)
         lastIndex = candidateIndex
-        baseSpan = unionSpan(baseSpan, spanFromFragment(fragments[candidateIndex].fragment))
     }
 
     return Array.from(selected)
@@ -1053,7 +1162,7 @@ function expandFragmentsToParagraph(fragments, startIndex, endIndex, rows, metri
         .map((index) => fragments[index])
 }
 
-function findAdjacentParagraphFragmentIndex(fragments, anchorIndex, direction, baseSpan, rows, metrics) {
+function findAdjacentParagraphFragmentIndex(fragments, anchorIndex, direction, rows, metrics) {
     const anchor = fragments[anchorIndex]
     if (!anchor) return null
 
@@ -1063,7 +1172,7 @@ function findAdjacentParagraphFragmentIndex(fragments, anchorIndex, direction, b
         candidateIndex += direction
     ) {
         const candidate = fragments[candidateIndex]
-        const decision = getParagraphFragmentDecision(candidate, anchor, baseSpan, rows, metrics)
+        const decision = getParagraphFragmentDecision(candidate, anchor, rows, metrics)
         if (decision === 'skip') continue
         if (decision === 'include') return candidateIndex
         return null
@@ -1072,7 +1181,7 @@ function findAdjacentParagraphFragmentIndex(fragments, anchorIndex, direction, b
     return null
 }
 
-function getParagraphFragmentDecision(candidate, anchor, baseSpan, rows, metrics) {
+function getParagraphFragmentDecision(candidate, anchor, rows, metrics) {
     if (!candidate || !anchor) return 'stop'
     const candidateRow = rows[candidate.row.rowIndex]
     const anchorRow = rows[anchor.row.rowIndex]
@@ -1080,9 +1189,16 @@ function getParagraphFragmentDecision(candidate, anchor, baseSpan, rows, metrics
 
     const rowGap = Math.abs(candidateRow.centerY - anchorRow.centerY)
     const candidateSpan = spanFromFragment(candidate.fragment)
-    const sameColumn = spansLikelySameColumn(baseSpan, candidateSpan)
+    const anchorSpan = spanFromFragment(anchor.fragment)
+    const sameColumn = spansLikelySameColumn(anchorSpan, candidateSpan)
 
     if (!sameColumn && rowGap <= metrics.rowTolerance * 1.5) {
+        if (
+            candidate.paragraphSegmentKey &&
+            candidate.paragraphSegmentKey === anchor.paragraphSegmentKey
+        ) {
+            return 'include'
+        }
         return 'skip'
     }
 
@@ -1090,7 +1206,7 @@ function getParagraphFragmentDecision(candidate, anchor, baseSpan, rows, metrics
         return 'stop'
     }
 
-    if (!isParagraphCandidateFragment(candidate.fragment)) {
+    if (!candidate.paragraphSegmentKey && !isParagraphCandidateFragment(candidate.fragment)) {
         return 'stop'
     }
 
@@ -1264,6 +1380,26 @@ function boundsFromFragments(fragments) {
     })
 }
 
+function buildRegionBoundsKey(matchType, regionBounds) {
+    if (
+        !regionBounds ||
+        !Number.isFinite(regionBounds.left) ||
+        !Number.isFinite(regionBounds.right) ||
+        !Number.isFinite(regionBounds.bottom) ||
+        !Number.isFinite(regionBounds.top)
+    ) {
+        return null
+    }
+
+    return [
+        matchType === 'table' ? 'table' : 'paragraph',
+        regionBounds.left.toFixed(1),
+        regionBounds.right.toFixed(1),
+        regionBounds.bottom.toFixed(1),
+        regionBounds.top.toFixed(1),
+    ].join(':')
+}
+
 function addEvidenceItemIndexes(itemEvidenceIds, itemIndexes, evidenceId) {
     for (const itemIndex of itemIndexes) {
         if (!itemEvidenceIds.has(itemIndex)) {
@@ -1354,7 +1490,9 @@ function countMajorClusters(items) {
 
 function selectFragmentsForTableRow(overlappingFragments, context) {
     const { hasAcceptedDataLikeRow, rowsSinceCaption } = context
-    const eligibleFragments = overlappingFragments.filter((fragment) => !fragment.looksProseLike)
+    const eligibleFragments = overlappingFragments.filter((fragment) =>
+        !fragment.looksProseLike && !fragment.looksNarrativeLike
+    )
 
     if (eligibleFragments.length === 0) {
         return createEmptyRowSelection()
@@ -1422,11 +1560,32 @@ function isParagraphCandidateRow(row) {
 }
 
 function isParagraphCandidateFragment(fragment) {
+    if (
+        !fragment ||
+        fragment.hasCaptionAnchor ||
+        fragment.hasHeaderToken ||
+        isDocumentChromeFragment(fragment)
+    ) {
+        return false
+    }
+
+    if (fragment.wordCount < 5) {
+        return false
+    }
+
     return (
-        fragment.wordCount >= 3 &&
-        !fragment.hasCaptionAnchor &&
-        !fragment.hasHeaderToken
+        fragment.looksProseLike ||
+        fragment.looksNarrativeLike ||
+        (
+            fragment.wordCount >= 6 &&
+            fragment.lowerLetterRatio >= 0.45 &&
+            !fragment.isTableLike
+        )
     )
+}
+
+function isDocumentChromeFragment(fragment) {
+    return DOCUMENT_CHROME_RE.test(fragment?.normalizedText || '')
 }
 
 function isAllCapsToken(token) {
@@ -1442,6 +1601,10 @@ function isSampleCodeToken(token) {
     const cleaned = stripEdgePunctuation(token)
 
     if (!cleaned || NUMERIC_TOKEN_RE.test(cleaned)) {
+        return false
+    }
+
+    if (UNIT_CODE_TOKEN_RE.test(cleaned)) {
         return false
     }
 
