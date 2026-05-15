@@ -8,10 +8,11 @@ import {
     buildPageEvidenceHighlightPlan,
     buildNutrientMatcher,
     buildPageTableHighlightPlan,
+    detectPrintedPageNumber,
     renderTextItemWithEvidenceHighlight,
     renderTextItemWithNutrientHighlights,
 } from '../utils/PdfTextScanner'
-import { mergeEvidenceStatuses } from '../utils/EvidenceLocations'
+import { EVIDENCE_STATUS, mergeEvidenceStatuses } from '../utils/EvidenceLocations'
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -46,16 +47,20 @@ export default function PdfViewer({
     const buildPageHighlightPlan = useCallback(
         (pageNumber, textContent) => {
             const nextTablePlan = buildPageTableHighlightPlan(textContent)
-            const nextEvidencePlan = buildPageEvidenceHighlightPlan(textContent, evidenceLocations, pageNumber)
+            const printedPageNumber = detectPrintedPageNumber(textContent, pageNumber, numPages)
+            const nextEvidencePlan = buildPageEvidenceHighlightPlan(textContent, evidenceLocations, pageNumber, {
+                printedPageNumber,
+            })
 
             return {
                 isReady: true,
+                printedPageNumber,
                 allowedItemIndexes: nextTablePlan.allowedItemIndexes,
                 evidenceItemIdsByIndex: nextEvidencePlan.itemEvidenceIds,
                 evidenceMatches: nextEvidencePlan.matches,
             }
         },
-        [evidenceLocations]
+        [evidenceLocations, numPages]
     )
 
     const pageHighlightPlans = useMemo(
@@ -129,13 +134,14 @@ export default function PdfViewer({
         if (!onEvidenceStatusesChange) return
 
         const pageMatches = Object.values(pageHighlightPlans).flatMap((plan) => plan.evidenceMatches || [])
-        const statuses = mergeEvidenceStatuses(evidenceLocations, pageMatches)
+        const mappedPageHints = buildMappedPageHintMatches(evidenceLocations, pageHighlightPlans, numPages)
+        const statuses = mergeEvidenceStatuses(evidenceLocations, [...pageMatches, ...mappedPageHints])
         const signature = JSON.stringify(statuses)
         if (signature === lastEvidenceStatusesRef.current) return
 
         lastEvidenceStatusesRef.current = signature
         onEvidenceStatusesChange(statuses)
-    }, [evidenceLocations, onEvidenceStatusesChange, pageHighlightPlans])
+    }, [evidenceLocations, numPages, onEvidenceStatusesChange, pageHighlightPlans])
 
     useEffect(() => {
         return () => {
@@ -204,7 +210,11 @@ export default function PdfViewer({
 
             const targetPage =
                 findEvidenceMatchedPage(pageHighlightPlans, activeEvidenceId) ||
-                evidenceLocations.find((location) => location.id === activeEvidenceId)?.pageHint ||
+                resolveEvidenceHintPage(
+                    evidenceLocations.find((location) => location.id === activeEvidenceId),
+                    pageHighlightPlans,
+                    numPages
+                ) ||
                 null
 
             if (!targetPage) return
@@ -220,6 +230,7 @@ export default function PdfViewer({
         activeEvidenceId,
         activeEvidenceRequestId,
         evidenceLocations,
+        numPages,
         pageHighlightPlans,
     ])
 
@@ -300,5 +311,72 @@ function findEvidenceMatchedPage(pageHighlightPlans, evidenceId) {
         )
         if (hasMatch) return Number(pageNumber)
     }
+    return null
+}
+
+function buildMappedPageHintMatches(evidenceLocations, pageHighlightPlans, numPages) {
+    return (evidenceLocations || [])
+        .map((location) => {
+            const pageNumber = resolveEvidenceHintPage(location, pageHighlightPlans, numPages)
+            if (!location?.id || !location.pageHint || !pageNumber || Number(pageNumber) === Number(location.pageHint)) {
+                return null
+            }
+            return {
+                evidenceId: location.id,
+                status: EVIDENCE_STATUS.HINTED,
+                matchType: 'mapped_page_hint',
+                pageNumber,
+                sourcePageNumber: location.pageHint,
+                itemIndexes: [],
+            }
+        })
+        .filter(Boolean)
+}
+
+function resolveEvidenceHintPage(location, pageHighlightPlans, numPages) {
+    if (!location?.pageHint) return null
+    const pageHint = Number(location.pageHint)
+    if (!Number.isFinite(pageHint) || pageHint <= 0) return null
+
+    const printedPageMatch = resolvePrintedPageHint(pageHint, pageHighlightPlans, numPages)
+    if (printedPageMatch) return printedPageMatch
+
+    if (numPages && pageHint <= Number(numPages)) {
+        return pageHint
+    }
+
+    return null
+}
+
+function resolvePrintedPageHint(pageHint, pageHighlightPlans, numPages) {
+    const entries = Object.entries(pageHighlightPlans || {})
+        .map(([pageNumber, plan]) => ({
+            pageNumber: Number(pageNumber),
+            printedPageNumber: Number(plan?.printedPageNumber),
+        }))
+        .filter((entry) =>
+            Number.isFinite(entry.pageNumber) &&
+            entry.pageNumber > 0 &&
+            Number.isFinite(entry.printedPageNumber) &&
+            entry.printedPageNumber > 0
+        )
+
+    const exactMatch = entries.find((entry) => entry.printedPageNumber === Number(pageHint))
+    if (exactMatch) return exactMatch.pageNumber
+
+    const offsets = new Map()
+    for (const entry of entries) {
+        const offset = entry.printedPageNumber - entry.pageNumber
+        offsets.set(offset, (offsets.get(offset) || 0) + 1)
+    }
+
+    const sortedOffsets = Array.from(offsets.entries()).sort((left, right) => right[1] - left[1])
+    for (const [offset] of sortedOffsets) {
+        const resolvedPage = Number(pageHint) - offset
+        if (Number.isInteger(resolvedPage) && resolvedPage > 0 && (!numPages || resolvedPage <= Number(numPages))) {
+            return resolvedPage
+        }
+    }
+
     return null
 }

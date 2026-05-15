@@ -17,6 +17,9 @@ const SKIP_NAMES = new Set([
 
 const CAPTION_PREFIX_RE = /^(table|tablo|çizelge)\s+(\d+)(?=$|[\s.:-])/iu
 const SOURCE_TABLE_LABEL_RE = /\b(?:table|tablo|çizelge)\s*[.:#-]?\s*([0-9]+[A-Za-z]?)/iu
+const PAGE_LABEL_WITH_NUMBER_RE = /\b(?:page|p\.?|sayfa)\s*[#:.-]?\s*([0-9]{1,4})\b/iu
+const NUMBER_WITH_PAGE_LABEL_RE = /\b([0-9]{1,4})\s*(?:[|/:.-]\s*)?(?:page|sayfa)\b/iu
+const STANDALONE_PAGE_NUMBER_RE = /^[^\p{L}\p{N}]?([0-9]{1,4})[^\p{L}\p{N}]?$/u
 const HEADER_TOKEN_RE = /\b(%RSD|RSD|ANAL[Iİ]T)\b/iu
 const UNIT_TOKEN_RE = /\([^)]{1,24}\)/u
 const LETTER_RE = /[A-Za-zÇĞİÖŞÜçğıöşü]/g
@@ -27,6 +30,7 @@ const NUMERIC_TOKEN_RE = /^[<>~]?\d+(?:[.,]\d+)?$/u
 const ELLIPSIS_SPLIT_RE = /(?:\.{2,}|…)/u
 const SAMPLE_CODE_RE = /^(?:[A-Za-z]{1,4}\d{1,3}|\d{1,3}[A-Za-z]{1,4}|[A-Za-z]-\d{1,3}|\d{1,3}-[A-Za-z]|[A-Za-z]{1,4}\d{1,3}-[A-Za-z]{1,4})$/u
 const ABBREVIATION_TOKEN_RE = /^(?:[A-ZÇĞİÖŞÜ]\.){1,4}$/u
+const MAX_PARAGRAPH_FRAGMENT_COUNT = 14
 
 export function buildNutrientMatcher(nutrients) {
     const patterns = []
@@ -99,10 +103,11 @@ export function buildPageTableHighlightPlan(textContent) {
     }
 }
 
-export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = [], pageNumber = null) {
+export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = [], pageNumber = null, options = {}) {
     const locations = Array.isArray(evidenceLocations) ? evidenceLocations : []
     const itemEvidenceIds = new Map()
     const matches = []
+    const printedPageNumber = normalizePositiveInteger(options.printedPageNumber)
 
     if (locations.length === 0) {
         return { itemEvidenceIds, matches }
@@ -112,7 +117,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
     if (items.length === 0) {
         return {
             itemEvidenceIds,
-            matches: buildPageHintMatches(locations, pageNumber),
+            matches: buildPageHintMatches(locations, pageNumber, printedPageNumber),
         }
     }
 
@@ -121,7 +126,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
     if (rows.length === 0) {
         return {
             itemEvidenceIds,
-            matches: buildPageHintMatches(locations, pageNumber),
+            matches: buildPageHintMatches(locations, pageNumber, printedPageNumber),
         }
     }
 
@@ -130,14 +135,21 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
     for (const location of locations) {
         if (!location?.id) continue
 
-        const pageMatchesHint = pageNumber && Number(location.pageHint) === Number(pageNumber)
-        const shouldSearchPage = !location.pageHint || pageMatchesHint
+        const pageMatchesHint =
+            pageNumber &&
+            (
+                Number(location.pageHint) === Number(pageNumber) ||
+                (printedPageNumber && Number(location.pageHint) === printedPageNumber)
+            )
+        const hasTableMatcher = Boolean(parseTableNumber(location.tableLabel || location.sourceCitation) !== null)
+        const hasQuoteMatcher = Boolean(location.sourceQuote)
+        const shouldSearchPage = !location.pageHint || pageMatchesHint || hasTableMatcher || hasQuoteMatcher
         let matched = false
 
-        if (shouldSearchPage) {
+        if (shouldSearchPage && hasTableMatcher) {
             const tableRegion = findMatchingTableRegion(tableRegions, location)
             if (tableRegion) {
-                const itemIndexes = Array.from(tableRegion.allowedItemIndexes)
+                const itemIndexes = Array.from(tableRegion.evidenceItemIndexes || tableRegion.allowedItemIndexes)
                 addEvidenceItemIndexes(itemEvidenceIds, itemIndexes, location.id)
                 matches.push({
                     evidenceId: location.id,
@@ -151,14 +163,14 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
         }
 
         if (!matched && shouldSearchPage && location.sourceQuote) {
-            const quoteMatch = findSourceQuoteRowMatch(rows, location.sourceQuote)
+            const quoteMatch = findSourceQuoteTextMatch(rows, location, metrics)
             if (quoteMatch) {
-                const itemIndexes = Array.from(itemIndexesForRows(quoteMatch.rows))
+                const itemIndexes = Array.from(quoteMatch.itemIndexes)
                 addEvidenceItemIndexes(itemEvidenceIds, itemIndexes, location.id)
                 matches.push({
                     evidenceId: location.id,
                     status: EVIDENCE_STATUS.MATCHED,
-                    matchType: 'quote',
+                    matchType: quoteMatch.matchType,
                     pageNumber,
                     itemIndexes,
                 })
@@ -170,14 +182,49 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
             matches.push({
                 evidenceId: location.id,
                 status: EVIDENCE_STATUS.HINTED,
-                matchType: 'page_hint',
+                matchType: printedPageNumber && Number(location.pageHint) === printedPageNumber && Number(location.pageHint) !== Number(pageNumber)
+                    ? 'mapped_page_hint'
+                    : 'page_hint',
                 pageNumber,
+                sourcePageNumber: location.pageHint || null,
                 itemIndexes: [],
             })
         }
     }
 
     return { itemEvidenceIds, matches }
+}
+
+export function detectPrintedPageNumber(textContent, pdfPageNumber = null, pdfPageCount = null) {
+    const items = extractPositionedTextItems(textContent)
+    if (items.length === 0) return null
+
+    const metrics = buildPageMetrics(items)
+    const rows = groupItemsIntoRows(items, metrics)
+    if (rows.length === 0) return null
+
+    const visibleItems = items.filter((item) => !item.isWhitespace)
+    if (visibleItems.length === 0) return null
+
+    const minY = Math.min(...visibleItems.map((item) => item.y))
+    const maxY = Math.max(...visibleItems.map((item) => item.y + item.height))
+    const pageHeight = Math.max(1, maxY - minY)
+    const edgeBand = Math.max(pageHeight * 0.16, metrics.medianHeight * 4)
+    const edgeRows = rows.filter((row) =>
+        row.centerY <= minY + edgeBand || row.centerY >= maxY - edgeBand
+    )
+
+    for (const row of edgeRows) {
+        const pageNumber = extractLabeledPrintedPageNumber(rowSearchText(row), pdfPageCount)
+        if (pageNumber) return pageNumber
+    }
+
+    for (const row of edgeRows) {
+        const pageNumber = extractStandalonePrintedPageNumber(rowSearchText(row), pdfPageNumber, pdfPageCount)
+        if (pageNumber) return pageNumber
+    }
+
+    return null
 }
 
 export function scanTextForNutrients(text, matcher) {
@@ -371,6 +418,7 @@ function buildPageMetrics(items) {
         captionMergeGap: clamp(medianRowGap * 2.2, 18, 36),
         captionContinuationGap: clamp(medianRowGap * 1.4, 16, 26),
         bodyGapThreshold: clamp(medianRowGap * 1.9, 24, 34),
+        paragraphGapThreshold: clamp(medianRowGap * 1.6, 18, 30),
         bandMargin: clamp(medianHeight * 1.8, 16, 28),
         medianHeight,
     }
@@ -627,6 +675,7 @@ function extendCaptionBlock(block, rows, metrics) {
 function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRowIndex) {
     let band = expandSpan(block.band, metrics.bandMargin)
     const bodyFragments = []
+    const evidenceFragments = []
     const bodyRowIndexes = []
     let lastAcceptedRowIndex = null
     let hasAcceptedDataLikeRow = false
@@ -670,6 +719,7 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
         }
 
         bodyFragments.push(...fragmentsToInclude)
+        evidenceFragments.push(...overlappingFragments)
         bodyRowIndexes.push(rowIndex)
         lastAcceptedRowIndex = rowIndex
         hasAcceptedDataLikeRow = hasAcceptedDataLikeRow || rowSelection.hasDataLikeFragment
@@ -694,10 +744,12 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
     }
 
     const allowedItemIndexes = new Set()
+    const evidenceItemIndexes = new Set()
 
     block.fragments.forEach((fragment) => {
         fragment.visibleItemIndexes.forEach((itemIndex) => {
             allowedItemIndexes.add(itemIndex)
+            evidenceItemIndexes.add(itemIndex)
         })
     })
 
@@ -707,12 +759,19 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
         })
     })
 
+    evidenceFragments.forEach((fragment) => {
+        fragment.visibleItemIndexes.forEach((itemIndex) => {
+            evidenceItemIndexes.add(itemIndex)
+        })
+    })
+
     return {
         isConfident: true,
         captionNumber: block.captionNumber,
         captionText: block.fragments.map((fragment) => fragment.normalizedText).join(' '),
         bodyRowCount: new Set(bodyRowIndexes).size,
         allowedItemIndexes,
+        evidenceItemIndexes,
     }
 }
 
@@ -735,15 +794,24 @@ function buildConfidentTableRegions(rows, metrics) {
     return confidentRegions
 }
 
-function buildPageHintMatches(locations, pageNumber) {
+function buildPageHintMatches(locations, pageNumber, printedPageNumber = null) {
     if (!pageNumber) return []
     return locations
-        .filter((location) => location?.id && Number(location.pageHint) === Number(pageNumber))
+        .filter((location) => {
+            if (!location?.id || !location.pageHint) return false
+            return (
+                Number(location.pageHint) === Number(pageNumber) ||
+                (printedPageNumber && Number(location.pageHint) === Number(printedPageNumber))
+            )
+        })
         .map((location) => ({
             evidenceId: location.id,
             status: EVIDENCE_STATUS.HINTED,
-            matchType: 'page_hint',
+            matchType: printedPageNumber && Number(location.pageHint) === Number(printedPageNumber) && Number(location.pageHint) !== Number(pageNumber)
+                ? 'mapped_page_hint'
+                : 'page_hint',
             pageNumber,
+            sourcePageNumber: location.pageHint || null,
             itemIndexes: [],
         }))
 }
@@ -761,10 +829,41 @@ function findMatchingTableRegion(tableRegions, location) {
     return tableRegions.find((region) => normalizeSearchText(region.captionText).includes(tableLabel)) || null
 }
 
-function findSourceQuoteRowMatch(rows, sourceQuote) {
-    const matcher = buildSourceQuoteMatcher(sourceQuote)
+function findSourceQuoteTextMatch(rows, location, metrics) {
+    const matcher = buildSourceQuoteMatcher(location.sourceQuote)
     if (!matcher) return null
+    const expandParagraph =
+        location.sourceLocationType === 'paragraph' ||
+        (!location.tableLabel && !parseTableNumber(location.sourceCitation))
 
+    const fragments = buildSearchFragments(rows)
+    const fragmentMatch = findSourceQuoteFragmentMatch(fragments, matcher)
+    if (fragmentMatch) {
+        const matchedFragments = fragments.slice(fragmentMatch.startIndex, fragmentMatch.endIndex)
+        const evidenceFragments = expandParagraph
+            ? expandFragmentsToParagraph(fragments, fragmentMatch.startIndex, fragmentMatch.endIndex, rows, metrics)
+            : matchedFragments
+
+        return {
+            itemIndexes: itemIndexesForSearchFragments(evidenceFragments),
+            matchType: expandParagraph ? 'paragraph' : 'quote',
+        }
+    }
+
+    const rowMatch = findSourceQuoteRowMatch(rows, matcher)
+    if (!rowMatch) return null
+
+    const evidenceRows = expandParagraph
+        ? expandRowsToParagraph(rows, rowMatch.startIndex, rowMatch.endIndex, metrics)
+        : rowMatch.rows
+
+    return {
+        itemIndexes: itemIndexesForRows(evidenceRows),
+        matchType: expandParagraph ? 'paragraph' : 'quote',
+    }
+}
+
+function findSourceQuoteRowMatch(rows, matcher) {
     const maxWindowSize = Math.min(4, rows.length)
     for (let windowSize = 1; windowSize <= maxWindowSize; windowSize += 1) {
         for (let startIndex = 0; startIndex <= rows.length - windowSize; startIndex += 1) {
@@ -772,6 +871,8 @@ function findSourceQuoteRowMatch(rows, sourceQuote) {
             const windowText = rows.slice(startIndex, endIndex).map(rowSearchText).join(' ')
             if (sourceQuoteMatchesText(matcher, windowText)) {
                 return {
+                    startIndex,
+                    endIndex,
                     rows: rows.slice(startIndex, endIndex),
                 }
             }
@@ -779,6 +880,177 @@ function findSourceQuoteRowMatch(rows, sourceQuote) {
     }
 
     return null
+}
+
+function buildSearchFragments(rows) {
+    const fragments = []
+    for (const row of rows) {
+        for (const fragment of row.fragments) {
+            fragments.push({
+                row,
+                fragment,
+            })
+        }
+    }
+    return fragments
+}
+
+function findSourceQuoteFragmentMatch(fragments, matcher) {
+    const maxWindowSize = Math.min(6, fragments.length)
+    for (let windowSize = 1; windowSize <= maxWindowSize; windowSize += 1) {
+        for (let startIndex = 0; startIndex <= fragments.length - windowSize; startIndex += 1) {
+            const endIndex = startIndex + windowSize
+            const windowText = fragments
+                .slice(startIndex, endIndex)
+                .map((entry) => entry.fragment.normalizedText)
+                .join(' ')
+            if (sourceQuoteMatchesText(matcher, windowText)) {
+                return { startIndex, endIndex }
+            }
+        }
+    }
+
+    return null
+}
+
+function expandFragmentsToParagraph(fragments, startIndex, endIndex, rows, metrics) {
+    const selected = new Set()
+    for (let index = startIndex; index < endIndex; index += 1) {
+        selected.add(index)
+    }
+
+    let baseSpan = fragments
+        .slice(startIndex, endIndex)
+        .map((entry) => spanFromFragment(entry.fragment))
+        .reduce((span, nextSpan) => unionSpan(span, nextSpan))
+    let firstIndex = startIndex
+    let lastIndex = endIndex - 1
+
+    while (selected.size < MAX_PARAGRAPH_FRAGMENT_COUNT) {
+        const candidateIndex = findAdjacentParagraphFragmentIndex(
+            fragments,
+            firstIndex,
+            -1,
+            baseSpan,
+            rows,
+            metrics
+        )
+        if (candidateIndex === null) break
+        selected.add(candidateIndex)
+        firstIndex = candidateIndex
+        baseSpan = unionSpan(baseSpan, spanFromFragment(fragments[candidateIndex].fragment))
+    }
+
+    while (selected.size < MAX_PARAGRAPH_FRAGMENT_COUNT) {
+        const candidateIndex = findAdjacentParagraphFragmentIndex(
+            fragments,
+            lastIndex,
+            1,
+            baseSpan,
+            rows,
+            metrics
+        )
+        if (candidateIndex === null) break
+        selected.add(candidateIndex)
+        lastIndex = candidateIndex
+        baseSpan = unionSpan(baseSpan, spanFromFragment(fragments[candidateIndex].fragment))
+    }
+
+    return Array.from(selected)
+        .sort((left, right) => left - right)
+        .map((index) => fragments[index])
+}
+
+function findAdjacentParagraphFragmentIndex(fragments, anchorIndex, direction, baseSpan, rows, metrics) {
+    const anchor = fragments[anchorIndex]
+    if (!anchor) return null
+
+    for (
+        let candidateIndex = anchorIndex + direction;
+        candidateIndex >= 0 && candidateIndex < fragments.length;
+        candidateIndex += direction
+    ) {
+        const candidate = fragments[candidateIndex]
+        const decision = getParagraphFragmentDecision(candidate, anchor, baseSpan, rows, metrics)
+        if (decision === 'skip') continue
+        if (decision === 'include') return candidateIndex
+        return null
+    }
+
+    return null
+}
+
+function getParagraphFragmentDecision(candidate, anchor, baseSpan, rows, metrics) {
+    if (!candidate || !anchor) return 'stop'
+    const candidateRow = rows[candidate.row.rowIndex]
+    const anchorRow = rows[anchor.row.rowIndex]
+    if (!candidateRow || !anchorRow) return 'stop'
+
+    const rowGap = Math.abs(candidateRow.centerY - anchorRow.centerY)
+    const candidateSpan = spanFromFragment(candidate.fragment)
+    const sameColumn = spansLikelySameColumn(baseSpan, candidateSpan)
+
+    if (!sameColumn && rowGap <= metrics.rowTolerance * 1.5) {
+        return 'skip'
+    }
+
+    if (!sameColumn || rowGap > metrics.paragraphGapThreshold) {
+        return 'stop'
+    }
+
+    if (!isParagraphCandidateFragment(candidate.fragment)) {
+        return 'stop'
+    }
+
+    return 'include'
+}
+
+function expandRowsToParagraph(rows, startIndex, endIndex, metrics) {
+    const selected = new Set()
+    for (let index = startIndex; index < endIndex; index += 1) {
+        selected.add(index)
+    }
+
+    let baseSpan = rows
+        .slice(startIndex, endIndex)
+        .map((row) => ({ left: row.minX, right: row.maxX }))
+        .reduce((span, nextSpan) => unionSpan(span, nextSpan))
+    let firstIndex = startIndex
+    let lastIndex = endIndex - 1
+
+    while (selected.size < MAX_PARAGRAPH_FRAGMENT_COUNT && firstIndex > 0) {
+        const candidateIndex = firstIndex - 1
+        const candidate = rows[candidateIndex]
+        const anchor = rows[firstIndex]
+        if (!isParagraphCandidateRow(candidate) ||
+            verticalGapBetweenRows(candidate, anchor) > metrics.paragraphGapThreshold ||
+            !spansLikelySameColumn(baseSpan, { left: candidate.minX, right: candidate.maxX })
+        ) {
+            break
+        }
+        selected.add(candidateIndex)
+        firstIndex = candidateIndex
+        baseSpan = unionSpan(baseSpan, { left: candidate.minX, right: candidate.maxX })
+    }
+
+    while (selected.size < MAX_PARAGRAPH_FRAGMENT_COUNT && lastIndex < rows.length - 1) {
+        const candidateIndex = lastIndex + 1
+        const candidate = rows[candidateIndex]
+        const anchor = rows[lastIndex]
+        if (!isParagraphCandidateRow(candidate) ||
+            verticalGapBetweenRows(anchor, candidate) > metrics.paragraphGapThreshold ||
+            !spansLikelySameColumn(baseSpan, { left: candidate.minX, right: candidate.maxX })
+        ) {
+            break
+        }
+        selected.add(candidateIndex)
+        lastIndex = candidateIndex
+        baseSpan = unionSpan(baseSpan, { left: candidate.minX, right: candidate.maxX })
+    }
+
+    return Array.from(selected)
+        .sort((left, right) => left - right)
+        .map((index) => rows[index])
 }
 
 function buildSourceQuoteMatcher(sourceQuote) {
@@ -825,6 +1097,14 @@ function itemIndexesForRows(rows) {
         for (const fragment of row.fragments) {
             fragment.visibleItemIndexes.forEach((itemIndex) => itemIndexes.add(itemIndex))
         }
+    }
+    return itemIndexes
+}
+
+function itemIndexesForSearchFragments(fragments) {
+    const itemIndexes = new Set()
+    for (const entry of fragments) {
+        entry.fragment.visibleItemIndexes.forEach((itemIndex) => itemIndexes.add(itemIndex))
     }
     return itemIndexes
 }
@@ -876,6 +1156,19 @@ function unionSpan(left, right) {
 
 function spansOverlap(left, right, margin = 0) {
     return right.right >= left.left - margin && right.left <= left.right + margin
+}
+
+function spansLikelySameColumn(left, right) {
+    const overlap = Math.min(left.right, right.right) - Math.max(left.left, right.left)
+    const leftWidth = Math.max(1, left.right - left.left)
+    const rightWidth = Math.max(1, right.right - right.left)
+    if (overlap >= Math.min(leftWidth, rightWidth) * 0.28) {
+        return true
+    }
+    const leftCenter = (left.left + left.right) / 2
+    const rightCenter = (right.left + right.right) / 2
+    const centerDistance = Math.abs(leftCenter - rightCenter)
+    return centerDistance <= Math.max(40, Math.min(leftWidth, rightWidth) * 0.45)
 }
 
 function verticalGapBetweenRows(upperRow, lowerRow) {
@@ -967,6 +1260,20 @@ function isDataLikeFragment(fragment) {
     return fragment.numericTokenCount > 0 || fragment.sampleCodeCount > 0
 }
 
+function isParagraphCandidateRow(row) {
+    if (!row?.fragments?.length) return false
+    return row.fragments.some(isParagraphCandidateFragment)
+}
+
+function isParagraphCandidateFragment(fragment) {
+    return (
+        fragment.wordCount >= 3 &&
+        !fragment.hasCaptionAnchor &&
+        !fragment.hasHeaderToken &&
+        !fragment.isTableLike
+    )
+}
+
 function isAllCapsToken(token) {
     const letters = token.match(LETTER_RE) || []
     if (letters.length < 3) {
@@ -992,6 +1299,38 @@ function stripEdgePunctuation(token) {
 
 function normalizeFragmentText(text) {
     return text.replace(/\s+/g, ' ').trim()
+}
+
+function extractLabeledPrintedPageNumber(text, pdfPageCount) {
+    const normalized = normalizeFragmentText(text)
+    const pageFirstMatch = normalized.match(PAGE_LABEL_WITH_NUMBER_RE)
+    const pageFirst = normalizePrintedPageCandidate(pageFirstMatch?.[1], pdfPageCount)
+    if (pageFirst) return pageFirst
+
+    const numberFirstMatch = normalized.match(NUMBER_WITH_PAGE_LABEL_RE)
+    return normalizePrintedPageCandidate(numberFirstMatch?.[1], pdfPageCount)
+}
+
+function extractStandalonePrintedPageNumber(text, pdfPageNumber, pdfPageCount) {
+    const normalized = normalizeFragmentText(text)
+    const match = normalized.match(STANDALONE_PAGE_NUMBER_RE)
+    const candidate = normalizePrintedPageCandidate(match?.[1], pdfPageCount)
+    if (!candidate) return null
+
+    if (pdfPageCount && candidate > pdfPageCount) return candidate
+    if (pdfPageNumber && candidate === Number(pdfPageNumber)) return candidate
+    return null
+}
+
+function normalizePrintedPageCandidate(value) {
+    const pageNumber = normalizePositiveInteger(value)
+    if (!pageNumber || pageNumber > 5000) return null
+    return pageNumber
+}
+
+function normalizePositiveInteger(value) {
+    const parsed = Number.parseInt(value, 10)
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 }
 
 function median(values, fallback) {

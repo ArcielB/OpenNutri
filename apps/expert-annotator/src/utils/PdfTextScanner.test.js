@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { EVIDENCE_STATUS } from './EvidenceLocations.js'
-import { buildPageEvidenceHighlightPlan } from './PdfTextScanner.js'
+import { buildPageEvidenceHighlightPlan, detectPrintedPageNumber } from './PdfTextScanner.js'
 
 function textItem(str, x, y, width = 200, height = 10) {
     return {
@@ -32,13 +32,34 @@ test('matches a table label to a whole detected table region', () => {
     assert.deepEqual([...plan.itemEvidenceIds.keys()].sort((a, b) => a - b), [0, 1, 2])
 })
 
+test('includes prose-like food cells when evidence highlights a table', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Table 3. Phytochemical composition', 50, 700, 260),
+                textItem('Constituent', 50, 680, 90),
+                textItem('Value (mg/100g)', 300, 680, 110),
+                textItem('Sida acuta dried leaf sample', 50, 660, 170),
+                textItem('1751.67 1255 90', 300, 660, 130),
+            ],
+        },
+        [{ id: 'evidence-1', tableLabel: 'Table 3', pageHint: 95 }],
+        1
+    )
+
+    assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
+    assert.equal(plan.matches[0].matchType, 'table')
+    assert.deepEqual([...plan.itemEvidenceIds.keys()].sort((a, b) => a - b), [0, 1, 2, 3, 4])
+})
+
 test('matches a source quote to the containing paragraph line block', () => {
     const plan = buildPageEvidenceHighlightPlan(
         {
             items: [
-                textItem('Introduction text.', 50, 700, 120),
+                textItem('The edible portion was analyzed after drying.', 50, 700, 260),
                 textItem('Pear samples contained 4.6 mg vitamin C per 100 g in the edible portion.', 50, 680, 420),
-                textItem('Another paragraph.', 50, 650, 140),
+                textItem('Values were calculated on a fresh weight basis.', 50, 660, 300),
+                textItem('Another paragraph starts with different evidence.', 50, 620, 260),
             ],
         },
         [
@@ -52,8 +73,31 @@ test('matches a source quote to the containing paragraph line block', () => {
     )
 
     assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
-    assert.equal(plan.matches[0].matchType, 'quote')
-    assert.deepEqual([...plan.itemEvidenceIds.keys()], [1])
+    assert.equal(plan.matches[0].matchType, 'paragraph')
+    assert.deepEqual([...plan.itemEvidenceIds.keys()], [0, 1, 2])
+})
+
+test('maps printed page labels to the current PDF page', () => {
+    const textContent = {
+        items: [
+            textItem('www.iosrjournals.org', 230, 20, 140),
+            textItem('93 | Page', 820, 20, 70),
+            textItem('Introduction', 260, 720, 120),
+        ],
+    }
+
+    assert.equal(detectPrintedPageNumber(textContent, 1, 6), 93)
+
+    const plan = buildPageEvidenceHighlightPlan(
+        textContent,
+        [{ id: 'evidence-1', pageHint: 93 }],
+        1,
+        { printedPageNumber: 93 }
+    )
+
+    assert.equal(plan.matches[0].status, EVIDENCE_STATUS.HINTED)
+    assert.equal(plan.matches[0].matchType, 'mapped_page_hint')
+    assert.equal(plan.matches[0].pageNumber, 1)
 })
 
 test('keeps page-only hints navigable without broad highlighting', () => {

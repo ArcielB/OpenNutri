@@ -97,12 +97,18 @@ export function mergeEvidenceStatuses(locations, pageMatches) {
             }
             continue
         }
-        if (match.status === EVIDENCE_STATUS.HINTED && current.status === EVIDENCE_STATUS.UNVERIFIED) {
+        if (
+            match.status === EVIDENCE_STATUS.HINTED &&
+            (current.status === EVIDENCE_STATUS.UNVERIFIED || match.matchType === 'mapped_page_hint')
+        ) {
             statuses[match.evidenceId] = {
                 status: EVIDENCE_STATUS.HINTED,
-                label: 'Page hint',
+                label: match.matchType === 'mapped_page_hint'
+                    ? `Printed page ${match.sourcePageNumber} maps to PDF page ${match.pageNumber}`
+                    : 'Page hint',
                 pageNumber: match.pageNumber || current.pageNumber || null,
-                matchType: 'page_hint',
+                matchType: match.matchType === 'mapped_page_hint' ? 'mapped_page_hint' : 'page_hint',
+                sourcePageNumber: match.sourcePageNumber || null,
             }
         }
     }

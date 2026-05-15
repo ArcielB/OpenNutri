@@ -31,7 +31,7 @@ Features:
 - Editable queue papers with no saved annotation open as AI-prefilled verification tasks from the latest `ai_extractions.normalized_payload_json`; the AI output is preloaded directly into editable food/nutrient rows, existing drafts/submissions are never overwritten, and labelers see DB-compliant extraction rows without AI reasoning or a separate AI-prefill status banner.
 - Reviewer approval workflow: Arciel currently has `can_approve_labels=true`; Arciel submissions auto-accept, while non-Arciel submissions go to an approver-only Approval page where Arciel can edit and accept final truth.
 - Read-only tester/developer cockpit accounts can inspect Approval, Dashboard, and Useful Papers views but cannot approve or mutate live rows.
-- PDF viewer with table-scoped nutrient-name highlighting, click-to-add popover, and a compact Sources strip that jumps to matched table/paragraph text or page hints.
+- PDF viewer with table-scoped nutrient-name highlighting, click-to-add popover, and a compact Sources strip that jumps to matched table/paragraph text or page hints, including printed-page hints from journal PDFs.
 - Food and nutrient autocomplete with ranking and search logging.
 - Save draft, submit usable-data extraction, or submit no-usable-data.
 - Labelers can send an `Ask for Help` request from a general-queue paper when the data is confusing; this creates a cockpit-visible review item with paper, AI, reviewer, and draft-food context.
@@ -245,7 +245,7 @@ GitHub Actions daily ops requires repository secrets with these same names:
   If a page has no confident local table anchor, or a table continues onto a captionless page, the viewer suppresses highlights on that page instead of falling back to page-wide prose matching.
   Highlight markup is still injected through `react-pdf` `customTextRenderer` on single PDF text items, so matches split across multiple items inside a table are still a separate follow-up.
 - AI evidence highlighting is broad location guidance, not exact nutrient-coordinate matching.
-  Queue and Approval build a compact deduplicated Sources strip from normalized payload rows. A table label can highlight the detected table region, a source quote can highlight the matching line/paragraph block, and a page-only hint scrolls to that page without coloring the whole page. Unmatched AI evidence remains visible as unverified.
+  Queue and Approval build a compact deduplicated Sources strip from normalized payload rows. A table label highlights the detected table region, a paragraph source quote expands to the surrounding paragraph block, and a page-only hint scrolls without coloring the whole page. Printed journal page hints such as `Page 95` are mapped to the actual PDF page when the viewer can detect header/footer page labels. Unmatched AI evidence remains visible as unverified.
 
 **Contributing**
 When taking a backlog item:

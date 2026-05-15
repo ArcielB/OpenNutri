@@ -11,7 +11,7 @@ Annotators use it to:
 ## UI Notes
 
 - Queue AI prefill is intentionally quiet: normalized Gemini rows are loaded directly into editable food/nutrient fields without a visible AI-prefill banner.
-- Queue and Approval source navigation use the compact `Sources` strip; it still jumps to matched table/paragraph/page evidence.
+- Queue and Approval source navigation use the compact `Sources` strip; it jumps to matched table/paragraph/page evidence and maps printed journal page numbers to actual PDF pages when page labels can be detected.
 - Avoid emoji-dependent controls in the main workflow. Use stable text labels or icon-only buttons with accessible labels.
 
 ## Stack
@@ -68,6 +68,7 @@ If you change highlighting behavior:
 - test simple words
 - test comma-separated nutrient lists
 - test words near punctuation
+- preserve printed-page mapping for AI page hints such as `Page 95` in a six-page PDF
 - test across several PDFs, not only one
 
 ## Cockpit Ops

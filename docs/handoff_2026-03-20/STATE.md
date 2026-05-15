@@ -84,8 +84,8 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 
 `apps/expert-annotator/src/pages/Annotate.jsx` now exposes:
 
-- `Queue`: shared available paper list, quiet AI prefill from latest Gemini `has_data` `ai_extractions.normalized_payload_json`, compact Sources strip for table/paragraph/page navigation, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized useful AI output; AI `no_usable_data` decisions are provisional skips outside the labeler queue, and AI reasoning or AI-prefill status banners are not shown to labelers.
-- `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers. The editable final payload uses the same compact Sources strip so approvers can jump to matched PDF table/paragraph regions or page hints.
+- `Queue`: shared available paper list, quiet AI prefill from latest Gemini `has_data` `ai_extractions.normalized_payload_json`, compact Sources strip for table/paragraph/page navigation, draft save, final submit, no-usable-data submit, ask-for-help. Queue papers already have normalized useful AI output; AI `no_usable_data` decisions are provisional skips outside the labeler queue, and AI reasoning or AI-prefill status banners are not shown to labelers. Source navigation maps printed journal page hints to actual PDF pages when header/footer page labels are detectable.
+- `Approval`: cockpit-visible; editable only for `can_approve_labels` non-testers. The editable final payload uses the same compact Sources strip so approvers can jump to matched PDF table regions, expanded paragraph regions, or page hints.
 - `Dashboard`: labeler performance and detailed correction history.
 - `Pipeline`: cockpit-only operational view for crawler search, PDF acquisition, Gemma screening, Gemini extraction, and human review. It uses the `get_pipeline_ops_snapshot` RPC to show a simple "Right Now" queue block plus an all-time-by-default funnel with a time filter.
 - `Useful Papers`: useful paper/submission/approval/outcome state plus a `Latest AI` Details affordance for the normalized DB-compliant extraction payload. Provisional AI no-data skips are hidden from this default overview.
@@ -199,4 +199,4 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 ## Still Needs Attention
 
 - L2 classifier training is still deferred until more accepted human-review outcomes exist.
-- PDF nutrient-name click highlights remain precision-first/table-only; continuation-page recall and cross-text-item nutrient phrase matching are still future work. Compact AI source strips now cover table/paragraph/page navigation separately.
+- PDF nutrient-name click highlights remain precision-first/table-only; continuation-page recall and cross-text-item nutrient phrase matching are still future work. Compact AI source strips cover table/paragraph/page navigation separately, map printed page hints when possible, and broaden evidence highlights to full detected table or paragraph regions.
