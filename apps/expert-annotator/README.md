@@ -11,7 +11,7 @@ Annotators use it to:
 ## UI Notes
 
 - Queue AI prefill is intentionally quiet: normalized Gemini rows are loaded directly into editable food/nutrient fields without a visible AI-prefill banner.
-- Queue and Approval source navigation use the compact `Sources` strip; it jumps to matched table/paragraph/page evidence and maps printed journal page numbers to actual PDF pages when page labels can be detected.
+- Queue and Approval source navigation use the compact `Sources` strip; selected sources draw visible overlays for matched table/paragraph evidence and map printed journal page numbers to actual PDF pages when page labels can be detected.
 - Avoid emoji-dependent controls in the main workflow. Use stable text labels or icon-only buttons with accessible labels.
 
 ## Stack
