@@ -64,6 +64,45 @@ test('includes prose-like food cells when evidence highlights a table', () => {
     })
 })
 
+test('matches a table with a separate caption label and wide multi-column headers', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Table 2', 50, 700, 45),
+                textItem('Mean value, standard deviation, and descriptive statistics of dry matter, crude protein, ash content, moisture content, crude fats, crude fiber, and carbohydrate of 30 oat', 50, 688, 520),
+                textItem('germplasm.', 50, 676, 60),
+                textItem('Oat Germplasm', 60, 656, 60),
+                textItem('Dry matter', 150, 656, 45),
+                textItem('Crude Protein', 230, 656, 60),
+                textItem('Ash Content', 320, 656, 55),
+                textItem('Moisture Content', 410, 656, 75),
+                textItem('A769', 60, 640, 40),
+                textItem('90.26 +/- 0.07', 150, 640, 60),
+                textItem('15.57 +/- 0.57', 230, 640, 60),
+                textItem('4.53 +/- 0.03', 320, 640, 55),
+                textItem('9.80 +/- 0.06', 410, 640, 55),
+                textItem('Mean', 60, 624, 40),
+                textItem('90.76', 150, 624, 50),
+                textItem('14.54', 230, 624, 50),
+                textItem('5.86', 320, 624, 40),
+                textItem('9.58', 410, 624, 40),
+                textItem('A paragraph below the table should not be part of the overlay.', 50, 580, 360),
+            ],
+        },
+        [{ id: 'evidence-1', tableLabel: 'Table 2', pageHint: 4 }],
+        4
+    )
+
+    assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
+    assert.equal(plan.matches[0].matchType, 'table')
+    assert.deepEqual(plan.matches[0].regionBounds, {
+        left: 50,
+        right: 570,
+        bottom: 624,
+        top: 710,
+    })
+})
+
 test('snaps quote evidence inside a detected table to the whole table block', () => {
     const plan = buildPageEvidenceHighlightPlan(
         {

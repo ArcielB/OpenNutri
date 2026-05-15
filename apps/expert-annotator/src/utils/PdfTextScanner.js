@@ -630,7 +630,7 @@ function extendCaptionBlock(block, rows, metrics) {
     let cursor = block.endRowIndex + 1
     let continuationRows = 0
 
-    while (cursor < rows.length && continuationRows < 2) {
+    while (cursor < rows.length && continuationRows < 3) {
         const row = rows[cursor]
         const previousRow = rows[cursor - 1]
 
@@ -655,7 +655,7 @@ function extendCaptionBlock(block, rows, metrics) {
             break
         }
 
-        if (fragment.looksProseLike || fragment.wordCount > 5) {
+        if (!isCaptionContinuationFragment(fragment, continuationRows)) {
             break
         }
 
@@ -665,6 +665,18 @@ function extendCaptionBlock(block, rows, metrics) {
         cursor += 1
         continuationRows += 1
     }
+}
+
+function isCaptionContinuationFragment(fragment, continuationRows) {
+    if (!fragment || fragment.isTableLike || fragment.hasCaptionAnchor) {
+        return false
+    }
+
+    if (!fragment.looksProseLike && fragment.wordCount <= 5) {
+        return true
+    }
+
+    return continuationRows < 2 && fragment.wordCount <= 34
 }
 
 function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRowIndex) {
@@ -1356,9 +1368,10 @@ function selectFragmentsForTableRow(overlappingFragments, context) {
         (fragment) => fragment.hasHeaderToken || fragment.hasUnitLabel
     )
     const rowHasDataLikeFragment = eligibleFragments.some(isDataLikeFragment)
+    const headerWordLimit = Math.max(9, eligibleFragments.length * 3)
     const rowIsHeaderLike =
         shortHeaderFragments.length === eligibleFragments.length &&
-        rowWordCount <= 9 &&
+        rowWordCount <= headerWordLimit &&
         (rowHasMultipleCells || rowHasExplicitHeaderSignal || tableLikeFragments.length > 0)
 
     if (tableLikeFragments.length > 0) {
