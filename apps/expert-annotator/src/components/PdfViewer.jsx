@@ -232,7 +232,7 @@ export default function PdfViewer({
             const pageNode = panel.querySelector(`[data-page-number="${targetPage}"]`)
             if (pageNode) {
                 const overlay = (evidenceOverlaysByPage[Number(targetPage)] || [])
-                    .find((entry) => entry.evidenceId === activeEvidenceId) || null
+                    .find((entry) => entry.evidenceIds.includes(activeEvidenceId)) || null
                 if (overlay) {
                     scrollPageRegionIntoView(panel, pageNode, overlay)
                 } else {
@@ -341,9 +341,9 @@ function EvidenceRegionOverlay({ overlays }) {
         <div className="evidence-region-overlay" aria-hidden="true">
             {overlays.map((overlay, index) => (
                 <div
-                    key={`${overlay.evidenceId}-${overlay.type}-${index}`}
+                    key={`${overlay.regionKey}-${index}`}
                     className={`evidence-region-box evidence-region-box-${overlay.type}`}
-                    data-evidence-region-id={overlay.evidenceId}
+                    data-evidence-region-id={overlay.evidenceIds.join(' ')}
                     style={{
                         left: overlay.left,
                         top: overlay.top,
@@ -375,17 +375,28 @@ function buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage) {
     const overlaysByPage = {}
 
     for (const [pageNumber, plan] of Object.entries(pageHighlightPlans || {})) {
-        const overlays = (plan.evidenceMatches || []).map(
-            (entry) =>
-                entry.status === EVIDENCE_STATUS.MATCHED && entry.regionBounds
-                    ? buildOverlayForRegionBounds(
-                        entry.regionBounds,
-                        pageDimensionsByPage[Number(pageNumber)],
-                        entry.matchType,
-                        entry.evidenceId
-                    )
-                    : null
-        ).filter(Boolean)
+        const overlaysByRegion = new Map()
+
+        for (const entry of plan.evidenceMatches || []) {
+            if (entry.status !== EVIDENCE_STATUS.MATCHED || !entry.regionBounds) continue
+
+            const overlay = buildOverlayForRegionBounds(
+                entry.regionBounds,
+                pageDimensionsByPage[Number(pageNumber)],
+                entry.matchType,
+                entry.evidenceId
+            )
+            if (!overlay) continue
+
+            const existingOverlay = overlaysByRegion.get(overlay.regionKey)
+            if (existingOverlay) {
+                existingOverlay.evidenceIds.push(entry.evidenceId)
+            } else {
+                overlaysByRegion.set(overlay.regionKey, overlay)
+            }
+        }
+
+        const overlays = Array.from(overlaysByRegion.values())
 
         if (overlays.length > 0) {
             overlaysByPage[Number(pageNumber)] = overlays
@@ -445,12 +456,23 @@ function buildOverlayForRegionBounds(regionBounds, pageDimensions, matchType, ev
 
     return {
         type: matchType === 'table' ? 'table' : 'paragraph',
-        evidenceId,
+        evidenceIds: [evidenceId],
+        regionKey: buildOverlayRegionKey(matchType, left, top, width, height),
         left,
         top,
         width,
         height,
     }
+}
+
+function buildOverlayRegionKey(matchType, left, top, width, height) {
+    return [
+        matchType === 'table' ? 'table' : 'paragraph',
+        left.toFixed(2),
+        top.toFixed(2),
+        width.toFixed(2),
+        height.toFixed(2),
+    ].join(':')
 }
 
 function clampNumber(value, minValue, maxValue) {

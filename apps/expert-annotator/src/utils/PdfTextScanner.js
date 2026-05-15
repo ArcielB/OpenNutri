@@ -131,6 +131,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
     }
 
     const tableRegions = buildConfidentTableRegions(rows, metrics)
+    const paragraphBlocks = buildParagraphBlocks(rows, tableRegions, metrics)
 
     for (const location of locations) {
         if (!location?.id) continue
@@ -164,7 +165,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
         }
 
         if (!matched && shouldSearchPage && location.sourceQuote) {
-            const quoteMatch = findSourceQuoteTextMatch(rows, location, metrics)
+            const quoteMatch = findSourceQuoteTextMatch(rows, location, metrics, tableRegions, paragraphBlocks)
             if (quoteMatch) {
                 const itemIndexes = Array.from(quoteMatch.itemIndexes)
                 addEvidenceItemIndexes(itemEvidenceIds, itemIndexes, location.id)
@@ -766,6 +767,7 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
         bodyRowCount: new Set(bodyRowIndexes).size,
         allowedItemIndexes,
         evidenceItemIndexes,
+        blockItemIndexes: evidenceItemIndexes,
         regionBounds: boundsFromFragments([...block.fragments, ...evidenceFragments]),
     }
 }
@@ -824,40 +826,68 @@ function findMatchingTableRegion(tableRegions, location) {
     return tableRegions.find((region) => normalizeSearchText(region.captionText).includes(tableLabel)) || null
 }
 
-function findSourceQuoteTextMatch(rows, location, metrics) {
+function findSourceQuoteTextMatch(rows, location, metrics, tableRegions = [], paragraphBlocks = []) {
     const matcher = buildSourceQuoteMatcher(location.sourceQuote)
     if (!matcher) return null
-    const expandParagraph =
-        location.sourceLocationType === 'paragraph' ||
-        (!location.tableLabel && !parseTableNumber(location.sourceCitation))
 
     const fragments = buildSearchFragments(rows)
     const fragmentMatch = findSourceQuoteFragmentMatch(fragments, matcher)
     if (fragmentMatch) {
         const matchedFragments = fragments.slice(fragmentMatch.startIndex, fragmentMatch.endIndex)
-        const evidenceFragments = expandParagraph
-            ? expandFragmentsToParagraph(fragments, fragmentMatch.startIndex, fragmentMatch.endIndex, rows, metrics)
-            : matchedFragments
-
-        return {
-            itemIndexes: itemIndexesForSearchFragments(evidenceFragments),
-            matchType: expandParagraph ? 'paragraph' : 'quote',
-            regionBounds: boundsFromSearchFragments(evidenceFragments),
-        }
+        const matchedItemIndexes = itemIndexesForSearchFragments(matchedFragments)
+        return buildBlockMatchForItemIndexes(matchedItemIndexes, {
+            tableRegions,
+            paragraphBlocks,
+            fallbackMatch: () => {
+                const evidenceFragments = expandFragmentsToParagraph(fragments, fragmentMatch.startIndex, fragmentMatch.endIndex, rows, metrics)
+                return {
+                    itemIndexes: itemIndexesForSearchFragments(evidenceFragments),
+                    matchType: 'paragraph',
+                    regionBounds: boundsFromSearchFragments(evidenceFragments),
+                }
+            },
+        })
     }
 
     const rowMatch = findSourceQuoteRowMatch(rows, matcher)
     if (!rowMatch) return null
 
-    const evidenceRows = expandParagraph
-        ? expandRowsToParagraph(rows, rowMatch.startIndex, rowMatch.endIndex, metrics)
-        : rowMatch.rows
+    const matchedItemIndexes = itemIndexesForRows(rowMatch.rows)
+    return buildBlockMatchForItemIndexes(matchedItemIndexes, {
+        tableRegions,
+        paragraphBlocks,
+        fallbackMatch: () => {
+            const evidenceRows = expandRowsToParagraph(rows, rowMatch.startIndex, rowMatch.endIndex, metrics)
+            return {
+                itemIndexes: itemIndexesForRows(evidenceRows),
+                matchType: 'paragraph',
+                regionBounds: boundsFromRows(evidenceRows),
+            }
+        },
+    })
+}
 
-    return {
-        itemIndexes: itemIndexesForRows(evidenceRows),
-        matchType: expandParagraph ? 'paragraph' : 'quote',
-        regionBounds: boundsFromRows(evidenceRows),
+function buildBlockMatchForItemIndexes(matchedItemIndexes, options = {}) {
+    const { tableRegions = [], paragraphBlocks = [], fallbackMatch = null } = options
+    const tableRegion = findBlockForItemIndexes(tableRegions, matchedItemIndexes, 'blockItemIndexes')
+    if (tableRegion) {
+        return {
+            itemIndexes: new Set(tableRegion.blockItemIndexes || tableRegion.evidenceItemIndexes),
+            matchType: 'table',
+            regionBounds: tableRegion.regionBounds,
+        }
     }
+
+    const paragraphBlock = findBlockForItemIndexes(paragraphBlocks, matchedItemIndexes, 'itemIndexes')
+    if (paragraphBlock) {
+        return {
+            itemIndexes: new Set(paragraphBlock.itemIndexes),
+            matchType: 'paragraph',
+            regionBounds: paragraphBlock.regionBounds,
+        }
+    }
+
+    return fallbackMatch ? fallbackMatch() : null
 }
 
 function findSourceQuoteRowMatch(rows, matcher) {
@@ -890,6 +920,59 @@ function buildSearchFragments(rows) {
         }
     }
     return fragments
+}
+
+function buildParagraphBlocks(rows, tableRegions, metrics) {
+    const tableItemIndexes = new Set()
+    for (const region of tableRegions || []) {
+        for (const itemIndex of region.blockItemIndexes || []) {
+            tableItemIndexes.add(itemIndex)
+        }
+    }
+
+    const fragments = buildSearchFragments(rows)
+        .filter((entry) =>
+            isParagraphCandidateFragment(entry.fragment) &&
+            !fragmentHasAnyItemIndex(entry.fragment, tableItemIndexes)
+        )
+
+    const blocks = []
+    const assigned = new Set()
+
+    for (let index = 0; index < fragments.length; index += 1) {
+        if (assigned.has(index)) continue
+
+        const blockEntries = [fragments[index]]
+        assigned.add(index)
+        let baseSpan = spanFromFragment(fragments[index].fragment)
+        let anchorIndex = index
+
+        while (blockEntries.length < MAX_PARAGRAPH_FRAGMENT_COUNT) {
+            const candidateIndex = findAdjacentParagraphFragmentIndex(
+                fragments,
+                anchorIndex,
+                1,
+                baseSpan,
+                rows,
+                metrics
+            )
+            if (candidateIndex === null || assigned.has(candidateIndex)) break
+
+            blockEntries.push(fragments[candidateIndex])
+            assigned.add(candidateIndex)
+            anchorIndex = candidateIndex
+            baseSpan = unionSpan(baseSpan, spanFromFragment(fragments[candidateIndex].fragment))
+        }
+
+        blocks.push({
+            blockId: `paragraph-${blocks.length + 1}`,
+            entries: blockEntries,
+            itemIndexes: itemIndexesForSearchFragments(blockEntries),
+            regionBounds: boundsFromSearchFragments(blockEntries),
+        })
+    }
+
+    return blocks
 }
 
 function findSourceQuoteFragmentMatch(fragments, matcher) {
@@ -1106,6 +1189,35 @@ function itemIndexesForSearchFragments(fragments) {
     return itemIndexes
 }
 
+function findBlockForItemIndexes(blocks, itemIndexes, itemIndexKey) {
+    let bestBlock = null
+    let bestOverlapCount = 0
+
+    for (const block of blocks || []) {
+        const blockItemIndexes = block?.[itemIndexKey]
+        if (!blockItemIndexes) continue
+
+        let overlapCount = 0
+        for (const itemIndex of itemIndexes || []) {
+            if (blockItemIndexes.has(itemIndex)) {
+                overlapCount += 1
+            }
+        }
+
+        if (overlapCount > bestOverlapCount) {
+            bestBlock = block
+            bestOverlapCount = overlapCount
+        }
+    }
+
+    return bestBlock
+}
+
+function fragmentHasAnyItemIndex(fragment, itemIndexes) {
+    if (!itemIndexes || itemIndexes.size === 0) return false
+    return fragment.visibleItemIndexes.some((itemIndex) => itemIndexes.has(itemIndex))
+}
+
 function boundsFromRows(rows) {
     const fragments = []
     for (const row of rows) {
@@ -1300,8 +1412,7 @@ function isParagraphCandidateFragment(fragment) {
     return (
         fragment.wordCount >= 3 &&
         !fragment.hasCaptionAnchor &&
-        !fragment.hasHeaderToken &&
-        !fragment.isTableLike
+        !fragment.hasHeaderToken
     )
 }
 

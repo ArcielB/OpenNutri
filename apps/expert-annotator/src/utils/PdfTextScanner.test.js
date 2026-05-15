@@ -64,6 +64,33 @@ test('includes prose-like food cells when evidence highlights a table', () => {
     })
 })
 
+test('snaps quote evidence inside a detected table to the whole table block', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Table 3. Mineral and vitamin content', 50, 700, 260),
+                textItem('Mineral (mg/100g) Amount References', 50, 680, 420),
+                textItem('Phosphorus 375.0 37 55 67', 50, 660, 360),
+                textItem('Zinc 2.33', 50, 640, 160),
+                textItem('Selenium 0.04', 50, 620, 160),
+                textItem('Vitamins (mg/100g) Amount References', 50, 580, 420),
+            ],
+        },
+        [{ id: 'evidence-1', sourceQuote: 'Zinc 2.33' }],
+        6
+    )
+
+    assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
+    assert.equal(plan.matches[0].matchType, 'table')
+    assert.deepEqual([...plan.itemEvidenceIds.keys()].sort((a, b) => a - b), [0, 1, 2, 3, 4])
+    assert.deepEqual(plan.matches[0].regionBounds, {
+        left: 50,
+        right: 470,
+        bottom: 620,
+        top: 710,
+    })
+})
+
 test('matches a source quote to the containing paragraph line block', () => {
     const plan = buildPageEvidenceHighlightPlan(
         {
@@ -93,6 +120,62 @@ test('matches a source quote to the containing paragraph line block', () => {
         bottom: 660,
         top: 710,
     })
+})
+
+test('uses one stable paragraph block for separate quotes in the same paragraph', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('The edible portion was analyzed after drying.', 50, 700, 260),
+                textItem('Pear samples contained 4.6 mg vitamin C per 100 g in the edible portion.', 50, 680, 420),
+                textItem('Values were calculated on a fresh weight basis.', 50, 660, 300),
+                textItem('Another paragraph starts with different evidence.', 50, 620, 260),
+            ],
+        },
+        [
+            {
+                id: 'evidence-1',
+                sourceQuote: 'edible portion was analyzed',
+            },
+            {
+                id: 'evidence-2',
+                sourceQuote: 'fresh weight basis',
+            },
+        ],
+        2
+    )
+
+    assert.equal(plan.matches.length, 2)
+    assert.deepEqual(plan.matches[0].regionBounds, plan.matches[1].regionBounds)
+    assert.deepEqual(plan.matches[0].itemIndexes, plan.matches[1].itemIndexes)
+})
+
+test('keeps different paragraph blocks non-overlapping', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Pear samples were dried before analysis.', 50, 700, 260),
+                textItem('Values were calculated on a fresh weight basis.', 50, 680, 300),
+                textItem('Apple samples were measured separately.', 50, 620, 260),
+                textItem('The reported vitamin C values used duplicate assays.', 50, 600, 360),
+            ],
+        },
+        [
+            {
+                id: 'evidence-1',
+                sourceQuote: 'fresh weight basis',
+            },
+            {
+                id: 'evidence-2',
+                sourceQuote: 'duplicate assays',
+            },
+        ],
+        2
+    )
+
+    assert.equal(plan.matches.length, 2)
+    assert.notDeepEqual(plan.matches[0].regionBounds, plan.matches[1].regionBounds)
+    assert.ok(plan.matches[0].regionBounds.bottom > plan.matches[1].regionBounds.top)
 })
 
 test('keeps table matching available when the AI page hint is wrong', () => {
