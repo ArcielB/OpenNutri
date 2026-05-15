@@ -1,8 +1,17 @@
-# Supabase Configuration
-# Do NOT commit this file to git!
+"""Compatibility configuration for legacy data-pipeline modules.
 
-SUPABASE_URL = "https://mlirsjgolmryywlfahuf.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1saXJzamdvbG1yeXl3bGZhaHVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyOTM5MDksImV4cCI6MjA4NDg2OTkwOX0.A1skN5u-E6AT10n3iDfh36yU7knCV2NYHZXmJhfwLmM"
+Runtime credentials must come from environment variables. Do not put API keys,
+database URLs, or Supabase keys in this file.
+"""
 
-# Gemini API Key (get from https://aistudio.google.com/app/apikey)
-GEMINI_API_KEY = "AIzaSyCoa583rTfmHzDipPgyrOd9fjP1Sp1hLms"
+import os
+
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL", "")
+SUPABASE_KEY = (
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    or os.environ.get("SUPABASE_KEY")
+    or os.environ.get("VITE_SUPABASE_ANON_KEY")
+    or ""
+)
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")

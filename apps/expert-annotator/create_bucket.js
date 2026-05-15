@@ -1,7 +1,12 @@
 import pkg from 'pg';
+import process from 'node:process';
 const { Client } = pkg;
 
-const connectionString = 'postgresql://postgres:Al29minuto$@db.mlirsjgolmryywlfahuf.supabase.co:6543/postgres';
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+    throw new Error('Missing DATABASE_URL.');
+}
 
 const sql = `
 -- Insert the 'papers' bucket if it doesn't exist

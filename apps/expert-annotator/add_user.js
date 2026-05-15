@@ -1,18 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
 import process from 'node:process';
 
-// Load directly to avoid dotenv dependency issues
-const supabaseUrl = 'https://mlirsjgolmryywlfahuf.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1saXJzamdvbG1yeXl3bGZhaHVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyOTM5MDksImV4cCI6MjA4NDg2OTkwOX0.A1skN5u-E6AT10n3iDfh36yU7knCV2NYHZXmJhfwLmM';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+const signupEmail = process.env.SIGNUP_EMAIL;
+const signupPassword = process.env.SIGNUP_PASSWORD;
+
+if (!supabaseUrl || !supabaseAnonKey || !signupEmail || !signupPassword) {
+    throw new Error('Missing VITE_SUPABASE_URL/SUPABASE_URL, VITE_SUPABASE_ANON_KEY/SUPABASE_ANON_KEY, SIGNUP_EMAIL, or SIGNUP_PASSWORD.');
+}
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 async function main() {
-    console.log('[DEBUG] Starting user creation for: mcraft160105@gmail.com');
+    console.log(`[DEBUG] Starting user creation for: ${signupEmail}`);
     try {
         const { data, error } = await supabase.auth.signUp({
-            email: 'mcraft160105@gmail.com',
-            password: 'Password123!',
+            email: signupEmail,
+            password: signupPassword,
         });
 
         if (error) {
