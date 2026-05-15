@@ -157,6 +157,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
                     matchType: 'table',
                     pageNumber,
                     itemIndexes,
+                    regionBounds: tableRegion.regionBounds,
                 })
                 matched = true
             }
@@ -173,6 +174,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
                     matchType: quoteMatch.matchType,
                     pageNumber,
                     itemIndexes,
+                    regionBounds: quoteMatch.regionBounds,
                 })
                 matched = true
             }
@@ -276,18 +278,6 @@ export function renderTextItemWithNutrientHighlights(text, matcher, options = {}
     return html
 }
 
-export function renderTextItemWithEvidenceHighlight(renderedHtml, evidenceIds, activeEvidenceId = null) {
-    if (!evidenceIds || evidenceIds.size === 0) {
-        return renderedHtml
-    }
-
-    const ids = Array.from(evidenceIds).sort()
-    const isActive = activeEvidenceId && ids.includes(activeEvidenceId)
-    const className = `evidence-highlight${isActive ? ' evidence-highlight-active' : ''}`
-
-    return `<span class="${className}" data-evidence-ids="${escapeHtmlAttribute(ids.join(' '))}">${renderedHtml}</span>`
-}
-
 export function bindNutrientHighlightInteractions(interactionRootEl, onNutrientClick) {
     if (!interactionRootEl) return () => { }
 
@@ -385,6 +375,8 @@ function extractPositionedTextItems(textContent) {
             x,
             y,
             right,
+            top: y + height,
+            bottom: y,
             width,
             height,
             centerY: y + height / 2,
@@ -576,6 +568,8 @@ function createFragment(items, rowIndex) {
         isTableLike: tableScore >= 2,
         x: Math.min(...visibleItems.map((item) => item.x)),
         right: Math.max(...visibleItems.map((item) => item.right)),
+        bottom: Math.min(...visibleItems.map((item) => item.bottom)),
+        top: Math.max(...visibleItems.map((item) => item.top)),
         centerX:
             (Math.min(...visibleItems.map((item) => item.x)) +
                 Math.max(...visibleItems.map((item) => item.right))) /
@@ -772,6 +766,7 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
         bodyRowCount: new Set(bodyRowIndexes).size,
         allowedItemIndexes,
         evidenceItemIndexes,
+        regionBounds: boundsFromFragments([...block.fragments, ...evidenceFragments]),
     }
 }
 
@@ -847,6 +842,7 @@ function findSourceQuoteTextMatch(rows, location, metrics) {
         return {
             itemIndexes: itemIndexesForSearchFragments(evidenceFragments),
             matchType: expandParagraph ? 'paragraph' : 'quote',
+            regionBounds: boundsFromSearchFragments(evidenceFragments),
         }
     }
 
@@ -860,6 +856,7 @@ function findSourceQuoteTextMatch(rows, location, metrics) {
     return {
         itemIndexes: itemIndexesForRows(evidenceRows),
         matchType: expandParagraph ? 'paragraph' : 'quote',
+        regionBounds: boundsFromRows(evidenceRows),
     }
 }
 
@@ -1107,6 +1104,40 @@ function itemIndexesForSearchFragments(fragments) {
         entry.fragment.visibleItemIndexes.forEach((itemIndex) => itemIndexes.add(itemIndex))
     }
     return itemIndexes
+}
+
+function boundsFromRows(rows) {
+    const fragments = []
+    for (const row of rows) {
+        fragments.push(...row.fragments)
+    }
+    return boundsFromFragments(fragments)
+}
+
+function boundsFromSearchFragments(fragments) {
+    return boundsFromFragments(fragments.map((entry) => entry.fragment))
+}
+
+function boundsFromFragments(fragments) {
+    const visibleFragments = fragments.filter((fragment) =>
+        Number.isFinite(fragment?.x) &&
+        Number.isFinite(fragment?.right) &&
+        Number.isFinite(fragment?.bottom) &&
+        Number.isFinite(fragment?.top)
+    )
+    if (visibleFragments.length === 0) return null
+
+    return visibleFragments.reduce((bounds, fragment) => ({
+        left: Math.min(bounds.left, fragment.x),
+        right: Math.max(bounds.right, fragment.right),
+        bottom: Math.min(bounds.bottom, fragment.bottom),
+        top: Math.max(bounds.top, fragment.top),
+    }), {
+        left: visibleFragments[0].x,
+        right: visibleFragments[0].right,
+        bottom: visibleFragments[0].bottom,
+        top: visibleFragments[0].top,
+    })
 }
 
 function addEvidenceItemIndexes(itemEvidenceIds, itemIndexes, evidenceId) {

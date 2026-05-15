@@ -243,9 +243,9 @@ GitHub Actions daily ops requires repository secrets with these same names:
 - PDF highlighting is table-scoped and precision-first for nutrient-name click targets.
   The viewer builds a page-local allowlist from PDF.js text content and only highlights detected table body/header cells plus table caption/title lines.
   If a page has no confident local table anchor, or a table continues onto a captionless page, the viewer suppresses highlights on that page instead of falling back to page-wide prose matching.
-  Highlight markup is still injected through `react-pdf` `customTextRenderer` on single PDF text items, so matches split across multiple items inside a table are still a separate follow-up.
+  Nutrient-name highlight markup is still injected through `react-pdf` `customTextRenderer` on single PDF text items, so matches split across multiple items inside a table are still a separate follow-up.
 - AI evidence highlighting is broad location guidance, not exact nutrient-coordinate matching.
-  Queue and Approval build a compact deduplicated Sources strip from normalized payload rows. A selected table label draws a visible overlay around the detected table region, a selected paragraph source quote draws a visible block around the surrounding paragraph, and a page-only hint scrolls without coloring the whole page. Printed journal page hints such as `Page 95` are mapped to the actual PDF page when the viewer can detect header/footer page labels. Unmatched AI evidence remains visible as unverified.
+  Queue and Approval build a compact deduplicated Sources strip from normalized payload rows. The scanner returns PDF-coordinate bounds for matched table and paragraph evidence; the viewer scales those bounds onto the rendered page stage and draws only the selected source overlay. A selected table label draws a visible green overlay around the detected table region, a selected paragraph source quote draws an amber block around the surrounding paragraph, and a page-only hint scrolls without coloring the whole page. Printed journal page hints such as `Page 95` are mapped to the actual PDF page when the viewer can detect header/footer page labels. Unmatched AI evidence remains visible as unverified.
 
 **Contributing**
 When taking a backlog item:

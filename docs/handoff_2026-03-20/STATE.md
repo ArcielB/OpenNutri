@@ -199,4 +199,4 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 ## Still Needs Attention
 
 - L2 classifier training is still deferred until more accepted human-review outcomes exist.
-- PDF nutrient-name click highlights remain precision-first/table-only; continuation-page recall and cross-text-item nutrient phrase matching are still future work. Compact AI source strips cover table/paragraph/page navigation separately, map printed page hints when possible, and draw visible selected-source overlays for detected table or paragraph regions.
+- PDF nutrient-name click highlights remain precision-first/table-only; continuation-page recall and cross-text-item nutrient phrase matching are still future work. Compact AI source strips cover table/paragraph/page navigation separately, map printed page hints when possible, and draw visible selected-source overlays for detected table or paragraph regions. Evidence overlays are now scaled from PDF.js text-coordinate bounds rather than measured from rendered text-layer spans, so selected table and paragraph chips no longer depend on DOM span placement.

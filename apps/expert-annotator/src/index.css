@@ -532,6 +532,11 @@ body {
   scroll-margin-top: 12px;
 }
 
+.pdf-page-stage {
+  position: relative;
+  line-height: 0;
+}
+
 .pdf-container canvas {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
   border-radius: 4px;
@@ -1169,25 +1174,6 @@ body {
 
 .textLayer .nutrient-highlight:hover {
   background: rgba(91, 107, 240, 0.45);
-}
-
-.textLayer .evidence-highlight {
-  background: rgba(245, 158, 11, 0.34);
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  border-radius: 3px;
-  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.38);
-  position: relative;
-  z-index: 0;
-}
-
-.textLayer .evidence-highlight-active {
-  background: rgba(34, 197, 94, 0.38);
-  box-shadow: 0 0 0 1px rgba(21, 128, 61, 0.70);
-}
-
-.textLayer .evidence-highlight .nutrient-highlight {
-  z-index: 2;
 }
 
 .evidence-region-overlay {

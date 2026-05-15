@@ -30,6 +30,12 @@ test('matches a table label to a whole detected table region', () => {
     assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
     assert.equal(plan.matches[0].matchType, 'table')
     assert.deepEqual([...plan.itemEvidenceIds.keys()].sort((a, b) => a - b), [0, 1, 2])
+    assert.deepEqual(plan.matches[0].regionBounds, {
+        left: 50,
+        right: 310,
+        bottom: 660,
+        top: 710,
+    })
 })
 
 test('includes prose-like food cells when evidence highlights a table', () => {
@@ -50,6 +56,12 @@ test('includes prose-like food cells when evidence highlights a table', () => {
     assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
     assert.equal(plan.matches[0].matchType, 'table')
     assert.deepEqual([...plan.itemEvidenceIds.keys()].sort((a, b) => a - b), [0, 1, 2, 3, 4])
+    assert.deepEqual(plan.matches[0].regionBounds, {
+        left: 50,
+        right: 430,
+        bottom: 660,
+        top: 710,
+    })
 })
 
 test('matches a source quote to the containing paragraph line block', () => {
@@ -75,6 +87,35 @@ test('matches a source quote to the containing paragraph line block', () => {
     assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
     assert.equal(plan.matches[0].matchType, 'paragraph')
     assert.deepEqual([...plan.itemEvidenceIds.keys()], [0, 1, 2])
+    assert.deepEqual(plan.matches[0].regionBounds, {
+        left: 50,
+        right: 470,
+        bottom: 660,
+        top: 710,
+    })
+})
+
+test('keeps table matching available when the AI page hint is wrong', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Table 3. Mineral composition', 50, 700, 230),
+                textItem('Food Calcium (mg/100g) Iron (mg/100g)', 50, 680, 300),
+                textItem('Leaf sample 1751.67 90', 50, 660, 230),
+            ],
+        },
+        [{ id: 'evidence-1', tableLabel: 'Table 3', pageHint: 95 }],
+        1
+    )
+
+    assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
+    assert.equal(plan.matches[0].matchType, 'table')
+    assert.deepEqual(plan.matches[0].regionBounds, {
+        left: 50,
+        right: 350,
+        bottom: 660,
+        top: 710,
+    })
 })
 
 test('maps printed page labels to the current PDF page', () => {
@@ -113,6 +154,7 @@ test('keeps page-only hints navigable without broad highlighting', () => {
 
     assert.equal(plan.matches[0].status, EVIDENCE_STATUS.HINTED)
     assert.equal(plan.matches[0].matchType, 'page_hint')
+    assert.equal(plan.matches[0].regionBounds, undefined)
     assert.equal(plan.itemEvidenceIds.size, 0)
 })
 

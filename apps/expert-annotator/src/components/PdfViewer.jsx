@@ -9,7 +9,6 @@ import {
     buildNutrientMatcher,
     buildPageTableHighlightPlan,
     detectPrintedPageNumber,
-    renderTextItemWithEvidenceHighlight,
     renderTextItemWithNutrientHighlights,
 } from '../utils/PdfTextScanner'
 import { EVIDENCE_STATUS, mergeEvidenceStatuses } from '../utils/EvidenceLocations'
@@ -32,7 +31,7 @@ export default function PdfViewer({
     const [scale, setScale] = useState(1.2)
     const [popover, setPopover] = useState(null) // { nutrient, rect }
     const [pageTextContents, setPageTextContents] = useState(() => ({}))
-    const [evidenceOverlaysByPage, setEvidenceOverlaysByPage] = useState({})
+    const [pageDimensionsByPage, setPageDimensionsByPage] = useState(() => ({}))
     const containerRef = useRef(null)
     const cleanupRef = useRef(null)
     const lastEvidenceStatusesRef = useRef('')
@@ -57,7 +56,6 @@ export default function PdfViewer({
                 isReady: true,
                 printedPageNumber,
                 allowedItemIndexes: nextTablePlan.allowedItemIndexes,
-                evidenceItemIdsByIndex: nextEvidencePlan.itemEvidenceIds,
                 evidenceMatches: nextEvidencePlan.matches,
             }
         },
@@ -78,24 +76,26 @@ export default function PdfViewer({
         (pageNumber) =>
             ({ str, itemIndex }) => {
                 const pagePlan = pageHighlightPlans[pageNumber]
-                const nutrientHtml = renderTextItemWithNutrientHighlights(str, nutrientMatcher, {
+                return renderTextItemWithNutrientHighlights(str, nutrientMatcher, {
                     allowHighlight: Boolean(
                         pagePlan?.isReady && pagePlan.allowedItemIndexes.has(itemIndex)
                     ),
                 })
-                return renderTextItemWithEvidenceHighlight(
-                    nutrientHtml,
-                    pagePlan?.evidenceItemIdsByIndex?.get(itemIndex),
-                    activeEvidenceId
-                )
             },
-        [activeEvidenceId, nutrientMatcher, pageHighlightPlans]
+        [nutrientMatcher, pageHighlightPlans]
+    )
+
+    const activeEvidenceOverlaysByPage = useMemo(
+        () => buildActiveEvidenceOverlays(pageHighlightPlans, activeEvidenceId, pageDimensionsByPage),
+        [activeEvidenceId, pageDimensionsByPage, pageHighlightPlans]
     )
 
     function onDocumentLoadSuccess({ numPages }) {
         setNumPages(numPages)
         setCurrentPageNumber(1)
         setPageTextContents({})
+        setPageDimensionsByPage({})
+        lastEvidenceStatusesRef.current = ''
     }
 
     const handleNutrientClick = useCallback((nutrient, rect) => {
@@ -111,6 +111,28 @@ export default function PdfViewer({
             ...previous,
             [pageNumber]: textContent,
         }))
+    }, [])
+
+    const handlePageLoadSuccess = useCallback((pageNumber, page) => {
+        const nextDimensions = normalizePageDimensions(page)
+        if (!nextDimensions) return
+
+        setPageDimensionsByPage((previous) => {
+            const current = previous[pageNumber]
+            if (
+                current?.width === nextDimensions.width &&
+                current?.height === nextDimensions.height &&
+                current?.originalWidth === nextDimensions.originalWidth &&
+                current?.originalHeight === nextDimensions.originalHeight
+            ) {
+                return previous
+            }
+
+            return {
+                ...previous,
+                [pageNumber]: nextDimensions,
+            }
+        })
     }, [])
 
     useEffect(() => {
@@ -196,21 +218,9 @@ export default function PdfViewer({
         if (!panel) return
 
         const frameId = window.requestAnimationFrame(() => {
-            const matchedNode = Array.from(panel.querySelectorAll('[data-evidence-ids]'))
-                .find((node) => (node.dataset.evidenceIds || '').split(/\s+/).includes(activeEvidenceId))
-
-            if (matchedNode) {
-                matchedNode.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
-                const pageNode = matchedNode.closest('[data-page-number]')
-                const pageNumber = Number(pageNode?.getAttribute('data-page-number') || 0)
-                if (Number.isFinite(pageNumber) && pageNumber > 0) {
-                    setCurrentPageNumber(pageNumber)
-                }
-                return
-            }
-
+            const matchedEntry = findEvidenceMatchedEntry(pageHighlightPlans, activeEvidenceId)
             const targetPage =
-                findEvidenceMatchedPage(pageHighlightPlans, activeEvidenceId) ||
+                matchedEntry?.pageNumber ||
                 resolveEvidenceHintPage(
                     evidenceLocations.find((location) => location.id === activeEvidenceId),
                     pageHighlightPlans,
@@ -221,7 +231,16 @@ export default function PdfViewer({
             if (!targetPage) return
             const pageNode = panel.querySelector(`[data-page-number="${targetPage}"]`)
             if (pageNode) {
-                pageNode.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'smooth' })
+                const overlay = activeEvidenceOverlaysByPage[Number(targetPage)]?.[0] || null
+                if (overlay) {
+                    scrollPageRegionIntoView(panel, pageNode, overlay)
+                } else {
+                    pageNode.scrollIntoView({
+                        block: matchedEntry?.regionBounds ? 'center' : 'start',
+                        inline: 'nearest',
+                        behavior: 'smooth',
+                    })
+                }
                 setCurrentPageNumber(Number(targetPage))
             }
         })
@@ -230,38 +249,11 @@ export default function PdfViewer({
     }, [
         activeEvidenceId,
         activeEvidenceRequestId,
+        activeEvidenceOverlaysByPage,
         evidenceLocations,
         numPages,
         pageHighlightPlans,
     ])
-
-    useEffect(() => {
-        const panel = containerRef.current
-        if (!panel || !activeEvidenceId) {
-            const frameId = window.requestAnimationFrame(() => setEvidenceOverlaysByPage({}))
-            return () => window.cancelAnimationFrame(frameId)
-        }
-
-        let cancelled = false
-        const frameIds = []
-
-        const buildOverlays = () => {
-            if (cancelled) return
-            setEvidenceOverlaysByPage(buildActiveEvidenceOverlays(panel, activeEvidenceId, pageHighlightPlans))
-        }
-
-        frameIds.push(window.requestAnimationFrame(() => {
-            frameIds.push(window.requestAnimationFrame(buildOverlays))
-        }))
-
-        window.addEventListener('resize', buildOverlays)
-
-        return () => {
-            cancelled = true
-            frameIds.forEach((frameId) => window.cancelAnimationFrame(frameId))
-            window.removeEventListener('resize', buildOverlays)
-        }
-    }, [activeEvidenceId, activeEvidenceRequestId, pageHighlightPlans, pdfUrl, scale])
 
     const handlePopoverAdd = (nutrientEntry) => {
         if (onAddNutrient) {
@@ -298,23 +290,30 @@ export default function PdfViewer({
                 >
                     {Array.from({ length: numPages || 0 }, (_, index) => {
                         const pageNumber = index + 1
+                        const pageDimensions = pageDimensionsByPage[pageNumber]
                         return (
                             <div
                                 className="pdf-page-wrap"
                                 data-page-number={pageNumber}
                                 key={`pdf-page-${pageNumber}`}
                             >
-                                <Page
-                                    pageNumber={pageNumber}
-                                    scale={scale}
-                                    customTextRenderer={buildCustomTextRenderer(pageNumber)}
-                                    renderTextLayer={true}
-                                    renderAnnotationLayer={false}
-                                    onGetTextSuccess={(textContent) =>
-                                        handlePageTextSuccess(pageNumber, textContent)
-                                    }
-                                />
-                                <EvidenceRegionOverlay overlays={evidenceOverlaysByPage[pageNumber] || []} />
+                                <div
+                                    className="pdf-page-stage"
+                                    style={buildPageStageStyle(pageDimensions)}
+                                >
+                                    <Page
+                                        pageNumber={pageNumber}
+                                        scale={scale}
+                                        customTextRenderer={buildCustomTextRenderer(pageNumber)}
+                                        renderTextLayer={true}
+                                        renderAnnotationLayer={false}
+                                        onLoadSuccess={(page) => handlePageLoadSuccess(pageNumber, page)}
+                                        onGetTextSuccess={(textContent) =>
+                                            handlePageTextSuccess(pageNumber, textContent)
+                                        }
+                                    />
+                                    <EvidenceRegionOverlay overlays={activeEvidenceOverlaysByPage[pageNumber] || []} />
+                                </div>
                             </div>
                         )
                     })}
@@ -343,6 +342,7 @@ function EvidenceRegionOverlay({ overlays }) {
                 <div
                     key={`${overlay.type}-${index}`}
                     className={`evidence-region-box evidence-region-box-${overlay.type}`}
+                    data-evidence-region-id={overlay.evidenceId}
                     style={{
                         left: overlay.left,
                         top: overlay.top,
@@ -355,33 +355,40 @@ function EvidenceRegionOverlay({ overlays }) {
     )
 }
 
-function findEvidenceMatchedPage(pageHighlightPlans, evidenceId) {
+function findEvidenceMatchedEntry(pageHighlightPlans, evidenceId) {
     for (const [pageNumber, plan] of Object.entries(pageHighlightPlans || {})) {
-        const hasMatch = (plan.evidenceMatches || []).some(
-            (match) => match.evidenceId === evidenceId && match.status === 'matched'
+        const match = (plan.evidenceMatches || []).find(
+            (match) => match.evidenceId === evidenceId && match.status === EVIDENCE_STATUS.MATCHED
         )
-        if (hasMatch) return Number(pageNumber)
+        if (match) {
+            return {
+                ...match,
+                pageNumber: Number(pageNumber),
+            }
+        }
     }
     return null
 }
 
-function buildActiveEvidenceOverlays(panel, activeEvidenceId, pageHighlightPlans) {
+function buildActiveEvidenceOverlays(pageHighlightPlans, activeEvidenceId, pageDimensionsByPage) {
     const overlaysByPage = {}
+    if (!activeEvidenceId) return overlaysByPage
 
     for (const [pageNumber, plan] of Object.entries(pageHighlightPlans || {})) {
         const match = (plan.evidenceMatches || []).find(
-            (entry) => entry.evidenceId === activeEvidenceId && entry.status === EVIDENCE_STATUS.MATCHED
+            (entry) =>
+                entry.evidenceId === activeEvidenceId &&
+                entry.status === EVIDENCE_STATUS.MATCHED &&
+                entry.regionBounds
         )
         if (!match) continue
 
-        const pageNode = panel.querySelector(`[data-page-number="${pageNumber}"]`)
-        if (!pageNode) continue
-
-        const matchedNodes = Array.from(pageNode.querySelectorAll('[data-evidence-ids]'))
-            .filter((node) => (node.dataset.evidenceIds || '').split(/\s+/).includes(activeEvidenceId))
-        if (matchedNodes.length === 0) continue
-
-        const overlay = buildOverlayForMatchedNodes(pageNode, matchedNodes, match.matchType)
+        const overlay = buildOverlayForRegionBounds(
+            match.regionBounds,
+            pageDimensionsByPage[Number(pageNumber)],
+            match.matchType,
+            activeEvidenceId
+        )
         if (!overlay) continue
 
         overlaysByPage[Number(pageNumber)] = [overlay]
@@ -390,24 +397,47 @@ function buildActiveEvidenceOverlays(panel, activeEvidenceId, pageHighlightPlans
     return overlaysByPage
 }
 
-function buildOverlayForMatchedNodes(pageNode, matchedNodes, matchType) {
-    const pageRect = pageNode.getBoundingClientRect()
-    const pageSurface = pageNode.querySelector('.react-pdf__Page') || pageNode
-    const surfaceRect = pageSurface.getBoundingClientRect()
-    const nodeRects = matchedNodes
-        .map((node) => node.getBoundingClientRect())
-        .filter((rect) => rect.width > 0 && rect.height > 0)
-
-    if (nodeRects.length === 0 || surfaceRect.width <= 0 || surfaceRect.height <= 0) {
+function buildOverlayForRegionBounds(regionBounds, pageDimensions, matchType, evidenceId) {
+    if (!regionBounds || !pageDimensions) {
         return null
     }
 
-    const union = unionDomRects(nodeRects)
-    const padding = matchType === 'table' ? 12 : 8
-    const left = clampNumber(union.left - pageRect.left - padding, surfaceRect.left - pageRect.left, surfaceRect.right - pageRect.left)
-    const top = clampNumber(union.top - pageRect.top - padding, surfaceRect.top - pageRect.top, surfaceRect.bottom - pageRect.top)
-    const right = clampNumber(union.right - pageRect.left + padding, surfaceRect.left - pageRect.left, surfaceRect.right - pageRect.left)
-    const bottom = clampNumber(union.bottom - pageRect.top + padding, surfaceRect.top - pageRect.top, surfaceRect.bottom - pageRect.top)
+    const {
+        width: pageWidth,
+        height: pageHeight,
+        originalWidth,
+        originalHeight,
+    } = pageDimensions
+
+    if (
+        !isPositiveFiniteNumber(pageWidth) ||
+        !isPositiveFiniteNumber(pageHeight) ||
+        !isPositiveFiniteNumber(originalWidth) ||
+        !isPositiveFiniteNumber(originalHeight)
+    ) {
+        return null
+    }
+
+    const pdfLeft = clampNumber(Math.min(regionBounds.left, regionBounds.right), 0, originalWidth)
+    const pdfRight = clampNumber(Math.max(regionBounds.left, regionBounds.right), 0, originalWidth)
+    const pdfBottom = clampNumber(Math.min(regionBounds.bottom, regionBounds.top), 0, originalHeight)
+    const pdfTop = clampNumber(Math.max(regionBounds.bottom, regionBounds.top), 0, originalHeight)
+
+    if (pdfRight <= pdfLeft || pdfTop <= pdfBottom) {
+        return null
+    }
+
+    const scaleX = pageWidth / originalWidth
+    const scaleY = pageHeight / originalHeight
+    const rawLeft = pdfLeft * scaleX
+    const rawRight = pdfRight * scaleX
+    const rawTop = (originalHeight - pdfTop) * scaleY
+    const rawBottom = (originalHeight - pdfBottom) * scaleY
+    const padding = matchType === 'table' ? 14 : 10
+    const left = clampNumber(rawLeft - padding, 0, pageWidth)
+    const top = clampNumber(rawTop - padding, 0, pageHeight)
+    const right = clampNumber(rawRight + padding, 0, pageWidth)
+    const bottom = clampNumber(rawBottom + padding, 0, pageHeight)
     const width = Math.max(0, right - left)
     const height = Math.max(0, bottom - top)
 
@@ -417,6 +447,7 @@ function buildOverlayForMatchedNodes(pageNode, matchedNodes, matchType) {
 
     return {
         type: matchType === 'table' ? 'table' : 'paragraph',
+        evidenceId,
         left,
         top,
         width,
@@ -424,22 +455,74 @@ function buildOverlayForMatchedNodes(pageNode, matchedNodes, matchType) {
     }
 }
 
-function unionDomRects(rects) {
-    return rects.reduce((union, rect) => ({
-        left: Math.min(union.left, rect.left),
-        top: Math.min(union.top, rect.top),
-        right: Math.max(union.right, rect.right),
-        bottom: Math.max(union.bottom, rect.bottom),
-    }), {
-        left: rects[0].left,
-        top: rects[0].top,
-        right: rects[0].right,
-        bottom: rects[0].bottom,
-    })
-}
-
 function clampNumber(value, minValue, maxValue) {
     return Math.min(maxValue, Math.max(minValue, value))
+}
+
+function isPositiveFiniteNumber(value) {
+    return Number.isFinite(value) && value > 0
+}
+
+function normalizePageDimensions(page) {
+    const width = Number(page?.width)
+    const height = Number(page?.height)
+    const originalWidth = Number(page?.originalWidth)
+    const originalHeight = Number(page?.originalHeight)
+
+    if (
+        !isPositiveFiniteNumber(width) ||
+        !isPositiveFiniteNumber(height) ||
+        !isPositiveFiniteNumber(originalWidth) ||
+        !isPositiveFiniteNumber(originalHeight)
+    ) {
+        return null
+    }
+
+    return {
+        width,
+        height,
+        originalWidth,
+        originalHeight,
+    }
+}
+
+function buildPageStageStyle(pageDimensions) {
+    if (!pageDimensions) return undefined
+    return {
+        width: pageDimensions.width,
+        height: pageDimensions.height,
+    }
+}
+
+function scrollPageRegionIntoView(panel, pageNode, overlay) {
+    const scrollRoot = panel.querySelector('.pdf-container')
+    const stageNode = pageNode.querySelector('.pdf-page-stage') || pageNode
+
+    if (!scrollRoot || !stageNode) {
+        pageNode.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+        return
+    }
+
+    const scrollRootRect = scrollRoot.getBoundingClientRect()
+    const stageRect = stageNode.getBoundingClientRect()
+    const targetTop =
+        scrollRoot.scrollTop +
+        (stageRect.top - scrollRootRect.top) +
+        overlay.top +
+        overlay.height / 2 -
+        scrollRoot.clientHeight / 2
+    const targetLeft =
+        scrollRoot.scrollLeft +
+        (stageRect.left - scrollRootRect.left) +
+        overlay.left +
+        overlay.width / 2 -
+        scrollRoot.clientWidth / 2
+
+    scrollRoot.scrollTo({
+        top: clampNumber(targetTop, 0, Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight)),
+        left: clampNumber(targetLeft, 0, Math.max(0, scrollRoot.scrollWidth - scrollRoot.clientWidth)),
+        behavior: 'smooth',
+    })
 }
 
 function buildMappedPageHintMatches(evidenceLocations, pageHighlightPlans, numPages) {
