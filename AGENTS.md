@@ -28,7 +28,9 @@ Do not spend tokens on these unless the task explicitly needs them:
 - `docs/proposal-sections/`
 
 ## Hot Files
-- UI workflow, general queue, approval, cockpit dashboard: `apps/expert-annotator/src/pages/Annotate.jsx`
+- UI orchestration (data fetching, top bar, view routing): `apps/expert-annotator/src/pages/Annotate.jsx`
+- Per-tab UI: `apps/expert-annotator/src/views/{QueueView,ApprovalView,DashboardView,AllPapersView,PipelineOpsView,SuggestionsReviewView,MySuggestionsView,ReviewerAdminView}.jsx`
+- Shared annotator helpers (formatters, payload normalization, pipeline funnel, AI extraction stats): `apps/expert-annotator/src/utils/annotateHelpers.js`
 - PDF highlight behavior: `apps/expert-annotator/src/components/PdfViewer.jsx`
 - PDF text matching: `apps/expert-annotator/src/utils/PdfTextScanner.js`
 - Suggestion flow: `apps/expert-annotator/src/components/SuggestionModal.jsx`
@@ -119,7 +121,9 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Refer to secrets by env var name only, for example `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `GEMINI_API_KEY`.
 
 ## Task Routing
-- Annotation workflow bugs: start in `apps/expert-annotator/src/pages/Annotate.jsx`
+- Annotation workflow bugs (queue/approval/cockpit data fetch + routing): start in `apps/expert-annotator/src/pages/Annotate.jsx`
+- Bugs scoped to one tab: start in the matching `apps/expert-annotator/src/views/*.jsx`
+- Helper or formatting bugs: start in `apps/expert-annotator/src/utils/annotateHelpers.js`
 - PDF highlight bugs: start in `apps/expert-annotator/src/components/PdfViewer.jsx` and `apps/expert-annotator/src/utils/PdfTextScanner.js`
 - Suggestion queue work: start in `apps/expert-annotator/src/components/SuggestionModal.jsx` and the related Supabase tables
 - Feedback/L2 term work: start in `services/data-pipeline/food_paper_crawler/feedback/update_terms.py`
