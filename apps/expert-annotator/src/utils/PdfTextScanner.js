@@ -62,7 +62,8 @@ export function buildPageTableHighlightPlan(textContent) {
     }
 
     const metrics = buildPageMetrics(items)
-    const rows = groupItemsIntoRows(items, metrics)
+    const gutters = detectColumnGutters(items, metrics)
+    const rows = groupItemsIntoRows(items, metrics, gutters)
     if (rows.length === 0) {
         return createEmptyHighlightPlan()
     }
@@ -127,7 +128,8 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
     }
 
     const metrics = buildPageMetrics(items)
-    const rows = groupItemsIntoRows(items, metrics)
+    const gutters = detectColumnGutters(items, metrics)
+    const rows = groupItemsIntoRows(items, metrics, gutters)
     if (rows.length === 0) {
         return {
             itemEvidenceIds,
@@ -210,7 +212,8 @@ export function detectPrintedPageNumber(textContent, pdfPageNumber = null, pdfPa
     if (items.length === 0) return null
 
     const metrics = buildPageMetrics(items)
-    const rows = groupItemsIntoRows(items, metrics)
+    const gutters = detectColumnGutters(items, metrics)
+    const rows = groupItemsIntoRows(items, metrics, gutters)
     if (rows.length === 0) return null
 
     const visibleItems = items.filter((item) => !item.isWhitespace)
@@ -395,6 +398,91 @@ function extractPositionedTextItems(textContent) {
     return positioned
 }
 
+function detectColumnGutters(items, metrics) {
+    const visibleItems = items.filter((item) => !item.isWhitespace && item.width > 0)
+    if (visibleItems.length < 12) return []
+
+    const xs = visibleItems.flatMap((item) => [item.x, item.right])
+    const minX = Math.min(...xs)
+    const maxX = Math.max(...xs)
+    if (maxX - minX < 100) return []
+
+    const yBandHeight = Math.max(metrics.medianHeight, 8)
+    const ys = visibleItems.flatMap((item) => [item.y, item.y + item.height])
+    const minY = Math.min(...ys)
+    const maxY = Math.max(...ys)
+    const yBandCount = Math.max(1, Math.ceil((maxY - minY) / yBandHeight) + 1)
+
+    const binWidth = 2
+    const binCount = Math.ceil((maxX - minX) / binWidth) + 1
+    const bandsByBin = Array.from({ length: binCount }, () => new Set())
+
+    for (const item of visibleItems) {
+        const startBin = Math.max(0, Math.floor((item.x - minX) / binWidth))
+        const endBin = Math.min(binCount - 1, Math.floor((item.right - minX) / binWidth))
+        const yBand = Math.floor((item.y - minY) / yBandHeight)
+        for (let bin = startBin; bin <= endBin; bin += 1) {
+            bandsByBin[bin].add(yBand)
+        }
+    }
+
+    // A gutter is an x range where very few y bands have content. Edge margins
+    // (leading/trailing whitespace) are excluded later.
+    const gutterCoverageMax = Math.max(2, yBandCount * 0.08)
+    const minGutterWidthPt = 6
+    const minGutterBins = Math.max(1, Math.ceil(minGutterWidthPt / binWidth))
+
+    const gutters = []
+    let runStart = null
+    for (let bin = 0; bin < binCount; bin += 1) {
+        const isGutter = bandsByBin[bin].size <= gutterCoverageMax
+        if (isGutter) {
+            if (runStart === null) runStart = bin
+        } else if (runStart !== null) {
+            if (bin - runStart >= minGutterBins) {
+                gutters.push({
+                    leftX: minX + runStart * binWidth,
+                    rightX: minX + bin * binWidth,
+                    centerX: minX + ((runStart + bin) / 2) * binWidth,
+                })
+            }
+            runStart = null
+        }
+    }
+    if (runStart !== null && binCount - runStart >= minGutterBins) {
+        gutters.push({
+            leftX: minX + runStart * binWidth,
+            rightX: minX + binCount * binWidth,
+            centerX: minX + ((runStart + binCount) / 2) * binWidth,
+        })
+    }
+
+    // Drop edge margins: only count gutters that have substantial content on
+    // both sides. This is what distinguishes a real column gutter from the
+    // page margins.
+    const significant = gutters.filter((gutter) => {
+        const leftBin = Math.floor((gutter.leftX - minX) / binWidth)
+        const rightBin = Math.ceil((gutter.rightX - minX) / binWidth)
+        let leftSideCovered = false
+        let rightSideCovered = false
+        for (let bin = 0; bin < leftBin; bin += 1) {
+            if (bandsByBin[bin].size > gutterCoverageMax) {
+                leftSideCovered = true
+                break
+            }
+        }
+        for (let bin = rightBin; bin < binCount; bin += 1) {
+            if (bandsByBin[bin].size > gutterCoverageMax) {
+                rightSideCovered = true
+                break
+            }
+        }
+        return leftSideCovered && rightSideCovered
+    })
+
+    return significant
+}
+
 function buildPageMetrics(items) {
     const visibleItems = items.filter((item) => !item.isWhitespace)
     const heights = visibleItems.map((item) => item.height).filter((value) => value > 0)
@@ -424,7 +512,7 @@ function buildPageMetrics(items) {
     }
 }
 
-function groupItemsIntoRows(items, metrics) {
+function groupItemsIntoRows(items, metrics, gutters = []) {
     const sorted = [...items].sort((left, right) => {
         if (Math.abs(right.centerY - left.centerY) > 0.001) {
             return right.centerY - left.centerY
@@ -453,7 +541,7 @@ function groupItemsIntoRows(items, metrics) {
     }
 
     return rows
-        .map((row) => finalizeRow(row, metrics))
+        .map((row) => finalizeRow(row, metrics, gutters))
         .filter((row) => row.fragments.length > 0)
         .map((row, rowIndex) => ({
             ...row,
@@ -461,7 +549,7 @@ function groupItemsIntoRows(items, metrics) {
         }))
 }
 
-function finalizeRow(row, metrics) {
+function finalizeRow(row, metrics, gutters = []) {
     const items = [...row.items].sort((left, right) => left.x - right.x)
     const fragments = []
     let currentItems = []
@@ -469,8 +557,11 @@ function finalizeRow(row, metrics) {
     for (const item of items) {
         const previousItem = currentItems[currentItems.length - 1]
         const gap = previousItem ? item.x - previousItem.right : 0
+        const crossesGutter = Boolean(
+            previousItem && gutters.some((g) => g.centerX > previousItem.right && g.centerX < item.x)
+        )
 
-        if (previousItem && gap > metrics.fragmentGapThreshold) {
+        if (previousItem && (gap > metrics.fragmentGapThreshold || crossesGutter)) {
             const fragment = createFragment(currentItems, row.rowIndex)
             if (fragment) {
                 fragments.push(fragment)
@@ -1202,17 +1293,21 @@ function getParagraphFragmentDecision(candidate, anchor, rows, metrics) {
     const anchorSpan = spanFromFragment(anchor.fragment)
     const sameColumn = spansLikelySameColumn(anchorSpan, candidateSpan)
 
-    if (!sameColumn && rowGap <= metrics.rowTolerance * 1.5) {
-        if (
-            candidate.paragraphSegmentKey &&
-            candidate.paragraphSegmentKey === anchor.paragraphSegmentKey
-        ) {
-            return 'include'
+    // Cross-column candidates never join the anchor's block. The segmentKey
+    // path that used to override this was inviting bleed: when the segment
+    // gap threshold (max of fragmentGap and medianHeight*2) is slightly
+    // larger than the actual column gutter, a left-column fragment and a
+    // right-column fragment on near-the-same y end up with the same
+    // segmentKey and would otherwise merge. Column membership is the
+    // authoritative signal here.
+    if (!sameColumn) {
+        if (rowGap <= metrics.rowTolerance * 1.5) {
+            return 'skip'
         }
-        return 'skip'
+        return 'stop'
     }
 
-    if (!sameColumn || rowGap > metrics.paragraphGapThreshold) {
+    if (rowGap > metrics.paragraphGapThreshold) {
         return 'stop'
     }
 

@@ -330,6 +330,36 @@ test('keeps page-only hints navigable without broad highlighting', () => {
     assert.equal(plan.itemEvidenceIds.size, 0)
 })
 
+test('splits fragments at column gutters narrower than fragmentGapThreshold', () => {
+    // Recreates the failure in paper 1314 p.3: two columns separated by a 14pt
+    // gutter (narrower than fragmentGapThreshold). Without page-level gutter
+    // detection PDF.js items get fused into one cross-column fragment and the
+    // matched paragraph bounds bleed all the way to the right column.
+    const items = []
+    // Left column prose, multiple rows
+    for (let i = 0; i < 6; i += 1) {
+        items.push(textItem(`commercial wheat flour line ${i} with chemical composition details`, 72, 700 - i * 14, 227))
+    }
+    // Right column prose at the same y rows
+    for (let i = 0; i < 6; i += 1) {
+        items.push(textItem(`right column body text on line ${i} of the methods section`, 313, 700 - i * 14, 227))
+    }
+
+    const plan = buildPageEvidenceHighlightPlan(
+        { items },
+        [{ id: 'evidence-left', sourceLocationType: 'paragraph', sourceQuote: 'commercial wheat flour line 1' }],
+        3
+    )
+
+    assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
+    assert.equal(plan.matches[0].matchType, 'paragraph')
+    assert.ok(
+        plan.matches[0].regionBounds.right < 310,
+        `expected paragraph bounds to stay in left column, got right=${plan.matches[0].regionBounds.right}`
+    )
+    assert.match(plan.matches[0].regionKey, /^paragraph:3:paragraph-/)
+})
+
 test('clips paragraph bounds to the dominant column when one fragment overflows', () => {
     const plan = buildPageEvidenceHighlightPlan(
         {
