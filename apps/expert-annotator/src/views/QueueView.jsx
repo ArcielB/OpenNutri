@@ -1,0 +1,180 @@
+import { useMemo, useState } from 'react'
+import PdfViewer from '../components/PdfViewer'
+import FoodItemForm from '../components/FoodItemForm'
+import EvidenceStrip from '../components/EvidenceStrip'
+import { buildEvidenceLocationsFromFoodItems } from '../utils/EvidenceLocations'
+import {
+  buildFoodItemsFromPayload,
+  formatStatusLabel,
+  getStatusBadgeClass,
+} from '../utils/annotateHelpers'
+
+export default function QueueView({
+  items,
+  currentItem,
+  currentIndex,
+  pdfUrl,
+  theme,
+  allNutrients,
+  allFoods,
+  foodsLoaded,
+  user,
+  foodItems,
+  isEditable,
+  saving,
+  showPaperList,
+  setShowPaperList,
+  paperListRef,
+  setSelectedQueueId,
+  addFoodItem,
+  removeFoodItem,
+  updateFoodItem,
+  handlePdfNutrientAdd,
+  handleRequestHelp,
+  saveAnnotation,
+}) {
+  const evidenceFoodItems = useMemo(() => {
+    const hasVisibleRows = (foodItems || []).some((item) => (item?.nutrients || []).length > 0)
+    if (hasVisibleRows) return foodItems
+    return buildFoodItemsFromPayload(currentItem?.latest_ai_extraction?.normalized_payload_json)
+  }, [currentItem?.latest_ai_extraction?.normalized_payload_json, foodItems])
+  const evidenceLocations = useMemo(
+    () => buildEvidenceLocationsFromFoodItems(evidenceFoodItems),
+    [evidenceFoodItems]
+  )
+  const [evidenceStatuses, setEvidenceStatuses] = useState({})
+  const [activeEvidence, setActiveEvidence] = useState(null)
+  const activeEvidenceId = evidenceLocations.some((location) => location.id === activeEvidence?.id)
+    ? activeEvidence.id
+    : null
+
+  return (
+    <div className="workspace">
+      <PdfViewer
+        pdfUrl={pdfUrl}
+        allNutrients={allNutrients}
+        onAddNutrient={handlePdfNutrientAdd}
+        theme={theme}
+        evidenceLocations={evidenceLocations}
+        activeEvidenceId={activeEvidenceId}
+        activeEvidenceRequestId={activeEvidenceId ? activeEvidence?.requestId || null : null}
+        onEvidenceStatusesChange={setEvidenceStatuses}
+      />
+
+      <div className="annotation-panel">
+        <div className="queue-assignment-header">
+          {currentItem ? (
+            <div className="queue-assignment-toolbar">
+              <div className="queue-toolbar-group">
+                <div className="paper-list-toggle" ref={paperListRef}>
+                  <button className="nav-btn nav-btn-with-icon" onClick={() => setShowPaperList((open) => !open)}>
+                    <span>{currentIndex >= 0 ? `Paper ${currentIndex + 1}/${items.length}` : 'Queue'}</span>
+                    <span className="chevron-icon" aria-hidden="true" />
+                  </button>
+                  {showPaperList && (
+                    <div className="paper-list-dropdown">
+                      {items.map((item, index) => (
+                        <div
+                          key={item.id}
+                          className={`paper-list-item ${item.id === currentItem.id ? 'active' : ''}`}
+                          onClick={() => {
+                            setSelectedQueueId(item.id)
+                            setShowPaperList(false)
+                          }}
+                        >
+                          <span className="paper-id">{index + 1}</span>
+                          <span className="paper-title">{item.paper?.title || item.paper?.filename || `Paper ${item.paper_id}`}</span>
+                          <span className={`status-badge ${getStatusBadgeClass(item.status)}`}>{formatStatusLabel(item.status)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="queue-mini-stats">
+                  <span className={`status-badge ${getStatusBadgeClass(currentItem.status)}`}>
+                    {formatStatusLabel(currentItem.status)}
+                  </span>
+                  <span className="status-badge status-pending">{items.length} available</span>
+                  {currentItem.workflow_language && (
+                    <span className="status-badge status-draft">{currentItem.workflow_language.toUpperCase()}</span>
+                  )}
+                </div>
+              </div>
+              <div className="queue-nav-buttons">
+                <button
+                  className="nav-btn"
+                  disabled={currentIndex <= 0}
+                  onClick={() => setSelectedQueueId(items[Math.max(currentIndex - 1, 0)]?.id || null)}
+                >
+                  Prev
+                </button>
+                <button
+                  className="nav-btn"
+                  disabled={currentIndex < 0 || currentIndex >= items.length - 1}
+                  onClick={() => setSelectedQueueId(items[Math.min(currentIndex + 1, items.length - 1)]?.id || null)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="empty-panel">No papers are currently available in the general queue.</div>
+          )}
+        </div>
+
+        <div className="annotation-scroll">
+          {!currentItem ? (
+            <div className="empty-panel">The queue is empty.</div>
+          ) : (
+            <>
+              {!isEditable && (
+                <div className="review-lock-banner">
+                  This account is read-only for live labeling.
+                </div>
+              )}
+              <EvidenceStrip
+                locations={evidenceLocations}
+                statuses={evidenceStatuses}
+                selectedEvidenceId={activeEvidenceId}
+                onSelect={(location) => setActiveEvidence({ id: location.id, requestId: Date.now() })}
+              />
+              {foodItems.map((item, index) => (
+                <FoodItemForm
+                  key={`${currentItem.id}-${index}`}
+                  index={index}
+                  data={item}
+                  onChange={(updated) => updateFoodItem(index, updated)}
+                  onDelete={() => removeFoodItem(index)}
+                  allNutrients={allNutrients}
+                  allFoods={allFoods}
+                  foodsLoaded={foodsLoaded}
+                  userId={user.id}
+                />
+              ))}
+              {isEditable && (
+                <button className="add-food-btn" onClick={addFoodItem}>Add Food</button>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="annotation-actions">
+          <div className="action-row">
+            <button className="btn btn-outline" onClick={handleRequestHelp} disabled={saving || !isEditable}>Ask for Help</button>
+            <button className="btn btn-skip" onClick={() => saveAnnotation(false, 'skipped')} disabled={saving || !isEditable}>
+              No Usable Data
+            </button>
+            <button className="btn btn-outline" onClick={() => saveAnnotation(true, 'draft')} disabled={saving || !isEditable}>
+              Save Draft
+            </button>
+          </div>
+          <div className="action-row">
+            <button className="btn btn-success" onClick={() => saveAnnotation(true, 'done')} disabled={saving || !isEditable}>
+              {saving ? 'Saving...' : 'Submit Reviewed Data'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
