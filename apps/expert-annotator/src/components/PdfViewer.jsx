@@ -52,11 +52,20 @@ export default function PdfViewer({
                 printedPageNumber,
             })
 
+            const matchedEvidenceItemIndexes = new Set()
+            for (const match of nextEvidencePlan.matches || []) {
+                if (match.status !== EVIDENCE_STATUS.MATCHED) continue
+                for (const itemIndex of match.itemIndexes || []) {
+                    matchedEvidenceItemIndexes.add(itemIndex)
+                }
+            }
+
             return {
                 isReady: true,
                 printedPageNumber,
                 allowedItemIndexes: nextTablePlan.allowedItemIndexes,
                 evidenceMatches: nextEvidencePlan.matches,
+                matchedEvidenceItemIndexes,
             }
         },
         [evidenceLocations, numPages]
@@ -76,10 +85,14 @@ export default function PdfViewer({
         (pageNumber) =>
             ({ str, itemIndex }) => {
                 const pagePlan = pageHighlightPlans[pageNumber]
+                const isInDetectedTable = Boolean(
+                    pagePlan?.isReady && pagePlan.allowedItemIndexes.has(itemIndex)
+                )
+                const isInsideMatchedRegion = Boolean(
+                    pagePlan?.matchedEvidenceItemIndexes?.has(itemIndex)
+                )
                 return renderTextItemWithNutrientHighlights(str, nutrientMatcher, {
-                    allowHighlight: Boolean(
-                        pagePlan?.isReady && pagePlan.allowedItemIndexes.has(itemIndex)
-                    ),
+                    allowHighlight: isInDetectedTable && !isInsideMatchedRegion,
                 })
             },
         [nutrientMatcher, pageHighlightPlans]

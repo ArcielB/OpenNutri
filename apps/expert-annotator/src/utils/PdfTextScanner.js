@@ -164,7 +164,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
                     pageNumber,
                     itemIndexes,
                     regionBounds: tableRegion.regionBounds,
-                    regionKey: buildRegionBoundsKey('table', tableRegion.regionBounds),
+                    regionKey: buildStableRegionKey('table', pageNumber, tableRegion.regionId, tableRegion.regionBounds),
                 })
                 matched = true
             }
@@ -182,7 +182,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
                     pageNumber,
                     itemIndexes,
                     regionBounds: quoteMatch.regionBounds,
-                    regionKey: buildRegionBoundsKey(quoteMatch.matchType, quoteMatch.regionBounds),
+                    regionKey: buildStableRegionKey(quoteMatch.matchType, pageNumber, quoteMatch.regionId, quoteMatch.regionBounds),
                 })
                 matched = true
             }
@@ -805,6 +805,7 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
         captionNumber: block.captionNumber,
         captionText: block.fragments.map((fragment) => fragment.normalizedText).join(' '),
         bodyRowCount: new Set(bodyRowIndexes).size,
+        regionId: `table-${block.captionNumber ?? 'x'}-${block.startRowIndex}`,
         allowedItemIndexes,
         evidenceItemIndexes,
         blockItemIndexes: evidenceItemIndexes,
@@ -895,7 +896,9 @@ function findSourceQuoteTextMatch(rows, location, metrics, tableRegions = [], pa
             tableRegions,
             paragraphBlocks,
             fallbackMatch: () => {
-                const evidenceFragments = expandFragmentsToParagraph(fragments, fragmentMatch.startIndex, fragmentMatch.endIndex, rows, metrics)
+                const evidenceFragments = clipEntriesToDominantColumn(
+                    expandFragmentsToParagraph(fragments, fragmentMatch.startIndex, fragmentMatch.endIndex, rows, metrics)
+                )
                 return {
                     itemIndexes: itemIndexesForSearchFragments(evidenceFragments),
                     matchType: 'paragraph',
@@ -914,10 +917,13 @@ function findSourceQuoteTextMatch(rows, location, metrics, tableRegions = [], pa
         paragraphBlocks,
         fallbackMatch: () => {
             const evidenceRows = expandRowsToParagraph(rows, rowMatch.startIndex, rowMatch.endIndex, metrics)
+            const evidenceEntries = clipEntriesToDominantColumn(
+                evidenceRows.flatMap((row) => row.fragments.map((fragment) => ({ row, fragment })))
+            )
             return {
-                itemIndexes: itemIndexesForRows(evidenceRows),
+                itemIndexes: itemIndexesForSearchFragments(evidenceEntries),
                 matchType: 'paragraph',
-                regionBounds: boundsFromRows(evidenceRows),
+                regionBounds: boundsFromSearchFragments(evidenceEntries),
             }
         },
     })
@@ -931,6 +937,7 @@ function buildBlockMatchForItemIndexes(matchedItemIndexes, options = {}) {
             itemIndexes: new Set(tableRegion.blockItemIndexes || tableRegion.evidenceItemIndexes),
             matchType: 'table',
             regionBounds: tableRegion.regionBounds,
+            regionId: tableRegion.regionId || null,
         }
     }
 
@@ -940,6 +947,7 @@ function buildBlockMatchForItemIndexes(matchedItemIndexes, options = {}) {
             itemIndexes: new Set(paragraphBlock.itemIndexes),
             matchType: 'paragraph',
             regionBounds: paragraphBlock.regionBounds,
+            regionId: paragraphBlock.blockId || null,
         }
     }
 
@@ -1093,11 +1101,13 @@ function buildParagraphBlocks(rows, tableRegions, metrics) {
             anchorIndex = candidateIndex
         }
 
+        const clippedEntries = clipEntriesToDominantColumn(blockEntries)
+
         blocks.push({
             blockId: `paragraph-${blocks.length + 1}`,
-            entries: blockEntries,
-            itemIndexes: itemIndexesForSearchFragments(blockEntries),
-            regionBounds: boundsFromSearchFragments(blockEntries),
+            entries: clippedEntries,
+            itemIndexes: itemIndexesForSearchFragments(clippedEntries),
+            regionBounds: boundsFromSearchFragments(clippedEntries),
         })
     }
 
@@ -1346,14 +1356,6 @@ function fragmentHasAnyItemIndex(fragment, itemIndexes) {
     return fragment.visibleItemIndexes.some((itemIndex) => itemIndexes.has(itemIndex))
 }
 
-function boundsFromRows(rows) {
-    const fragments = []
-    for (const row of rows) {
-        fragments.push(...row.fragments)
-    }
-    return boundsFromFragments(fragments)
-}
-
 function boundsFromSearchFragments(fragments) {
     return boundsFromFragments(fragments.map((entry) => entry.fragment))
 }
@@ -1378,6 +1380,47 @@ function boundsFromFragments(fragments) {
         bottom: visibleFragments[0].bottom,
         top: visibleFragments[0].top,
     })
+}
+
+function buildStableRegionKey(matchType, pageNumber, regionId, regionBounds) {
+    const pagePart = pageNumber != null ? String(pageNumber) : '?'
+    if (regionId) {
+        return [matchType === 'table' ? 'table' : 'paragraph', pagePart, regionId].join(':')
+    }
+    return buildRegionBoundsKey(matchType, regionBounds)
+}
+
+function clipEntriesToDominantColumn(entries) {
+    if (!Array.isArray(entries) || entries.length <= 2) {
+        return entries
+    }
+
+    const lefts = entries.map((entry) => entry.fragment.x)
+    const rights = entries.map((entry) => entry.fragment.right)
+    const medianLeft = median(lefts, 0)
+    const medianRight = median(rights, 0)
+    // Robust spread via median absolute deviation. Resists single wide outliers
+    // (e.g. a row where PDF.js fused two columns into one fragment) better than
+    // IQR, which would absorb the outlier into q3.
+    const madLeft = median(lefts.map((value) => Math.abs(value - medianLeft)), 0)
+    const madRight = median(rights.map((value) => Math.abs(value - medianRight)), 0)
+    const leftFence = Math.max(20, madLeft * 3)
+    const rightFenceUp = Math.max(30, madRight * 3)
+    // Paragraph endings are legitimately shorter than the column, so the lower
+    // fence is much looser than the upper one.
+    const rightFenceDown = Math.max(80, madRight * 6)
+
+    const filtered = entries.filter((entry) => {
+        const x = entry.fragment.x
+        const right = entry.fragment.right
+        return (
+            Math.abs(x - medianLeft) <= leftFence &&
+            right <= medianRight + rightFenceUp &&
+            right >= medianRight - rightFenceDown
+        )
+    })
+
+    return filtered.length >= Math.max(2, Math.ceil(entries.length / 2)) ? filtered : entries
 }
 
 function buildRegionBoundsKey(matchType, regionBounds) {

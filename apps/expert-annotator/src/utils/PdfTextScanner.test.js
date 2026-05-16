@@ -330,6 +330,78 @@ test('keeps page-only hints navigable without broad highlighting', () => {
     assert.equal(plan.itemEvidenceIds.size, 0)
 })
 
+test('clips paragraph bounds to the dominant column when one fragment overflows', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('commercial wheat flour (type 500) (average composition: fat 0.90 g/100 g of which', 50, 700, 240),
+                textItem('saturated 0.30 g; carbohydrates 70.30 g/100 g, of which sugars 3.40 g, fiber 4.00 g/100 g;', 50, 685, 240),
+                // PDF.js sometimes fuses both columns into one fragment when the gutter is narrow.
+                textItem('protein 10.80 g/100 g). Control sample 10 %', 50, 670, 520),
+                textItem('flour from cold-pressed pumpkin seed cake (average chemical composition).', 50, 640, 240),
+            ],
+        },
+        [
+            {
+                id: 'evidence-1',
+                sourceLocationType: 'paragraph',
+                sourceQuote: 'commercial wheat flour (type 500)',
+            },
+        ],
+        1
+    )
+
+    assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
+    assert.equal(plan.matches[0].matchType, 'paragraph')
+    // The cross-column fragment (right=570) should be excluded so bounds stay in the left column.
+    assert.ok(
+        plan.matches[0].regionBounds.right <= 320,
+        `expected right <= 320, got ${plan.matches[0].regionBounds.right}`
+    )
+})
+
+test('stable paragraph region key is identical for separate quotes in one block', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('The edible portion was analyzed after drying.', 50, 700, 260),
+                textItem('Pear samples contained 4.6 mg vitamin C per 100 g in the edible portion.', 50, 680, 420),
+                textItem('Values were calculated on a fresh weight basis.', 50, 660, 300),
+            ],
+        },
+        [
+            { id: 'evidence-1', sourceQuote: 'edible portion was analyzed' },
+            { id: 'evidence-2', sourceQuote: 'fresh weight basis' },
+        ],
+        2
+    )
+
+    assert.equal(plan.matches.length, 2)
+    assert.equal(plan.matches[0].regionKey, plan.matches[1].regionKey)
+    assert.match(plan.matches[0].regionKey, /^paragraph:2:paragraph-/)
+})
+
+test('stable table region key is identical for evidences pointing at the same table', () => {
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Table 2. Composition of apple samples', 50, 700, 260),
+                textItem('Food Protein (g/100g) Fat (g/100g)', 50, 680, 260),
+                textItem('Apple 0.3 0.2', 50, 660, 140),
+            ],
+        },
+        [
+            { id: 'evidence-1', tableLabel: 'Table 2', pageHint: 5 },
+            { id: 'evidence-2', tableLabel: 'Table 2', pageHint: 5, sourceQuote: 'Apple 0.3 0.2' },
+        ],
+        5
+    )
+
+    assert.equal(plan.matches.length, 2)
+    assert.equal(plan.matches[0].regionKey, plan.matches[1].regionKey)
+    assert.match(plan.matches[0].regionKey, /^table:5:table-2-/)
+})
+
 test('leaves unmatched evidence unverified by returning no false match', () => {
     const plan = buildPageEvidenceHighlightPlan(
         {
