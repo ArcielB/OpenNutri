@@ -21,7 +21,11 @@ const PAGE_LABEL_WITH_NUMBER_RE = /\b(?:page|p\.?|sayfa)\s*[#:.-]?\s*([0-9]{1,4}
 const NUMBER_WITH_PAGE_LABEL_RE = /\b([0-9]{1,4})\s*(?:[|/:.-]\s*)?(?:page|sayfa)\b/iu
 const STANDALONE_PAGE_NUMBER_RE = /^[^\p{L}\p{N}]?([0-9]{1,4})[^\p{L}\p{N}]?$/u
 const HEADER_TOKEN_RE = /\b(%RSD|RSD|ANAL[Iİ]T)\b/iu
-const UNIT_TOKEN_RE = /\([^)]{1,24}\)/u
+// Only count parentheticals that look like actual units (e.g. "(g/100g)", "(mg)",
+// "(%)", "(0.5 g)"). Plain editorial parens like "(type 500)" or "(see Table 1)"
+// must not flag the fragment as a unit cell — that was costing us paragraph
+// candidates whose first line happens to mention a quantity in parens.
+const UNIT_TOKEN_RE = /\(\s*(?:[<>~]?\d+(?:[.,]\d+)?\s*)?(?:%|g|mg|µg|μg|ug|kg|ml|l|kcal|kj|iu|ppm|w\s*\/\s*[wv]|v\s*\/\s*v)(?:\s*\/\s*[0-9a-zA-Zµμ%]+)?\s*\)/iu
 const UNIT_CODE_TOKEN_RE = /^\d+(?:g|mg|ug|µg|μg|kg|ml|l|kcal|kj|iu)$/iu
 const LETTER_RE = /[A-Za-zÇĞİÖŞÜçğıöşü]/g
 const LOWER_LETTER_RE = /[a-zçğıöşü]/g
@@ -970,11 +974,14 @@ function findSourceQuoteTextMatch(rows, location, metrics, tableRegions = [], pa
         return buildBlockMatchForItemIndexes(matchedItemIndexes, {
             tableRegions,
             paragraphBlocks,
-            fallbackMatch: () => ({
-                itemIndexes: matchedItemIndexes,
-                matchType: 'paragraph',
-                regionBounds: boundsFromSearchFragments(matchedFragments),
-            }),
+            fallbackMatch: () => snapToNearestParagraphBlock(
+                {
+                    itemIndexes: matchedItemIndexes,
+                    matchType: 'paragraph',
+                    regionBounds: boundsFromSearchFragments(matchedFragments),
+                },
+                paragraphBlocks
+            ),
         })
     }
 
@@ -990,11 +997,14 @@ function findSourceQuoteTextMatch(rows, location, metrics, tableRegions = [], pa
                 const evidenceFragments = clipEntriesToDominantColumn(
                     expandFragmentsToParagraph(fragments, fragmentMatch.startIndex, fragmentMatch.endIndex, rows, metrics)
                 )
-                return {
-                    itemIndexes: itemIndexesForSearchFragments(evidenceFragments),
-                    matchType: 'paragraph',
-                    regionBounds: boundsFromSearchFragments(evidenceFragments),
-                }
+                return snapToNearestParagraphBlock(
+                    {
+                        itemIndexes: itemIndexesForSearchFragments(evidenceFragments),
+                        matchType: 'paragraph',
+                        regionBounds: boundsFromSearchFragments(evidenceFragments),
+                    },
+                    paragraphBlocks
+                )
             },
         })
     }
@@ -1011,13 +1021,65 @@ function findSourceQuoteTextMatch(rows, location, metrics, tableRegions = [], pa
             const evidenceEntries = clipEntriesToDominantColumn(
                 evidenceRows.flatMap((row) => row.fragments.map((fragment) => ({ row, fragment })))
             )
-            return {
-                itemIndexes: itemIndexesForSearchFragments(evidenceEntries),
-                matchType: 'paragraph',
-                regionBounds: boundsFromSearchFragments(evidenceEntries),
-            }
+            return snapToNearestParagraphBlock(
+                {
+                    itemIndexes: itemIndexesForSearchFragments(evidenceEntries),
+                    matchType: 'paragraph',
+                    regionBounds: boundsFromSearchFragments(evidenceEntries),
+                },
+                paragraphBlocks
+            )
         },
     })
+}
+
+// When the matched fragments don't sit inside any paragraph block's
+// itemIndexes (e.g. the bullet's first line was rejected as a paragraph
+// candidate because of a parenthetical), reuse the nearest same-column
+// paragraph block's id and bounds. This keeps the chip and overlay dedup
+// identity-based instead of leaving every near-miss with its own
+// bounds-based regionKey.
+function snapToNearestParagraphBlock(fallbackResult, paragraphBlocks) {
+    if (!fallbackResult?.regionBounds || !paragraphBlocks?.length) {
+        return fallbackResult
+    }
+    const nearest = findNearestSameColumnBlock(paragraphBlocks, fallbackResult.regionBounds)
+    if (!nearest) return fallbackResult
+    return {
+        ...fallbackResult,
+        regionBounds: nearest.regionBounds,
+        regionId: nearest.blockId,
+        itemIndexes: new Set(nearest.itemIndexes),
+    }
+}
+
+function findNearestSameColumnBlock(blocks, regionBounds) {
+    let bestBlock = null
+    let bestDistance = Infinity
+    for (const block of blocks) {
+        const blockBounds = block?.regionBounds
+        if (!blockBounds) continue
+        if (!spansLikelySameColumn(
+            { left: blockBounds.left, right: blockBounds.right },
+            { left: regionBounds.left, right: regionBounds.right }
+        )) {
+            continue
+        }
+        const verticalGap = verticalDistanceBetweenBounds(blockBounds, regionBounds)
+        if (verticalGap < bestDistance) {
+            bestDistance = verticalGap
+            bestBlock = block
+        }
+    }
+    // Cap on how far the snap can stretch — anything beyond a handful of lines
+    // is more likely a genuinely separate paragraph that shouldn't share a chip.
+    return bestDistance <= 60 ? bestBlock : null
+}
+
+function verticalDistanceBetweenBounds(a, b) {
+    if (a.top < b.bottom) return b.bottom - a.top
+    if (b.top < a.bottom) return a.bottom - b.top
+    return 0
 }
 
 function buildBlockMatchForItemIndexes(matchedItemIndexes, options = {}) {
@@ -1074,7 +1136,38 @@ function buildSearchFragments(rows) {
             })
         }
     }
-    return fragments
+    return groupFragmentsByColumn(fragments)
+}
+
+// Cluster fragments by their left edge into approximate columns, then sort
+// each column top-to-bottom. Windowed source-quote matching needs adjacent
+// entries in the search array to actually be visually adjacent on the page;
+// otherwise a single right-column fragment slotted between two left-column
+// rows blocks the join and the match silently fails.
+function groupFragmentsByColumn(entries) {
+    if (entries.length <= 1) return entries
+    const sortedByX = [...entries].sort((a, b) => a.fragment.x - b.fragment.x)
+    const columnTolerance = 30
+    const columns = []
+    for (const entry of sortedByX) {
+        let placed = false
+        for (const column of columns) {
+            if (Math.abs(entry.fragment.x - column.x) <= columnTolerance) {
+                column.entries.push(entry)
+                column.x = (column.x * (column.entries.length - 1) + entry.fragment.x) / column.entries.length
+                placed = true
+                break
+            }
+        }
+        if (!placed) {
+            columns.push({ x: entry.fragment.x, entries: [entry] })
+        }
+    }
+    for (const column of columns) {
+        column.entries.sort((a, b) => b.row.centerY - a.row.centerY)
+    }
+    columns.sort((a, b) => a.x - b.x)
+    return columns.flatMap((column) => column.entries)
 }
 
 function buildParagraphCandidateEntries(rows, tableItemIndexes, metrics) {
@@ -1557,6 +1650,12 @@ function parseTableNumber(value) {
 function normalizeSearchText(value) {
     return String(value || '')
         .toLowerCase()
+        // Insert whitespace at digit-letter boundaries so PDF items rendered
+        // without an explicit space ("10.80g/100 g") still normalise the same
+        // way as the quote ("10.80 g/100 g"). Applied to both sides so the
+        // matcher and the searched text stay aligned.
+        .replace(/([0-9])([\p{L}])/gu, '$1 $2')
+        .replace(/([\p{L}])([0-9])/gu, '$1 $2')
         .replace(/[^\p{L}\p{N}%]+/gu, ' ')
         .replace(/\s+/g, ' ')
         .trim()

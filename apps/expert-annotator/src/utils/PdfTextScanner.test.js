@@ -360,6 +360,55 @@ test('splits fragments at column gutters narrower than fragmentGapThreshold', ()
     assert.match(plan.matches[0].regionKey, /^paragraph:3:paragraph-/)
 })
 
+test('many quotes for the same bullet paragraph collapse to one regionKey', () => {
+    // Mirrors paper 1314 p.3 paragraph evidence: the bullet item has lines that
+    // are paragraph candidates (continuation lines) and lines that are not
+    // (first line with "(type 500)" parens, last line too short to qualify).
+    // Every quote that lands anywhere in this bullet should resolve to the
+    // same paragraph block id so one chip is shown.
+    const items = [
+        textItem('• commercial wheat flour (type 500) (average', 72, 550, 227),
+        textItem('chemical composition: fat 0.90 g/100 g of which', 72, 538, 227),
+        textItem('saturated 0.30 g; carbohydrates 70.30 g/100 g, of', 72, 525, 227),
+        textItem('which sugars 3.40 g, fiber 4.00 g/100 g; protein', 72, 512, 227),
+        textItem('10.80g/100 g);', 72, 500, 67),
+    ]
+    const plan = buildPageEvidenceHighlightPlan(
+        { items },
+        [
+            { id: 'q1', sourceQuote: 'commercial wheat flour (type 500)', pageHint: 3 },
+            { id: 'q2', sourceQuote: 'fiber 4.00 g/100 g', pageHint: 3 },
+            { id: 'q3', sourceQuote: 'of which sugars 3.40 g', pageHint: 3 },
+            { id: 'q4', sourceQuote: 'protein 10.80 g/100 g', pageHint: 3 },
+        ],
+        3
+    )
+
+    const keys = new Set(plan.matches.map((m) => m.regionKey))
+    assert.equal(keys.size, 1, `expected one regionKey for one bullet paragraph, got: ${[...keys].join(', ')}`)
+    plan.matches.forEach((m) => assert.equal(m.status, EVIDENCE_STATUS.MATCHED))
+    assert.match([...keys][0], /^paragraph:3:paragraph-/)
+})
+
+test('digit-letter boundary normalisation lets quotes with spaces match fused PDF items', () => {
+    // PDF.js doesn't insert whitespace between visually-adjacent items, so an
+    // item like "10.80" + "g/100 g);" becomes "10.80g/100 g);" in the
+    // fragment text. The matcher must still match a quote written as
+    // "10.80 g/100 g".
+    const items = [
+        textItem('first prose line that contains protein content references', 72, 540, 260),
+        textItem('which fragment ends with the word protein', 72, 525, 230),
+        textItem('10.80g/100 g);', 72, 512, 67),
+    ]
+    const plan = buildPageEvidenceHighlightPlan(
+        { items },
+        [{ id: 'q', sourceQuote: 'protein 10.80 g/100 g', pageHint: 2 }],
+        2
+    )
+
+    assert.equal(plan.matches[0]?.status, EVIDENCE_STATUS.MATCHED)
+})
+
 test('clips paragraph bounds to the dominant column when one fragment overflows', () => {
     const plan = buildPageEvidenceHighlightPlan(
         {
