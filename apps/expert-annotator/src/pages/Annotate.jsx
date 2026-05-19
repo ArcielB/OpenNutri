@@ -75,7 +75,11 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const currentPdfUrl = getPublicPdfUrl(currentPaper?.filename)
   const isTesterAccount = Boolean(reviewerProfile?.tester_access)
   const canApproveLabels = Boolean(reviewerProfile?.can_approve_labels && !reviewerProfile?.tester_access && !testMode)
-  const canSeeCockpit = Boolean(reviewerProfile?.cockpit_access || reviewerProfile?.can_approve_labels)
+  const canSeeCockpit = Boolean(
+    reviewerProfile?.cockpit_access
+    || reviewerProfile?.tester_access
+    || reviewerProfile?.can_approve_labels
+  )
   const canSubmitSuggestion = Boolean(reviewerProfile && !canSeeCockpit)
   const isEditable = Boolean(currentItem && !isTesterAccount)
   const pendingSubmissions = useMemo(
@@ -274,7 +278,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
             setTestMode(true)
             setTestModeEnabled(true)
           }
-          if (!(nextProfile?.cockpit_access || nextProfile?.can_approve_labels)) {
+          if (!(nextProfile?.cockpit_access || nextProfile?.tester_access || nextProfile?.can_approve_labels)) {
             setActiveView('queue')
           }
         }

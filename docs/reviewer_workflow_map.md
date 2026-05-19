@@ -24,7 +24,7 @@ Important consequences:
 
 - **General labeler**: active non-tester reviewer profile. Sees the shared Queue of useful Gemini-positive papers, can save drafts, submit usable-data or no-usable-data labels, and ask for help.
 - **Approver**: reviewer profile with `can_approve_labels = true`. Currently Arciel only. Can approve/edit pending submissions and write final human truth.
-- **Cockpit/tester/developer viewer**: `cockpit_access = true`, often with `tester_access = true`. Can inspect Approval, Dashboard, Suggestions, and Useful Papers, but tester accounts cannot mutate because SQL write guards call `current_user_can_write()`.
+- **Cockpit/tester/developer viewer**: `cockpit_access = true` or `tester_access = true`. Can inspect Approval, Dashboard, Suggestions, and Useful Papers, but tester accounts cannot mutate because SQL write guards call `current_user_can_write()`.
 
 Legacy concepts:
 
@@ -38,6 +38,7 @@ Active workflow tables:
 - `reviewer_profiles`
   - `tester_access`: read-only account.
   - `cockpit_access`: can inspect cockpit/dashboard surfaces.
+  - `tester_access` also grants cockpit read visibility (without write access).
   - `can_approve_labels`: can approve final labels; currently Arciel.
 - `paper_label_submissions`
   - Immutable labeler payload snapshot.

@@ -1501,7 +1501,7 @@ AS $$
     SELECT EXISTS (
         SELECT 1
         FROM reviewer_profiles
-        WHERE cockpit_access IS TRUE
+        WHERE (cockpit_access IS TRUE OR tester_access IS TRUE)
           AND active IS TRUE
           AND (
               auth_user_id = auth.uid()
@@ -3868,6 +3868,7 @@ CREATE POLICY "Users can view accessible backlog review items"
     ON backlog_review_items FOR SELECT TO authenticated
     USING (
         public.current_user_has_cockpit_access()
+        OR public.current_user_is_tester()
         OR submitted_by_auth_user_id = auth.uid()
     );
 
@@ -3908,6 +3909,7 @@ CREATE POLICY "Users can view suggestion attachments"
         bucket_id = 'suggestion-attachments'
         AND (
             public.current_user_has_cockpit_access()
+            OR public.current_user_is_tester()
             OR (storage.foldername(name))[1] = auth.uid()::text
         )
     );

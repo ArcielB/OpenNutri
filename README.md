@@ -30,7 +30,7 @@ Features:
 - Drafts do not claim papers; stale in-progress duplicate submissions are allowed until reviewer approval finalizes the paper, and each exact payload is retained in `paper_label_submissions`.
 - Editable queue papers with no saved annotation open as AI-prefilled verification tasks from the latest `ai_extractions.normalized_payload_json`; the AI output is preloaded directly into editable food/nutrient rows, existing drafts/submissions are never overwritten, and labelers see DB-compliant extraction rows without AI reasoning or a separate AI-prefill status banner.
 - Reviewer approval workflow: Arciel currently has `can_approve_labels=true`; Arciel submissions auto-accept, while non-Arciel submissions go to an approver-only Approval page where Arciel can edit and accept final truth.
-- Read-only tester/developer cockpit accounts can inspect Approval, Dashboard, and Useful Papers views but cannot approve or mutate live rows.
+- Read-only tester/developer accounts can inspect cockpit views (Approval, Dashboard, Pipeline, Useful Papers, Suggestions) when `tester_access=true`, but cannot approve or mutate live rows.
 - PDF viewer with table-scoped nutrient-name highlighting, click-to-add popover, and a compact Sources strip that jumps to matched table/paragraph text or page hints, including printed-page hints from journal PDFs.
 - Food and nutrient autocomplete with ranking and search logging.
 - Save draft, submit usable-data extraction, or submit no-usable-data.
@@ -239,7 +239,7 @@ GitHub Actions daily ops requires repository secrets with these same names:
   Arciel currently has `can_approve_labels=true`; approval rights are configurable in reviewer admin.
   Arciel submissions auto-accept; other submissions go to Approval, where Arciel can edit and accept the final payload.
   `paper_label_approvals.correction_diff_json` records what changed between the labeler payload and accepted reviewer payload.
-  `tester_access` keeps an account read-only, while `tester_access + cockpit_access` can inspect Approval, Dashboard, Pipeline, and Useful Papers without mutating live state.
+  `tester_access` keeps an account read-only and also grants cockpit-equivalent read visibility; `cockpit_access` remains the explicit non-tester cockpit-read flag.
   Legacy slot membership tables remain in the schema for old audit data but should not be used for new queue work.
 - PDF highlighting is table-scoped and precision-first for nutrient-name click targets.
   The viewer builds a page-local allowlist from PDF.js text content and only highlights detected table body/header cells plus table caption/title lines. Narrative prose with nutrient words after a table is excluded from that allowlist, so isolated words in surrounding paragraphs should not become click marks.
