@@ -93,7 +93,6 @@ The migration clean-breaks unresolved legacy slot/user assignment rows to `cance
 - `Suggestions`: cockpit/admin-only suggestion and general queue help triage.
 - `My Suggestions`: regular-labeler view that shows each of their submitted suggestion/help-request statuses; the `Suggest` submit button is hidden for cockpit/admin users.
 - Suggestion attachments are previewed from per-file signed storage URLs in both `Suggestions` (cockpit/admin) and `My Suggestions` (regular labeler) views, with an `Open full image` link per attachment.
-- Auth portals are split: regular users use `/login`, admin/cockpit users use `/admin-login`, and role-route matching is enforced for both password and Google OAuth login flows.
 
 Frontend validation currently passes with:
 

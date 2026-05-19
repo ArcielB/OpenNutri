@@ -1,16 +1,12 @@
 import { useState } from 'react'
 import { supabase } from '../supabaseClient'
 
-const AUTH_PORTAL_INTENT_KEY = 'opennutri-auth-portal-intent'
-
-export default function Login({ onLogin, mode = 'regular', onSwitchMode }) {
+export default function Login({ onLogin }) {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
     const [resetSent, setResetSent] = useState(false)
-    const isAdminMode = mode === 'admin'
-    const oppositeMode = isAdminMode ? 'regular' : 'admin'
 
     const handleLogin = async (e) => {
         e.preventDefault()
@@ -24,21 +20,6 @@ export default function Login({ onLogin, mode = 'regular', onSwitchMode }) {
             })
 
             if (authError) throw authError
-            const { data: profileData, error: profileError } = await supabase.rpc('sync_reviewer_profile')
-            if (profileError) throw profileError
-            const profile = Array.isArray(profileData) ? profileData[0] : profileData
-            const isAdminUser = Boolean(profile?.cockpit_access || profile?.can_approve_labels)
-            if (isAdminMode !== isAdminUser) {
-                await supabase.auth.signOut()
-                throw new Error(
-                    isAdminMode
-                        ? 'This account is not an admin account. Please use the regular login page.'
-                        : 'This account is an admin account. Please use the admin login page.'
-                )
-            }
-            if (typeof window !== 'undefined') {
-                window.sessionStorage.removeItem(AUTH_PORTAL_INTENT_KEY)
-            }
             onLogin(data.user)
         } catch (err) {
             setError(err.message || 'Login failed. Please check your credentials.')
@@ -52,28 +33,15 @@ export default function Login({ onLogin, mode = 'regular', onSwitchMode }) {
         setError(null)
 
         try {
-            const targetRedirect = `${window.location.origin}${isAdminMode ? '/admin-login' : '/login'}`
-            if (typeof window !== 'undefined') {
-                window.sessionStorage.setItem(AUTH_PORTAL_INTENT_KEY, mode)
-            }
-            const { data, error: authError } = await supabase.auth.signInWithOAuth({
+            const { error: authError } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
-                    redirectTo: targetRedirect,
-                    skipBrowserRedirect: true,
+                    redirectTo: window.location.origin,
                 },
             })
 
             if (authError) throw authError
-            if (!data?.url) throw new Error('Google login failed: missing authorization URL.')
-
-            const authUrl = new URL(data.url)
-            authUrl.searchParams.set('redirect_to', targetRedirect)
-            window.location.assign(authUrl.toString())
         } catch (err) {
-            if (typeof window !== 'undefined') {
-                window.sessionStorage.removeItem(AUTH_PORTAL_INTENT_KEY)
-            }
             setError(err.message || 'Google login failed.')
             setLoading(false)
         }
@@ -89,7 +57,7 @@ export default function Login({ onLogin, mode = 'regular', onSwitchMode }) {
 
         try {
             const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: `${window.location.origin}/reset`,
+                redirectTo: window.location.origin,
             })
             if (resetError) throw resetError
             setResetSent(true)
@@ -104,8 +72,8 @@ export default function Login({ onLogin, mode = 'regular', onSwitchMode }) {
         <div className="login-page">
             <div className="login-card">
                 <span className="logo" aria-hidden="true">ON</span>
-                <h1>{isAdminMode ? 'OpenNutri Admin' : 'OpenNutri Annotator'}</h1>
-                <p className="subtitle">{isAdminMode ? 'Admin and approval workspace' : 'Food composition data labeling workspace'}</p>
+                <h1>OpenNutri Annotator</h1>
+                <p className="subtitle">Food composition data labeling workspace</p>
 
                 {error && <div className="error-msg">{error}</div>}
                 {resetSent && (
@@ -126,7 +94,7 @@ export default function Login({ onLogin, mode = 'regular', onSwitchMode }) {
                         <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
                         <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
                     </svg>
-                    {isAdminMode ? 'Admin sign in with Google' : 'Sign in with Google'}
+                    Sign in with Google
                 </button>
 
                 <div className="divider">
@@ -162,16 +130,6 @@ export default function Login({ onLogin, mode = 'regular', onSwitchMode }) {
                         {loading ? 'Signing In...' : 'Sign In'}
                     </button>
                 </form>
-                <div className="login-mode-switch">
-                    <button
-                        type="button"
-                        className="btn btn-outline"
-                        onClick={() => onSwitchMode?.(oppositeMode)}
-                        disabled={loading}
-                    >
-                        {isAdminMode ? 'Go to regular login' : 'Go to admin login'}
-                    </button>
-                </div>
 
                 <div className="forgot-password">
                     <a onClick={handleForgotPassword}>Forgot password?</a>

@@ -26,7 +26,6 @@ Location: `apps/expert-annotator/`
 
 Features:
 - Supabase auth (email/password + Google).
-- Split auth portals: regular users sign in at `/login` and admin/cockpit users sign in at `/admin-login`. The app enforces role-route matching for both password and Google OAuth sessions, and signs out mismatched portal logins.
 - Shared general labeling queue: active labelers see the same available `human_review_ready` papers that already have a latest normalized Gemini `has_data` payload, and a paper leaves the queue after the first general submission. AI `no_usable_data` papers are provisional skips and stay out of the default labeler queue and cockpit paper overview.
 - Drafts do not claim papers; stale in-progress duplicate submissions are allowed until reviewer approval finalizes the paper, and each exact payload is retained in `paper_label_submissions`.
 - Editable queue papers with no saved annotation open as AI-prefilled verification tasks from the latest `ai_extractions.normalized_payload_json`; the AI output is preloaded directly into editable food/nutrient rows, existing drafts/submissions are never overwritten, and labelers see DB-compliant extraction rows without AI reasoning or a separate AI-prefill status banner.
