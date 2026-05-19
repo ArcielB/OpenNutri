@@ -2682,6 +2682,14 @@ body {
   margin-top: 12px;
 }
 
+.login-mode-switch {
+  margin-top: 14px;
+}
+
+.login-mode-switch .btn {
+  width: 100%;
+}
+
 .forgot-password a {
   color: var(--text-muted);
   font-size: 13px;

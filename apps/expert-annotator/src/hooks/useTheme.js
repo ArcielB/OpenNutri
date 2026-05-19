@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback } from 'react'
 
 const STORAGE_KEY = 'opennutri-theme'
 
@@ -60,16 +60,16 @@ export function useTheme() {
         }
     }, [override])
 
-    const toggleTheme = () => {
+    const toggleTheme = useCallback(() => {
         setOverride((prev) => {
             const current = prev || systemTheme
             return current === 'dark' ? 'light' : 'dark'
         })
-    }
+    }, [systemTheme])
 
-    const clearOverride = () => {
+    const clearOverride = useCallback(() => {
         setOverride(null)
-    }
+    }, [])
 
     return { theme, toggleTheme, clearOverride }
 }
