@@ -141,7 +141,8 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
         }
     }
 
-    const tableRegions = buildConfidentTableRegions(rows, metrics)
+    const { confidentRegions: tableRegions, captionFallbacks: tableCaptionFallbacks } =
+        buildTableRegionsAndCaptionFallbacks(rows, metrics)
     const paragraphBlocks = buildParagraphBlocks(rows, tableRegions, metrics)
 
     for (const location of locations) {
@@ -171,6 +172,32 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
                     itemIndexes,
                     regionBounds: tableRegion.regionBounds,
                     regionKey: buildStableRegionKey('table', pageNumber, tableRegion.regionId, tableRegion.regionBounds),
+                })
+                matched = true
+            }
+        }
+
+        // Caption-only fallback for table-labeled sources whose body wasn't
+        // detected confidently (sparse data rows, OCR noise, multi-column
+        // layouts the region builder gives up on). Highlights just the
+        // "Table N ..." caption line so the chip still points the user at
+        // something on the page. Gated to the declared hint page for the
+        // same reason as the paragraph-quote fallback below: a stray
+        // "Table 3" mention in a TOC or references list should not steal
+        // the match from the real table on its hint page.
+        if (!matched && hasTableMatcher && pageMatchesHint) {
+            const captionFallback = findMatchingCaptionFallback(tableCaptionFallbacks, location)
+            if (captionFallback) {
+                const itemIndexes = Array.from(captionFallback.itemIndexes)
+                addEvidenceItemIndexes(itemEvidenceIds, itemIndexes, location.id)
+                matches.push({
+                    evidenceId: location.id,
+                    status: EVIDENCE_STATUS.MATCHED,
+                    matchType: 'paragraph',
+                    pageNumber,
+                    itemIndexes,
+                    regionBounds: captionFallback.regionBounds,
+                    regionKey: buildStableRegionKey('paragraph', pageNumber, captionFallback.regionId, captionFallback.regionBounds),
                 })
                 matched = true
             }
@@ -1013,13 +1040,21 @@ function buildTableRegionForCaptionBlock(block, rows, metrics, nextBlockStartRow
     }
 }
 
-function buildConfidentTableRegions(rows, metrics) {
+// One pass produces both the high-confidence table regions (caption + body
+// detected) and a minimal caption-only fallback for every caption block we
+// recognize, including ones whose body extraction wasn't confident. The
+// fallback list is consumed by the evidence matcher so that table-labeled
+// sources still get *some* highlight (just the caption row) when the body
+// is too messy to detect — rather than leaving the source as a bare "Page
+// hint" chip with nothing on the page to look at.
+function buildTableRegionsAndCaptionFallbacks(rows, metrics) {
     const captionBlocks = buildCaptionBlocks(rows, metrics)
     if (captionBlocks.length === 0) {
-        return []
+        return { confidentRegions: [], captionFallbacks: [] }
     }
 
     const confidentRegions = []
+    const captionFallbacks = []
     for (let index = 0; index < captionBlocks.length; index += 1) {
         const block = captionBlocks[index]
         const nextBlock = captionBlocks[index + 1] || null
@@ -1027,9 +1062,34 @@ function buildConfidentTableRegions(rows, metrics) {
         if (region.isConfident) {
             confidentRegions.push(region)
         }
+        if (block.captionNumber !== null && block.captionNumber !== undefined) {
+            const itemIndexes = new Set()
+            block.fragments.forEach((fragment) => {
+                fragment.visibleItemIndexes.forEach((itemIndex) => itemIndexes.add(itemIndex))
+            })
+            captionFallbacks.push({
+                captionNumber: block.captionNumber,
+                captionText: block.fragments.map((fragment) => fragment.normalizedText).join(' '),
+                regionId: `table-caption-${block.captionNumber}-${block.startRowIndex}`,
+                itemIndexes,
+                regionBounds: boundsFromFragments(block.fragments),
+            })
+        }
     }
 
-    return confidentRegions
+    return { confidentRegions, captionFallbacks }
+}
+
+function findMatchingCaptionFallback(captionFallbacks, location) {
+    if (!captionFallbacks?.length) return null
+    const tableNumber = parseTableNumber(location.tableLabel || location.sourceCitation)
+    if (tableNumber !== null) {
+        const numberedMatch = captionFallbacks.find((region) => Number(region.captionNumber) === tableNumber)
+        if (numberedMatch) return numberedMatch
+    }
+    const tableLabel = normalizeSearchText(location.tableLabel)
+    if (!tableLabel) return null
+    return captionFallbacks.find((region) => normalizeSearchText(region.captionText).includes(tableLabel)) || null
 }
 
 function buildPageHintMatches(locations, pageNumber, printedPageNumber = null) {

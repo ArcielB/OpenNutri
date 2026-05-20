@@ -302,6 +302,49 @@ test('does not match a table-labeled source to abstract prose on a non-hint page
     assert.equal(matched.length, 0, 'table-labeled sources must not fall back to abstract prose on a non-hint page')
 })
 
+test('falls back to highlighting the caption line when the table body is not confidently detected', () => {
+    // When buildConfidentTableRegions can't detect the body (sparse data,
+    // odd layout, OCR noise), table-labeled sources used to get nothing on
+    // the hint page — just a "Page hint" chip. The user's minimal ask: at
+    // least underline the caption row so the chip points at something
+    // visible. Body here is plain prose with no data tokens, so the
+    // confident-region path returns nothing and the caption fallback fires.
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Table 3 Mineral composition of untreated and SHST B. pubera extracts', 50, 700, 460),
+                textItem('Data were expressed as mean standard deviation.', 50, 670, 400),
+            ],
+        },
+        [{ id: 'evidence-1', tableLabel: 'Table 3', pageHint: 7 }],
+        7
+    )
+
+    const matched = plan.matches.find((match) => match.status === EVIDENCE_STATUS.MATCHED)
+    assert.ok(matched, 'caption fallback should produce a MATCHED highlight on the hint page')
+    assert.equal(matched.matchType, 'paragraph')
+    assert.equal(matched.pageNumber, 7)
+    assert.ok(matched.regionBounds.top <= 710 && matched.regionBounds.bottom >= 695,
+        'caption fallback bounds should cover the caption row, not the prose underneath')
+})
+
+test('caption fallback does not fire on a non-hint page', () => {
+    // A stray "Table 3" mention in a TOC or references list on page 1 must
+    // not steal the MATCHED slot from the real Table 3 on its hint page.
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Table 3 Mineral composition results', 50, 700, 280),
+            ],
+        },
+        [{ id: 'evidence-1', tableLabel: 'Table 3', pageHint: 7 }],
+        1
+    )
+
+    const matched = plan.matches.filter((match) => match.status === EVIDENCE_STATUS.MATCHED)
+    assert.equal(matched.length, 0, 'caption fallback must be gated to the declared hint page')
+})
+
 test('keeps table matching available when the AI page hint is wrong', () => {
     const plan = buildPageEvidenceHighlightPlan(
         {
