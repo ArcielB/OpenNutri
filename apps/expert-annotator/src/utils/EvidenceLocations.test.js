@@ -121,6 +121,77 @@ test('keeps paragraph and page-only evidence visible as unverified hints', () =>
     assert.equal(getDefaultEvidenceStatus(pageOnly).status, EVIDENCE_STATUS.HINTED)
 })
 
+test('pre-merges paragraph evidences whose source quotes overlap on the same page', () => {
+    const locations = buildEvidenceLocationsFromFoodItems([
+        {
+            food_name: 'Spinach',
+            nutrients: [
+                {
+                    nutrient_name: 'Iron',
+                    metadata: {
+                        source_location_type: 'paragraph',
+                        page_hint: 7,
+                        source_quote: 'Spinach contained 2.7 mg of iron per 100 g of fresh weight.',
+                    },
+                },
+                {
+                    nutrient_name: 'Calcium',
+                    metadata: {
+                        source_location_type: 'paragraph',
+                        page_hint: 7,
+                        source_quote: 'Spinach contained 2.7 mg of iron per 100 g of fresh weight, alongside 99 mg of calcium.',
+                    },
+                },
+                {
+                    nutrient_name: 'Vitamin C',
+                    metadata: {
+                        source_location_type: 'paragraph',
+                        page_hint: 7,
+                        source_quote: '2.7 mg of iron per 100 g of fresh weight',
+                    },
+                },
+            ],
+        },
+    ])
+
+    const paragraphLocations = locations.filter((location) => !location.tableLabel)
+    assert.equal(paragraphLocations.length, 1)
+    assert.equal(paragraphLocations[0].rowCount, 3)
+    assert.ok(paragraphLocations[0].sourceQuote.includes('99 mg of calcium'), 'keeps the longest quote as canonical')
+    assert.deepEqual(
+        paragraphLocations[0].nutrientNames.sort(),
+        ['Calcium', 'Iron', 'Vitamin C'].sort()
+    )
+})
+
+test('does not merge paragraph evidences on different pages even if quotes overlap', () => {
+    const locations = buildEvidenceLocationsFromFoodItems([
+        {
+            food_name: 'Pear',
+            nutrients: [
+                {
+                    nutrient_name: 'Vitamin C',
+                    metadata: {
+                        source_location_type: 'paragraph',
+                        page_hint: 3,
+                        source_quote: 'Pear samples contained 4.6 mg vitamin C per 100 g.',
+                    },
+                },
+                {
+                    nutrient_name: 'Vitamin C',
+                    metadata: {
+                        source_location_type: 'paragraph',
+                        page_hint: 9,
+                        source_quote: 'Pear samples contained 4.6 mg vitamin C per 100 g.',
+                    },
+                },
+            ],
+        },
+    ])
+
+    assert.equal(locations.length, 2)
+})
+
 test('confirmed page matches upgrade default evidence statuses', () => {
     const locations = buildEvidenceLocationsFromFoodItems([
         {

@@ -41,14 +41,148 @@ export function buildEvidenceLocationsFromFoodItems(foodItems) {
         }
     }
 
-    return Array.from(grouped.values())
+    const baseLocations = Array.from(grouped.values()).map((location) => ({
+        ...location,
+        foodNames: Array.from(location.foodNames),
+        nutrientNames: Array.from(location.nutrientNames),
+    }))
+
+    const merged = mergeQuoteOverlappingLocations(baseLocations)
+
+    return merged
         .map((location, index) => ({
             ...location,
             id: `evidence-${index + 1}`,
-            foodNames: Array.from(location.foodNames),
-            nutrientNames: Array.from(location.nutrientNames),
         }))
         .sort(compareEvidenceLocations)
+}
+
+function mergeQuoteOverlappingLocations(locations) {
+    if (!Array.isArray(locations) || locations.length < 2) return locations
+
+    const candidateIndexes = []
+    for (let index = 0; index < locations.length; index += 1) {
+        const location = locations[index]
+        if (location.tableLabel) continue
+        if (!location.sourceQuote) continue
+        candidateIndexes.push(index)
+    }
+    if (candidateIndexes.length < 2) return locations
+
+    const parent = new Map()
+    for (const index of candidateIndexes) parent.set(index, index)
+    const find = (value) => {
+        let current = value
+        while (parent.get(current) !== current) current = parent.get(current)
+        let walker = value
+        while (parent.get(walker) !== current) {
+            const next = parent.get(walker)
+            parent.set(walker, current)
+            walker = next
+        }
+        return current
+    }
+    const union = (a, b) => {
+        const rootA = find(a)
+        const rootB = find(b)
+        if (rootA !== rootB) parent.set(rootA, rootB)
+    }
+
+    for (let i = 0; i < candidateIndexes.length; i += 1) {
+        for (let j = i + 1; j < candidateIndexes.length; j += 1) {
+            const idxA = candidateIndexes[i]
+            const idxB = candidateIndexes[j]
+            const a = locations[idxA]
+            const b = locations[idxB]
+            if ((a.pageHint ?? null) !== (b.pageHint ?? null)) continue
+            if (!quotesLikelySameParagraph(a.sourceQuote, b.sourceQuote)) continue
+            union(idxA, idxB)
+        }
+    }
+
+    const groupsByRoot = new Map()
+    for (const index of candidateIndexes) {
+        const root = find(index)
+        const bucket = groupsByRoot.get(root) || []
+        bucket.push(index)
+        groupsByRoot.set(root, bucket)
+    }
+
+    const result = [...locations]
+    const toRemove = new Set()
+    for (const indexes of groupsByRoot.values()) {
+        if (indexes.length < 2) continue
+        indexes.sort((a, b) => (locations[b].sourceQuote?.length || 0) - (locations[a].sourceQuote?.length || 0))
+        const canonicalIndex = indexes[0]
+        const canonical = { ...result[canonicalIndex] }
+        const foodNames = new Set(canonical.foodNames || [])
+        const nutrientNames = new Set(canonical.nutrientNames || [])
+        let rowCount = canonical.rowCount || 0
+        for (let k = 1; k < indexes.length; k += 1) {
+            const other = result[indexes[k]]
+            rowCount += other.rowCount || 0
+            for (const name of other.foodNames || []) foodNames.add(name)
+            for (const name of other.nutrientNames || []) nutrientNames.add(name)
+            if (!canonical.pageHint && other.pageHint) canonical.pageHint = other.pageHint
+            if (!canonical.sourceCitation && other.sourceCitation) canonical.sourceCitation = other.sourceCitation
+            if (!canonical.sectionHeading && other.sectionHeading) canonical.sectionHeading = other.sectionHeading
+            toRemove.add(indexes[k])
+        }
+        canonical.foodNames = Array.from(foodNames)
+        canonical.nutrientNames = Array.from(nutrientNames)
+        canonical.rowCount = rowCount
+        result[canonicalIndex] = canonical
+    }
+
+    return result.filter((_, index) => !toRemove.has(index))
+}
+
+function quotesLikelySameParagraph(quoteA, quoteB) {
+    const a = normalizeQuoteForOverlap(quoteA)
+    const b = normalizeQuoteForOverlap(quoteB)
+    if (!a || !b) return false
+    if (a === b) return true
+    if (a.includes(b) || b.includes(a)) return true
+
+    const shorterLen = Math.min(a.length, b.length)
+    if (shorterLen < 20) return false
+
+    const commonLen = longestCommonSubstringLength(a, b)
+    if (commonLen >= 40) return true
+    if (commonLen / shorterLen >= 0.6) return true
+    return false
+}
+
+function longestCommonSubstringLength(a, b) {
+    const lenA = a.length
+    const lenB = b.length
+    if (lenA === 0 || lenB === 0) return 0
+    let previous = new Array(lenB + 1).fill(0)
+    let current = new Array(lenB + 1).fill(0)
+    let longest = 0
+    for (let i = 1; i <= lenA; i += 1) {
+        for (let j = 1; j <= lenB; j += 1) {
+            if (a.charCodeAt(i - 1) === b.charCodeAt(j - 1)) {
+                current[j] = previous[j - 1] + 1
+                if (current[j] > longest) longest = current[j]
+            } else {
+                current[j] = 0
+            }
+        }
+        const swap = previous
+        previous = current
+        current = swap
+        current.fill(0)
+    }
+    return longest
+}
+
+function normalizeQuoteForOverlap(value) {
+    return String(value ?? '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/[^\p{L}\p{N} ]+/gu, '')
+        .trim()
 }
 
 export function getEvidenceDisplayLabel(location) {
@@ -95,6 +229,7 @@ export function mergeEvidenceStatuses(locations, pageMatches) {
                 pageNumber: match.pageNumber || current.pageNumber || null,
                 matchType: match.matchType || 'text',
                 regionKey: match.regionKey || null,
+                regionBounds: match.regionBounds || null,
             }
             continue
         }

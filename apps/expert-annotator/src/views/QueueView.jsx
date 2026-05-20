@@ -3,6 +3,7 @@ import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
 import EvidenceStrip from '../components/EvidenceStrip'
 import { buildEvidenceLocationsFromFoodItems } from '../utils/EvidenceLocations'
+import { useEvidenceStatusCache } from '../hooks/useEvidenceStatusCache'
 import {
   buildFoodItemsFromPayload,
   formatStatusLabel,
@@ -38,13 +39,20 @@ export default function QueueView({
     if (hasVisibleRows) return foodItems
     return buildFoodItemsFromPayload(currentItem?.latest_ai_extraction?.normalized_payload_json)
   }, [currentItem?.latest_ai_extraction?.normalized_payload_json, foodItems])
-  const evidenceLocations = useMemo(
+  const paperId = currentItem?.paper_id ?? currentItem?.paper?.id ?? null
+  const rawEvidenceLocations = useMemo(
     () => buildEvidenceLocationsFromFoodItems(evidenceFoodItems),
     [evidenceFoodItems]
   )
-  const [evidenceStatuses, setEvidenceStatuses] = useState({})
+  const {
+    scanEvidenceLocations,
+    displayEvidenceLocations,
+    evidenceStatuses,
+    setEvidenceStatuses,
+    cachedEvidenceOverlays,
+  } = useEvidenceStatusCache(paperId, rawEvidenceLocations)
   const [activeEvidence, setActiveEvidence] = useState(null)
-  const activeEvidenceId = evidenceLocations.some((location) => location.id === activeEvidence?.id)
+  const activeEvidenceId = scanEvidenceLocations.some((location) => location.id === activeEvidence?.id)
     ? activeEvidence.id
     : null
 
@@ -55,10 +63,11 @@ export default function QueueView({
         allNutrients={allNutrients}
         onAddNutrient={handlePdfNutrientAdd}
         theme={theme}
-        evidenceLocations={evidenceLocations}
+        evidenceLocations={scanEvidenceLocations}
         activeEvidenceId={activeEvidenceId}
         activeEvidenceRequestId={activeEvidenceId ? activeEvidence?.requestId || null : null}
         onEvidenceStatusesChange={setEvidenceStatuses}
+        cachedEvidenceOverlays={cachedEvidenceOverlays}
       />
 
       <div className="annotation-panel">
@@ -133,7 +142,7 @@ export default function QueueView({
                 </div>
               )}
               <EvidenceStrip
-                locations={evidenceLocations}
+                locations={displayEvidenceLocations}
                 statuses={evidenceStatuses}
                 selectedEvidenceId={activeEvidenceId}
                 onSelect={(location) => setActiveEvidence({ id: location.id, requestId: Date.now() })}

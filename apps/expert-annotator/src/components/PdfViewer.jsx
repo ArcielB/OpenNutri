@@ -25,6 +25,7 @@ export default function PdfViewer({
     activeEvidenceId = null,
     activeEvidenceRequestId = null,
     onEvidenceStatusesChange = null,
+    cachedEvidenceOverlays = null,
 }) {
     const [numPages, setNumPages] = useState(null)
     const [currentPageNumber, setCurrentPageNumber] = useState(1)
@@ -99,8 +100,8 @@ export default function PdfViewer({
     )
 
     const evidenceOverlaysByPage = useMemo(
-        () => buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage),
-        [pageDimensionsByPage, pageHighlightPlans]
+        () => buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage, cachedEvidenceOverlays),
+        [pageDimensionsByPage, pageHighlightPlans, cachedEvidenceOverlays]
     )
 
     function onDocumentLoadSuccess({ numPages }) {
@@ -384,10 +385,13 @@ function findEvidenceMatchedEntry(pageHighlightPlans, evidenceId) {
     return null
 }
 
-function buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage) {
+function buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage, cachedEvidenceOverlays) {
     const overlaysByPage = {}
+    const scannedPages = new Set()
 
     for (const [pageNumber, plan] of Object.entries(pageHighlightPlans || {})) {
+        const pageNum = Number(pageNumber)
+        scannedPages.add(pageNum)
         const overlaysByRegion = new Map()
 
         for (const entry of plan.evidenceMatches || []) {
@@ -395,7 +399,7 @@ function buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage) {
 
             const overlay = buildOverlayForRegionBounds(
                 entry.regionBounds,
-                pageDimensionsByPage[Number(pageNumber)],
+                pageDimensionsByPage[pageNum],
                 entry.matchType,
                 entry.evidenceId,
                 entry.regionKey
@@ -410,14 +414,118 @@ function buildEvidenceOverlays(pageHighlightPlans, pageDimensionsByPage) {
             }
         }
 
-        const overlays = Array.from(overlaysByRegion.values())
+        const overlays = mergeNearbyOverlays(Array.from(overlaysByRegion.values()))
 
         if (overlays.length > 0) {
-            overlaysByPage[Number(pageNumber)] = overlays
+            overlaysByPage[pageNum] = overlays
+        }
+    }
+
+    if (cachedEvidenceOverlays && typeof cachedEvidenceOverlays === 'object') {
+        for (const [pageNumberKey, cachedEntries] of Object.entries(cachedEvidenceOverlays)) {
+            const pageNum = Number(pageNumberKey)
+            if (scannedPages.has(pageNum)) continue
+            const pageDimensions = pageDimensionsByPage[pageNum]
+            if (!pageDimensions) continue
+            const overlaysByRegion = new Map()
+            for (const cached of cachedEntries || []) {
+                const overlay = buildOverlayForRegionBounds(
+                    cached.regionBounds,
+                    pageDimensions,
+                    cached.matchType,
+                    null,
+                    cached.regionKey
+                )
+                if (!overlay) continue
+                if (!overlaysByRegion.has(overlay.regionKey)) {
+                    overlaysByRegion.set(overlay.regionKey, overlay)
+                }
+            }
+            const overlays = mergeNearbyOverlays(Array.from(overlaysByRegion.values()))
+            if (overlays.length > 0) {
+                overlaysByPage[pageNum] = overlays
+            }
         }
     }
 
     return overlaysByPage
+}
+
+// Final visual safety net: two evidence quotes that semantically belong to the
+// same paragraph can still land on adjacent paragraph blocks when upstream
+// detection splits a paragraph across an interleaved values row, a wrapped
+// citation, or a stray inline figure caption. We merge any pair of same-type
+// overlays whose horizontal extents overlap and whose vertical gap is small
+// enough to be a paragraph-internal separator rather than a section break.
+function mergeNearbyOverlays(overlays) {
+    if (!Array.isArray(overlays) || overlays.length < 2) return overlays
+    // Threshold accounts for reduced paragraph padding (2px each side): two
+    // adjacent same-paragraph overlays whose fragments are 1–2 lines apart need
+    // ~40px to still be considered "same paragraph" once padding is removed.
+    const verticalProximityPx = 40
+    const horizontalOverlapRatio = 0.5
+
+    let working = overlays.slice()
+    let safetyHops = working.length
+    while (safetyHops > 0) {
+        safetyHops -= 1
+        let mergedAny = false
+        outer: for (let i = 0; i < working.length; i += 1) {
+            for (let j = i + 1; j < working.length; j += 1) {
+                if (!canMergeOverlays(working[i], working[j], verticalProximityPx, horizontalOverlapRatio)) {
+                    continue
+                }
+                const merged = mergeTwoOverlays(working[i], working[j])
+                working = [
+                    ...working.slice(0, i),
+                    merged,
+                    ...working.slice(i + 1, j),
+                    ...working.slice(j + 1),
+                ]
+                mergedAny = true
+                break outer
+            }
+        }
+        if (!mergedAny) break
+    }
+    return working
+}
+
+function canMergeOverlays(a, b, verticalProximityPx, horizontalOverlapRatio) {
+    if (!a || !b || a.type !== b.type) return false
+    const aRight = a.left + a.width
+    const bRight = b.left + b.width
+    const aBottom = a.top + a.height
+    const bBottom = b.top + b.height
+
+    const horizontalOverlap = Math.max(0, Math.min(aRight, bRight) - Math.max(a.left, b.left))
+    const narrowerWidth = Math.max(1, Math.min(a.width, b.width))
+    if (horizontalOverlap / narrowerWidth < horizontalOverlapRatio) return false
+
+    const verticalGap =
+        a.top > bBottom ? a.top - bBottom :
+        b.top > aBottom ? b.top - aBottom :
+        0
+    return verticalGap <= verticalProximityPx
+}
+
+function mergeTwoOverlays(a, b) {
+    const left = Math.min(a.left, b.left)
+    const top = Math.min(a.top, b.top)
+    const right = Math.max(a.left + a.width, b.left + b.width)
+    const bottom = Math.max(a.top + a.height, b.top + b.height)
+    const width = right - left
+    const height = bottom - top
+    const evidenceIds = Array.from(new Set([...a.evidenceIds, ...b.evidenceIds]))
+    return {
+        type: a.type,
+        evidenceIds,
+        regionKey: buildOverlayRegionKey(a.type, left, top, width, height),
+        left,
+        top,
+        width,
+        height,
+    }
 }
 
 function buildOverlayForRegionBounds(regionBounds, pageDimensions, matchType, evidenceId, regionKey = null) {
@@ -456,11 +564,16 @@ function buildOverlayForRegionBounds(regionBounds, pageDimensions, matchType, ev
     const rawRight = pdfRight * scaleX
     const rawTop = (originalHeight - pdfTop) * scaleY
     const rawBottom = (originalHeight - pdfBottom) * scaleY
-    const padding = matchType === 'table' ? 14 : 10
-    const left = clampNumber(rawLeft - padding, 0, pageWidth)
-    const top = clampNumber(rawTop - padding, 0, pageHeight)
-    const right = clampNumber(rawRight + padding, 0, pageWidth)
-    const bottom = clampNumber(rawBottom + padding, 0, pageHeight)
+    // Table padding stays generous because the highlight wraps an actual
+    // bordered structure with surrounding whitespace. Paragraph padding is
+    // small because the fragment bounds already track glyph extents — any
+    // outer padding visibly shifts the tint above the first line.
+    const paddingX = matchType === 'table' ? 14 : 6
+    const paddingY = matchType === 'table' ? 14 : 2
+    const left = clampNumber(rawLeft - paddingX, 0, pageWidth)
+    const top = clampNumber(rawTop - paddingY, 0, pageHeight)
+    const right = clampNumber(rawRight + paddingX, 0, pageWidth)
+    const bottom = clampNumber(rawBottom + paddingY, 0, pageHeight)
     const width = Math.max(0, right - left)
     const height = Math.max(0, bottom - top)
 

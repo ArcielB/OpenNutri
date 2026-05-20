@@ -497,3 +497,81 @@ test('leaves unmatched evidence unverified by returning no false match', () => {
     assert.equal(plan.matches.length, 0)
     assert.equal(plan.itemEvidenceIds.size, 0)
 })
+
+test('merges paragraph blocks separated only by an interleaved numeric values line', () => {
+    // Two prose runs separated by a values-only row that fails
+    // isParagraphCandidateFragment (no letters → not narrative-like, scores
+    // isTableLike). Without the merge pass each prose run becomes its own
+    // block and two quotes inside the same paragraph render two offset boxes.
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('First prose line that introduces the topic clearly enough.', 50, 700, 320),
+                textItem('Second prose line continues the topic description in detail.', 50, 685, 320),
+                textItem('22.04 51.65 9.78 0.24 12.15', 50, 670, 200),
+                textItem('Third prose line resumes after the inline values shown above.', 50, 655, 320),
+                textItem('Fourth prose line wraps up the discussion neatly and ends.', 50, 640, 320),
+            ],
+        },
+        [
+            { id: 'evidence-1', sourceQuote: 'introduces the topic clearly' },
+            { id: 'evidence-2', sourceQuote: 'wraps up the discussion' },
+        ],
+        1
+    )
+
+    assert.equal(plan.matches.length, 2)
+    assert.equal(plan.matches[0].regionKey, plan.matches[1].regionKey)
+    assert.deepEqual(plan.matches[0].regionBounds, plan.matches[1].regionBounds)
+})
+
+test('does not merge paragraph blocks across a section heading', () => {
+    // A heading row (no digits, no sample codes) between two paragraphs should
+    // not look like a paragraph-internal data line, so the two paragraphs must
+    // stay distinct.
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('End of the first paragraph with a complete thought here.', 50, 700, 320),
+                textItem('Results', 50, 680, 60),
+                textItem('Beginning of the second paragraph after the section heading.', 50, 660, 320),
+            ],
+        },
+        [
+            { id: 'evidence-1', sourceQuote: 'first paragraph with a complete' },
+            { id: 'evidence-2', sourceQuote: 'second paragraph after the section' },
+        ],
+        1
+    )
+
+    assert.equal(plan.matches.length, 2)
+    assert.notEqual(plan.matches[0].regionKey, plan.matches[1].regionKey)
+})
+
+test('keeps building a table region past rows whose cells score below isTableLike', () => {
+    // The first body row "C120 0.60 0.26" scores isTableLike via two numerics +
+    // a sample code; the lone "1.50" / "1.75" rows below only score tableScore=1
+    // each. Before the continuation-mode branch, the empty selection from a
+    // tableScore=1 row would break the table at that row, leaving everything
+    // below outside the highlighted region.
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Table 1. Sample table', 50, 700, 200),
+                textItem('Fatty acid Soybean Canola', 50, 685, 200),
+                textItem('C120 0.60 0.26', 50, 670, 150),
+                textItem('1.50', 50, 655, 30),
+                textItem('1.75', 50, 640, 30),
+            ],
+        },
+        [{ id: 'evidence-1', tableLabel: 'Table 1', pageHint: 1 }],
+        1
+    )
+
+    assert.equal(plan.matches[0].status, EVIDENCE_STATUS.MATCHED)
+    assert.equal(plan.matches[0].matchType, 'table')
+    assert.ok(
+        plan.matches[0].regionBounds.bottom <= 640,
+        `expected table bottom <= 640 (extend through last data row), got ${plan.matches[0].regionBounds.bottom}`
+    )
+})

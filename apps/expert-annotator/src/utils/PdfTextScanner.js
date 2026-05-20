@@ -208,7 +208,104 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
         }
     }
 
-    return { itemEvidenceIds, matches }
+    const unifiedMatches = unifyOverlappingParagraphMatches(matches, metrics)
+    return { itemEvidenceIds, matches: unifiedMatches }
+}
+
+// Distinct evidence quotes that semantically land in the same paragraph but
+// resolve to slightly different matched fragments will produce different
+// region bounds and therefore different regionKey values. The chip list in
+// the sidebar dedups by regionKey, so without unifying them the user sees
+// three "Paragraph evidence" chips all pointing at the same paragraph. We
+// run union-find over matches on this page: any pair of paragraph matches
+// with significant horizontal overlap and small vertical gap collapse to
+// a single regionKey (and union regionBounds).
+function unifyOverlappingParagraphMatches(matches, metrics) {
+    if (!Array.isArray(matches) || matches.length < 2) return matches
+
+    const candidates = []
+    for (let index = 0; index < matches.length; index += 1) {
+        const match = matches[index]
+        if (
+            match?.status !== EVIDENCE_STATUS.MATCHED ||
+            !match.regionBounds ||
+            match.matchType !== 'paragraph'
+        ) continue
+        candidates.push({ match, index })
+    }
+    if (candidates.length < 2) return matches
+
+    const proximityPdfUnits = clamp((metrics?.medianHeight || 10) * 2.5, 18, 36)
+    const parent = candidates.map((_, i) => i)
+    const find = (i) => {
+        let root = i
+        while (parent[root] !== root) root = parent[root]
+        let cursor = i
+        while (parent[cursor] !== root) {
+            const next = parent[cursor]
+            parent[cursor] = root
+            cursor = next
+        }
+        return root
+    }
+    const union = (i, j) => {
+        const rootI = find(i)
+        const rootJ = find(j)
+        if (rootI !== rootJ) parent[rootI] = rootJ
+    }
+
+    for (let i = 0; i < candidates.length; i += 1) {
+        for (let j = i + 1; j < candidates.length; j += 1) {
+            if (paragraphRegionsShouldUnify(
+                candidates[i].match.regionBounds,
+                candidates[j].match.regionBounds,
+                proximityPdfUnits
+            )) {
+                union(i, j)
+            }
+        }
+    }
+
+    const groupsByRoot = new Map()
+    for (let i = 0; i < candidates.length; i += 1) {
+        const root = find(i)
+        if (!groupsByRoot.has(root)) groupsByRoot.set(root, [])
+        groupsByRoot.get(root).push(candidates[i])
+    }
+
+    const updated = matches.slice()
+    for (const group of groupsByRoot.values()) {
+        if (group.length < 2) continue
+        const unionBounds = group.reduce((acc, { match }) => ({
+            left: Math.min(acc.left, match.regionBounds.left),
+            right: Math.max(acc.right, match.regionBounds.right),
+            bottom: Math.min(acc.bottom, match.regionBounds.bottom),
+            top: Math.max(acc.top, match.regionBounds.top),
+        }), { ...group[0].match.regionBounds })
+        const canonicalKey = buildRegionBoundsKey('paragraph', unionBounds)
+        for (const { match, index } of group) {
+            updated[index] = {
+                ...match,
+                regionBounds: unionBounds,
+                regionKey: canonicalKey,
+            }
+        }
+    }
+
+    return updated
+}
+
+function paragraphRegionsShouldUnify(a, b, proximityPdfUnits) {
+    if (!a || !b) return false
+    const horizontalOverlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+    const narrowerWidth = Math.max(1, Math.min(a.right - a.left, b.right - b.left))
+    if (horizontalOverlap / narrowerWidth < 0.5) return false
+
+    const verticalGap =
+        a.bottom > b.top ? a.bottom - b.top :
+        b.bottom > a.top ? b.bottom - a.top :
+        0
+    return verticalGap <= proximityPdfUnits
 }
 
 export function detectPrintedPageNumber(textContent, pdfPageNumber = null, pdfPageCount = null) {
@@ -1295,7 +1392,159 @@ function buildParagraphBlocks(rows, tableRegions, metrics) {
         })
     }
 
-    return blocks
+    return mergeAdjacentParagraphBlocks(blocks, rows, tableRegions, metrics)
+}
+
+// Two prose lines in a paragraph that has an interleaved numeric / values-only
+// line (e.g. "average contents of 22.04 ± 1.25 g/100 g, 51.65 ± 2.54 g/100 g")
+// end up in different blocks: the numeric line fails isParagraphCandidateFragment
+// (too many numerics, isTableLike), gets filtered from candidate entries, and
+// the row-gap from prose-before to prose-after then exceeds paragraphGapThreshold.
+// Two quotes that both land in this paragraph would otherwise resolve to different
+// blockIds and render as two offset overlay boxes.
+function mergeAdjacentParagraphBlocks(blocks, rows, tableRegions, metrics) {
+    if (!Array.isArray(blocks) || blocks.length < 2) return blocks
+
+    const tableRowIndexes = collectTableRowIndexes(rows, tableRegions)
+    const sortedBlocks = [...blocks]
+        .filter((block) => block.regionBounds && block.entries?.length)
+        .sort((left, right) => right.regionBounds.top - left.regionBounds.top)
+
+    let working = sortedBlocks
+    let safetyHops = working.length
+
+    while (safetyHops > 0) {
+        safetyHops -= 1
+        let mergedAny = false
+        const next = []
+        let index = 0
+        while (index < working.length) {
+            const upper = working[index]
+            const lower = working[index + 1]
+            if (lower && canMergeParagraphBlocks(upper, lower, rows, tableRowIndexes, metrics)) {
+                next.push(mergeTwoParagraphBlocks(upper, lower, rows))
+                index += 2
+                mergedAny = true
+            } else {
+                next.push(upper)
+                index += 1
+            }
+        }
+        working = next
+        if (!mergedAny) break
+    }
+    return working
+}
+
+function collectTableRowIndexes(rows, tableRegions) {
+    const result = new Set()
+    for (const region of tableRegions || []) {
+        const bounds = region?.regionBounds
+        if (!bounds) continue
+        for (const row of rows) {
+            if (row.centerY <= bounds.top && row.centerY >= bounds.bottom) {
+                result.add(row.rowIndex)
+            }
+        }
+    }
+    return result
+}
+
+function canMergeParagraphBlocks(upper, lower, rows, tableRowIndexes, metrics) {
+    const upperSpan = { left: upper.regionBounds.left, right: upper.regionBounds.right }
+    const lowerSpan = { left: lower.regionBounds.left, right: lower.regionBounds.right }
+    if (!spansLikelySameColumn(upperSpan, lowerSpan)) return false
+
+    const upperMaxRow = maxRowIndexInBlock(upper)
+    const lowerMinRow = minRowIndexInBlock(lower)
+    if (upperMaxRow === null || lowerMinRow === null) return false
+    if (lowerMinRow - upperMaxRow < 2) return false
+
+    const combinedSpan = unionSpan(upperSpan, lowerSpan)
+    let previousRow = rows[upperMaxRow]
+    if (!previousRow) return false
+
+    for (let rowIndex = upperMaxRow + 1; rowIndex < lowerMinRow; rowIndex += 1) {
+        const row = rows[rowIndex]
+        if (!row) return false
+        if (verticalGapBetweenRows(previousRow, row) > metrics.paragraphGapThreshold) return false
+        if (!isParagraphInternalDataRow(row, combinedSpan, tableRowIndexes)) return false
+        previousRow = row
+    }
+
+    const lowerFirstRow = rows[lowerMinRow]
+    if (!lowerFirstRow) return false
+    if (verticalGapBetweenRows(previousRow, lowerFirstRow) > metrics.paragraphGapThreshold) return false
+
+    return true
+}
+
+function isParagraphInternalDataRow(row, blockSpan, tableRowIndexes) {
+    if (tableRowIndexes.has(row.rowIndex)) return false
+    if (isParagraphCandidateRow(row)) return false
+    if (!row.fragments?.length) return false
+
+    for (const fragment of row.fragments) {
+        if (fragment.hasCaptionAnchor) return false
+        if (fragment.hasHeaderToken) return false
+        if (isDocumentChromeFragment(fragment)) return false
+    }
+
+    const hasDataLikeFragment = row.fragments.some(isDataLikeFragment)
+    if (!hasDataLikeFragment) return false
+
+    return spansLikelySameColumn(blockSpan, { left: row.minX, right: row.maxX })
+}
+
+function maxRowIndexInBlock(block) {
+    let result = null
+    for (const entry of block?.entries || []) {
+        const rowIndex = entry?.row?.rowIndex
+        if (!Number.isInteger(rowIndex)) continue
+        if (result === null || rowIndex > result) result = rowIndex
+    }
+    return result
+}
+
+function minRowIndexInBlock(block) {
+    let result = null
+    for (const entry of block?.entries || []) {
+        const rowIndex = entry?.row?.rowIndex
+        if (!Number.isInteger(rowIndex)) continue
+        if (result === null || rowIndex < result) result = rowIndex
+    }
+    return result
+}
+
+function mergeTwoParagraphBlocks(upper, lower, rows) {
+    const combinedEntries = [...upper.entries, ...lower.entries]
+    const combinedItemIndexes = new Set([...upper.itemIndexes, ...lower.itemIndexes])
+
+    const upperMaxRow = maxRowIndexInBlock(upper)
+    const lowerMinRow = minRowIndexInBlock(lower)
+    if (upperMaxRow !== null && lowerMinRow !== null) {
+        for (let rowIndex = upperMaxRow + 1; rowIndex < lowerMinRow; rowIndex += 1) {
+            const row = rows[rowIndex]
+            if (!row) continue
+            for (const fragment of row.fragments) {
+                for (const itemIndex of fragment.visibleItemIndexes) {
+                    combinedItemIndexes.add(itemIndex)
+                }
+            }
+        }
+    }
+
+    return {
+        blockId: upper.blockId,
+        entries: combinedEntries,
+        itemIndexes: combinedItemIndexes,
+        regionBounds: {
+            left: Math.min(upper.regionBounds.left, lower.regionBounds.left),
+            right: Math.max(upper.regionBounds.right, lower.regionBounds.right),
+            bottom: Math.min(upper.regionBounds.bottom, lower.regionBounds.bottom),
+            top: Math.max(upper.regionBounds.top, lower.regionBounds.top),
+        },
+    }
 }
 
 function findSourceQuoteFragmentMatch(fragments, matcher) {
@@ -1757,6 +2006,18 @@ function selectFragmentsForTableRow(overlappingFragments, context) {
         return {
             fragmentsToInclude,
             hasDataLikeFragment: rowHasDataLikeFragment,
+        }
+    }
+
+    // Once a data-like row has been accepted, keep accepting further rows that
+    // carry data-like content even if none of their fragments individually score
+    // isTableLike. Inside an established table the row's context is the signal:
+    // a cell like "Nd" or a lone "1.50" only scores 1 on its own but is plainly
+    // part of the table body.
+    if (hasAcceptedDataLikeRow && rowHasDataLikeFragment) {
+        return {
+            fragmentsToInclude: eligibleFragments,
+            hasDataLikeFragment: true,
         }
     }
 

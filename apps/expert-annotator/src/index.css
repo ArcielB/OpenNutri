@@ -1185,12 +1185,12 @@ body {
 
 .evidence-region-box {
   position: absolute;
-  border-radius: 5px;
   box-sizing: border-box;
   animation: evidenceRegionPulse 0.28s ease-out;
 }
 
 .evidence-region-box-table {
+  border-radius: 5px;
   background: rgba(34, 197, 94, 0.08);
   border: 3px solid rgba(22, 163, 74, 0.98);
   box-shadow:
@@ -1198,12 +1198,15 @@ body {
     0 0 18px rgba(34, 197, 94, 0.32);
 }
 
+/* Paragraph evidence is intentionally subtle: a faint tint over the matched
+   region plus a 3px accent bar on the left edge. Subtle styling means small
+   vertical offsets in the computed bounds (an unavoidable consequence of
+   PDF text-layer geometry) don't impair readability the way a thick outlined
+   box does. */
 .evidence-region-box-paragraph {
-  background: rgba(245, 158, 11, 0.12);
-  border: 3px solid rgba(217, 119, 6, 0.98);
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.82),
-    0 0 18px rgba(245, 158, 11, 0.34);
+  border-radius: 2px;
+  background: rgba(245, 158, 11, 0.10);
+  border-left: 3px solid rgba(217, 119, 6, 0.95);
 }
 
 @keyframes evidenceRegionPulse {
