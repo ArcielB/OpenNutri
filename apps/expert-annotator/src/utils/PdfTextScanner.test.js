@@ -267,6 +267,41 @@ test('keeps different paragraph blocks non-overlapping', () => {
     assert.ok(plan.matches[0].regionBounds.bottom > plan.matches[1].regionBounds.top)
 })
 
+test('does not match a table-labeled source to abstract prose on a non-hint page', () => {
+    // Paper 1330 regression: Table 1 (pageHint=4) and Table 3 (pageHint=5)
+    // sources both carried quotes whose substrings appeared verbatim in the
+    // abstract on page 1. The paragraph fallback would then claim a MATCHED
+    // status on page 1 for both, draining the chip's pageNumber to 1 and
+    // collapsing the two distinct table sources into the same regionKey.
+    const plan = buildPageEvidenceHighlightPlan(
+        {
+            items: [
+                textItem('Abstract', 50, 720, 80),
+                textItem('Fat content was 6 and 3.5% in tea whitener and milk samples', 50, 700, 460),
+                textItem('with vitamin A 0.46 and vitamin E 0.63 in fresh UHT milk.', 50, 680, 460),
+            ],
+        },
+        [
+            {
+                id: 'evidence-1',
+                tableLabel: 'Table 3',
+                pageHint: 5,
+                sourceQuote: 'vitamin A 0.46',
+            },
+            {
+                id: 'evidence-2',
+                tableLabel: 'Table 1',
+                pageHint: 4,
+                sourceQuote: 'Fat content was 6 and 3.5%',
+            },
+        ],
+        1
+    )
+
+    const matched = plan.matches.filter((match) => match.status === EVIDENCE_STATUS.MATCHED)
+    assert.equal(matched.length, 0, 'table-labeled sources must not fall back to abstract prose on a non-hint page')
+})
+
 test('keeps table matching available when the AI page hint is wrong', () => {
     const plan = buildPageEvidenceHighlightPlan(
         {

@@ -176,7 +176,15 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
             }
         }
 
-        if (!matched && shouldSearchPage && location.sourceQuote) {
+        // When a source explicitly references a table (e.g. "Table 3"), the
+        // paragraph-quote fallback must not run on pages that aren't the
+        // declared pageHint. Otherwise the abstract or introduction on page 1
+        // — which often paraphrases the same numbers that appear in Table N
+        // on a later page — wins the MATCHED slot before the real table is
+        // scanned, dragging the chip's pageNumber/regionKey to page 1 and
+        // making distinct table sources collapse into the same chip.
+        const allowParagraphFallback = !hasTableMatcher || pageMatchesHint
+        if (!matched && shouldSearchPage && location.sourceQuote && allowParagraphFallback) {
             const quoteMatch = findSourceQuoteTextMatch(rows, location, metrics, tableRegions, paragraphBlocks)
             if (quoteMatch) {
                 const itemIndexes = Array.from(quoteMatch.itemIndexes)
