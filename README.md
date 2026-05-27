@@ -65,7 +65,7 @@ Supabase schema and migrations:
 - `apps/expert-annotator/run-migration.js`: Applies `migration.sql` (requires `DATABASE_URL`).
 - `apps/expert-annotator/check-workflow-schema.mjs`: Verifies the live reviewer workflow tables/functions after migration.
 - `apps/expert-annotator/create_bucket.js`: Creates the `papers` storage bucket and policies.
-- `apps/expert-annotator/auth_allowlist.sql`: Allowlist + auth hook for restricted signup.
+- `apps/expert-annotator/auth_allowlist.sql`: Allowlist + auth hook for restricted signup. The allowlist table has RLS enabled and client-role table privileges revoked; signup checks go through the security-definer auth hook.
 - `apps/expert-annotator/add_user.js`: Scripted Supabase sign-up for a test user.
 Notes:
 - `papers` includes `ingest_status`, `audit_flag`, `rejection_reasons` for audit sampling.

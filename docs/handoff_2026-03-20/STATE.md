@@ -23,6 +23,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Peri, Aleyna, Aysegul, Daine, and the `f221229078@ktun.edu.tr` account: general-queue labelers unless access flags are changed.
 - Approval authority is stored as `reviewer_profiles.can_approve_labels`; currently Arciel is seeded as `true`.
 - `tester_access=true` keeps an account read-only even if it has cockpit visibility.
+- Signup allowlist data lives in `allowed_auth_emails`; it is not client-readable/writable. RLS is enabled, direct `anon`/`authenticated`/`public` table grants are revoked, and signup checks run through the security-definer auth hook.
 
 ## Active Workflow
 

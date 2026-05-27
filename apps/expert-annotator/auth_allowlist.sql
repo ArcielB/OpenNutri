@@ -8,6 +8,11 @@ CREATE TABLE IF NOT EXISTS public.allowed_auth_emails (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE public.allowed_auth_emails ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.allowed_auth_emails FROM anon, authenticated, public;
+GRANT ALL ON TABLE public.allowed_auth_emails TO service_role;
+
 INSERT INTO public.allowed_auth_emails (email)
 VALUES
     ('ayseguldogann99@gmail.com'),

@@ -1304,6 +1304,10 @@ SET
     priority_weight_tr = EXCLUDED.priority_weight_tr,
     updated_at = NOW();
 
+ALTER TABLE IF EXISTS allowed_auth_emails ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE allowed_auth_emails FROM anon, authenticated, public;
+GRANT ALL ON TABLE allowed_auth_emails TO service_role;
+
 INSERT INTO reviewer_slot_members (
     slot_key,
     reviewer_profile_id,

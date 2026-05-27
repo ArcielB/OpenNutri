@@ -73,6 +73,7 @@ Do not spend tokens on these unless the task explicitly needs them:
   Arciel currently has `reviewer_profiles.can_approve_labels = true`; approval rights are configurable and separate from tester/cockpit visibility.
 - Arciel's own submissions auto-accept into `paper_label_approvals` and `paper_review_outcomes`; non-Arciel submissions remain `pending_approval` until Arciel edits/approves them.
 - The approval page is visible to cockpit/tester/developer accounts but mutation RPCs require `current_user_can_approve_labels()`, which excludes testers.
+- `allowed_auth_emails` is a private signup allowlist. Keep RLS enabled and direct client-role table privileges revoked; signup access should continue through the security-definer auth hook, not frontend reads/writes.
 - Labeler performance and correction details come from `paper_label_submissions`, `paper_label_approvals.correction_diff_json`, and `paper_review_outcomes`.
 - Labeling queue papers with no saved annotation must open with the latest Gemini `has_data` `normalized_payload_json` prefilled as editable food/nutrient rows. Labelers review and correct the DB-compliant AI extraction; the queue must not show AI reasoning.
 - Labeling queue AI prefill should stay quiet in the UI: rows load directly into the editor without a separate AI-prefill status banner.
