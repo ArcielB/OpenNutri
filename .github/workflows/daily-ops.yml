@@ -11,6 +11,10 @@ jobs:
   daily-ops:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
     steps:
       - name: Check out repository
@@ -41,6 +45,7 @@ jobs:
 
       - name: Run resumable daily ops tick
         env:
+          OPENNUTRI_OPS_WORKER_INDEX: ${{ matrix.worker }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
