@@ -7,7 +7,7 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
 - Current acquisition mode is English-only. Turkish/DergiPark code remains available, but default refill and daily ops request `tr=0`, skip DergiPark, and use Europe PMC/OpenAlex/Semantic Scholar.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
-- Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it` before Gemini. Gemma-positive papers enqueue Gemini by priority, and scheduled ops now run as recurring ticks keyed to UTC-day completion counts: prefill queued Gemma papers for the remaining 1500/day target at phase start, drain bounded Gemma slices without repeatedly crawling as the queue naturally falls, and interleave a small Gemini slice from already-ranked candidates so useful papers can reach humans before the full Gemma target completes.
+- Daily ops uses `gemma_proof_extraction_v1` with `gemma-4-31b-it` before Gemini, with `gemma-4-26b-a4b-it` configured as a same-stage fallback for retryable 31B failures. Gemma-positive papers enqueue Gemini by priority, and scheduled ops now run as recurring ticks keyed to UTC-day completion counts: top up queued Gemma papers only for the next immediate 15-paper processing slice, drain bounded Gemma slices, and interleave a small Gemini slice from already-ranked candidates so useful papers can reach humans before the full Gemma target completes. Existing Gemma backlogs above the slice target should drain naturally without a new 1500-paper crawl.
 - GitHub Actions daily ops is scheduled every 5 minutes. Each workflow invocation runs one `daily_ops_orchestrator.py --tick-mode --interleave-extraction` pass and exits, so delayed or cancelled runners are recovered by later ticks instead of relying on one long daily job. The workflow intentionally allows overlapping scheduled ticks; DB task claiming prevents duplicate model work, and one serialized runner was too slow for the 1500/day Gemma target.
 - The scheduled workflow sets `AI_MODEL_TASK_TIMEOUT_SECONDS=300`, `AI_STAGE_MAX_TASK_ATTEMPTS=2`, `GEMINI_REQUEST_TIMEOUT_SECONDS=300`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=24000`. Gemma receives a capped head/tail excerpt small enough to avoid repeated 300-second Gemma timeouts; Gemini extraction remains uncapped unless a Gemini-specific cap is set. The 300-second model timeout is intentional so one slow paper cannot consume a large fraction of the GitHub Actions job cap.
 
@@ -51,7 +51,7 @@ New active tables:
 - `paper_label_submissions`
 - `paper_label_approvals`
 - `paper_review_outcomes` with `label_submission_id` and `label_approval_id`
-- `routing_stage_configs` now orders model stages. `gemma_proof_extraction_v1` is the active entry stage using `gemma-4-26b-a4b-it`; `gemini_flash_db_payload_v2` is the second extraction stage.
+- `routing_stage_configs` now orders model stages and stores `fallback_model_names`. `gemma_proof_extraction_v1` is the active entry stage using `gemma-4-31b-it` with `gemma-4-26b-a4b-it` fallback; `gemini_flash_db_payload_v2` is the second extraction stage.
 
 Important access flags:
 
@@ -101,7 +101,7 @@ Frontend validation currently passes with:
 
 ## AI Routing
 
-- Active entry stage is `gemma_proof_extraction_v1` with `gemma-4-26b-a4b-it`; second stage is `gemini_flash_db_payload_v2`.
+- Active entry stage is `gemma_proof_extraction_v1` with `gemma-4-31b-it` and `gemma-4-26b-a4b-it` fallback; second stage is `gemini_flash_db_payload_v2`.
 - Active shared prompt contract is `opennutri_evidence_payload_v1` for Gemma and Gemini.
 - Upload enqueues `paper_stage_tasks` instead of running models inline.
 - AI extraction stores deterministic `normalized_payload_json` using the same top-level contract as human payloads, including DB/custom food identity, raw food name, preparation state, DB/custom nutrient identity, raw nutrient name, value, unit, basis, sample size, confidence, source citation, and row metadata. Evidence metadata now preserves `table_label`, `page_hint`, `source_quote`, `source_location_type`, `section_heading`, and `paragraph_hint` for reviewer PDF navigation.
@@ -111,12 +111,12 @@ Frontend validation currently passes with:
 - The prompt requires broad evidence locations per extracted row. Shared table-level evidence is preferred for rows from the same table; paragraph/section evidence uses short exact source quotes and metadata hints rather than stored coordinates.
 - Prompt should include the full nutrient catalog plus high-signal food candidates matched from the paper text, but not the full food catalog.
 - AI-provided DB IDs are verified against current DB rows before acceptance.
-- Gemma `has_data` outputs enqueue Gemini with a computed priority from model confidence, accepted row count, evidence quality, and normalization quality. Gemma/Gemini `no_usable_data` outputs become `ai_provisional_no_usable_data` with `route_destination = provisional_skip`; the stage processor keeps the DB routing/audit rows but deletes the skipped paper's PDF from Supabase Storage after the task completes so rejected papers do not accumulate file storage. Gemini `has_data` outputs with normalized rows become `human_review_ready`.
-- Upload/re-upload preserves closed routing state: papers that already have a closed AI route or human outcome can refresh metadata/search-hit audit rows without being sent back through the active model stage.
+- Gemma `has_data` outputs enqueue Gemini with a computed priority from model confidence, accepted row count, evidence quality, and normalization quality. Gemma/Gemini `no_usable_data` outputs become `ai_provisional_no_usable_data` with `route_destination = provisional_skip`; the stage processor keeps the DB routing/audit rows but deletes the skipped paper's PDF from Supabase Storage after the task completes so rejected papers do not accumulate file storage. Retryable 31B timeout/quota/transient model failures attempt the configured 26B fallback in the same task; non-retryable 31B model-configuration failures surface as permanent configuration errors instead of silently looping through the queue. Gemini `has_data` outputs with normalized rows become `human_review_ready`.
+- Upload/re-upload preserves closed routing state: papers that already have a closed AI route or human outcome can refresh metadata/search-hit audit rows without being sent back through the active model stage, and those closed-route repeats skip Supabase Storage upload so deleted provisional-skip PDFs are not recreated.
 - Oversized PDFs are not allowed to abort an ops batch. Crawler v2 treats PDFs above the shared upload limit as `pdf_fetch` failures before counting them accepted, and `upload_to_supabase.py` skips any oversized local file or Supabase Storage 413 while continuing to persist the rest of the batch. The shared limit defaults to 50 MiB and can be overridden with `OPENNUTRI_MAX_PAPER_PDF_BYTES` or `SUPABASE_PAPER_MAX_UPLOAD_BYTES`.
 - AI-finalized outcomes use `truth_source_kind = ai_model` and remain excluded from human-truth feedback.
 - `process_stage_queue.py` requeues stale `processing` tasks before claiming new work, which lets the next run recover papers left by cancelled GitHub runners or interrupted local workers. It also reports `storage_pdf_deleted` / `storage_cleanup_failed` in stage summaries when provisional no-data skips trigger PDF cleanup.
-- Crawler batch acquisition respects remaining per-language targets, so one strong search batch should not download far beyond the requested English refill size.
+- Crawler batch acquisition respects remaining per-language targets, so one strong search batch should not download far beyond the requested English refill size. Before acquisition, crawler v2 merges local terminal crawl state with live `papers.canonical_key` rows from Supabase so already queued, provisional-skipped, human-ready, or finalized papers are not downloaded again; metadata-only `paper_search_hits` rejects are not global skip memory.
 
 ## Ops
 
@@ -128,13 +128,13 @@ Frontend validation currently passes with:
 - drains queued Gemma and Gemini stage tasks before requesting crawler refill;
 - triggers English-only crawler refill when visible stock is below `--target-open`.
 
-`services/data-pipeline/scripts/daily_ops_orchestrator.py` treats `--target-open` as compatibility/reporting only. Scheduled ops do not stop when the human queue is full; in `--tick-mode --interleave-extraction`, each run requeues stale stage tasks, checks UTC-day completed task counts, preloads or tops up Gemma stock only when the current phase/slice needs it, drains one bounded Gemma slice, drains a small Gemini slice when ranked candidates exist, and exits for the next cron recall.
+`services/data-pipeline/scripts/daily_ops_orchestrator.py` treats `--target-open` as compatibility/reporting only. Scheduled ops do not stop when the human queue is full; in `--tick-mode --interleave-extraction`, each run requeues stale stage tasks, checks UTC-day completed task counts, tops up Gemma stock only to the next immediate slice target when the queued count is below that slice, drains one bounded Gemma slice, drains a small Gemini slice when ranked candidates exist, and exits for the next cron recall.
 
 Daily ops order:
 
 1. Count completed Gemma and Gemini `paper_stage_tasks` since UTC midnight.
 2. If today's completed Gemma count is below `--screening-daily-target 1500`, requeue stale Gemma `processing` tasks.
-3. Count queued Gemma work. At Gemma phase start, if queued work is below the remaining 1500/day target, crawl/upload English papers using the 1500-paper refill batch/chunk settings and `--refill-step-tr 0`; after the phase has started, only refill when the next bounded slice lacks queued work.
+3. Count queued Gemma work. If queued work is below the next bounded slice target, crawl/upload only the immediate English deficit using 15-paper refill batch/chunk settings and `--refill-step-tr 0`; if queued work is already above the slice target, do not crawl.
 4. Drain at most `--screening-tick-tasks 15` Gemma tasks, bounded by the remaining daily Gemma target and queued count, then exit.
 5. Once today's completed Gemma count is at least 1500, requeue stale Gemini `processing` tasks.
 6. In scheduled interleaved mode, drain Gemini at highest-priority order for at most `--extraction-tick-tasks 2`, bounded by `--extraction-daily-target 20`, after each Gemma slice when ranked candidates exist; assign any new `human_review_ready` papers immediately.
@@ -182,7 +182,7 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 - Drain AI routing queue:
   - `python3 services/data-pipeline/scripts/process_stage_queue.py`
 - Run daily ops:
-  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --json-summary --tick-mode --interleave-extraction --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 --max-wallclock-minutes 0 --screening-daily-target 1500 --screening-tick-tasks 15 --extraction-daily-target 20 --extraction-tick-tasks 2 --screening-refill-batch-en 1500 --screening-refill-chunk-en 1500 --screening-prefill-stall-limit 3 --refill-step-tr 0`
+  - `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --json-summary --tick-mode --interleave-extraction --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 --max-wallclock-minutes 0 --screening-daily-target 1500 --screening-tick-tasks 15 --extraction-daily-target 20 --extraction-tick-tasks 2 --screening-refill-batch-en 15 --screening-refill-chunk-en 15 --screening-prefill-stall-limit 3 --refill-step-tr 0`
 - Check shared queue stock / trigger refill loop:
   - `python3 services/data-pipeline/scripts/refill_assignment_queue.py --target-open 50`
 

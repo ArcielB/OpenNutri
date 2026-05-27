@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
@@ -169,6 +169,8 @@ class FoodCompositionCrawlerV2:
         dergipark_scan_budget: int = 400,
     ) -> None:
         self.data_dir = Path(data_dir)
+        self.supabase_url = supabase_url
+        self.supabase_key = supabase_key
         self.raw_pdf_dir = self.data_dir / "raw_pdfs"
         self.state_path = self.data_dir / "crawl_state.json"
         self.manifest_path = self.raw_pdf_dir / "_harvest_metadata.json"
@@ -246,7 +248,7 @@ class FoodCompositionCrawlerV2:
             self.candidate_store_path.unlink(missing_ok=True)
             self.search_hits_path.unlink(missing_ok=True)
         self.raw_pdf_dir.mkdir(parents=True, exist_ok=True)
-        skip_keys = self._state_skip_keys()
+        skip_keys = self._state_skip_keys() | self._live_paper_skip_keys()
         crawl_run_id = uuid4().hex
         search_tasks = self._build_search_tasks(run_id=crawl_run_id)
         (
@@ -1358,6 +1360,57 @@ class FoodCompositionCrawlerV2:
 
     def _state_skip_keys(self) -> Set[str]:
         return set(self._paper_states().keys())
+
+    def _live_paper_skip_keys(self) -> Set[str]:
+        keys: Set[str] = set()
+        offset = 0
+        batch_size = 1000
+        while True:
+            rows = self._fetch_supabase_rows(
+                "papers",
+                "canonical_key",
+                filters={"canonical_key": "not.is.null"},
+                offset=offset,
+                limit=batch_size,
+            )
+            for row in rows:
+                normalized_key = self._normalize_seen_key(row.get("canonical_key"))
+                if normalized_key:
+                    keys.add(normalized_key)
+            if len(rows) < batch_size:
+                return keys
+            offset += batch_size
+
+    def _fetch_supabase_rows(
+        self,
+        table_name: str,
+        select: str,
+        *,
+        filters: Optional[Dict[str, str]] = None,
+        offset: int = 0,
+        limit: int = 1000,
+    ) -> List[dict]:
+        endpoint = self.supabase_url.rstrip("/") + f"/rest/v1/{table_name}"
+        params = {
+            "select": select,
+            "limit": str(max(1, int(limit))),
+            "offset": str(max(0, int(offset))),
+        }
+        if filters:
+            params.update(filters)
+        request = Request(
+            f"{endpoint}?{urlencode(params)}",
+            headers={
+                "apikey": self.supabase_key,
+                "Authorization": f"Bearer {self.supabase_key}",
+                "Accept": "application/json",
+            },
+        )
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, list):
+            raise RuntimeError(f"Unexpected Supabase payload for {table_name}: {payload}")
+        return [row for row in payload if isinstance(row, dict)]
 
     def _record_terminal_state(self, canonical_key: Optional[str], *, decision: str, stage: str) -> None:
         normalized_key = self._normalize_seen_key(canonical_key)

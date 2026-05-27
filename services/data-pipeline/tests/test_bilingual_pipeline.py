@@ -751,6 +751,19 @@ class CrawlerStateTests(unittest.TestCase):
         self.assertEqual(hits, [])
         self.assertEqual(next(iter(stats.values()))["skipped_seen"], 1)
 
+    def test_live_paper_canonical_keys_are_skip_memory(self) -> None:
+        crawler = self.make_crawler()
+        crawler._fetch_supabase_rows = lambda *args, **kwargs: [
+            {"canonical_key": "doi:10.123/already-seen"},
+            {"canonical_key": "PMC123456"},
+            {"canonical_key": None},
+        ]
+
+        self.assertEqual(
+            crawler._live_paper_skip_keys(),
+            {"doi:10.123/already-seen", "pmcid:pmc123456"},
+        )
+
     def test_legacy_seen_ids_do_not_skip_candidates(self) -> None:
         candidate = self.make_candidate("legacy-seen-paper")
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
+import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 
@@ -73,10 +76,18 @@ class FakeStorageBucket:
             raise self.client.storage_remove_error
         return FakeResponse([{"name": path} for path in paths])
 
+    def upload(self, *, path: str, file, file_options: dict):
+        self.client.storage_uploads.append((self.bucket_name, path, dict(file_options)))
+        return FakeResponse([{"name": path}])
+
 
 class FakeStorage:
     def __init__(self, client):
         self.client = client
+
+    def create_bucket(self, bucket_name: str, options: dict | None = None):
+        self.client.storage_buckets.append((bucket_name, dict(options or {})))
+        return FakeResponse([{"name": bucket_name}])
 
     def from_(self, bucket_name: str) -> FakeStorageBucket:
         return FakeStorageBucket(self.client, bucket_name)
@@ -147,19 +158,24 @@ class FakeTable:
 
         if self.action == "upsert":
             key_fields = [field.strip() for field in (self.on_conflict or "").split(",") if field.strip()]
-            payload = dict(self.payload)
-            matched_row = None
-            if key_fields:
-                for row in self.client.tables.setdefault(self.name, []):
-                    if all(row.get(field) == payload.get(field) for field in key_fields):
-                        matched_row = row
-                        break
-            if matched_row is None:
-                self.client.tables.setdefault(self.name, []).append(payload)
-            else:
-                matched_row.update(payload)
-            self.client.upserts.append((self.name, payload, self.on_conflict))
-            return FakeResponse([payload])
+            payload_rows = self.payload if isinstance(self.payload, list) else [self.payload]
+            upserted = []
+            for payload_row in payload_rows:
+                payload = dict(payload_row)
+                matched_row = None
+                if key_fields:
+                    for row in self.client.tables.setdefault(self.name, []):
+                        if all(row.get(field) == payload.get(field) for field in key_fields):
+                            matched_row = row
+                            break
+                if matched_row is None:
+                    self.client.tables.setdefault(self.name, []).append(payload)
+                else:
+                    matched_row.update(payload)
+                upserted.append(payload)
+            stored_payload = upserted if isinstance(self.payload, list) else upserted[0]
+            self.client.upserts.append((self.name, stored_payload, self.on_conflict))
+            return FakeResponse(upserted)
 
         if self.action == "insert":
             payload_rows = self.payload if isinstance(self.payload, list) else [self.payload]
@@ -187,6 +203,8 @@ class FakeSupabaseClient:
         self.rpc_payload = rpc_payload or []
         self.storage = FakeStorage(self)
         self.storage_removals: list[tuple[str, list[str]]] = []
+        self.storage_uploads: list[tuple[str, str, dict]] = []
+        self.storage_buckets: list[tuple[str, dict]] = []
         self.storage_remove_error: Exception | None = None
 
     def table(self, name: str) -> FakeTable:
@@ -1109,6 +1127,107 @@ class QueueAndBackfillTests(unittest.TestCase):
             )
         )
 
+    def test_upload_skips_storage_for_existing_closed_route_but_persists_search_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_dir = Path(tmp_dir) / "data"
+            raw_pdf_dir = data_dir / "raw_pdfs"
+            raw_pdf_dir.mkdir(parents=True)
+            pdf_path = raw_pdf_dir / "known.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+            candidate_store_path = data_dir / "search_candidates.json"
+            search_hits_path = data_dir / "search_hits.json"
+            manifest_path = raw_pdf_dir / "_harvest_metadata.json"
+            base_row = {
+                "canonical_key": "doi:10.123/known",
+                "source": "openalex",
+                "source_record_id": "W1",
+                "external_id": "W1",
+                "pmcid": None,
+                "doi": "10.123/known",
+                "title": "Known composition paper",
+                "abstract": "Composition table.",
+                "workflow_language": "en",
+                "query": '"food composition"',
+                "query_text": '"food composition"',
+                "template_id": "base_core_composition",
+                "source_term": None,
+                "term_type": "base",
+                "query_phrase": "food composition",
+                "search_gate_score": 1.2,
+                "search_gate_pass": True,
+                "filter_score": 2.4,
+                "filter_pass": True,
+                "is_duplicate": False,
+            }
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "results": [
+                            {
+                                **base_row,
+                                "status": "success",
+                                "file": str(pdf_path),
+                            }
+                        ],
+                        "candidate_store": str(candidate_store_path),
+                        "search_hits": str(search_hits_path),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            candidate_store_path.write_text(json.dumps({"candidates": [base_row]}), encoding="utf-8")
+            search_hits_path.write_text(json.dumps({"hits": [base_row]}), encoding="utf-8")
+            client = FakeSupabaseClient(
+                tables={
+                    "routing_stage_configs": [
+                        {
+                            "stage_key": "gemma_proof_extraction_v1",
+                            "stage_kind": "ai_model",
+                            "display_name": "Gemma Proof Extraction v1",
+                            "model_name": "gemma-4-31b-it",
+                            "fallback_model_names": ["gemma-4-26b-a4b-it"],
+                            "prompt_version": "opennutri_evidence_payload_v1",
+                            "active": True,
+                            "positive_threshold": 1.0,
+                            "negative_threshold": 1.0,
+                            "audit_rate": 0.02,
+                            "next_stage_on_low_confidence": "gemini_flash_db_payload_v2",
+                            "counts_as_truth": False,
+                            "stage_order": 10,
+                            "next_stage_on_has_data": "gemini_flash_db_payload_v2",
+                            "no_data_route_destination": PROVISIONAL_SKIP_DESTINATION,
+                        }
+                    ],
+                    "papers": [
+                        {
+                            "id": 77,
+                            "canonical_key": "doi:10.123/known",
+                            "filename": "old-known.pdf",
+                            "routing_status": ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
+                            "latest_ai_extraction_id": "ai-77",
+                        }
+                    ],
+                    "paper_review_outcomes": [],
+                    "paper_stage_tasks": [],
+                    "paper_search_hits": [],
+                    "paper_search_batches": [],
+                    "paper_search_batch_hits": [],
+                }
+            )
+
+            asyncio.run(
+                upload_to_supabase.upload_papers(
+                    SimpleNamespace(data_dir=str(data_dir), manifest=str(manifest_path)),
+                    client,
+                )
+            )
+
+        self.assertEqual(client.storage_uploads, [])
+        self.assertEqual(client.tables["papers"][0]["filename"], "old-known.pdf")
+        self.assertEqual(client.tables["papers"][0]["title"], "Known composition paper")
+        self.assertEqual(client.tables["paper_search_hits"][0]["paper_id"], 77)
+        self.assertFalse(any(row[0] == "paper_stage_tasks" for row in client.upserts))
+
     def test_claim_stage_tasks_calls_rpc_with_requested_limit(self) -> None:
         client = FakeSupabaseClient(rpc_payload=[{"id": "task-1", "paper_id": 11}])
         claimed = claim_stage_tasks(client, stage_key="gemini_flash_triage_v1", limit=3)
@@ -1181,6 +1300,119 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertTrue(text.startswith("abcdefghij"))
         self.assertIn("TRUNCATED FOR AI STAGE INPUT", text)
         self.assertTrue(text.endswith("qrstuvwxyz"))
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_gemma_fallback_model_is_used_after_retryable_primary_error(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 21,
+                        "title": "Useful fallback paper",
+                        "doi": "10.123/fallback",
+                        "filename": "paper.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-21", "paper_id": 21, "status": "processing"}],
+            }
+        )
+        stage = RoutingStageConfig(
+            stage_key="gemma_proof_extraction_v1",
+            stage_kind="ai_model",
+            display_name="Gemma Proof Extraction v1",
+            model_name="gemma-4-31b-it",
+            prompt_version="opennutri_master_payload_v1",
+            active=True,
+            positive_threshold=1.0,
+            negative_threshold=1.0,
+            audit_rate=0.0,
+            next_stage_on_low_confidence="gemini_flash_db_payload_v2",
+            counts_as_truth=False,
+            next_stage_on_has_data="gemini_flash_db_payload_v2",
+            no_data_route_destination=PROVISIONAL_SKIP_DESTINATION,
+            fallback_model_names=("gemma-4-26b-a4b-it",),
+        )
+        primary_evaluator = Mock()
+        primary_evaluator.evaluate_and_extract.side_effect = TimeoutError("AI evaluation exceeded 300 seconds")
+        fallback_evaluator = Mock()
+        fallback_evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=False,
+            reasoning="Only an outcome paper.",
+            overall_confidence=0.95,
+            data=[],
+            raw_response_text="{}",
+        )
+        fallback_factory = Mock(return_value=fallback_evaluator)
+
+        result = process_one_task(
+            client,
+            task={"id": "task-21", "paper_id": 21},
+            stage_config=stage,
+            evaluator=primary_evaluator,
+            fallback_evaluator_factory=fallback_factory,
+        )
+
+        self.assertEqual(result["status"], ROUTING_STATUS_AI_PROVISIONAL_NO_DATA)
+        self.assertEqual(result["fallback_model_used"], "gemma-4-26b-a4b-it")
+        fallback_factory.assert_called_once_with("gemma-4-26b-a4b-it")
+        primary_evaluator.evaluate_and_extract.assert_called_once()
+        fallback_evaluator.evaluate_and_extract.assert_called_once()
+        self.assertEqual(client.inserts[0][1][0]["model_name"], "gemma-4-26b-a4b-it")
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_non_retryable_primary_model_error_stops_without_fallback_loop(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 22,
+                        "title": "Model config paper",
+                        "doi": "10.123/config",
+                        "filename": "paper.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-22", "paper_id": 22, "status": "processing"}],
+            }
+        )
+        stage = RoutingStageConfig(
+            stage_key="gemma_proof_extraction_v1",
+            stage_kind="ai_model",
+            display_name="Gemma Proof Extraction v1",
+            model_name="gemma-4-31b-it",
+            prompt_version="opennutri_master_payload_v1",
+            active=True,
+            positive_threshold=1.0,
+            negative_threshold=1.0,
+            audit_rate=0.0,
+            next_stage_on_low_confidence="gemini_flash_db_payload_v2",
+            counts_as_truth=False,
+            next_stage_on_has_data="gemini_flash_db_payload_v2",
+            no_data_route_destination=PROVISIONAL_SKIP_DESTINATION,
+            fallback_model_names=("gemma-4-26b-a4b-it",),
+        )
+        primary_evaluator = Mock()
+        primary_evaluator.evaluate_and_extract.side_effect = RuntimeError(
+            "Extraction error: 404 models/gemma-4-31b-it is not found for API version v1beta, "
+            "or is not supported for generateContent."
+        )
+        fallback_factory = Mock()
+
+        result = process_one_task(
+            client,
+            task={"id": "task-22", "paper_id": 22},
+            stage_config=stage,
+            evaluator=primary_evaluator,
+            fallback_evaluator_factory=fallback_factory,
+        )
+
+        self.assertEqual(result["status"], "ai_failed")
+        self.assertTrue(result["permanent_model_error"])
+        fallback_factory.assert_not_called()
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "failed")
 
     @patch("scripts.process_stage_queue.process_one_task")
     @patch("scripts.process_stage_queue.claim_stage_tasks")

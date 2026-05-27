@@ -64,8 +64,8 @@ jobs:
               --screening-tick-tasks 15 \
               --extraction-daily-target 20 \
               --extraction-tick-tasks 2 \
-              --screening-refill-batch-en 1500 \
-              --screening-refill-chunk-en 1500 \
+              --screening-refill-batch-en 15 \
+              --screening-refill-chunk-en 15 \
               --screening-prefill-stall-limit 3 \
               --refill-step-tr 0 \
               | tee /tmp/opennutri-daily-ops-last.jsonl \

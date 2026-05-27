@@ -153,6 +153,13 @@ def _paper_payload(record: dict, filename: str) -> dict:
     }
 
 
+def _metadata_refresh_payload(payload: dict, *, include_filename: bool) -> dict:
+    refreshed = dict(payload)
+    if not include_filename:
+        refreshed.pop("filename", None)
+    return refreshed
+
+
 def _chunked(rows: list[dict], size: int) -> list[list[dict]]:
     return [rows[idx: idx + size] for idx in range(0, len(rows), size)]
 
@@ -539,8 +546,32 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
         canonical_key = record.get("canonical_key")
         candidate_row = candidate_by_key.get(canonical_key, {})
         paper_row = {**candidate_row, **record}
+        payload = _paper_payload(paper_row, filename)
+        existing = _find_existing_paper(supabase, payload, filename)
+        existing_paper_id = int(existing["id"]) if existing else None
+        preserve_human_route = (
+            _paper_has_human_outcome(supabase, existing_paper_id)
+            if existing_paper_id is not None
+            else False
+        )
+        has_closed_ai_route = _existing_paper_has_closed_ai_route(existing)
 
         print(f"\nProcessing {filename}...")
+        if existing and (preserve_human_route or has_closed_ai_route):
+            supabase.table("papers").update(
+                _metadata_refresh_payload(payload, include_filename=False)
+            ).eq("id", existing_paper_id).execute()
+            if canonical_key:
+                paper_id_by_key[canonical_key] = existing_paper_id
+            reason = (
+                "existing paper has a human outcome"
+                if preserve_human_route
+                else "existing paper already has a closed AI route"
+            )
+            skipped_uploads.append(f"{filename}: {reason}; refreshed metadata/search-hit links only")
+            print(f"  Skipped Storage upload: {reason}.")
+            continue
+
         file_size = file_path.stat().st_size
         if file_size > max_upload_bytes:
             reason = pdf_size_limit_message(file_size, limit_bytes=max_upload_bytes)
@@ -560,11 +591,8 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
                     },
                 )
 
-            payload = _paper_payload(paper_row, filename)
-            existing = _find_existing_paper(supabase, payload, filename)
-            has_closed_ai_route = _existing_paper_has_closed_ai_route(existing)
             if existing:
-                paper_id = int(existing["id"])
+                paper_id = existing_paper_id if existing_paper_id is not None else int(existing["id"])
                 supabase.table("papers").update(payload).eq("id", paper_id).execute()
                 print("  Updated existing paper metadata.")
             else:
@@ -575,7 +603,6 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
             if canonical_key:
                 paper_id_by_key[canonical_key] = paper_id
             uploaded_count += 1
-            preserve_human_route = _paper_has_human_outcome(supabase, paper_id)
             if preserve_human_route:
                 print("  Existing paper has a human outcome; leaving routing unchanged.")
             elif has_closed_ai_route:
@@ -640,7 +667,7 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
     else:
         print("No PDFs were accepted in this run; persisted metadata-stage search hits only.")
     if skipped_uploads:
-        print(f"Skipped {len(skipped_uploads)} oversized PDF(s):")
+        print(f"Skipped {len(skipped_uploads)} PDF upload(s):")
         for skipped in skipped_uploads:
             print(f"  - {skipped}")
     print(f"Persisted {inserted_hits} metadata-stage search hits.")

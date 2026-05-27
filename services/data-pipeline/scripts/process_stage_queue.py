@@ -11,6 +11,7 @@ import sys
 import tempfile
 from dataclasses import asdict
 from dataclasses import is_dataclass
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -395,6 +396,29 @@ def is_non_retryable_model_error(error_text: object) -> bool:
     ) or "not supported for generatecontent" in text
 
 
+def is_retryable_model_error(error_text: object) -> bool:
+    text = str(error_text or "").strip().lower()
+    if not text:
+        return False
+    if is_quota_error(text):
+        return True
+    retryable_markers = (
+        "ai evaluation exceeded",
+        "timeout",
+        "timed out",
+        "deadline",
+        "temporarily unavailable",
+        "try again",
+        "service unavailable",
+        "internal error",
+        "connection reset",
+        "connection aborted",
+        "503",
+        "500",
+    )
+    return any(marker in text for marker in retryable_markers)
+
+
 def max_task_attempts() -> int:
     raw_value = os.environ.get("AI_STAGE_MAX_TASK_ATTEMPTS", "2")
     try:
@@ -766,12 +790,34 @@ def update_paper_routing_summary(
     client.table("papers").update(payload).eq("id", paper_id).execute()
 
 
+def _evaluate_paper_with_model(
+    *,
+    evaluator: UnifiedEvaluator,
+    paper: dict,
+    stage_full_text: str,
+    task_timeout_seconds: int,
+):
+    with ai_task_timeout(task_timeout_seconds):
+        ai_result = evaluator.evaluate_and_extract(
+            {
+                "pmc_id": paper.get("doi") or paper.get("filename") or "",
+                "title": paper.get("title") or "",
+                "full_text": stage_full_text,
+            }
+        )
+    embedded_error = ai_result_error(ai_result)
+    if embedded_error:
+        raise RuntimeError(embedded_error)
+    return ai_result
+
+
 def process_one_task(
     client: Client,
     *,
     task: dict,
     stage_config: RoutingStageConfig,
     evaluator: UnifiedEvaluator,
+    fallback_evaluator_factory=None,
     reference_lookups: dict[str, list[dict]] | None = None,
 ) -> dict:
     task_id = str(task.get("id") or "").strip()
@@ -821,23 +867,59 @@ def process_one_task(
                 stage_full_text,
                 (reference_lookups or {}).get("foods") or [],
             )
+        food_candidates = getattr(evaluator, "food_candidates", [])
         task_timeout_seconds = int(
             os.environ.get(
                 "AI_MODEL_TASK_TIMEOUT_SECONDS",
                 os.environ.get("GEMINI_REQUEST_TIMEOUT_SECONDS", "300"),
             )
         )
-        with ai_task_timeout(task_timeout_seconds):
-            ai_result = evaluator.evaluate_and_extract(
-                {
-                    "pmc_id": paper.get("doi") or paper.get("filename") or "",
-                    "title": paper.get("title") or "",
-                    "full_text": stage_full_text,
-                }
+        active_stage_config = stage_config
+        fallback_model_used = None
+        try:
+            ai_result = _evaluate_paper_with_model(
+                evaluator=evaluator,
+                paper=paper,
+                stage_full_text=stage_full_text,
+                task_timeout_seconds=task_timeout_seconds,
             )
-        embedded_error = ai_result_error(ai_result)
-        if embedded_error:
-            raise RuntimeError(embedded_error)
+        except Exception as primary_exc:
+            primary_error_text = str(primary_exc)
+            if is_non_retryable_model_error(primary_error_text):
+                raise
+            if not (
+                stage_config.fallback_model_names
+                and is_retryable_model_error(primary_error_text)
+                and callable(fallback_evaluator_factory)
+            ):
+                raise
+            last_fallback_error: Exception | None = None
+            for fallback_model_name in stage_config.fallback_model_names:
+                fallback_model_name = str(fallback_model_name or "").strip()
+                if not fallback_model_name:
+                    continue
+                fallback_config = replace(stage_config, model_name=fallback_model_name)
+                fallback_evaluator = fallback_evaluator_factory(fallback_model_name)
+                if reference_lookups is not None:
+                    fallback_evaluator.food_candidates = list(food_candidates)
+                try:
+                    ai_result = _evaluate_paper_with_model(
+                        evaluator=fallback_evaluator,
+                        paper=paper,
+                        stage_full_text=stage_full_text,
+                        task_timeout_seconds=task_timeout_seconds,
+                    )
+                    active_stage_config = fallback_config
+                    fallback_model_used = fallback_model_name
+                    break
+                except Exception as fallback_exc:
+                    last_fallback_error = fallback_exc
+                    if is_non_retryable_model_error(str(fallback_exc)):
+                        raise
+            else:
+                if last_fallback_error is not None:
+                    raise last_fallback_error
+                raise
         normalization = normalize_ai_payload_with_summary(
             is_useful=ai_result.is_useful,
             records=ai_result.data,
@@ -862,9 +944,9 @@ def process_one_task(
         )
         audit_sampled = stable_audit_sample(
             paper_id=paper_id,
-            stage_key=stage_config.stage_key,
-            model_name=stage_config.model_name,
-            audit_rate=stage_config.audit_rate,
+            stage_key=active_stage_config.stage_key,
+            model_name=active_stage_config.model_name,
+            audit_rate=active_stage_config.audit_rate,
         )
         routing_status, route_destination, finalized_without_human = route_bucket(
             routing_bucket=routing_bucket,
@@ -891,7 +973,7 @@ def process_one_task(
         extraction_row = insert_ai_extraction(
             client,
             paper_id=paper_id,
-            stage_config=stage_config,
+            stage_config=active_stage_config,
             ai_result=ai_result,
             input_hash=input_hash,
             normalized_payload_json=normalized_payload_json,
@@ -927,6 +1009,7 @@ def process_one_task(
                 "followup_stage_key": followup_stage_key,
                 "followup_priority": followup_priority,
                 "strong_raw_followup": strong_raw_followup,
+                "fallback_model_used": fallback_model_used,
             }
         if (
             not normalized_is_useful
@@ -952,6 +1035,7 @@ def process_one_task(
                 "finalized_without_human": False,
                 "storage_pdf_deleted": bool(storage_cleanup.get("deleted")),
                 "storage_cleanup_error": storage_cleanup.get("error"),
+                "fallback_model_used": fallback_model_used,
             }
         if finalized_without_human and not preserve_human_route:
             finalize_ai_outcome(
@@ -959,7 +1043,7 @@ def process_one_task(
                 paper_id=paper_id,
                 decision_kind=normalization.decision_kind,
                 payload_json=normalized_payload_json,
-                stage_config=stage_config,
+                stage_config=active_stage_config,
                 source_confidence=float(ai_result.overall_confidence or 0.0),
             )
         update_paper_routing_summary(
@@ -978,6 +1062,7 @@ def process_one_task(
             "route_destination": route_destination,
             "audit_sampled": audit_sampled,
             "finalized_without_human": finalized_without_human,
+            "fallback_model_used": fallback_model_used,
         }
     except Exception as exc:
         error_text = str(exc)
@@ -1041,6 +1126,7 @@ def _empty_stage_summary(stage_key: str) -> dict[str, object]:
         "permanent_model_error": False,
         "storage_pdf_deleted": 0,
         "storage_cleanup_failed": 0,
+        "fallback_model_used": 0,
         "claimed": 0,
         "stale_requeued": 0,
         "stage_key": stage_key,
@@ -1070,6 +1156,8 @@ def _record_processing_result(summary: dict[str, object], result: dict, *, verbo
         summary["storage_pdf_deleted"] = int(summary["storage_pdf_deleted"]) + 1
     if result.get("storage_cleanup_error"):
         summary["storage_cleanup_failed"] = int(summary["storage_cleanup_failed"]) + 1
+    if result.get("fallback_model_used"):
+        summary["fallback_model_used"] = int(summary["fallback_model_used"]) + 1
     if verbose:
         message = f"paper={result['paper_id']} status={status} destination={result.get('route_destination')}"
         if result.get("error"):
@@ -1078,6 +1166,8 @@ def _record_processing_result(summary: dict[str, object], result: dict, *, verbo
             message += " storage_pdf_deleted=true"
         if result.get("storage_cleanup_error"):
             message += f" storage_cleanup_error={result['storage_cleanup_error']}"
+        if result.get("fallback_model_used"):
+            message += f" fallback_model_used={result['fallback_model_used']}"
         print(message)
 
 
@@ -1104,17 +1194,19 @@ def drain_stage_queue(
         stage_cache[active_config.stage_key] = active_config
         return active_config
 
-    def get_evaluator(config: RoutingStageConfig) -> UnifiedEvaluator:
-        evaluator = evaluator_cache.get(config.stage_key)
+    def get_evaluator(config: RoutingStageConfig, model_name: str | None = None) -> UnifiedEvaluator:
+        resolved_model_name = str(model_name or config.model_name or "").strip()
+        cache_key = f"{config.stage_key}|{resolved_model_name}"
+        evaluator = evaluator_cache.get(cache_key)
         if evaluator is None:
             evaluator = UnifiedEvaluator(
-                model_name=config.model_name,
+                model_name=resolved_model_name,
                 nutrient_catalog=reference_lookups.get("nutrients") or [],
                 food_candidates=[],
             )
             if evaluator.model is None:
-                raise RuntimeError(f"UnifiedEvaluator could not initialize model {config.model_name}. Check GEMINI_API_KEY.")
-            evaluator_cache[config.stage_key] = evaluator
+                raise RuntimeError(f"UnifiedEvaluator could not initialize model {resolved_model_name}. Check GEMINI_API_KEY.")
+            evaluator_cache[cache_key] = evaluator
         return evaluator
 
     initial_config = get_stage_config(stage_key)
@@ -1138,6 +1230,7 @@ def drain_stage_queue(
                 task=claimed[0],
                 stage_config=task_stage_config,
                 evaluator=get_evaluator(task_stage_config),
+                fallback_evaluator_factory=lambda model_name, config=task_stage_config: get_evaluator(config, model_name),
                 reference_lookups=reference_lookups,
             )
             _record_processing_result(summary, result, verbose=verbose)
@@ -1166,6 +1259,7 @@ def drain_stage_queue(
             task=task,
             stage_config=task_stage_config,
             evaluator=get_evaluator(task_stage_config),
+            fallback_evaluator_factory=lambda model_name, config=task_stage_config: get_evaluator(config, model_name),
             reference_lookups=reference_lookups,
         )
         _record_processing_result(summary, result, verbose=verbose)

@@ -62,6 +62,7 @@ class RoutingStageConfig:
     stage_order: int = 0
     next_stage_on_has_data: str = ""
     no_data_route_destination: str = HUMAN_REVIEW_DESTINATION
+    fallback_model_names: tuple[str, ...] = ()
 
     @classmethod
     def from_row(cls, row: Mapping[str, object]) -> "RoutingStageConfig":
@@ -69,6 +70,7 @@ class RoutingStageConfig:
             stage_order = int(row.get("stage_order") or 0)
         except (TypeError, ValueError):
             stage_order = 0
+        fallback_model_names = _parse_fallback_model_names(row.get("fallback_model_names"))
         return cls(
             stage_key=str(row.get("stage_key") or "").strip(),
             stage_kind=str(row.get("stage_kind") or "").strip(),
@@ -84,6 +86,7 @@ class RoutingStageConfig:
             stage_order=stage_order,
             next_stage_on_has_data=str(row.get("next_stage_on_has_data") or "").strip(),
             no_data_route_destination=str(row.get("no_data_route_destination") or HUMAN_REVIEW_DESTINATION).strip(),
+            fallback_model_names=fallback_model_names,
         )
 
 
@@ -128,6 +131,31 @@ def clamp_probability(value: object) -> float:
     if numeric > 1:
         return 1.0
     return numeric
+
+
+def _parse_fallback_model_names(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str) and not value.strip():
+        return ()
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = [part.strip() for part in value.split(",")]
+    else:
+        parsed = value
+    if not isinstance(parsed, IterableABC) or isinstance(parsed, (bytes, bytearray, str, Mapping)):
+        return ()
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in parsed:
+        name = str(item or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return tuple(names)
 
 
 def meets_auto_finalize_threshold(*, confidence: object, threshold: object) -> bool:

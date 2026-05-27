@@ -453,7 +453,7 @@ def _tick_refill_request_size(args: argparse.Namespace, deficit: int) -> tuple[i
     deficit = max(0, int(deficit))
     refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", 1500)))
     refill_chunk_en = max(1, int(getattr(args, "screening_refill_chunk_en", refill_batch_en or 1500)))
-    requested_en = min(max(deficit, refill_batch_en), refill_chunk_en)
+    requested_en = min(deficit, refill_batch_en if refill_batch_en > 0 else deficit, refill_chunk_en)
     requested_tr = max(0, int(getattr(args, "refill_step_tr", 0)))
     return requested_en, requested_tr
 
@@ -462,8 +462,6 @@ def _screening_tick_prefill_target(*, completed_today: int, daily_target: int, t
     remaining_today = max(0, int(daily_target) - int(completed_today))
     if remaining_today <= 0:
         return 0
-    if int(completed_today) < max(1, int(tick_tasks)):
-        return remaining_today
     return min(remaining_today, max(1, int(tick_tasks)))
 
 

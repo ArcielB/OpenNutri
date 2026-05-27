@@ -891,6 +891,8 @@ CREATE TABLE IF NOT EXISTS routing_stage_configs (
     counts_as_truth BOOLEAN NOT NULL DEFAULT FALSE,
     stage_order INTEGER NOT NULL DEFAULT 0,
     next_stage_on_has_data TEXT,
+    fallback_model_names JSONB NOT NULL DEFAULT '[]'::jsonb
+        CHECK (jsonb_typeof(fallback_model_names) = 'array'),
     no_data_route_destination TEXT NOT NULL DEFAULT 'human_review'
         CHECK (no_data_route_destination IN ('human_review', 'finalized', 'blocked', 'next_stage', 'provisional_skip')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -900,6 +902,7 @@ CREATE TABLE IF NOT EXISTS routing_stage_configs (
 ALTER TABLE routing_stage_configs
     ADD COLUMN IF NOT EXISTS stage_order INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS next_stage_on_has_data TEXT,
+    ADD COLUMN IF NOT EXISTS fallback_model_names JSONB NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN IF NOT EXISTS no_data_route_destination TEXT NOT NULL DEFAULT 'human_review';
 
 DO $$
@@ -919,6 +922,24 @@ END $$;
 ALTER TABLE routing_stage_configs
     ADD CONSTRAINT routing_stage_configs_no_data_route_destination_check
     CHECK (no_data_route_destination IN ('human_review', 'finalized', 'blocked', 'next_stage', 'provisional_skip'));
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'routing_stage_configs'
+          AND constraint_name = 'routing_stage_configs_fallback_model_names_array_check'
+    ) THEN
+        ALTER TABLE routing_stage_configs
+            DROP CONSTRAINT routing_stage_configs_fallback_model_names_array_check;
+    END IF;
+END $$;
+
+ALTER TABLE routing_stage_configs
+    ADD CONSTRAINT routing_stage_configs_fallback_model_names_array_check
+    CHECK (jsonb_typeof(fallback_model_names) = 'array');
 
 CREATE TABLE IF NOT EXISTS paper_stage_tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -941,6 +962,7 @@ INSERT INTO routing_stage_configs (
     stage_kind,
     display_name,
     model_name,
+    fallback_model_names,
     prompt_version,
     active,
     positive_threshold,
@@ -957,6 +979,7 @@ VALUES (
     'ai_model',
     'Gemini Flash Triage v1',
     'gemini-3-flash-preview',
+    '[]'::jsonb,
     'gemini_flash_triage_v1',
     FALSE,
     1.0,
@@ -973,6 +996,7 @@ SET
     stage_kind = EXCLUDED.stage_kind,
     display_name = EXCLUDED.display_name,
     model_name = EXCLUDED.model_name,
+    fallback_model_names = EXCLUDED.fallback_model_names,
     prompt_version = EXCLUDED.prompt_version,
     active = FALSE,
     stage_order = EXCLUDED.stage_order,
@@ -991,6 +1015,7 @@ INSERT INTO routing_stage_configs (
     stage_kind,
     display_name,
     model_name,
+    fallback_model_names,
     prompt_version,
     active,
     positive_threshold,
@@ -1007,6 +1032,7 @@ VALUES (
     'ai_model',
     'Gemini Flash DB Payload v2',
     'gemini-3-flash-preview',
+    '[]'::jsonb,
     'opennutri_evidence_payload_v1',
     FALSE,
     1.0,
@@ -1023,6 +1049,7 @@ SET
     stage_kind = EXCLUDED.stage_kind,
     display_name = EXCLUDED.display_name,
     model_name = EXCLUDED.model_name,
+    fallback_model_names = EXCLUDED.fallback_model_names,
     prompt_version = EXCLUDED.prompt_version,
     active = FALSE,
     stage_order = EXCLUDED.stage_order,
@@ -1035,6 +1062,7 @@ INSERT INTO routing_stage_configs (
     stage_kind,
     display_name,
     model_name,
+    fallback_model_names,
     prompt_version,
     active,
     positive_threshold,
@@ -1050,7 +1078,8 @@ VALUES (
     'gemma_proof_extraction_v1',
     'ai_model',
     'Gemma Proof Extraction v1',
-    'gemma-4-26b-a4b-it',
+    'gemma-4-31b-it',
+    '["gemma-4-26b-a4b-it"]'::jsonb,
     'opennutri_evidence_payload_v1',
     TRUE,
     1.0,
@@ -1067,6 +1096,7 @@ SET
     stage_kind = EXCLUDED.stage_kind,
     display_name = EXCLUDED.display_name,
     model_name = EXCLUDED.model_name,
+    fallback_model_names = EXCLUDED.fallback_model_names,
     prompt_version = EXCLUDED.prompt_version,
     active = TRUE,
     stage_order = EXCLUDED.stage_order,
@@ -4641,6 +4671,7 @@ BEGIN
                 'stage_key', c.stage_key,
                 'display_name', c.display_name,
                 'model_name', c.model_name,
+                'fallback_model_names', c.fallback_model_names,
                 'prompt_version', c.prompt_version,
                 'active', c.active,
                 'stage_order', c.stage_order,

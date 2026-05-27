@@ -321,6 +321,25 @@ class DailyOpsTests(unittest.TestCase):
         drain_mock.assert_not_called()
         crawl_mock.assert_not_called()
 
+    def test_tick_prefill_target_is_immediate_slice_at_day_start(self) -> None:
+        self.assertEqual(
+            daily_ops_orchestrator._screening_tick_prefill_target(
+                completed_today=0,
+                daily_target=1500,
+                tick_tasks=15,
+            ),
+            15,
+        )
+
+    def test_tick_refill_request_never_exceeds_immediate_deficit(self) -> None:
+        self.assertEqual(
+            daily_ops_orchestrator._tick_refill_request_size(
+                build_args(screening_refill_batch_en=1500, screening_refill_chunk_en=1500),
+                7,
+            ),
+            (7, 0),
+        )
+
     @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
@@ -334,9 +353,9 @@ class DailyOpsTests(unittest.TestCase):
     ) -> None:
         count_completed_mock.side_effect = [0, 0]
         fetch_state_mock.side_effect = [
-            {"papers": queued_papers(SCREENING_STAGE, 1497)},
-            {"papers": queued_papers(SCREENING_STAGE, 1497)},
-            {"papers": queued_papers(SCREENING_STAGE, 1497)},
+            {"papers": []},
+            {"papers": queued_papers(SCREENING_STAGE, 15)},
+            {"papers": queued_papers(SCREENING_STAGE, 15)},
         ]
         drain_mock.return_value = {"processed": 15, "followup_queued": 2, "quota_limited": False}
 
@@ -346,9 +365,35 @@ class DailyOpsTests(unittest.TestCase):
         self.assertEqual(summary["screened"], 15)
         self.assertEqual(summary["routed_to_gemini"], 2)
         crawl_mock.assert_called_once()
-        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 1500, "tr": 0})
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["tick_prefill_target"], 15)
+        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 15, "tr": 0})
         self.assertEqual(drain_mock.call_count, 1)
         self.assertEqual(drain_mock.call_args.kwargs["stage_key"], SCREENING_STAGE)
+        self.assertEqual(drain_mock.call_args.kwargs["max_tasks"], 15)
+
+    @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    def test_tick_does_not_refill_when_existing_gemma_queue_exceeds_slice(
+        self,
+        fetch_state_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+        count_completed_mock: Mock,
+    ) -> None:
+        count_completed_mock.side_effect = [0, 0]
+        fetch_state_mock.side_effect = [
+            {"papers": queued_papers(SCREENING_STAGE, 1497)},
+            {"papers": queued_papers(SCREENING_STAGE, 1482)},
+        ]
+        drain_mock.return_value = {"processed": 15, "followup_queued": 2, "quota_limited": False}
+
+        summary = daily_ops_orchestrator.run_daily_ops_tick(object(), build_args())
+
+        self.assertEqual(summary["screened"], 15)
+        self.assertEqual(summary["stage_summaries"][SCREENING_STAGE]["tick_prefill_target"], 15)
+        crawl_mock.assert_not_called()
         self.assertEqual(drain_mock.call_args.kwargs["max_tasks"], 15)
 
     @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
