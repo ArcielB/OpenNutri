@@ -290,6 +290,28 @@ def extract_pdf_text(filename: str) -> str:
     return full_text
 
 
+def remove_paper_pdf_from_storage(client: Client, filename: str) -> dict[str, object]:
+    filename = str(filename or "").strip()
+    if not filename:
+        return {"attempted": False, "deleted": False}
+    try:
+        response = client.storage.from_("papers").remove([filename])
+    except Exception as exc:
+        return {
+            "attempted": True,
+            "deleted": False,
+            "error": str(exc),
+        }
+
+    data = getattr(response, "data", response)
+    removed_count = len(data) if isinstance(data, list) else 0
+    return {
+        "attempted": True,
+        "deleted": removed_count > 0,
+        "removed_count": removed_count,
+    }
+
+
 def stage_text_for_model(full_text: str, *, stage_config: RoutingStageConfig) -> str:
     model_name = str(stage_config.model_name or "").strip().lower()
     if "gemma" in model_name:
@@ -921,12 +943,15 @@ def process_one_task(
                 latest_ai_extraction_id=extraction_row.get("id"),
             )
             mark_task_completed(client, task_id)
+            storage_cleanup = remove_paper_pdf_from_storage(client, str(paper.get("filename") or ""))
             return {
                 "paper_id": paper_id,
                 "status": ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
                 "route_destination": PROVISIONAL_SKIP_DESTINATION,
                 "audit_sampled": audit_sampled,
                 "finalized_without_human": False,
+                "storage_pdf_deleted": bool(storage_cleanup.get("deleted")),
+                "storage_cleanup_error": storage_cleanup.get("error"),
             }
         if finalized_without_human and not preserve_human_route:
             finalize_ai_outcome(
@@ -1014,6 +1039,8 @@ def _empty_stage_summary(stage_key: str) -> dict[str, object]:
         "failed": 0,
         "quota_limited": False,
         "permanent_model_error": False,
+        "storage_pdf_deleted": 0,
+        "storage_cleanup_failed": 0,
         "claimed": 0,
         "stale_requeued": 0,
         "stage_key": stage_key,
@@ -1039,10 +1066,18 @@ def _record_processing_result(summary: dict[str, object], result: dict, *, verbo
         summary["quota_limited"] = True
     if result.get("permanent_model_error"):
         summary["permanent_model_error"] = True
+    if result.get("storage_pdf_deleted"):
+        summary["storage_pdf_deleted"] = int(summary["storage_pdf_deleted"]) + 1
+    if result.get("storage_cleanup_error"):
+        summary["storage_cleanup_failed"] = int(summary["storage_cleanup_failed"]) + 1
     if verbose:
         message = f"paper={result['paper_id']} status={status} destination={result.get('route_destination')}"
         if result.get("error"):
             message += f" error={result['error']}"
+        if result.get("storage_pdf_deleted"):
+            message += " storage_pdf_deleted=true"
+        if result.get("storage_cleanup_error"):
+            message += f" storage_cleanup_error={result['storage_cleanup_error']}"
         print(message)
 
 

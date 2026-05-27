@@ -4,6 +4,8 @@ This file captures standing instructions and should be updated whenever new inst
 
 ## Startup checklist
 - Read `INSTRUCTIONS.md` before doing any work.
+- Read the repo's `AGENTS.md` / agent guide before broad codebase exploration; if another instruction set is the default entry point, make sure it points agents back to the repo-specific agent files.
+- **Always `git fetch` first and reconcile with `origin/main` before anything else.** Teammates push throughout the day; reasoning against a stale local clone will misread the state of BACKLOG.md, code, and "is this done yet" claims. If the working tree is clean, fast-forward (`git pull --ff-only`). If there are uncommitted changes, fetch but do not auto-merge — flag the divergence to the user and decide before continuing.
 - Review `Keys and links` for required credentials/URLs before running operations that need them.
 - Use `Keys and links` as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
 
@@ -23,4 +25,5 @@ This file captures standing instructions and should be updated whenever new inst
 - If something is not installed, install it.
 - You may rewrite files instead of patching if that yields better results.
 - Preserve existing user-visible behavior unless a task explicitly asks to change it; when changing the annotator, check documented affordances such as AI prefill, Details panels, approval visibility, tester read-only mode, and queue removal rules before simplifying UI.
+- Prefer durable fixes that update the underlying automation or workflow, not one-off cleanup. If a manual mitigation is needed, follow it by changing the code, scheduled job, docs, or standing ops process so the same issue does not recur silently.
 - Do not implement hard-negative veto logic in crawler/ranking relevance decisions. Use additive or penalty-based scoring instead, and discuss any proposed true hard reject with the user before adding it.

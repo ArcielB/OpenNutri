@@ -62,6 +62,26 @@ class FakeRPC:
         return FakeResponse(self.client.rpc_payload)
 
 
+class FakeStorageBucket:
+    def __init__(self, client, bucket_name: str):
+        self.client = client
+        self.bucket_name = bucket_name
+
+    def remove(self, paths: list[str]):
+        self.client.storage_removals.append((self.bucket_name, list(paths)))
+        if self.client.storage_remove_error:
+            raise self.client.storage_remove_error
+        return FakeResponse([{"name": path} for path in paths])
+
+
+class FakeStorage:
+    def __init__(self, client):
+        self.client = client
+
+    def from_(self, bucket_name: str) -> FakeStorageBucket:
+        return FakeStorageBucket(self.client, bucket_name)
+
+
 class FakeTable:
     def __init__(self, client, name: str):
         self.client = client
@@ -165,6 +185,9 @@ class FakeSupabaseClient:
         self.inserts: list[tuple[str, list[dict]]] = []
         self.rpc_calls: list[tuple[str, dict]] = []
         self.rpc_payload = rpc_payload or []
+        self.storage = FakeStorage(self)
+        self.storage_removals: list[tuple[str, list[str]]] = []
+        self.storage_remove_error: Exception | None = None
 
     def table(self, name: str) -> FakeTable:
         return FakeTable(self, name)
@@ -1820,6 +1843,62 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.upserts, [])
         self.assertEqual(client.tables["papers"][0]["routing_status"], ROUTING_STATUS_AI_PROVISIONAL_NO_DATA)
         self.assertEqual(client.tables["papers"][0]["route_destination"], PROVISIONAL_SKIP_DESTINATION)
+        self.assertTrue(result["storage_pdf_deleted"])
+        self.assertEqual(client.storage_removals, [("papers", ["paper.pdf"])])
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_stage_no_data_storage_cleanup_failure_does_not_requeue(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 16,
+                        "title": "Experimental treatment paper",
+                        "doi": "10.123/treatment",
+                        "filename": "paper.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-16", "paper_id": 16, "status": "processing"}],
+            }
+        )
+        client.storage_remove_error = RuntimeError("storage unavailable")
+        stage = RoutingStageConfig(
+            stage_key="gemma_proof_extraction_v1",
+            stage_kind="ai_model",
+            display_name="Gemma Proof Extraction v1",
+            model_name="gemma-4-26b-a4b-it",
+            prompt_version="opennutri_master_payload_v1",
+            active=True,
+            positive_threshold=1.0,
+            negative_threshold=1.0,
+            audit_rate=0.0,
+            next_stage_on_low_confidence="gemini_flash_db_payload_v2",
+            counts_as_truth=False,
+            next_stage_on_has_data="gemini_flash_db_payload_v2",
+            no_data_route_destination=PROVISIONAL_SKIP_DESTINATION,
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=False,
+            reasoning="Only one-off experimental formulation variants.",
+            overall_confidence=0.94,
+            data=[],
+            raw_response_text="{}",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-16", "paper_id": 16},
+            stage_config=stage,
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], ROUTING_STATUS_AI_PROVISIONAL_NO_DATA)
+        self.assertFalse(result["storage_pdf_deleted"])
+        self.assertIn("storage unavailable", result["storage_cleanup_error"])
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "completed")
 
     @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
     def test_strong_screening_has_data_enqueues_followup_even_when_normalization_is_empty(self, _extract_mock: Mock) -> None:

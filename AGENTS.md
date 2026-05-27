@@ -4,10 +4,11 @@ Use this file to keep context narrow. Read this first, then open only the files 
 
 ## Startup Order
 1. Read `INSTRUCTIONS.md`.
-2. Check `git status --short` before editing so you do not disturb local run artifacts or user changes.
-3. Read `Keys and links` only if the task needs credentials, network calls, or database writes. Use it as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
-4. Read `README.md` or `docs/handoff_2026-03-20/STATE.md` only for the subsystem you are touching.
-5. For reviewer-queue, approval, dashboard, or reviewer-truth tasks, read `docs/reviewer_workflow_map.md` before re-deriving the workflow from code.
+2. **Always `git fetch` and check whether `origin/main` is ahead before doing anything else.** Other teammates push throughout the day. If `origin/main` is ahead and the working tree is clean, fast-forward (`git pull --ff-only`). If the working tree has uncommitted changes, surface the divergence to the user before merging — do not silently rebase or auto-merge. Reasoning before reading code, before writing the BACKLOG, before any "is this implemented yet" check must be done against the freshly fetched tip, not the local snapshot.
+3. Check `git status --short` before editing so you do not disturb local run artifacts or user changes.
+4. Read `Keys and links` only if the task needs credentials, network calls, or database writes. Use it as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
+5. Read `README.md` or `docs/handoff_2026-03-20/STATE.md` only for the subsystem you are touching.
+6. For reviewer-queue, approval, dashboard, or reviewer-truth tasks, read `docs/reviewer_workflow_map.md` before re-deriving the workflow from code.
 
 ## Active Surfaces
 - `apps/expert-annotator/`: React 19 + Vite labeling UI.
@@ -43,6 +44,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Reproduce bugs first when feasible.
 - Edit source files, not generated artifacts.
 - Prefer small, testable changes.
+- Prefer durable fixes that update the underlying automation or workflow, not one-off cleanup. If an emergency manual mitigation is needed, follow it by changing the code, scheduled job, docs, or standing ops process so the same issue does not recur silently.
 - Preserve existing user-visible behavior unless the task explicitly asks to change it. When touching the annotator workflow, check for previously documented affordances such as AI prefill, Details panels, approval visibility, tester read-only mode, and queue removal rules before replacing or simplifying UI.
 - Commit every change you make once it is in a known working state.
 - Push every working commit soon after it is validated; do not leave validated local-only commits sitting around.
