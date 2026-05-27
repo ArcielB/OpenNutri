@@ -1210,6 +1210,8 @@ def drain_stage_queue(
         return evaluator
 
     initial_config = get_stage_config(stage_key)
+    # Validate model runtime before claiming tasks; a missing local/API key should not strand rows in processing.
+    get_evaluator(initial_config)
     summary = _empty_stage_summary(stage_key or "all_queued_stages")
     summary["stale_requeued"] = requeue_stale_processing_tasks(
         client,

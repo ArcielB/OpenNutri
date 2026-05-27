@@ -1454,6 +1454,30 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertTrue(summary["quota_limited"])
         self.assertEqual(claim_mock.call_count, 1)
 
+    @patch("scripts.process_stage_queue.claim_stage_tasks")
+    @patch("scripts.process_stage_queue.fetch_reference_lookups", return_value={})
+    @patch("scripts.process_stage_queue.UnifiedEvaluator")
+    @patch("scripts.process_stage_queue.fetch_active_stage_config")
+    def test_model_runtime_is_validated_before_claiming_tasks(
+        self,
+        fetch_stage_mock: Mock,
+        evaluator_mock: Mock,
+        _reference_mock: Mock,
+        claim_mock: Mock,
+    ) -> None:
+        fetch_stage_mock.return_value = self.stage_config()
+        evaluator_mock.return_value = Mock(model=None)
+
+        with self.assertRaisesRegex(RuntimeError, "could not initialize model"):
+            drain_stage_queue(
+                FakeSupabaseClient(),
+                max_tasks=10,
+                stop_on_quota=True,
+                verbose=False,
+            )
+
+        claim_mock.assert_not_called()
+
     def test_backfill_cancels_only_non_human_ready_final_routes(self) -> None:
         client = FakeSupabaseClient(
             tables={
