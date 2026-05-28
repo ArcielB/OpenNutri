@@ -6,6 +6,11 @@ on:
     # Each tick checks the UTC day state, does the next bounded phase slice, and exits.
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      workers:
+        description: "Number of matrix workers to run for this manual dispatch"
+        required: false
+        default: "20"
 
 jobs:
   daily-ops:
@@ -41,9 +46,19 @@ jobs:
             opennutri-pipeline-
 
       - name: Install Python dependencies
+        if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
         run: python3 -m pip install -r services/data-pipeline/requirements.txt
 
+      - name: Clean stale paper PDFs
+        if: ${{ matrix.worker == 1 && (github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers)) }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 services/data-pipeline/scripts/cleanup_paper_storage.py --apply --json-summary
+
       - name: Run resumable daily ops tick
+        if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
         env:
           OPENNUTRI_OPS_WORKER_INDEX: ${{ matrix.worker }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
