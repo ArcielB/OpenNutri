@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -31,13 +32,22 @@ def build_args(**overrides):
         "max_wallclock_minutes": 0,
         "screening_daily_target": 1500,
         "screening_tick_tasks": 15,
+        "screening_active_target": 75,
         "extraction_daily_target": 20,
         "extraction_tick_tasks": 15,
         "interleave_extraction": False,
+        "controller_only": False,
+        "drain_only": False,
         "screening_queue_low_watermark": 30,
         "screening_refill_batch_en": 1500,
         "screening_refill_chunk_en": 1500,
         "screening_prefill_stall_limit": 3,
+        "stage_task_stale_minutes": 120,
+        "paper_storage_bucket": "papers",
+        "paper_bucket_soft_limit_mb": 900,
+        "storage_cleanup_batch_size": 100,
+        "skip_storage_cleanup": False,
+        "keep_storage_orphans": False,
         "refill_step_en": 4,
         "refill_step_tr": 0,
         "seed": 20260413,
@@ -65,6 +75,65 @@ def queued_papers(stage_key: str, count: int) -> list[dict]:
         }
         for index in range(count)
     ]
+
+
+class CountResponse:
+    def __init__(self, rows: list[dict], count: int | None = None):
+        self.data = rows
+        self.count = count
+
+
+class CountTable:
+    def __init__(self, rows: list[dict]):
+        self.rows = rows
+        self.filters: list[tuple[str, object]] = []
+        self.gte_filters: list[tuple[str, object]] = []
+        self.range_start = None
+        self.range_end = None
+        self.include_count = False
+
+    def select(self, _columns: str, count: str | None = None):
+        self.include_count = count == "exact"
+        return self
+
+    def eq(self, field: str, value: object):
+        self.filters.append((field, value))
+        return self
+
+    def gte(self, field: str, value: object):
+        self.gte_filters.append((field, value))
+        return self
+
+    def limit(self, count: int):
+        self.range_start = 0
+        self.range_end = count - 1
+        return self
+
+    def execute(self):
+        rows = [row for row in self.rows if self._matches(row)]
+        count = len(rows) if self.include_count else None
+        if self.range_start is not None and self.range_end is not None:
+            rows = rows[self.range_start:self.range_end + 1]
+        return CountResponse([dict(row) for row in rows], count=count)
+
+    def _matches(self, row: dict) -> bool:
+        if not all(row.get(field) == value for field, value in self.filters):
+            return False
+        for field, value in self.gte_filters:
+            row_value = row.get(field)
+            if row_value is None or row_value < value:
+                return False
+        return True
+
+
+class CountClient:
+    def __init__(self, rows: list[dict]):
+        self.rows = rows
+
+    def table(self, name: str) -> CountTable:
+        if name != "paper_stage_tasks":
+            raise AssertionError(f"Unexpected table {name!r}")
+        return CountTable(self.rows)
 
 
 class DailyOpsTests(unittest.TestCase):
@@ -361,6 +430,165 @@ class DailyOpsTests(unittest.TestCase):
         self.assertEqual(counts["total"], 369)
         self.assertEqual(counts[SCREENING_STAGE], 0)
         self.assertEqual(counts[EXTRACTION_STAGE], 369)
+
+    def test_active_stage_count_includes_queued_and_non_stale_processing_tasks(self) -> None:
+        now = datetime.now(timezone.utc)
+        client = CountClient(
+            [
+                {"id": "queued-1", "stage_key": SCREENING_STAGE, "status": "queued"},
+                {"id": "queued-2", "stage_key": SCREENING_STAGE, "status": "queued"},
+                {
+                    "id": "processing-fresh",
+                    "stage_key": SCREENING_STAGE,
+                    "status": "processing",
+                    "started_at": (now - timedelta(minutes=5)).isoformat(),
+                },
+                {
+                    "id": "processing-stale",
+                    "stage_key": SCREENING_STAGE,
+                    "status": "processing",
+                    "started_at": (now - timedelta(hours=3)).isoformat(),
+                },
+                {"id": "completed", "stage_key": SCREENING_STAGE, "status": "completed"},
+                {
+                    "id": "gemini-processing",
+                    "stage_key": EXTRACTION_STAGE,
+                    "status": "processing",
+                    "started_at": (now - timedelta(minutes=10)).isoformat(),
+                },
+            ]
+        )
+
+        counts = daily_ops_orchestrator._fetch_active_stage_counts(
+            client,
+            screening_stage_key=SCREENING_STAGE,
+            extraction_stage_key=EXTRACTION_STAGE,
+            stale_after_minutes=120,
+        )
+
+        self.assertEqual(counts[SCREENING_STAGE], 3)
+        self.assertEqual(counts[EXTRACTION_STAGE], 1)
+        self.assertEqual(counts["total"], 4)
+
+    @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
+    @patch("scripts.daily_ops_orchestrator._fetch_active_stage_counts")
+    @patch("scripts.daily_ops_orchestrator._run_controller_storage_cleanup")
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    def test_controller_refills_only_active_target_deficit_without_draining(
+        self,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+        storage_mock: Mock,
+        active_counts_mock: Mock,
+        count_completed_mock: Mock,
+    ) -> None:
+        storage_mock.return_value = {"remaining_bytes_after_cleanup": 100}
+        count_completed_mock.side_effect = [0, 0]
+        active_counts_mock.side_effect = [
+            {"total": 21, SCREENING_STAGE: 20, EXTRACTION_STAGE: 1},
+            {"total": 76, SCREENING_STAGE: 75, EXTRACTION_STAGE: 1},
+            {"total": 75, SCREENING_STAGE: 75, EXTRACTION_STAGE: 0},
+        ]
+
+        summary = daily_ops_orchestrator.run_daily_ops_controller(
+            object(),
+            build_args(
+                controller_only=True,
+                screening_active_target=75,
+                screening_refill_batch_en=75,
+                screening_refill_chunk_en=75,
+            ),
+        )
+
+        self.assertEqual(summary["mode"], "controller")
+        self.assertEqual(summary["stopped_reason"], "controller_refill_complete")
+        crawl_mock.assert_called_once()
+        self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 55, "tr": 0})
+        drain_mock.assert_not_called()
+
+    @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
+    @patch("scripts.daily_ops_orchestrator._fetch_active_stage_counts")
+    @patch("scripts.daily_ops_orchestrator._run_controller_storage_cleanup")
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    def test_storage_soft_limit_blocks_controller_refill_not_worker_drain(
+        self,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+        storage_mock: Mock,
+        active_counts_mock: Mock,
+        count_completed_mock: Mock,
+    ) -> None:
+        storage_mock.return_value = {"remaining_bytes_after_cleanup": 901 * 1024 * 1024}
+        count_completed_mock.side_effect = [0, 0]
+        active_counts_mock.side_effect = [
+            {"total": 0, SCREENING_STAGE: 0, EXTRACTION_STAGE: 0},
+            {"total": 0, SCREENING_STAGE: 0, EXTRACTION_STAGE: 0},
+        ]
+
+        controller_summary = daily_ops_orchestrator.run_daily_ops_controller(
+            object(),
+            build_args(controller_only=True, screening_active_target=75, paper_bucket_soft_limit_mb=900),
+        )
+
+        self.assertEqual(controller_summary["stopped_reason"], "storage_soft_limit_exceeded")
+        crawl_mock.assert_not_called()
+        drain_mock.assert_not_called()
+
+        with patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state") as fetch_state_mock:
+            count_completed_mock.side_effect = [0, 0]
+            fetch_state_mock.side_effect = [
+                {"papers": queued_papers(SCREENING_STAGE, 3)},
+                {"papers": queued_papers(SCREENING_STAGE, 1)},
+            ]
+            drain_mock.return_value = {"processed": 3, "followup_queued": 1, "quota_limited": False}
+
+            worker_summary = daily_ops_orchestrator.run_daily_ops_drain(
+                object(),
+                build_args(drain_only=True, screening_tick_tasks=3),
+            )
+
+        self.assertEqual(worker_summary["mode"], "drain")
+        self.assertEqual(worker_summary["screened"], 3)
+        self.assertEqual(drain_mock.call_count, 1)
+        crawl_mock.assert_not_called()
+        storage_mock.assert_called_once()
+
+    @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    def test_drain_only_never_refills_or_uploads(
+        self,
+        fetch_state_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+        count_completed_mock: Mock,
+    ) -> None:
+        count_completed_mock.side_effect = [0, 0, 0]
+        fetch_state_mock.side_effect = [
+            {"papers": queued_papers(SCREENING_STAGE, 4) + queued_papers(EXTRACTION_STAGE, 2)},
+            {"papers": queued_papers(SCREENING_STAGE, 1) + queued_papers(EXTRACTION_STAGE, 2)},
+            {"papers": queued_papers(EXTRACTION_STAGE, 2)},
+        ]
+        drain_mock.side_effect = [
+            {"processed": 4, "followup_queued": 2, "quota_limited": False},
+            {"processed": 2, "human_ready": 0, "quota_limited": False},
+        ]
+
+        summary = daily_ops_orchestrator.run_daily_ops_drain(
+            object(),
+            build_args(drain_only=True, interleave_extraction=True, screening_tick_tasks=4, extraction_tick_tasks=2),
+        )
+
+        self.assertEqual(summary["mode"], "drain")
+        self.assertEqual(summary["screened"], 4)
+        self.assertEqual(summary["gemini_used"], 2)
+        self.assertEqual(drain_mock.call_count, 2)
+        self.assertEqual(drain_mock.call_args_list[0].kwargs["requeue_stale_minutes"], 0)
+        self.assertEqual(drain_mock.call_args_list[1].kwargs["requeue_stale_minutes"], 0)
+        crawl_mock.assert_not_called()
 
     @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")

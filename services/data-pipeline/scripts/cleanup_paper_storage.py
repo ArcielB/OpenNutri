@@ -152,16 +152,25 @@ def run_cleanup(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         bucket["objects"] += 1
         bucket["bytes"] += int(row.get("size") or 0)
 
+    storage_bytes_seen = kept_bytes + sum(int(row.get("size") or 0) for row in candidates)
+    candidate_bytes = sum(int(row.get("size") or 0) for row in candidates)
+    if args.apply and not errors:
+        remaining_bytes_after_cleanup = kept_bytes
+    else:
+        remaining_bytes_after_cleanup = kept_bytes + candidate_bytes
+
     return {
         "bucket": args.bucket,
         "apply": bool(args.apply),
         "storage_objects_seen": len(storage_objects),
+        "storage_bytes_seen": storage_bytes_seen,
         "kept_objects": kept,
         "kept_bytes": kept_bytes,
         "candidate_objects": len(candidates),
-        "candidate_bytes": sum(int(row.get("size") or 0) for row in candidates),
+        "candidate_bytes": candidate_bytes,
         "deleted_objects": deleted,
         "delete_errors": errors,
+        "remaining_bytes_after_cleanup": remaining_bytes_after_cleanup,
         "by_reason": dict(sorted(by_reason.items())),
     }
 

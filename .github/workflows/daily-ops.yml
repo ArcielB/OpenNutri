@@ -3,23 +3,22 @@ name: Daily OpenNutri Ops
 on:
   schedule:
     # GitHub cron is UTC. Run a small resumable tick every 5 minutes.
-    # Each tick checks the UTC day state, does the next bounded phase slice, and exits.
+    # A serialized controller creates bounded Gemma work; workers only drain queued model tasks.
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       workers:
-        description: "Number of matrix workers to run for this manual dispatch"
+        description: "Number of worker jobs to run for this manual dispatch"
         required: false
-        default: "20"
+        default: "5"
 
 jobs:
-  daily-ops:
+  refill-controller:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      matrix:
-        worker: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    timeout-minutes: 90
+    concurrency:
+      group: daily-ops-refill-controller
+      cancel-in-progress: false
 
     steps:
       - name: Check out repository
@@ -41,23 +40,86 @@ jobs:
           path: |
             services/data-pipeline/data
             ~/.cache/huggingface
-          key: opennutri-pipeline-${{ github.run_id }}
+          key: opennutri-controller-${{ github.run_id }}
           restore-keys: |
+            opennutri-controller-
+            opennutri-pipeline-
+
+      - name: Install Python dependencies
+        run: python3 -m pip install -r services/data-pipeline/requirements.txt
+
+      - name: Run refill controller
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+
+          summary="$(
+            python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
+              --json-summary \
+              --controller-only \
+              --tick-mode \
+              --target-open 50 \
+              --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 \
+              --max-wallclock-minutes 0 \
+              --screening-daily-target 1500 \
+              --screening-active-target 75 \
+              --extraction-daily-target 20 \
+              --screening-refill-batch-en 75 \
+              --screening-refill-chunk-en 75 \
+              --screening-prefill-stall-limit 3 \
+              --paper-bucket-soft-limit-mb 900 \
+              --refill-step-tr 0 \
+              | tee /tmp/opennutri-daily-ops-controller.jsonl \
+              | tail -n 1
+          )"
+          python3 -c 'import json, sys; data=json.loads(sys.argv[1]); screening=(data.get("stage_summaries") or {}).get(data.get("screening_stage_key"), {}); storage=data.get("storage_cleanup") or {}; print("Daily ops controller mode={mode} stopped_reason={reason} active_target={active_target} active_count={active_count} refills={refills} requested_en={requested_en} storage_remaining_bytes={storage_remaining} storage_soft_limit_exceeded={storage_exceeded}".format(mode=data.get("mode", "controller"), reason=data.get("stopped_reason", ""), active_target=screening.get("active_target", 0), active_count=screening.get("active_count", 0), refills=screening.get("refill_cycles", 0), requested_en=screening.get("refill_requested_en", 0), storage_remaining=storage.get("remaining_bytes_after_cleanup"), storage_exceeded=data.get("storage_soft_limit_exceeded", False)))' "$summary"
+
+  drain-workers:
+    needs: refill-controller
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [1, 2, 3, 4, 5]
+
+    steps:
+      - name: Check out repository
+        if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/data-pipeline/requirements.txt
+
+      - name: Install system dependencies
+        if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Cache pipeline data
+        if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            services/data-pipeline/data
+            ~/.cache/huggingface
+          key: opennutri-worker-${{ github.run_id }}-${{ matrix.worker }}
+          restore-keys: |
+            opennutri-worker-
             opennutri-pipeline-
 
       - name: Install Python dependencies
         if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
         run: python3 -m pip install -r services/data-pipeline/requirements.txt
 
-      - name: Clean stale paper PDFs
-        if: ${{ matrix.worker == 1 && (github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers)) }}
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          python3 services/data-pipeline/scripts/cleanup_paper_storage.py --apply --json-summary
-
-      - name: Run resumable daily ops tick
+      - name: Run drain-only daily ops tick
         if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
         env:
           OPENNUTRI_OPS_WORKER_INDEX: ${{ matrix.worker }}
@@ -75,6 +137,7 @@ jobs:
           summary="$(
             python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
               --json-summary \
+              --drain-only \
               --tick-mode \
               --interleave-extraction \
               --target-open 50 \
@@ -84,11 +147,8 @@ jobs:
               --screening-tick-tasks 15 \
               --extraction-daily-target 20 \
               --extraction-tick-tasks 2 \
-              --screening-refill-batch-en 15 \
-              --screening-refill-chunk-en 15 \
-              --screening-prefill-stall-limit 3 \
               --refill-step-tr 0 \
-              | tee /tmp/opennutri-daily-ops-last.jsonl \
+              | tee /tmp/opennutri-daily-ops-worker.jsonl \
               | tail -n 1
           )"
-          python3 -c 'import json, sys; data=json.loads(sys.argv[1]); screening=(data.get("stage_summaries") or {}).get(data.get("screening_stage_key"), {}); daily=data.get("daily_completed") or {}; print("Daily ops mode={mode} stopped_reason={reason} screening_target={target} extraction_target={xtarget} daily_completed={daily} prefill_refills={refills} screened={screened} routed_to_gemini={routed} gemini_used={gemini} human_ready={human} quota_exhausted_stages={quota}".format(mode=data.get("mode", "legacy"), reason=data.get("stopped_reason", ""), target=data.get("screening_daily_target", 0), xtarget=data.get("extraction_daily_target", 0), daily=daily, refills=screening.get("refill_cycles", 0), screened=data.get("screened", 0), routed=data.get("routed_to_gemini", 0), gemini=data.get("gemini_used", 0), human=data.get("human_ready", 0), quota=data.get("quota_exhausted_stages", [])))' "$summary"
+          python3 -c 'import json, sys; data=json.loads(sys.argv[1]); daily=data.get("daily_completed") or {}; print("Daily ops worker mode={mode} stopped_reason={reason} daily_completed={daily} screened={screened} routed_to_gemini={routed} gemini_used={gemini} human_ready={human} quota_exhausted_stages={quota}".format(mode=data.get("mode", "drain"), reason=data.get("stopped_reason", ""), daily=daily, screened=data.get("screened", 0), routed=data.get("routed_to_gemini", 0), gemini=data.get("gemini_used", 0), human=data.get("human_ready", 0), quota=data.get("quota_exhausted_stages", [])))' "$summary"

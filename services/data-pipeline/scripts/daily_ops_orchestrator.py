@@ -5,7 +5,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -16,7 +16,7 @@ PIPELINE_ROOT = PROJECT_ROOT / "services" / "data-pipeline"
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
-from scripts import ensure_paper_stock, refill_assignment_queue
+from scripts import cleanup_paper_storage, ensure_paper_stock, refill_assignment_queue
 from scripts.process_stage_queue import (
     drain_stage_queue,
     requeue_stale_processing_tasks,
@@ -81,6 +81,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run one resumable daily-ops tick and exit; intended for frequent GitHub cron recalls.",
     )
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--controller-only",
+        action="store_true",
+        help="Run the serialized refill controller only: storage cleanup, stale-task requeue, active-task count, and bounded crawl/upload refill.",
+    )
+    mode_group.add_argument(
+        "--drain-only",
+        action="store_true",
+        help="Run model queue draining only. This mode never crawls, uploads, or refills.",
+    )
     parser.add_argument(
         "--interleave-extraction",
         action="store_true",
@@ -118,6 +129,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum Gemma tasks to process in one tick-mode invocation.",
     )
     parser.add_argument(
+        "--screening-active-target",
+        type=int,
+        default=75,
+        help="Controller-only target for active Gemma tasks, counting queued plus non-stale processing rows.",
+    )
+    parser.add_argument(
         "--extraction-daily-target",
         type=int,
         default=20,
@@ -152,6 +169,39 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=3,
         help="Stop as source_exhausted after this many consecutive prefill refills do not increase queued Gemma work; 0 disables the guard",
+    )
+    parser.add_argument(
+        "--stage-task-stale-minutes",
+        type=int,
+        default=120,
+        help="Processing tasks older than this many minutes are stale for controller requeue and active-task counting.",
+    )
+    parser.add_argument(
+        "--paper-storage-bucket",
+        default="papers",
+        help="Supabase Storage bucket that stores paper PDFs for controller cleanup and soft-limit checks.",
+    )
+    parser.add_argument(
+        "--paper-bucket-soft-limit-mb",
+        type=int,
+        default=900,
+        help="Skip controller refill when the paper storage bucket remains above this size after cleanup; 0 disables the limit.",
+    )
+    parser.add_argument(
+        "--storage-cleanup-batch-size",
+        type=int,
+        default=100,
+        help="Storage object delete batch size for controller cleanup.",
+    )
+    parser.add_argument(
+        "--skip-storage-cleanup",
+        action="store_true",
+        help="Skip controller storage cleanup and soft-limit measurement.",
+    )
+    parser.add_argument(
+        "--keep-storage-orphans",
+        action="store_true",
+        help="Keep orphan paper bucket objects during controller storage cleanup.",
     )
     return parser
 
@@ -188,20 +238,56 @@ def _queued_ai_paper_count_for_stage(papers: list[dict], stage_key: str) -> int:
 
 
 def _count_queued_stage_tasks(client: Any, *, stage_key: str) -> int | None:
+    return _count_stage_tasks_by_status(client, stage_key=stage_key, status="queued")
+
+
+def _count_stage_tasks_by_status(
+    client: Any,
+    *,
+    stage_key: str,
+    status: str,
+    started_at_gte: str | None = None,
+) -> int | None:
     if not hasattr(client, "table"):
         return None
-    response = (
+    query = (
         client.table("paper_stage_tasks")
         .select("id", count="exact")
         .eq("stage_key", stage_key)
-        .eq("status", "queued")
-        .limit(1)
-        .execute()
+        .eq("status", status)
     )
+    if started_at_gte is not None:
+        query = query.gte("started_at", started_at_gte)
+    response = query.limit(1).execute()
     count = getattr(response, "count", None)
     if count is None:
         return None
     return int(count)
+
+
+def _active_processing_started_cutoff_iso(*, stale_after_minutes: int) -> str | None:
+    stale_after_minutes = int(stale_after_minutes)
+    if stale_after_minutes <= 0:
+        return None
+    return (datetime.now(timezone.utc) - timedelta(minutes=stale_after_minutes)).isoformat()
+
+
+def _count_active_stage_tasks(
+    client: Any,
+    *,
+    stage_key: str,
+    stale_after_minutes: int = 120,
+) -> int | None:
+    queued_count = _count_stage_tasks_by_status(client, stage_key=stage_key, status="queued")
+    processing_count = _count_stage_tasks_by_status(
+        client,
+        stage_key=stage_key,
+        status="processing",
+        started_at_gte=_active_processing_started_cutoff_iso(stale_after_minutes=stale_after_minutes),
+    )
+    if queued_count is None or processing_count is None:
+        return None
+    return int(queued_count) + int(processing_count)
 
 
 def _fetch_queue_counts(client: Any, *, screening_stage_key: str, extraction_stage_key: str) -> dict[str, int]:
@@ -224,6 +310,36 @@ def _fetch_queue_counts(client: Any, *, screening_stage_key: str, extraction_sta
         "total": queued_total,
         screening_stage_key: queued_screening,
         extraction_stage_key: queued_extraction,
+    }
+
+
+def _fetch_active_stage_counts(
+    client: Any,
+    *,
+    screening_stage_key: str,
+    extraction_stage_key: str,
+    stale_after_minutes: int = 120,
+) -> dict[str, int]:
+    screening_task_count = _count_active_stage_tasks(
+        client,
+        stage_key=screening_stage_key,
+        stale_after_minutes=stale_after_minutes,
+    )
+    extraction_task_count = _count_active_stage_tasks(
+        client,
+        stage_key=extraction_stage_key,
+        stale_after_minutes=stale_after_minutes,
+    )
+    if screening_task_count is None or extraction_task_count is None:
+        return _fetch_queue_counts(
+            client,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+    return {
+        "total": int(screening_task_count) + int(extraction_task_count),
+        screening_stage_key: int(screening_task_count),
+        extraction_stage_key: int(extraction_task_count),
     }
 
 
@@ -289,12 +405,16 @@ def _run_ai_drain(
     max_tasks: int,
     stage_key: str | None = None,
 ) -> dict[str, object]:
+    requeue_stale_minutes = max(0, int(getattr(args, "stage_task_stale_minutes", 120)))
+    if bool(getattr(args, "drain_only", False)):
+        requeue_stale_minutes = 0
     return drain_stage_queue(
         client,
         stage_key=stage_key,
         max_tasks=max(1, int(max_tasks)),
         stop_on_quota=True,
         verbose=not args.json_summary,
+        requeue_stale_minutes=requeue_stale_minutes,
     )
 
 
@@ -441,6 +561,24 @@ def _run_screening_refill(
     _log(args, f"finished crawler refill {cycle_index}: EN={requested['en']} TR={requested['tr']}")
 
 
+def _paper_bucket_soft_limit_bytes(args: argparse.Namespace) -> int:
+    return max(0, int(getattr(args, "paper_bucket_soft_limit_mb", 900))) * 1024 * 1024
+
+
+def _run_controller_storage_cleanup(client: Any, args: argparse.Namespace) -> dict[str, Any]:
+    if bool(getattr(args, "skip_storage_cleanup", False)):
+        return {"skipped": True}
+    cleanup_args = SimpleNamespace(
+        bucket=str(getattr(args, "paper_storage_bucket", "papers") or "papers"),
+        statuses=",".join(sorted(cleanup_paper_storage.DEFAULT_DELETE_STATUSES)),
+        keep_orphans=bool(getattr(args, "keep_storage_orphans", False)),
+        batch_size=max(1, int(getattr(args, "storage_cleanup_batch_size", 100))),
+        apply=not bool(getattr(args, "dry_run", False)),
+        json_summary=True,
+    )
+    return cleanup_paper_storage.run_cleanup(client, cleanup_args)
+
+
 def _requeue_stale_stage_tasks(
     client: Any,
     args: argparse.Namespace,
@@ -452,7 +590,11 @@ def _requeue_stale_stage_tasks(
         return
     if not hasattr(client, "table"):
         return
-    stale_requeued = requeue_stale_processing_tasks(client, stage_key=stage_key)
+    stale_requeued = requeue_stale_processing_tasks(
+        client,
+        stage_key=stage_key,
+        stale_after_minutes=max(0, int(getattr(args, "stage_task_stale_minutes", 120))),
+    )
     if stale_requeued:
         stage_summary["stale_requeued"] = int(stage_summary.get("stale_requeued") or 0) + int(stale_requeued)
         _log(args, f"requeued {stale_requeued} stale processing task(s) for {stage_key}")
@@ -992,6 +1134,425 @@ def run_daily_ops(
     )
 
 
+def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str, Any]:
+    screening_stage_key = str(getattr(args, "screening_stage_key", "gemma_proof_extraction_v1") or "gemma_proof_extraction_v1")
+    extraction_stage_key = str(getattr(args, "extraction_stage_key", "gemini_flash_db_payload_v2") or "gemini_flash_db_payload_v2")
+    stage_rpm = _parse_stage_rpm(
+        getattr(args, "stage_rpm", ""),
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+    screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
+    extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
+    screening_active_target = max(0, int(getattr(args, "screening_active_target", 75)))
+    stale_after_minutes = max(0, int(getattr(args, "stage_task_stale_minutes", 120)))
+    day_start_iso = _utc_day_start_iso()
+    soft_limit_bytes = _paper_bucket_soft_limit_bytes(args)
+
+    summary: dict[str, Any] = {
+        "mode": "controller",
+        "dry_run": bool(args.dry_run),
+        "target_open": int(args.target_open),
+        "screening_stage_key": screening_stage_key,
+        "extraction_stage_key": extraction_stage_key,
+        "stage_order": [screening_stage_key, extraction_stage_key],
+        "stage_rpm": {
+            screening_stage_key: int(stage_rpm.get(screening_stage_key, 15)),
+            extraction_stage_key: int(stage_rpm.get(extraction_stage_key, 15)),
+        },
+        "screening_daily_target": screening_daily_target,
+        "extraction_daily_target": extraction_daily_target,
+        "screening_active_target": screening_active_target,
+        "stage_task_stale_minutes": stale_after_minutes,
+        "paper_bucket_soft_limit_mb": max(0, int(getattr(args, "paper_bucket_soft_limit_mb", 900))),
+        "paper_bucket_soft_limit_bytes": soft_limit_bytes,
+        "day_start_utc": day_start_iso,
+        "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
+        "ai_tasks_used": 0,
+        "daily_ai_tasks_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
+        "stage_summaries": {},
+        "quota_exhausted_stages": [],
+        "cooldowns": [],
+        "stopped_reason": None,
+    }
+
+    screening_summary = _tick_stage_summary(
+        summary,
+        screening_stage_key,
+        rpm=int(stage_rpm.get(screening_stage_key, 15)),
+        role="screening_controller",
+        daily_target=screening_daily_target,
+    )
+    extraction_summary = _tick_stage_summary(
+        summary,
+        extraction_stage_key,
+        rpm=int(stage_rpm.get(extraction_stage_key, 15)),
+        role="extraction_controller",
+        daily_target=extraction_daily_target,
+    )
+
+    try:
+        storage_cleanup = _run_controller_storage_cleanup(client, args)
+    except Exception as exc:
+        storage_cleanup = {"error": str(exc)}
+        _log(args, f"storage cleanup failed before controller refill: {exc}")
+    summary["storage_cleanup"] = storage_cleanup
+
+    _requeue_stale_stage_tasks(client, args, stage_key=screening_stage_key, stage_summary=screening_summary)
+    _requeue_stale_stage_tasks(client, args, stage_key=extraction_stage_key, stage_summary=extraction_summary)
+
+    screening_completed_today = _count_completed_stage_tasks_since(
+        client,
+        stage_key=screening_stage_key,
+        since_iso=day_start_iso,
+    )
+    extraction_completed_today = _count_completed_stage_tasks_since(
+        client,
+        stage_key=extraction_stage_key,
+        since_iso=day_start_iso,
+    )
+    summary["daily_completed"] = {
+        screening_stage_key: screening_completed_today,
+        extraction_stage_key: extraction_completed_today,
+    }
+
+    active_counts = _fetch_active_stage_counts(
+        client,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+        stale_after_minutes=stale_after_minutes,
+    )
+    active_screening = int(active_counts.get(screening_stage_key) or 0)
+    remaining_today = max(0, screening_daily_target - screening_completed_today)
+    controller_target = min(remaining_today, screening_active_target)
+    deficit = max(0, controller_target - active_screening)
+    screening_summary["active_target"] = controller_target
+    screening_summary["active_count"] = active_screening
+    screening_summary["queue_observations"].append(
+        {
+            "total": active_counts["total"],
+            "active_for_stage": active_screening,
+            "active_target": controller_target,
+            "controller": True,
+        }
+    )
+    _log(
+        args,
+        f"{screening_stage_key} controller observation: completed_today={screening_completed_today} "
+        f"active_for_stage={active_screening} active_target={controller_target}",
+    )
+
+    storage_remaining = storage_cleanup.get("remaining_bytes_after_cleanup")
+    storage_over_limit = (
+        soft_limit_bytes > 0
+        and storage_remaining is not None
+        and int(storage_remaining) > soft_limit_bytes
+    )
+    if storage_over_limit:
+        summary["storage_soft_limit_exceeded"] = True
+        screening_summary["storage_soft_limit_exceeded"] = True
+    storage_cleanup_failed = bool(storage_cleanup.get("error"))
+
+    if remaining_today <= 0:
+        screening_summary["daily_target_reached"] = True
+        screening_summary["stop_reason"] = "daily_target_reached"
+        summary["stopped_reason"] = "screening_daily_target_reached"
+    elif controller_target <= 0 or deficit <= 0:
+        screening_summary["prefill_satisfied"] = True
+        screening_summary["stop_reason"] = "active_target_satisfied"
+        summary["stopped_reason"] = "screening_active_target_satisfied"
+    elif storage_over_limit:
+        screening_summary["stop_reason"] = "storage_soft_limit_exceeded"
+        summary["stopped_reason"] = "storage_soft_limit_exceeded"
+        _log(
+            args,
+            f"skipping refill: paper bucket remains above soft limit "
+            f"({int(storage_remaining)} > {soft_limit_bytes} bytes)",
+        )
+    elif storage_cleanup_failed:
+        screening_summary["stop_reason"] = "storage_cleanup_failed"
+        summary["stopped_reason"] = "storage_cleanup_failed"
+    else:
+        requested_en, requested_tr = _tick_refill_request_size(args, deficit)
+        screening_summary["low_watermark_events"] = int(screening_summary["low_watermark_events"]) + 1
+        if args.dry_run:
+            screening_summary["planned_refill"] = {
+                "en": requested_en,
+                "tr": requested_tr,
+                "active_before": active_screening,
+                "target": controller_target,
+            }
+            screening_summary["stop_reason"] = "dry_run"
+            summary["stopped_reason"] = "dry_run"
+        elif requested_en <= 0 and requested_tr <= 0:
+            screening_summary["source_exhausted"] = True
+            screening_summary["stop_reason"] = "source_exhausted"
+            summary["stopped_reason"] = "source_exhausted"
+        else:
+            _log(
+                args,
+                f"{screening_stage_key} controller refill: active_for_stage={active_screening} "
+                f"target={controller_target} crawling EN={requested_en} TR={requested_tr}",
+            )
+            _run_screening_refill(
+                client,
+                args,
+                stage_summary=screening_summary,
+                cycle_index=int(screening_summary["refill_cycles"]) + 1,
+                requested_en=requested_en,
+                requested_tr=requested_tr,
+            )
+            refreshed_counts = _fetch_active_stage_counts(
+                client,
+                screening_stage_key=screening_stage_key,
+                extraction_stage_key=extraction_stage_key,
+                stale_after_minutes=stale_after_minutes,
+            )
+            refreshed_screening = int(refreshed_counts.get(screening_stage_key) or 0)
+            screening_summary["active_count_after_refill"] = refreshed_screening
+            screening_summary["queue_observations"].append(
+                {
+                    "total": refreshed_counts["total"],
+                    "active_for_stage": refreshed_screening,
+                    "active_target": controller_target,
+                    "after_refill": True,
+                    "controller": True,
+                }
+            )
+            if refreshed_screening <= active_screening:
+                screening_summary["source_exhausted"] = True
+                screening_summary["stop_reason"] = "source_exhausted"
+                summary["stopped_reason"] = "source_exhausted"
+            else:
+                screening_summary["prefill_satisfied"] = refreshed_screening >= controller_target
+                screening_summary["stop_reason"] = "controller_refill_complete"
+                summary["stopped_reason"] = "controller_refill_complete"
+
+    extraction_summary["stop_reason"] = extraction_summary.get("stop_reason") or "controller_no_drain"
+    return _finish_summary(
+        client,
+        summary,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+
+
+def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]:
+    screening_stage_key = str(getattr(args, "screening_stage_key", "gemma_proof_extraction_v1") or "gemma_proof_extraction_v1")
+    extraction_stage_key = str(getattr(args, "extraction_stage_key", "gemini_flash_db_payload_v2") or "gemini_flash_db_payload_v2")
+    stage_rpm = _parse_stage_rpm(
+        getattr(args, "stage_rpm", ""),
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+    screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
+    extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
+    screening_tick_tasks = max(1, int(getattr(args, "screening_tick_tasks", stage_rpm.get(screening_stage_key, 15))))
+    extraction_tick_tasks = max(1, int(getattr(args, "extraction_tick_tasks", stage_rpm.get(extraction_stage_key, 15))))
+    day_start_iso = _utc_day_start_iso()
+
+    summary: dict[str, Any] = {
+        "mode": "drain",
+        "dry_run": bool(args.dry_run),
+        "target_open": int(args.target_open),
+        "screening_stage_key": screening_stage_key,
+        "extraction_stage_key": extraction_stage_key,
+        "stage_order": [screening_stage_key, extraction_stage_key],
+        "stage_rpm": {
+            screening_stage_key: int(stage_rpm.get(screening_stage_key, 15)),
+            extraction_stage_key: int(stage_rpm.get(extraction_stage_key, 15)),
+        },
+        "screening_daily_target": screening_daily_target,
+        "extraction_daily_target": extraction_daily_target,
+        "screening_tick_tasks": screening_tick_tasks,
+        "extraction_tick_tasks": extraction_tick_tasks,
+        "interleave_extraction": bool(getattr(args, "interleave_extraction", False)),
+        "day_start_utc": day_start_iso,
+        "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
+        "ai_tasks_used": 0,
+        "daily_ai_tasks_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
+        "stage_summaries": {},
+        "quota_exhausted_stages": [],
+        "cooldowns": [],
+        "stopped_reason": None,
+    }
+
+    screening_completed_today = _count_completed_stage_tasks_since(
+        client,
+        stage_key=screening_stage_key,
+        since_iso=day_start_iso,
+    )
+    extraction_completed_today = _count_completed_stage_tasks_since(
+        client,
+        stage_key=extraction_stage_key,
+        since_iso=day_start_iso,
+    )
+    summary["daily_completed"] = {
+        screening_stage_key: screening_completed_today,
+        extraction_stage_key: extraction_completed_today,
+    }
+
+    if screening_completed_today < screening_daily_target:
+        stage_summary = _tick_stage_summary(
+            summary,
+            screening_stage_key,
+            rpm=int(stage_rpm.get(screening_stage_key, 15)),
+            role="screening",
+            daily_target=screening_daily_target,
+        )
+        queue_counts = _fetch_queue_counts(
+            client,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+        queue_count = int(queue_counts.get(screening_stage_key) or 0)
+        stage_summary["queue_observations"].append(
+            {
+                "total": queue_counts["total"],
+                "queued_for_stage": queue_count,
+                "drain_only": True,
+            }
+        )
+        _log(args, f"{screening_stage_key} drain observation: completed_today={screening_completed_today} queued_for_stage={queue_count}")
+        if queue_count > 0:
+            remaining_today = max(0, screening_daily_target - screening_completed_today)
+            reason = _tick_drain_stage(
+                client,
+                args,
+                stage_key=screening_stage_key,
+                stage_summary=stage_summary,
+                max_tasks=min(screening_tick_tasks, remaining_today, queue_count),
+                summary=summary,
+                role="screening",
+            )
+            if reason == "daily_quota_exhausted":
+                summary["stopped_reason"] = "screening_daily_quota_exhausted"
+            elif reason == "ai_stage_configuration_error":
+                summary["stopped_reason"] = reason
+            elif screening_completed_today + int(stage_summary.get("model_calls") or 0) >= screening_daily_target:
+                stage_summary["daily_target_reached"] = True
+                summary["stopped_reason"] = "screening_daily_target_reached"
+            else:
+                summary["stopped_reason"] = reason
+            if bool(getattr(args, "interleave_extraction", False)) and reason not in {"ai_stage_configuration_error", "daily_quota_exhausted", "dry_run"}:
+                extraction_reason = _tick_drain_extraction_if_available(
+                    client,
+                    args,
+                    summary=summary,
+                    screening_stage_key=screening_stage_key,
+                    extraction_stage_key=extraction_stage_key,
+                    extraction_daily_target=extraction_daily_target,
+                    extraction_tick_tasks=extraction_tick_tasks,
+                    stage_rpm=stage_rpm,
+                    day_start_iso=day_start_iso,
+                )
+                summary["interleaved_extraction_reason"] = extraction_reason
+            return _finish_summary(
+                client,
+                summary,
+                screening_stage_key=screening_stage_key,
+                extraction_stage_key=extraction_stage_key,
+            )
+
+        stage_summary["queue_empty"] = True
+        stage_summary["stop_reason"] = "queue_empty"
+        summary["stopped_reason"] = "no_screening_candidates"
+        if bool(getattr(args, "interleave_extraction", False)):
+            extraction_reason = _tick_drain_extraction_if_available(
+                client,
+                args,
+                summary=summary,
+                screening_stage_key=screening_stage_key,
+                extraction_stage_key=extraction_stage_key,
+                extraction_daily_target=extraction_daily_target,
+                extraction_tick_tasks=extraction_tick_tasks,
+                stage_rpm=stage_rpm,
+                day_start_iso=day_start_iso,
+            )
+            summary["interleaved_extraction_reason"] = extraction_reason
+            if extraction_reason == "tick_complete":
+                summary["stopped_reason"] = "tick_complete"
+            elif extraction_reason == "ai_stage_configuration_error":
+                summary["stopped_reason"] = extraction_reason
+        return _finish_summary(
+            client,
+            summary,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+
+    stage_summary = _tick_stage_summary(
+        summary,
+        extraction_stage_key,
+        rpm=int(stage_rpm.get(extraction_stage_key, 15)),
+        role="extraction",
+        daily_target=extraction_daily_target,
+    )
+    if extraction_completed_today >= extraction_daily_target:
+        stage_summary["daily_target_reached"] = True
+        stage_summary["stop_reason"] = "daily_target_reached"
+        summary["stopped_reason"] = "daily_targets_reached"
+        return _finish_summary(
+            client,
+            summary,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+
+    queue_counts = _fetch_queue_counts(
+        client,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+    queue_count = int(queue_counts.get(extraction_stage_key) or 0)
+    stage_summary["queue_observations"].append(
+        {
+            "total": queue_counts["total"],
+            "queued_for_stage": queue_count,
+            "drain_only": True,
+        }
+    )
+    _log(args, f"{extraction_stage_key} drain observation: completed_today={extraction_completed_today} queued_for_stage={queue_count}")
+    if queue_count <= 0:
+        stage_summary["queue_empty"] = True
+        stage_summary["stop_reason"] = "queue_empty"
+        summary["stopped_reason"] = "no_extraction_candidates"
+        return _finish_summary(
+            client,
+            summary,
+            screening_stage_key=screening_stage_key,
+            extraction_stage_key=extraction_stage_key,
+        )
+
+    reason = _tick_drain_stage(
+        client,
+        args,
+        stage_key=extraction_stage_key,
+        stage_summary=stage_summary,
+        max_tasks=min(extraction_tick_tasks, extraction_daily_target - extraction_completed_today, queue_count),
+        summary=summary,
+        role="extraction",
+    )
+    assignment_after_ai = _assign_new_human_ready_after_ai(client, args, stage_summary)
+    if assignment_after_ai is not None:
+        summary["assignment_after_ai"] = assignment_after_ai
+    if reason == "daily_quota_exhausted":
+        summary["stopped_reason"] = "extraction_daily_quota_exhausted"
+    elif reason == "ai_stage_configuration_error":
+        summary["stopped_reason"] = reason
+    elif extraction_completed_today + int(stage_summary.get("model_calls") or 0) >= extraction_daily_target:
+        stage_summary["daily_target_reached"] = True
+        summary["stopped_reason"] = "daily_targets_reached"
+    else:
+        summary["stopped_reason"] = reason
+    return _finish_summary(
+        client,
+        summary,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
+
+
 def _tick_stage_summary(summary: dict[str, Any], stage_key: str, *, rpm: int, role: str, daily_target: int) -> dict[str, Any]:
     stage_summary = _new_stage_summary(stage_key, rpm=rpm, role=role, daily_target=daily_target)
     summary["stage_summaries"][stage_key] = stage_summary
@@ -1083,7 +1644,8 @@ def _tick_drain_extraction_if_available(
         stage_summary["stop_reason"] = "daily_target_reached"
         return "daily_target_reached"
 
-    _requeue_stale_stage_tasks(client, args, stage_key=extraction_stage_key, stage_summary=stage_summary)
+    if not bool(getattr(args, "drain_only", False)):
+        _requeue_stale_stage_tasks(client, args, stage_key=extraction_stage_key, stage_summary=stage_summary)
     queue_counts = _fetch_queue_counts(
         client,
         screening_stage_key=screening_stage_key,
@@ -1393,7 +1955,11 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
 def main() -> None:
     args = build_parser().parse_args()
     client = require_client()
-    if getattr(args, "tick_mode", False):
+    if getattr(args, "controller_only", False):
+        summary = run_daily_ops_controller(client, args)
+    elif getattr(args, "drain_only", False):
+        summary = run_daily_ops_drain(client, args)
+    elif getattr(args, "tick_mode", False):
         summary = run_daily_ops_tick(client, args)
     else:
         summary = run_daily_ops(client, args)
