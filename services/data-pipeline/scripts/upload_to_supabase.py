@@ -52,6 +52,19 @@ def _is_payload_too_large_error(exc: Exception) -> bool:
     )
 
 
+def _is_duplicate_paper_key_error(exc: Exception) -> bool:
+    values = [type(exc).__name__, str(exc)]
+    for attr in ("status_code", "statusCode", "code", "error", "message", "details"):
+        value = getattr(exc, attr, None)
+        if value not in {None, ""}:
+            values.append(str(value))
+    text = " ".join(values).casefold()
+    return (
+        ("23505" in text or "duplicate key" in text)
+        and ("canonical_key" in text or "idx_papers_canonical_key_unique" in text)
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Upload crawled PDFs and metadata to Supabase.")
     parser.add_argument(
@@ -622,6 +635,34 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
                 skipped_uploads.append(f"{filename}: {reason}")
                 print(f"  Skipped oversized PDF: {reason}")
                 continue
+            if _is_duplicate_paper_key_error(exc):
+                duplicate = _find_existing_paper(supabase, payload, filename)
+                if duplicate:
+                    paper_id = int(duplicate["id"])
+                    duplicate_preserve_human = _paper_has_human_outcome(supabase, paper_id)
+                    duplicate_closed_ai = _existing_paper_has_closed_ai_route(duplicate)
+                    supabase.table("papers").update(
+                        _metadata_refresh_payload(payload, include_filename=False)
+                    ).eq("id", paper_id).execute()
+                    if canonical_key:
+                        paper_id_by_key[canonical_key] = paper_id
+                    if duplicate_preserve_human or duplicate_closed_ai:
+                        reason = "duplicate canonical paper already has a closed route"
+                        skipped_uploads.append(f"{filename}: {reason}; refreshed metadata/search-hit links only")
+                        print(f"  Duplicate canonical paper found; {reason}.")
+                    else:
+                        _enqueue_stage_task(
+                            supabase,
+                            paper_id=paper_id,
+                            stage_config=active_stage,
+                            filter_score=payload.get("filter_score"),
+                            preserve_human_route=False,
+                        )
+                        skipped_uploads.append(
+                            f"{filename}: duplicate canonical paper already exists as paper {paper_id}; reusing row"
+                        )
+                        print(f"  Duplicate canonical paper found; reusing paper {paper_id}.")
+                    continue
             upload_errors.append(f"{filename}: {exc}")
 
     if upload_errors:

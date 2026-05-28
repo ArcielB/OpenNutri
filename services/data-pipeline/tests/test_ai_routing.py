@@ -178,6 +178,8 @@ class FakeTable:
             return FakeResponse(upserted)
 
         if self.action == "insert":
+            if self.name in self.client.insert_errors:
+                raise self.client.insert_errors[self.name]
             payload_rows = self.payload if isinstance(self.payload, list) else [self.payload]
             inserted = [dict(row) for row in payload_rows]
             self.client.tables.setdefault(self.name, []).extend(inserted)
@@ -206,6 +208,7 @@ class FakeSupabaseClient:
         self.storage_uploads: list[tuple[str, str, dict]] = []
         self.storage_buckets: list[tuple[str, dict]] = []
         self.storage_remove_error: Exception | None = None
+        self.insert_errors: dict[str, Exception] = {}
 
     def table(self, name: str) -> FakeTable:
         return FakeTable(self, name)
@@ -1227,6 +1230,111 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["papers"][0]["title"], "Known composition paper")
         self.assertEqual(client.tables["paper_search_hits"][0]["paper_id"], 77)
         self.assertFalse(any(row[0] == "paper_stage_tasks" for row in client.upserts))
+
+    def test_upload_recovers_from_concurrent_canonical_insert_race(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_dir = Path(tmp_dir) / "data"
+            raw_pdf_dir = data_dir / "raw_pdfs"
+            raw_pdf_dir.mkdir(parents=True)
+            pdf_path = raw_pdf_dir / "race.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+            candidate_store_path = data_dir / "search_candidates.json"
+            search_hits_path = data_dir / "search_hits.json"
+            manifest_path = raw_pdf_dir / "_harvest_metadata.json"
+            base_row = {
+                "canonical_key": "doi:10.123/race",
+                "source": "openalex",
+                "source_record_id": "W-race",
+                "external_id": "W-race",
+                "pmcid": None,
+                "doi": "10.123/race",
+                "title": "Concurrent paper",
+                "abstract": "Composition table.",
+                "workflow_language": "en",
+                "query": '"food composition"',
+                "query_text": '"food composition"',
+                "template_id": "base_core_composition",
+                "source_term": None,
+                "term_type": "base",
+                "query_phrase": "food composition",
+                "search_gate_score": 1.2,
+                "search_gate_pass": True,
+                "filter_score": 2.4,
+                "filter_pass": True,
+                "is_duplicate": False,
+            }
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "results": [
+                            {
+                                **base_row,
+                                "status": "success",
+                                "file": str(pdf_path),
+                            }
+                        ],
+                        "candidate_store": str(candidate_store_path),
+                        "search_hits": str(search_hits_path),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            candidate_store_path.write_text(json.dumps({"candidates": [base_row]}), encoding="utf-8")
+            search_hits_path.write_text(json.dumps({"hits": [base_row]}), encoding="utf-8")
+            client = FakeSupabaseClient(
+                tables={
+                    "routing_stage_configs": [
+                        {
+                            "stage_key": "gemma_proof_extraction_v1",
+                            "stage_kind": "ai_model",
+                            "display_name": "Gemma Proof Extraction v1",
+                            "model_name": "gemma-4-31b-it",
+                            "fallback_model_names": ["gemma-4-26b-a4b-it"],
+                            "prompt_version": "opennutri_evidence_payload_v1",
+                            "active": True,
+                            "positive_threshold": 1.0,
+                            "negative_threshold": 1.0,
+                            "audit_rate": 0.02,
+                            "next_stage_on_low_confidence": "gemini_flash_db_payload_v2",
+                            "counts_as_truth": False,
+                            "stage_order": 10,
+                            "next_stage_on_has_data": "gemini_flash_db_payload_v2",
+                            "no_data_route_destination": PROVISIONAL_SKIP_DESTINATION,
+                        }
+                    ],
+                    "papers": [
+                        {
+                            "id": 88,
+                            "canonical_key": "doi:10.123/race",
+                            "filename": "race.pdf",
+                            "routing_status": "queued_for_ai",
+                            "latest_ai_extraction_id": None,
+                        }
+                    ],
+                    "paper_review_outcomes": [],
+                    "paper_stage_tasks": [],
+                    "paper_search_hits": [],
+                    "paper_search_batches": [],
+                    "paper_search_batch_hits": [],
+                }
+            )
+            client.insert_errors["papers"] = RuntimeError(
+                "23505 duplicate key value violates unique constraint idx_papers_canonical_key_unique"
+            )
+
+            with patch("scripts.upload_to_supabase._find_existing_paper") as find_existing_mock:
+                find_existing_mock.side_effect = [None, client.tables["papers"][0]]
+                asyncio.run(
+                    upload_to_supabase.upload_papers(
+                        SimpleNamespace(data_dir=str(data_dir), manifest=str(manifest_path)),
+                        client,
+                    )
+                )
+
+        self.assertEqual(client.storage_uploads[0][1], "race.pdf")
+        self.assertEqual(client.tables["paper_search_hits"][0]["paper_id"], 88)
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["paper_id"], 88)
+        self.assertEqual(client.tables["paper_stage_tasks"][0]["stage_key"], "gemma_proof_extraction_v1")
 
     def test_claim_stage_tasks_calls_rpc_with_requested_limit(self) -> None:
         client = FakeSupabaseClient(rpc_payload=[{"id": "task-1", "paper_id": 11}])
