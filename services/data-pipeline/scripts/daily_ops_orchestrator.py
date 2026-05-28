@@ -1227,6 +1227,21 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             stage_summary["queue_empty"] = True
             stage_summary["stop_reason"] = "queue_empty"
             summary["stopped_reason"] = "source_exhausted"
+            if bool(getattr(args, "interleave_extraction", False)):
+                extraction_reason = _tick_drain_extraction_if_available(
+                    client,
+                    args,
+                    summary=summary,
+                    screening_stage_key=screening_stage_key,
+                    extraction_stage_key=extraction_stage_key,
+                    extraction_daily_target=extraction_daily_target,
+                    extraction_tick_tasks=extraction_tick_tasks,
+                    stage_rpm=stage_rpm,
+                    day_start_iso=day_start_iso,
+                )
+                summary["interleaved_extraction_reason"] = extraction_reason
+                if extraction_reason == "ai_stage_configuration_error":
+                    summary["stopped_reason"] = extraction_reason
             return _finish_summary(
                 client,
                 summary,

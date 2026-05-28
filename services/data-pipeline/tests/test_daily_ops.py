@@ -465,6 +465,49 @@ class DailyOpsTests(unittest.TestCase):
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.assign_ready_papers")
+    def test_tick_interleaves_gemini_when_gemma_source_is_empty(
+        self,
+        assign_mock: Mock,
+        fetch_state_mock: Mock,
+        drain_mock: Mock,
+        crawl_mock: Mock,
+        count_completed_mock: Mock,
+    ) -> None:
+        assign_mock.return_value = {"satisfied": False, "planned_general_queue_papers": 1}
+        count_completed_mock.side_effect = [100, 10, 10]
+        fetch_state_mock.side_effect = [
+            {"papers": queued_papers(EXTRACTION_STAGE, 5)},
+            {"papers": queued_papers(EXTRACTION_STAGE, 5)},
+            {"papers": queued_papers(EXTRACTION_STAGE, 5)},
+        ]
+        drain_mock.return_value = {"processed": 2, "human_ready": 1, "quota_limited": False}
+
+        summary = daily_ops_orchestrator.run_daily_ops_tick(
+            object(),
+            build_args(
+                interleave_extraction=True,
+                extraction_tick_tasks=2,
+                screening_refill_batch_en=15,
+                screening_refill_chunk_en=15,
+            ),
+        )
+
+        self.assertEqual(summary["stopped_reason"], "source_exhausted")
+        self.assertEqual(summary["interleaved_extraction_reason"], "tick_complete")
+        self.assertEqual(summary["screened"], 0)
+        self.assertEqual(summary["gemini_used"], 2)
+        self.assertEqual(summary["human_ready"], 1)
+        crawl_mock.assert_called_once()
+        self.assertEqual(drain_mock.call_count, 1)
+        self.assertEqual(drain_mock.call_args.kwargs["stage_key"], EXTRACTION_STAGE)
+        self.assertEqual(drain_mock.call_args.kwargs["max_tasks"], 2)
+        assign_mock.assert_called_once()
+
+    @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    @patch("scripts.daily_ops_orchestrator.drain_stage_queue")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
     def test_tick_moves_to_gemini_after_daily_gemma_target(
         self,
         fetch_state_mock: Mock,
