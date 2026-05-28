@@ -340,6 +340,28 @@ class DailyOpsTests(unittest.TestCase):
             (7, 0),
         )
 
+    @patch("scripts.daily_ops_orchestrator._count_queued_stage_tasks")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    def test_queue_counts_use_stage_tasks_over_stale_paper_routes(
+        self,
+        fetch_state_mock: Mock,
+        count_tasks_mock: Mock,
+    ) -> None:
+        fetch_state_mock.return_value = {
+            "papers": queued_papers(SCREENING_STAGE, 18) + queued_papers(EXTRACTION_STAGE, 351),
+        }
+        count_tasks_mock.side_effect = [0, 369]
+
+        counts = daily_ops_orchestrator._fetch_queue_counts(
+            object(),
+            screening_stage_key=SCREENING_STAGE,
+            extraction_stage_key=EXTRACTION_STAGE,
+        )
+
+        self.assertEqual(counts["total"], 369)
+        self.assertEqual(counts[SCREENING_STAGE], 0)
+        self.assertEqual(counts[EXTRACTION_STAGE], 369)
+
     @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
     @patch("scripts.daily_ops_orchestrator.drain_stage_queue")

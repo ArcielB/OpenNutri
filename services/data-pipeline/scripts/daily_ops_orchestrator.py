@@ -187,12 +187,37 @@ def _queued_ai_paper_count_for_stage(papers: list[dict], stage_key: str) -> int:
     )
 
 
+def _count_queued_stage_tasks(client: Any, *, stage_key: str) -> int | None:
+    if not hasattr(client, "table"):
+        return None
+    response = (
+        client.table("paper_stage_tasks")
+        .select("id", count="exact")
+        .eq("stage_key", stage_key)
+        .eq("status", "queued")
+        .limit(1)
+        .execute()
+    )
+    count = getattr(response, "count", None)
+    if count is None:
+        return None
+    return int(count)
+
+
 def _fetch_queue_counts(client: Any, *, screening_stage_key: str, extraction_stage_key: str) -> dict[str, int]:
     state = refill_assignment_queue.fetch_state(client)
     papers = state.get("papers", [])
     queued_total = _queued_ai_paper_count(papers)
     queued_screening = _queued_ai_paper_count_for_stage(papers, screening_stage_key)
     queued_extraction = _queued_ai_paper_count_for_stage(papers, extraction_stage_key)
+    screening_task_count = _count_queued_stage_tasks(client, stage_key=screening_stage_key)
+    extraction_task_count = _count_queued_stage_tasks(client, stage_key=extraction_stage_key)
+    if screening_task_count is not None:
+        queued_screening = screening_task_count
+    if extraction_task_count is not None:
+        queued_extraction = extraction_task_count
+    if screening_task_count is not None and extraction_task_count is not None:
+        queued_total = queued_screening + queued_extraction
     if queued_total > 0 and queued_screening <= 0 and queued_extraction <= 0:
         queued_extraction = queued_total
     return {

@@ -117,7 +117,7 @@ Frontend validation currently passes with:
 - Upload/re-upload preserves closed routing state: papers that already have a closed AI route or human outcome can refresh metadata/search-hit audit rows without being sent back through the active model stage, and those closed-route repeats skip Supabase Storage upload so deleted provisional-skip PDFs are not recreated.
 - Oversized PDFs are not allowed to abort an ops batch. Crawler v2 treats PDFs above the shared upload limit as `pdf_fetch` failures before counting them accepted, and `upload_to_supabase.py` skips any oversized local file or Supabase Storage 413 while continuing to persist the rest of the batch. The shared limit defaults to 50 MiB and can be overridden with `OPENNUTRI_MAX_PAPER_PDF_BYTES` or `SUPABASE_PAPER_MAX_UPLOAD_BYTES`.
 - AI-finalized outcomes use `truth_source_kind = ai_model` and remain excluded from human-truth feedback.
-- `process_stage_queue.py` requeues stale `processing` tasks before claiming new work, which lets the next run recover papers left by cancelled GitHub runners or interrupted local workers. It also reports `storage_pdf_deleted` / `storage_cleanup_failed` in stage summaries when provisional no-data skips trigger PDF cleanup.
+- `process_stage_queue.py` requeues stale `processing` tasks before claiming new work, which lets the next run recover papers left by cancelled GitHub runners or interrupted local workers. Daily ops queue/refill decisions count executable queued `paper_stage_tasks` rows, not paper routing rows alone, so stale historical `queued_for_ai` paper summaries cannot block a same-run refill. The stage processor also reports `storage_pdf_deleted` / `storage_cleanup_failed` in stage summaries when provisional no-data skips trigger PDF cleanup.
 - Crawler batch acquisition respects remaining per-language targets, so one strong search batch should not download far beyond the requested English refill size. Before acquisition, crawler v2 merges local terminal crawl state with live `papers.canonical_key` rows from Supabase so already queued, provisional-skipped, human-ready, or finalized papers are not downloaded again; metadata-only `paper_search_hits` rejects are not global skip memory.
 
 ## Ops
@@ -136,7 +136,7 @@ Daily ops order:
 
 1. Count completed Gemma and Gemini `paper_stage_tasks` since UTC midnight.
 2. If today's completed Gemma count is below `--screening-daily-target 1500`, requeue stale Gemma `processing` tasks.
-3. Count queued Gemma work. If queued work is below the next bounded slice target, crawl/upload only the immediate English deficit using 15-paper refill batch/chunk settings and `--refill-step-tr 0`; if queued work is already above the slice target, do not crawl.
+3. Count queued Gemma work from `paper_stage_tasks.status = 'queued'`. If executable queued work is below the next bounded slice target, crawl/upload only the immediate English deficit using 15-paper refill batch/chunk settings and `--refill-step-tr 0`; if queued task work is already above the slice target, do not crawl.
 4. Drain at most `--screening-tick-tasks 15` Gemma tasks, bounded by the remaining daily Gemma target and queued count, then exit.
 5. Once today's completed Gemma count is at least 1500, requeue stale Gemini `processing` tasks.
 6. In scheduled interleaved mode, drain Gemini at highest-priority order for at most `--extraction-tick-tasks 2`, bounded by `--extraction-daily-target 20`, after each Gemma slice when ranked candidates exist; assign any new `human_review_ready` papers immediately.
