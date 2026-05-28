@@ -3,14 +3,15 @@
 This file captures standing instructions and should be updated whenever new instructions are given.
 
 ## Startup checklist
-- Read `INSTRUCTIONS.md` before doing any work.
-- Read the repo's `AGENTS.md` / agent guide before broad codebase exploration; if another instruction set is the default entry point, make sure it points agents back to the repo-specific agent files.
+- Read `/home/arciel/#AgentFiles/INSTRUCTIONS.md` and `/home/arciel/#AgentFiles/AGENTS.md` at the start of every OpenNutri task when they are available; `#AgentFiles` is the operator-level context source and may contain newer local instructions.
+- Read this repo's `INSTRUCTIONS.md` before doing any work, then read the repo's `AGENTS.md` / agent guide before broad codebase exploration; if another instruction set is the default entry point, make sure it points agents back to both `#AgentFiles` and the repo-specific agent files.
 - **Always `git fetch` first and reconcile with `origin/main` before anything else.** Teammates push throughout the day; reasoning against a stale local clone will misread the state of BACKLOG.md, code, and "is this done yet" claims. If the working tree is clean, fast-forward (`git pull --ff-only`). If there are uncommitted changes, fetch but do not auto-merge — flag the divergence to the user and decide before continuing.
-- Review `Keys and links` for required credentials/URLs before running operations that need them.
-- Use `Keys and links` as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
+- Review `/home/arciel/#AgentFiles/Keys and links` and repo-local `Keys and links` for required credentials/URLs before running operations that need them.
+- Use the available `Keys and links` files as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
 
 - Commit every change you make once it is in a known working state.
-- Commit and push every time something is known to be working.
+- Commit and push every time something is known to be working; do not leave validated local-only commits sitting around.
+- When a validated change affects the deployable annotator frontend under `apps/expert-annotator/`, deploy it to Vercel after the commit/push and report the live deployment state.
 - Always read `INSTRUCTIONS.md` at the start of each task/session before doing work.
 - If you change the schema or `apps/expert-annotator/migration.sql`, apply that migration to the real target database in the same task unless the user explicitly says not to or there is a concrete blocker. Call out DB state explicitly.
 - Edit `BACKLOG.md` whenever backlog-related changes happen.

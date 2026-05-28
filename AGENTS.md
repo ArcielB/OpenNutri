@@ -3,10 +3,10 @@
 Use this file to keep context narrow. Read this first, then open only the files relevant to the current task.
 
 ## Startup Order
-1. Read `INSTRUCTIONS.md`.
+1. Read `/home/arciel/#AgentFiles/INSTRUCTIONS.md` and `/home/arciel/#AgentFiles/AGENTS.md` when available, then read this repo's `INSTRUCTIONS.md`. `#AgentFiles` is the operator-level context source and must be checked at the start of every OpenNutri task.
 2. **Always `git fetch` and check whether `origin/main` is ahead before doing anything else.** Other teammates push throughout the day. If `origin/main` is ahead and the working tree is clean, fast-forward (`git pull --ff-only`). If the working tree has uncommitted changes, surface the divergence to the user before merging — do not silently rebase or auto-merge. Reasoning before reading code, before writing the BACKLOG, before any "is this implemented yet" check must be done against the freshly fetched tip, not the local snapshot.
 3. Check `git status --short` before editing so you do not disturb local run artifacts or user changes.
-4. Read `Keys and links` only if the task needs credentials, network calls, or database writes. Use it as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
+4. Read `/home/arciel/#AgentFiles/Keys and links` and repo-local `Keys and links` only if the task needs credentials, network calls, or database writes. Use the available `Keys and links` files as the source for GitHub auth when `git fetch`, `git pull`, or `git push` needs credentials.
 5. Read `README.md` or `docs/handoff_2026-03-20/STATE.md` only for the subsystem you are touching.
 6. For reviewer-queue, approval, dashboard, or reviewer-truth tasks, read `docs/reviewer_workflow_map.md` before re-deriving the workflow from code.
 
@@ -47,7 +47,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Prefer durable fixes that update the underlying automation or workflow, not one-off cleanup. If an emergency manual mitigation is needed, follow it by changing the code, scheduled job, docs, or standing ops process so the same issue does not recur silently.
 - Preserve existing user-visible behavior unless the task explicitly asks to change it. When touching the annotator workflow, check for previously documented affordances such as AI prefill, Details panels, approval visibility, tester read-only mode, and queue removal rules before replacing or simplifying UI.
 - Commit every change you make once it is in a known working state.
-- Push every working commit soon after it is validated; do not leave validated local-only commits sitting around.
+- Push every working commit soon after it is validated; do not leave validated local-only commits sitting around or wait for a large batch.
 - When a task changes the deployable annotator frontend under `apps/expert-annotator/`, deploy it to Vercel in the same task after the validated commit/push unless the user explicitly says not to, and report the production deployment state.
 - Do not use hard-negative veto logic in crawler/ranking relevance decisions. Prefer additive scoring and soft penalties. If a true hard reject seems necessary, stop and discuss it first.
 - When a task changes `apps/expert-annotator/migration.sql` or otherwise changes the live schema, apply that migration to the target database in the same task unless the user explicitly says not to or there is a concrete blocker. Do not stop at the file edit without calling out the DB state.
@@ -117,9 +117,9 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Run one daily ops tick locally: `python3 services/data-pipeline/scripts/daily_ops_orchestrator.py --json-summary --tick-mode --interleave-extraction --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 --max-wallclock-minutes 0 --screening-daily-target 1500 --screening-tick-tasks 15 --extraction-daily-target 20 --extraction-tick-tasks 2 --screening-refill-batch-en 15 --screening-refill-chunk-en 15 --screening-prefill-stall-limit 3 --refill-step-tr 0`
 
 ## Secrets
-- `Keys and links` is the main local source for GitHub, Supabase, and database credentials.
-- For Supabase database access, prefer the shared/session pooler connection from `Keys and links` on IPv4 networks; use the direct connection on IPv6-capable networks if the pooler path is unavailable.
-- For GitHub network operations, use the GitHub token from `Keys and links` through a non-interactive auth path such as `GIT_ASKPASS`; do not rely on memory or interactive prompts.
+- `/home/arciel/#AgentFiles/Keys and links` and repo-local `Keys and links` are the local sources for GitHub, Supabase, and database credentials.
+- For Supabase database access, prefer the shared/session pooler connection from the available `Keys and links` files on IPv4 networks; use the direct connection on IPv6-capable networks if the pooler path is unavailable.
+- For GitHub network operations, use the GitHub token from the available `Keys and links` files through a non-interactive auth path such as `GIT_ASKPASS`; do not rely on memory or interactive prompts.
 - Runtime credentials must come from environment variables or local secret stores. Do not reintroduce hardcoded API keys, database URLs, Supabase service-role keys, personal access tokens, or test passwords in tracked files.
 - If a secret is exposed in git history or a public repository alert, treat it as compromised: remove current tracked occurrences, rotate/revoke the secret at the provider, and discuss history rewriting/force-push before attempting it.
 - Never copy secret values into `AGENTS.md`, `README.md`, commits, tickets, or model responses.
