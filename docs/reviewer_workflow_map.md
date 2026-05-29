@@ -1,6 +1,6 @@
 # OpenNutri Reviewer Workflow Map
 
-Last verified: 2026-05-13 against `apps/expert-annotator/src/pages/Annotate.jsx`, `apps/expert-annotator/migration.sql`, `services/data-pipeline/scripts/refill_assignment_queue.py`, `services/data-pipeline/scripts/daily_ops_orchestrator.py`, and `services/data-pipeline/scripts/ensure_paper_stock.py`.
+Last verified: 2026-05-29 against `apps/expert-annotator/src/pages/Annotate.jsx`, `apps/expert-annotator/src/views/PipelineOpsView.jsx`, `apps/expert-annotator/migration.sql`, `services/data-pipeline/scripts/refill_assignment_queue.py`, `services/data-pipeline/scripts/daily_ops_orchestrator.py`, and `services/data-pipeline/scripts/ensure_paper_stock.py`.
 
 This is the maintained internal map for the active reviewer workflow. The old slot/cross-check workflow remains in historical tables only; do not use it as the source of truth for new work.
 
@@ -8,7 +8,7 @@ This is the maintained internal map for the active reviewer workflow. The old sl
 
 Current live flow:
 
-`crawl -> upload -> Gemma proof extraction -> Gemini extraction -> human_review_ready shared queue -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`
+`crawl -> upload -> Small model screening -> Medium model triage -> Strong model extraction -> human_review_ready shared queue -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`
 
 Important consequences:
 
@@ -93,8 +93,8 @@ Core RPCs:
 
 - Visible to cockpit/approver accounts.
 - Shows two simple blocks: current queue counts and an all-time-by-default paper funnel.
-- Current queue counts show papers waiting for Gemma, Gemma running, waiting for Gemini, Gemini running, ready for labelers, waiting approval, and AI failed.
-- The funnel shows how many papers reached each major step: found by search, passed first filter, PDF saved, sent to Gemma, kept by Gemma, sent to Gemini, sent to humans, and accepted by humans.
+- Current queue counts show papers waiting/running at the Small, Medium, and Strong model stages, ready for labelers, waiting approval, and AI failed.
+- The funnel shows how many papers reached each major step: found by search, passed first filter, PDF saved, sent to the Small model, kept by the Small model, sent to the Medium model, kept by the Medium model, sent to the Strong model, kept by the Strong model, and accepted by humans. The model-role counters are stage counters, not model-name counters: Gemma 26B/31B or future Small-model swaps stay under Small model, and Gemini preview/3.5/future Strong-model swaps stay under Strong model. Historical direct Small -> Strong papers from before the Medium stage existed are counted as if they entered and were accepted by Medium.
 - The only visible filter is time. Keep this screen presentation-first and easy to understand for non-technical viewers; deeper paper-level debugging belongs in separate admin tooling.
 
 ### Useful Papers

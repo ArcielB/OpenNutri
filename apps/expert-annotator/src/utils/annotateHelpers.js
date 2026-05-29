@@ -159,6 +159,10 @@ function countStageRejects(stage) {
   return toNumber(stage.rejected) + toNumber(stage.provisional_skips) + toNumber(stage.failed)
 }
 
+function getModelStageBackfill(snapshot, key) {
+  return toNumber(snapshot?.model_stage_backfill?.[key])
+}
+
 export function buildPipelineSteps(snapshot) {
   const crawler = snapshot?.crawler || {}
   const papers = snapshot?.papers || {}
@@ -181,10 +185,13 @@ export function buildPipelineSteps(snapshot) {
   const smallRejected = countStageRejects(small)
   const mediumRejected = countStageRejects(medium)
   const strongRejected = countStageRejects(strong)
-  const hasLegacyDirectStrong = strongEntered > mediumEntered
-  const mediumEnteredForFunnel = Math.max(mediumEntered, strongEntered)
+  const exactLegacyDirectStrong = getModelStageBackfill(snapshot, 'legacy_direct_strong_without_medium')
+  const fallbackLegacyDirectStrong = Math.max(0, strongEntered - mediumEntered)
+  const legacyDirectStrong = snapshot?.model_stage_backfill ? exactLegacyDirectStrong : fallbackLegacyDirectStrong
+  const hasLegacyDirectStrong = legacyDirectStrong > 0
+  const mediumEnteredForFunnel = mediumEntered + legacyDirectStrong
   const smallKept = Math.max(toNumber(small.accepted), mediumEnteredForFunnel)
-  const mediumKept = Math.max(toNumber(medium.accepted), strongEntered)
+  const mediumKept = Math.max(toNumber(medium.passed_next) + legacyDirectStrong, strongEntered)
   const strongKept = toNumber(strong.passed_next)
 
   return [

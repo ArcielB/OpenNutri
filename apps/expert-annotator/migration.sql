@@ -4633,6 +4633,7 @@ DECLARE
     v_papers JSONB;
     v_routing JSONB;
     v_stages JSONB;
+    v_model_stage_backfill JSONB;
     v_human JSONB;
     v_recent_errors JSONB;
     v_trace JSONB := NULL;
@@ -4868,6 +4869,32 @@ BEGIN
     WHERE c.stage_kind = 'ai_model';
 
     SELECT jsonb_build_object(
+        'legacy_direct_strong_without_medium', (
+            SELECT count(*)
+            FROM paper_stage_tasks strong_task
+            JOIN papers p ON p.id = strong_task.paper_id
+            WHERE strong_task.stage_key = 'gemini_flash_db_payload_v2'
+              AND (p_start_at IS NULL OR strong_task.created_at >= p_start_at)
+              AND (p_end_at IS NULL OR strong_task.created_at < p_end_at)
+              AND (v_language IS NULL OR p.workflow_language = v_language)
+              AND (p_paper_id IS NULL OR p.id = p_paper_id)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM paper_stage_tasks medium_task
+                  WHERE medium_task.paper_id = strong_task.paper_id
+                    AND medium_task.stage_key = 'gemini_flash_lite_triage_v1'
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM ai_extractions medium_ai
+                  WHERE medium_ai.paper_id = strong_task.paper_id
+                    AND medium_ai.stage_key = 'gemini_flash_lite_triage_v1'
+              )
+        )
+    )
+    INTO v_model_stage_backfill;
+
+    SELECT jsonb_build_object(
         'ready_current', count(*) FILTER (WHERE p.routing_status = 'human_review_ready'),
         'submitted', (
             SELECT count(*)
@@ -5099,6 +5126,7 @@ BEGIN
         'papers', coalesce(v_papers, '{}'::jsonb),
         'routing_status', coalesce(v_routing, '[]'::jsonb),
         'stages', coalesce(v_stages, '[]'::jsonb),
+        'model_stage_backfill', coalesce(v_model_stage_backfill, '{}'::jsonb),
         'human_review', coalesce(v_human, '{}'::jsonb),
         'recent_errors', coalesce(v_recent_errors, '[]'::jsonb),
         'paper_trace', v_trace
