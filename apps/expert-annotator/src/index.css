@@ -2397,7 +2397,7 @@ body {
 
 .pipeline-queue-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
   gap: 10px;
 }
 
@@ -2415,9 +2415,18 @@ body {
 }
 
 .pipeline-queue-card span {
+  display: block;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.pipeline-queue-card .pipeline-queue-card-detail {
+  margin-bottom: 3px;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .pipeline-queue-card strong {

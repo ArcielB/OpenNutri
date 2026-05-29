@@ -5,7 +5,7 @@ import {
   formatCount,
   formatDate,
   formatPercent,
-  getPipelineStage,
+  getPipelineModelStageViews,
   toNumber,
 } from '../utils/annotateHelpers'
 
@@ -18,16 +18,27 @@ export default function PipelineOpsView({
   onRefresh,
 }) {
   const steps = useMemo(() => buildPipelineSteps(snapshot), [snapshot])
-  const gemma = getPipelineStage(snapshot, 'gemma_proof_extraction_v1')
-  const gemini = getPipelineStage(snapshot, 'gemini_flash_db_payload_v2')
+  const modelStages = useMemo(() => getPipelineModelStageViews(snapshot), [snapshot])
   const human = snapshot?.human_review || {}
   const papers = snapshot?.papers || {}
   const maxCount = Math.max(...steps.map((step) => step.count), 1)
   const queueCards = [
-    { key: 'gemma-queued', label: 'Waiting for Gemma', value: gemma.queued, tone: 'blue' },
-    { key: 'gemma-processing', label: 'Gemma running', value: gemma.processing, tone: 'yellow' },
-    { key: 'gemini-queued', label: 'Waiting for Gemini', value: gemini.queued, tone: 'blue' },
-    { key: 'gemini-processing', label: 'Gemini running', value: gemini.processing, tone: 'yellow' },
+    ...modelStages.flatMap((modelStage) => [
+      {
+        key: `${modelStage.stageKey}-queued`,
+        label: modelStage.label,
+        detail: 'Waiting',
+        value: modelStage.stage.queued,
+        tone: 'blue',
+      },
+      {
+        key: `${modelStage.stageKey}-processing`,
+        label: modelStage.label,
+        detail: 'Running',
+        value: modelStage.stage.processing,
+        tone: 'yellow',
+      },
+    ]),
     { key: 'human-ready', label: 'Ready for labelers', value: human.ready_current, tone: 'green' },
     { key: 'approval', label: 'Waiting approval', value: human.pending_approval_current, tone: 'yellow' },
     { key: 'failed', label: 'AI failed', value: papers.ai_failed_current, tone: 'red' },
@@ -62,7 +73,10 @@ export default function PipelineOpsView({
         <div className="pipeline-queue-grid">
           {queueCards.map((card) => (
             <div className={`pipeline-queue-card pipeline-queue-${card.tone}`} key={card.key}>
-              <span>{card.label}</span>
+              <div>
+                {card.detail && <span className="pipeline-queue-card-detail">{card.detail}</span>}
+                <span>{card.label}</span>
+              </div>
               <strong>{formatCount(card.value)}</strong>
             </div>
           ))}

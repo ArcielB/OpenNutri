@@ -4,6 +4,7 @@ import {
   getAiDecisionKind,
   getAiPrefillStats,
   getNormalizationSummary,
+  formatModelStageLabel,
 } from '../utils/annotateHelpers'
 
 export default function AiDetailPanel({ extraction }) {
@@ -19,7 +20,7 @@ export default function AiDetailPanel({ extraction }) {
         <div>
           <div className="ai-detail-title">AI Extraction Detail</div>
           <div className="table-secondary-line">
-            {extraction?.stage_key || 'No stage'} · {extraction?.prompt_version || 'No prompt version'}
+            {formatModelStageLabel(extraction)} · {extraction?.prompt_version || 'No prompt version'}
           </div>
         </div>
         <div className="reviewer-admin-badges">

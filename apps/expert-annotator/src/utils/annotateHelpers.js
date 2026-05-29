@@ -77,12 +77,96 @@ export function getPipelineStage(snapshot, stageKey) {
   return (snapshot?.stages || []).find((stage) => stage.stage_key === stageKey) || {}
 }
 
+export const MODEL_STAGE_DEFINITIONS = [
+  {
+    stageKey: 'gemma_proof_extraction_v1',
+    roleLabel: 'Small model',
+    cheapnessNote: 'screens many papers cheaply',
+  },
+  {
+    stageKey: 'gemini_flash_lite_triage_v1',
+    roleLabel: 'Medium model',
+    cheapnessNote: 're-ranks the strongest candidates',
+  },
+  {
+    stageKey: 'gemini_flash_db_payload_v2',
+    roleLabel: 'Strong model',
+    cheapnessNote: 'does final DB-compliant extraction',
+  },
+]
+
+const MODEL_STAGE_BY_KEY = Object.fromEntries(MODEL_STAGE_DEFINITIONS.map((stage) => [stage.stageKey, stage]))
+
+function formatModelSuffix(suffix) {
+  return suffix
+    .split('-')
+    .filter(Boolean)
+    .map((part) => {
+      if (/^\d+b$/i.test(part)) return part.toUpperCase()
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+    })
+    .join('-')
+}
+
+export function formatModelSpecification(modelName) {
+  const rawName = String(modelName || '').trim()
+  if (!rawName) return ''
+  const normalized = rawName.toLowerCase()
+  const knownModelNames = {
+    'gemma-4-31b-it': 'Gemma 31B',
+    'gemma-4-26b-a4b-it': 'Gemma 26B',
+    'gemini-3.1-flash-lite': 'Gemini 3.1 Flash-Lite',
+    'gemini-3.5-flash': 'Gemini 3.5 Flash',
+    'gemini-3-flash-preview': 'Gemini 3 Flash Preview',
+  }
+  if (knownModelNames[normalized]) return knownModelNames[normalized]
+
+  const gemmaMatch = normalized.match(/^gemma-\d+(?:\.\d+)?-(\d+b)(?:-.+)?$/i)
+  if (gemmaMatch) return `Gemma ${gemmaMatch[1].toUpperCase()}`
+
+  const geminiMatch = normalized.match(/^gemini-([0-9.]+)-(.+)$/i)
+  if (geminiMatch) return `Gemini ${geminiMatch[1]} ${formatModelSuffix(geminiMatch[2])}`
+
+  return rawName
+    .split('-')
+    .filter(Boolean)
+    .map((part) => (part.length <= 3 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()))
+    .join(' ')
+}
+
+export function getModelStageRoleLabel(stageKey) {
+  return MODEL_STAGE_BY_KEY[stageKey]?.roleLabel || 'Model stage'
+}
+
+export function formatModelStageLabel(stageLike) {
+  const roleLabel = getModelStageRoleLabel(stageLike?.stage_key || stageLike?.stageKey)
+  const modelSpec = formatModelSpecification(stageLike?.model_name)
+  return modelSpec ? `${roleLabel} (${modelSpec})` : roleLabel
+}
+
+export function getPipelineModelStageViews(snapshot) {
+  return MODEL_STAGE_DEFINITIONS.map((definition) => {
+    const stage = getPipelineStage(snapshot, definition.stageKey)
+    return {
+      ...definition,
+      stage,
+      label: formatModelStageLabel({ stage_key: definition.stageKey, model_name: stage.model_name }),
+    }
+  })
+}
+
+function countStageRejects(stage) {
+  return toNumber(stage.rejected) + toNumber(stage.provisional_skips) + toNumber(stage.failed)
+}
+
 export function buildPipelineSteps(snapshot) {
   const crawler = snapshot?.crawler || {}
   const papers = snapshot?.papers || {}
   const human = snapshot?.human_review || {}
-  const gemma = getPipelineStage(snapshot, 'gemma_proof_extraction_v1')
-  const gemini = getPipelineStage(snapshot, 'gemini_flash_db_payload_v2')
+  const [smallStage, mediumStage, strongStage] = getPipelineModelStageViews(snapshot)
+  const small = smallStage.stage
+  const medium = mediumStage.stage
+  const strong = strongStage.stage
   const hasBatchCounts = toNumber(crawler.batch_results) > 0
   const searchEntered = hasBatchCounts ? toNumber(crawler.batch_results) : toNumber(crawler.search_hits)
   const searchPassed = hasBatchCounts ? toNumber(crawler.batch_filter_passed) : toNumber(crawler.metadata_passed)
@@ -90,11 +174,18 @@ export function buildPipelineSteps(snapshot) {
     ? toNumber(crawler.batch_search_gate_rejected) + toNumber(crawler.batch_metadata_rejected) + toNumber(crawler.batch_duplicates)
     : toNumber(crawler.search_gate_rejected) + toNumber(crawler.metadata_rejected) + toNumber(crawler.duplicates)
   const uploadEntered = searchPassed
-  const uploadAccepted = Math.max(toNumber(crawler.batch_accepted), toNumber(papers.uploaded), toNumber(gemma.entered))
-  const gemmaRejected = toNumber(gemma.rejected) + toNumber(gemma.provisional_skips) + toNumber(gemma.failed)
-  const geminiRejected = toNumber(gemini.rejected) + toNumber(gemini.provisional_skips) + toNumber(gemini.failed)
-  const geminiEntered = toNumber(gemini.entered)
-  const gemmaKept = Math.max(toNumber(gemma.accepted), geminiEntered)
+  const smallEntered = toNumber(small.entered)
+  const mediumEntered = toNumber(medium.entered)
+  const strongEntered = toNumber(strong.entered)
+  const uploadAccepted = Math.max(toNumber(crawler.batch_accepted), toNumber(papers.uploaded), smallEntered)
+  const smallRejected = countStageRejects(small)
+  const mediumRejected = countStageRejects(medium)
+  const strongRejected = countStageRejects(strong)
+  const hasLegacyDirectStrong = strongEntered > mediumEntered
+  const mediumEnteredForFunnel = Math.max(mediumEntered, strongEntered)
+  const smallKept = Math.max(toNumber(small.accepted), mediumEnteredForFunnel)
+  const mediumKept = Math.max(toNumber(medium.accepted), strongEntered)
+  const strongKept = toNumber(strong.passed_next)
 
   return [
     {
@@ -119,32 +210,48 @@ export function buildPipelineSteps(snapshot) {
       note: 'The paper PDF was downloaded and stored.',
     },
     {
-      key: 'gemma-start',
-      label: 'Sent to Gemma',
-      count: toNumber(gemma.entered),
-      rejectedHere: Math.max(0, uploadAccepted - toNumber(gemma.entered)),
-      note: 'Gemma checks many papers cheaply.',
+      key: 'small-start',
+      label: `Sent to ${smallStage.label}`,
+      count: smallEntered,
+      rejectedHere: Math.max(0, uploadAccepted - smallEntered),
+      note: `${smallStage.roleLabel} ${smallStage.cheapnessNote}.`,
     },
     {
-      key: 'gemma-useful',
-      label: 'Gemma kept',
-      count: gemmaKept,
-      rejectedHere: gemmaRejected,
-      note: 'Gemma found possible usable data.',
+      key: 'small-useful',
+      label: `${smallStage.label} kept`,
+      count: smallKept,
+      rejectedHere: smallRejected,
+      note: `${smallStage.roleLabel} found possible usable data.`,
     },
     {
-      key: 'gemini-start',
-      label: 'Sent to Gemini',
-      count: geminiEntered,
-      rejectedHere: Math.max(0, gemmaKept - geminiEntered),
-      note: 'Only the best candidates use Gemini.',
+      key: 'medium-start',
+      label: `Sent to ${mediumStage.label}`,
+      count: mediumEnteredForFunnel,
+      rejectedHere: Math.max(0, smallKept - mediumEnteredForFunnel),
+      note: hasLegacyDirectStrong
+        ? 'Includes older candidates that went direct before the medium stage existed.'
+        : `Only the best ${smallStage.roleLabel.toLowerCase()} candidates reach this stage.`,
     },
     {
-      key: 'gemini-useful',
-      label: 'Sent to humans',
-      count: toNumber(gemini.passed_next),
-      rejectedHere: geminiRejected,
-      note: 'Gemini produced usable rows.',
+      key: 'medium-useful',
+      label: `${mediumStage.label} kept`,
+      count: mediumKept,
+      rejectedHere: mediumRejected,
+      note: `${mediumStage.roleLabel} sends its best candidates to the final model.`,
+    },
+    {
+      key: 'strong-start',
+      label: `Sent to ${strongStage.label}`,
+      count: strongEntered,
+      rejectedHere: Math.max(0, mediumKept - strongEntered),
+      note: `${strongStage.roleLabel} handles the smallest and highest-priority slice.`,
+    },
+    {
+      key: 'strong-useful',
+      label: `${strongStage.label} kept`,
+      count: strongKept,
+      rejectedHere: strongRejected,
+      note: 'DB-compliant usable rows enter human review.',
     },
     {
       key: 'human',

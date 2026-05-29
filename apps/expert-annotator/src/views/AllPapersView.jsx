@@ -4,6 +4,7 @@ import {
   buildLatestAiExtractionMaps,
   formatDate,
   formatDecisionLabel,
+  formatModelStageLabel,
   formatRouteDestinationLabel,
   formatRoutingStatusLabel,
   formatStatusLabel,
@@ -89,6 +90,8 @@ export default function AllPapersView({ cockpitData, reviewerById, onRefresh }) 
                               </span>
                             </div>
                             <span className="table-secondary-line">
+                              {formatModelStageLabel(latestAiExtraction)}
+                              {' · '}
                               conf {latestAiExtraction.overall_confidence == null ? '-' : Number(latestAiExtraction.overall_confidence).toFixed(2)}
                               {' · '}
                               {formatRouteDestinationLabel(latestAiExtraction.route_destination)}

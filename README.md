@@ -39,7 +39,7 @@ Features:
 - Exact-match general submission snapshots are stored in `paper_label_submissions`; accepted/corrected reviewer payloads and mistake diffs are stored in `paper_label_approvals`.
 - Cockpit users can inspect general queue health, pending approval, labeler performance, source yield, and detailed correction history.
 - Cockpit users can also inspect AI-routing state, edit stage thresholds (`positive_threshold`, `negative_threshold`, `audit_rate`), and review each useful paper's latest normalized AI extraction from the Useful Papers screen.
-- Cockpit users can inspect a simple Pipeline funnel from crawler search to PDF acquisition, Gemma, Gemini, and human review. The view defaults to all time, supports time filtering, and separates current queue counts from the paper-count funnel.
+- Cockpit users can inspect a simple Pipeline funnel from crawler search to PDF acquisition, Small model, Medium model, Strong model, and human review. The model-stage UI keeps those role names stable and shows the current model specification in parentheses, for example `Small model (Gemma 31B)`.
 - The cockpit-only Useful Papers view shows useful paper routing state, latest AI extraction details, general submissions, approval status, and final outcomes. Provisional AI no-data skips are hidden from this default overview.
 - Cockpit write actions remain restricted to non-tester cockpit users through `current_user_has_cockpit_write_access()`.
 - Test mode toggle to disable DB writes and store actions locally.

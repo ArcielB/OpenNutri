@@ -73,7 +73,7 @@ If you change highlighting behavior:
 
 ## Cockpit Ops
 
-The cockpit `Pipeline` tab is backed by `get_pipeline_ops_snapshot`. After schema changes, apply `migration.sql` before deploying the frontend so the tab can read crawler, stage-task, AI, and human-review aggregates.
+The cockpit `Pipeline` tab is backed by `get_pipeline_ops_snapshot`. It displays the model cascade as stable role names with the current model spec in parentheses: `Small model (...)`, `Medium model (...)`, and `Strong model (...)`. After schema changes, apply `migration.sql` before deploying the frontend so the tab can read crawler, stage-task, AI, and human-review aggregates.
 
 ## Deployment
 
