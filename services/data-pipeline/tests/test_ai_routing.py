@@ -38,8 +38,10 @@ from scripts.backfill_ai_routing import (
 from scripts.process_stage_queue import (
     claim_stage_tasks,
     drain_stage_queue,
+    format_exception_for_storage,
     is_non_retryable_model_error,
     is_quota_error,
+    is_retryable_model_error,
     process_one_task,
     requeue_stale_processing_tasks,
     score_followup_priority,
@@ -697,6 +699,73 @@ class RoutingLogicTests(unittest.TestCase):
                 normalized_payload_json=payload,
             ),
         )
+
+    def test_followup_priority_uses_unsupported_raw_rows_as_screening_signal(self) -> None:
+        raw_result = Mock(
+            overall_confidence=0.82,
+            paper_decision_confidence=0.84,
+            extraction_confidence=0.2,
+            reasoning="Direct food composition table with per 100 g values.",
+            paper_type="ordinary_food_composition",
+            database_value="high",
+            raw_response_text="",
+            data=[
+                {
+                    "food_name": "Apple",
+                    "nutrient_name": "Iron",
+                    "amount": 1.2,
+                    "unit": "mg",
+                    "basis": "dry matter",
+                    "source_citation": "Table 1",
+                    "table_label": "Table 1",
+                }
+            ],
+        )
+        empty_result = Mock(
+            overall_confidence=0.82,
+            paper_decision_confidence=0.84,
+            extraction_confidence=0.2,
+            reasoning="Direct food composition table with per 100 g values.",
+            paper_type="ordinary_food_composition",
+            database_value="high",
+            raw_response_text="",
+            data=[],
+        )
+        payload = {"decision_kind": "no_usable_data", "food_items": []}
+
+        self.assertGreater(
+            score_followup_priority(
+                ai_result=raw_result,
+                normalization_summary={
+                    "accepted_row_count": 0,
+                    "rejected_row_count": 1,
+                    "rejection_reasons": {"unsupported_unit_or_basis": 1},
+                },
+                normalized_payload_json=payload,
+                paper_title="Nutritional composition of apple products",
+            ),
+            score_followup_priority(
+                ai_result=empty_result,
+                normalization_summary={
+                    "accepted_row_count": 0,
+                    "rejected_row_count": 0,
+                    "rejection_reasons": {},
+                },
+                normalized_payload_json=payload,
+                paper_title="Nutritional composition of apple products",
+            ),
+        )
+
+    def test_blank_exception_text_preserves_type_repr_and_retry_classification(self) -> None:
+        class BlankTimeoutError(TimeoutError):
+            def __str__(self) -> str:
+                return ""
+
+        error_text = format_exception_for_storage(BlankTimeoutError())
+
+        self.assertIn("BlankTimeoutError", error_text)
+        self.assertIn("repr=", error_text)
+        self.assertTrue(is_retryable_model_error(error_text))
 
 
 class StockAndFeedbackTests(unittest.TestCase):
@@ -2324,6 +2393,72 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.upserts[0][1]["stage_key"], "gemini_flash_db_payload_v2")
         self.assertEqual(client.inserts[0][1][0]["normalized_payload_json"], {"decision_kind": "no_usable_data", "food_items": []})
         self.assertEqual(client.inserts[0][1][0]["route_destination"], "next_stage")
+
+    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    def test_raw_positive_screening_rows_enqueue_followup_with_nonzero_priority(self, _extract_mock: Mock) -> None:
+        client = FakeSupabaseClient(
+            tables={
+                "papers": [
+                    {
+                        "id": 20,
+                        "title": "Nutritional composition of apple products",
+                        "doi": "10.123/raw-positive",
+                        "filename": "paper.pdf",
+                        "latest_ai_extraction_id": None,
+                    }
+                ],
+                "paper_review_outcomes": [],
+                "paper_stage_tasks": [{"id": "task-20", "paper_id": 20, "status": "processing"}],
+            }
+        )
+        stage = RoutingStageConfig(
+            stage_key="gemma_proof_extraction_v1",
+            stage_kind="ai_model",
+            display_name="Gemma Proof Extraction v1",
+            model_name="gemma-4-26b-a4b-it",
+            prompt_version="opennutri_master_payload_v1",
+            active=True,
+            positive_threshold=1.0,
+            negative_threshold=1.0,
+            audit_rate=0.0,
+            next_stage_on_low_confidence="gemini_flash_db_payload_v2",
+            counts_as_truth=False,
+            next_stage_on_has_data="gemini_flash_db_payload_v2",
+            no_data_route_destination=PROVISIONAL_SKIP_DESTINATION,
+        )
+        evaluator = Mock()
+        evaluator.evaluate_and_extract.return_value = Mock(
+            is_useful=True,
+            decision_kind="has_data",
+            reasoning="Likely direct composition table, but Gemma used an unsupported basis.",
+            overall_confidence=0.62,
+            paper_decision_confidence=0.62,
+            extraction_confidence=0.2,
+            data=[
+                {
+                    "food_name": "Apple",
+                    "nutrient_name": "Iron",
+                    "amount": 1.2,
+                    "unit": "mg",
+                    "basis": "dry matter",
+                    "source_citation": "Table 1",
+                    "table_label": "Table 1",
+                },
+            ],
+            raw_response_text="{}",
+        )
+
+        result = process_one_task(
+            client,
+            task={"id": "task-20", "paper_id": 20},
+            stage_config=stage,
+            evaluator=evaluator,
+        )
+
+        self.assertEqual(result["status"], "queued_for_ai")
+        self.assertTrue(result["raw_positive_followup"])
+        self.assertGreater(client.upserts[0][1]["priority"], 0)
+        self.assertEqual(client.inserts[0][1][0]["normalized_payload_json"], {"decision_kind": "no_usable_data", "food_items": []})
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ def main():
             # Upsert into ai_extractions
             extract_payload = {
                 "paper_id": paper_id,
-                "model_name": "gemini-3-flash-preview",
+                "model_name": "gemini-3.5-flash",
                 "is_useful": data.get("is_useful", False),
                 "reasoning": data.get("reasoning"),
                 "overall_confidence": data.get("overall_confidence"),
@@ -67,7 +67,7 @@ def main():
             
             # Use upsert based on paper_id and model_name if possible, 
             # but since we don't have a unique constraint yet, we'll just check existence
-            existing = supabase.table("ai_extractions").select("id").eq("paper_id", paper_id).eq("model_name", "gemini-3-flash-preview").execute()
+            existing = supabase.table("ai_extractions").select("id").eq("paper_id", paper_id).eq("model_name", "gemini-3.5-flash").execute()
             
             if existing.data:
                 supabase.table("ai_extractions").update(extract_payload).eq("id", existing.data[0]["id"]).execute()

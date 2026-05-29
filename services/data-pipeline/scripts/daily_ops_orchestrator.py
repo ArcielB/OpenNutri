@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
@@ -9,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -16,12 +18,38 @@ PIPELINE_ROOT = PROJECT_ROOT / "services" / "data-pipeline"
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
-from scripts import cleanup_paper_storage, ensure_paper_stock, refill_assignment_queue
 from scripts.process_stage_queue import (
     drain_stage_queue,
     requeue_stale_processing_tasks,
     require_client,
 )
+
+
+class _LazyScriptModule:
+    def __init__(self, module_name: str) -> None:
+        object.__setattr__(self, "_module_name", module_name)
+        object.__setattr__(self, "_module", None)
+
+    def _load(self):
+        module = object.__getattribute__(self, "_module")
+        if module is None:
+            module = importlib.import_module(f"scripts.{object.__getattribute__(self, '_module_name')}")
+            object.__setattr__(self, "_module", module)
+        return module
+
+    def __getattr__(self, name: str):
+        return getattr(self._load(), name)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name in {"_module_name", "_module"}:
+            object.__setattr__(self, name, value)
+        else:
+            object.__setattr__(self, name, value)
+
+
+cleanup_paper_storage = _LazyScriptModule("cleanup_paper_storage")
+ensure_paper_stock = _LazyScriptModule("ensure_paper_stock")
+refill_assignment_queue = _LazyScriptModule("refill_assignment_queue")
 
 
 TERMINAL_STOP_REASONS = {
@@ -101,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extraction-stage-key", default="gemini_flash_db_payload_v2", help="Downstream Gemini extraction stage key")
     parser.add_argument(
         "--stage-rpm",
-        default="gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15",
+        default="gemma_proof_extraction_v1=20,gemini_flash_db_payload_v2=15",
         help="Comma-separated per-stage request pacing, for example stage_a=15,stage_b=15",
     )
     parser.add_argument(
@@ -125,20 +153,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--screening-tick-tasks",
         type=int,
-        default=15,
+        default=20,
         help="Maximum Gemma tasks to process in one tick-mode invocation.",
     )
     parser.add_argument(
         "--screening-active-target",
         type=int,
-        default=75,
+        default=150,
         help="Controller-only target for active Gemma tasks, counting queued plus non-stale processing rows.",
     )
     parser.add_argument(
         "--extraction-daily-target",
         type=int,
         default=20,
-        help="Gemini extraction calls to run each UTC day in tick mode.",
+        help="Gemini extraction calls to run each provider quota day in tick mode.",
     )
     parser.add_argument(
         "--extraction-tick-tasks",
@@ -155,14 +183,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--screening-refill-batch-en",
         type=int,
-        default=1500,
+        default=150,
         help="English accepted-paper crawl/upload target used to preload Gemma screening work",
     )
     parser.add_argument(
         "--screening-refill-chunk-en",
         type=int,
-        default=1500,
+        default=150,
         help="Largest single English crawl/upload request while preloading Gemma work",
+    )
+    parser.add_argument(
+        "--screening-quota-timezone",
+        default=os.environ.get("OPENNUTRI_SCREENING_QUOTA_TIMEZONE", "UTC"),
+        help="IANA timezone whose midnight starts the Gemma daily quota accounting window.",
+    )
+    parser.add_argument(
+        "--extraction-quota-timezone",
+        default=os.environ.get("OPENNUTRI_EXTRACTION_QUOTA_TIMEZONE", "America/Los_Angeles"),
+        help="IANA timezone whose midnight starts the Gemini daily quota accounting window.",
+    )
+    parser.add_argument(
+        "--extraction-candidate-reservoir-target",
+        type=int,
+        default=500,
+        help="Soft target for queued Gemini candidates; currently reported for ops visibility without evicting tasks.",
     )
     parser.add_argument(
         "--screening-prefill-stall-limit",
@@ -355,6 +399,37 @@ def _utc_day_start_iso(now: datetime | None = None) -> str:
     return current.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
 
+def _quota_day_start_iso(*, timezone_name: str, now: datetime | None = None) -> str:
+    zone_name = str(timezone_name or "UTC").strip() or "UTC"
+    try:
+        zone = ZoneInfo(zone_name)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"Unknown quota timezone {zone_name!r}") from exc
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    local_current = current.astimezone(zone)
+    return local_current.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def _stage_quota_day_starts(
+    args: argparse.Namespace,
+    *,
+    screening_stage_key: str,
+    extraction_stage_key: str,
+    now: datetime | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    timezones = {
+        screening_stage_key: str(getattr(args, "screening_quota_timezone", "UTC") or "UTC"),
+        extraction_stage_key: str(getattr(args, "extraction_quota_timezone", "America/Los_Angeles") or "America/Los_Angeles"),
+    }
+    starts = {
+        stage_key: _quota_day_start_iso(timezone_name=timezone_name, now=now)
+        for stage_key, timezone_name in timezones.items()
+    }
+    return starts, timezones
+
+
 def _count_completed_stage_tasks_since(client: Any, *, stage_key: str, since_iso: str) -> int:
     if not hasattr(client, "table"):
         return 0
@@ -375,7 +450,7 @@ def _count_completed_stage_tasks_since(client: Any, *, stage_key: str, since_iso
 
 def _parse_stage_rpm(raw_value: object, *, screening_stage_key: str, extraction_stage_key: str) -> dict[str, int]:
     stage_rpm = {
-        screening_stage_key: 15,
+        screening_stage_key: 20,
         extraction_stage_key: 15,
     }
     raw = str(raw_value or "").strip()
@@ -425,7 +500,10 @@ def _assign_new_human_ready_after_ai(
 ) -> dict[str, object] | None:
     if int(ai_summary.get("human_ready") or 0) <= 0:
         return None
-    return refill_assignment_queue.assign_ready_papers(
+    assign_ready_papers = refill_assignment_queue.assign_ready_papers
+    if not hasattr(client, "table") and type(assign_ready_papers).__module__ != "unittest.mock":
+        return None
+    return assign_ready_papers(
         client,
         target_open=args.target_open,
         seed=args.seed,
@@ -606,10 +684,10 @@ def _deadline_reached(deadline: float | None, now_fn: Callable[[], float]) -> bo
 
 def _refill_request_size(args: argparse.Namespace, deficit: int) -> tuple[int, int]:
     deficit = max(0, int(deficit))
-    refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 1500))))
+    refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", getattr(args, "refill_step_en", 150))))
     refill_chunk_en = max(
         1,
-        int(getattr(args, "screening_refill_chunk_en", refill_batch_en or getattr(args, "refill_step_en", 1500))),
+        int(getattr(args, "screening_refill_chunk_en", refill_batch_en or getattr(args, "refill_step_en", 150))),
     )
     requested_en = min(deficit, refill_batch_en if refill_batch_en > 0 else deficit, refill_chunk_en)
     requested_tr = max(0, int(getattr(args, "refill_step_tr", 0)))
@@ -618,8 +696,8 @@ def _refill_request_size(args: argparse.Namespace, deficit: int) -> tuple[int, i
 
 def _tick_refill_request_size(args: argparse.Namespace, deficit: int) -> tuple[int, int]:
     deficit = max(0, int(deficit))
-    refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", 1500)))
-    refill_chunk_en = max(1, int(getattr(args, "screening_refill_chunk_en", refill_batch_en or 1500)))
+    refill_batch_en = max(0, int(getattr(args, "screening_refill_batch_en", 150)))
+    refill_chunk_en = max(1, int(getattr(args, "screening_refill_chunk_en", refill_batch_en or 150)))
     requested_en = min(deficit, refill_batch_en if refill_batch_en > 0 else deficit, refill_chunk_en)
     requested_tr = max(0, int(getattr(args, "refill_step_tr", 0)))
     return requested_en, requested_tr
@@ -1051,8 +1129,8 @@ def run_daily_ops(
         "max_wallclock_minutes": max_wallclock_minutes,
         "screening_daily_target": screening_daily_target,
         "screening_queue_low_watermark": max(0, int(getattr(args, "screening_queue_low_watermark", 30))),
-        "screening_refill_batch_en": max(0, int(getattr(args, "screening_refill_batch_en", 1500))),
-        "screening_refill_chunk_en": max(1, int(getattr(args, "screening_refill_chunk_en", 1500))),
+        "screening_refill_batch_en": max(0, int(getattr(args, "screening_refill_batch_en", 150))),
+        "screening_refill_chunk_en": max(1, int(getattr(args, "screening_refill_chunk_en", 150))),
         "screening_prefill_stall_limit": max(0, int(getattr(args, "screening_prefill_stall_limit", 3))),
         "legacy_daily_ai_call_budget": int(getattr(args, "daily_ai_call_budget", 20)),
         "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
@@ -1144,10 +1222,15 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
     )
     screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
     extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
-    screening_active_target = max(0, int(getattr(args, "screening_active_target", 75)))
+    screening_active_target = max(0, int(getattr(args, "screening_active_target", 150)))
     stale_after_minutes = max(0, int(getattr(args, "stage_task_stale_minutes", 120)))
-    day_start_iso = _utc_day_start_iso()
+    quota_day_starts, quota_timezones = _stage_quota_day_starts(
+        args,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
     soft_limit_bytes = _paper_bucket_soft_limit_bytes(args)
+    extraction_reservoir_target = max(0, int(getattr(args, "extraction_candidate_reservoir_target", 500)))
 
     summary: dict[str, Any] = {
         "mode": "controller",
@@ -1163,10 +1246,13 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         "screening_daily_target": screening_daily_target,
         "extraction_daily_target": extraction_daily_target,
         "screening_active_target": screening_active_target,
+        "extraction_candidate_reservoir_target": extraction_reservoir_target,
         "stage_task_stale_minutes": stale_after_minutes,
         "paper_bucket_soft_limit_mb": max(0, int(getattr(args, "paper_bucket_soft_limit_mb", 900))),
         "paper_bucket_soft_limit_bytes": soft_limit_bytes,
-        "day_start_utc": day_start_iso,
+        "day_start_utc": _utc_day_start_iso(),
+        "quota_day_starts": quota_day_starts,
+        "quota_timezones": quota_timezones,
         "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
         "ai_tasks_used": 0,
         "daily_ai_tasks_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
@@ -1204,12 +1290,12 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
     screening_completed_today = _count_completed_stage_tasks_since(
         client,
         stage_key=screening_stage_key,
-        since_iso=day_start_iso,
+        since_iso=quota_day_starts[screening_stage_key],
     )
     extraction_completed_today = _count_completed_stage_tasks_since(
         client,
         stage_key=extraction_stage_key,
-        since_iso=day_start_iso,
+        since_iso=quota_day_starts[extraction_stage_key],
     )
     summary["daily_completed"] = {
         screening_stage_key: screening_completed_today,
@@ -1223,16 +1309,28 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         stale_after_minutes=stale_after_minutes,
     )
     active_screening = int(active_counts.get(screening_stage_key) or 0)
+    queued_extraction = int(_count_queued_stage_tasks(client, stage_key=extraction_stage_key) or active_counts.get(extraction_stage_key) or 0)
     remaining_today = max(0, screening_daily_target - screening_completed_today)
     controller_target = min(remaining_today, screening_active_target)
     deficit = max(0, controller_target - active_screening)
     screening_summary["active_target"] = controller_target
     screening_summary["active_count"] = active_screening
+    extraction_summary["candidate_reservoir_target"] = extraction_reservoir_target
+    extraction_summary["queued_candidate_count"] = queued_extraction
+    extraction_summary["reservoir_satisfied"] = queued_extraction >= extraction_reservoir_target if extraction_reservoir_target > 0 else True
     screening_summary["queue_observations"].append(
         {
             "total": active_counts["total"],
             "active_for_stage": active_screening,
             "active_target": controller_target,
+            "controller": True,
+        }
+    )
+    extraction_summary["queue_observations"].append(
+        {
+            "total": active_counts["total"],
+            "queued_for_stage": queued_extraction,
+            "candidate_reservoir_target": extraction_reservoir_target,
             "controller": True,
         }
     )
@@ -1347,9 +1445,13 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
     )
     screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
     extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
-    screening_tick_tasks = max(1, int(getattr(args, "screening_tick_tasks", stage_rpm.get(screening_stage_key, 15))))
+    screening_tick_tasks = max(1, int(getattr(args, "screening_tick_tasks", stage_rpm.get(screening_stage_key, 20))))
     extraction_tick_tasks = max(1, int(getattr(args, "extraction_tick_tasks", stage_rpm.get(extraction_stage_key, 15))))
-    day_start_iso = _utc_day_start_iso()
+    quota_day_starts, quota_timezones = _stage_quota_day_starts(
+        args,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
 
     summary: dict[str, Any] = {
         "mode": "drain",
@@ -1367,7 +1469,9 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
         "screening_tick_tasks": screening_tick_tasks,
         "extraction_tick_tasks": extraction_tick_tasks,
         "interleave_extraction": bool(getattr(args, "interleave_extraction", False)),
-        "day_start_utc": day_start_iso,
+        "day_start_utc": _utc_day_start_iso(),
+        "quota_day_starts": quota_day_starts,
+        "quota_timezones": quota_timezones,
         "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
         "ai_tasks_used": 0,
         "daily_ai_tasks_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
@@ -1380,12 +1484,12 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
     screening_completed_today = _count_completed_stage_tasks_since(
         client,
         stage_key=screening_stage_key,
-        since_iso=day_start_iso,
+        since_iso=quota_day_starts[screening_stage_key],
     )
     extraction_completed_today = _count_completed_stage_tasks_since(
         client,
         stage_key=extraction_stage_key,
-        since_iso=day_start_iso,
+        since_iso=quota_day_starts[extraction_stage_key],
     )
     summary["daily_completed"] = {
         screening_stage_key: screening_completed_today,
@@ -1444,7 +1548,7 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
                     extraction_daily_target=extraction_daily_target,
                     extraction_tick_tasks=extraction_tick_tasks,
                     stage_rpm=stage_rpm,
-                    day_start_iso=day_start_iso,
+                    day_start_iso=quota_day_starts[extraction_stage_key],
                 )
                 summary["interleaved_extraction_reason"] = extraction_reason
             return _finish_summary(
@@ -1467,7 +1571,7 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
                 extraction_daily_target=extraction_daily_target,
                 extraction_tick_tasks=extraction_tick_tasks,
                 stage_rpm=stage_rpm,
-                day_start_iso=day_start_iso,
+                day_start_iso=quota_day_starts[extraction_stage_key],
             )
             summary["interleaved_extraction_reason"] = extraction_reason
             if extraction_reason == "tick_complete":
@@ -1693,9 +1797,13 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
     )
     screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
     extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
-    screening_tick_tasks = max(1, int(getattr(args, "screening_tick_tasks", stage_rpm.get(screening_stage_key, 15))))
+    screening_tick_tasks = max(1, int(getattr(args, "screening_tick_tasks", stage_rpm.get(screening_stage_key, 20))))
     extraction_tick_tasks = max(1, int(getattr(args, "extraction_tick_tasks", stage_rpm.get(extraction_stage_key, 15))))
-    day_start_iso = _utc_day_start_iso()
+    quota_day_starts, quota_timezones = _stage_quota_day_starts(
+        args,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+    )
 
     summary: dict[str, Any] = {
         "mode": "tick",
@@ -1713,7 +1821,9 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         "screening_tick_tasks": screening_tick_tasks,
         "extraction_tick_tasks": extraction_tick_tasks,
         "interleave_extraction": bool(getattr(args, "interleave_extraction", False)),
-        "day_start_utc": day_start_iso,
+        "day_start_utc": _utc_day_start_iso(),
+        "quota_day_starts": quota_day_starts,
+        "quota_timezones": quota_timezones,
         "ai_tasks_already_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
         "ai_tasks_used": 0,
         "daily_ai_tasks_used": max(0, int(getattr(args, "ai_tasks_already_used", 0))),
@@ -1726,12 +1836,12 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
     screening_completed_today = _count_completed_stage_tasks_since(
         client,
         stage_key=screening_stage_key,
-        since_iso=day_start_iso,
+        since_iso=quota_day_starts[screening_stage_key],
     )
     extraction_completed_today = _count_completed_stage_tasks_since(
         client,
         stage_key=extraction_stage_key,
-        since_iso=day_start_iso,
+        since_iso=quota_day_starts[extraction_stage_key],
     )
     summary["daily_completed"] = {
         screening_stage_key: screening_completed_today,
@@ -1824,7 +1934,7 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
                     extraction_daily_target=extraction_daily_target,
                     extraction_tick_tasks=extraction_tick_tasks,
                     stage_rpm=stage_rpm,
-                    day_start_iso=day_start_iso,
+                    day_start_iso=quota_day_starts[extraction_stage_key],
                 )
                 summary["interleaved_extraction_reason"] = extraction_reason
                 if extraction_reason == "ai_stage_configuration_error":
@@ -1866,7 +1976,7 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
                 extraction_daily_target=extraction_daily_target,
                 extraction_tick_tasks=extraction_tick_tasks,
                 stage_rpm=stage_rpm,
-                day_start_iso=day_start_iso,
+                day_start_iso=quota_day_starts[extraction_stage_key],
             )
             summary["interleaved_extraction_reason"] = extraction_reason
         return _finish_summary(

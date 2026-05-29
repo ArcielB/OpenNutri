@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS ai_extractions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
-    model_name TEXT NOT NULL DEFAULT 'gemini-3-flash-preview',
+    model_name TEXT NOT NULL DEFAULT 'gemini-3.5-flash',
     is_useful BOOLEAN NOT NULL,
     reasoning TEXT,
     overall_confidence REAL,

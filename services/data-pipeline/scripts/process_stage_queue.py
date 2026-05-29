@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 from dataclasses import asdict
 from dataclasses import is_dataclass
 from dataclasses import replace
@@ -367,6 +368,20 @@ def ai_result_error(ai_result) -> str | None:
     return None
 
 
+def format_exception_for_storage(exc: BaseException) -> str:
+    exc_type = f"{type(exc).__module__}.{type(exc).__name__}"
+    message = str(exc).strip()
+    representation = repr(exc).strip()
+    parts = [f"{exc_type}: {message or representation or '<empty exception message>'}"]
+    if representation and representation != message:
+        parts.append(f"repr={representation}")
+    tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    tb_tail = "".join(tb_lines[-6:]).strip()
+    if tb_tail:
+        parts.append("traceback_tail:\n" + tb_tail)
+    return "\n".join(parts)
+
+
 def is_quota_error(error_text: object) -> bool:
     text = str(error_text or "").strip().lower()
     if not text:
@@ -563,7 +578,107 @@ def enqueue_followup_stage_task(
     ).execute()
 
 
-def score_followup_priority(*, ai_result, normalization_summary: dict, normalized_payload_json: dict) -> int:
+def _raw_result_records(ai_result) -> list[dict]:
+    records = []
+    raw_records = getattr(ai_result, "data", []) or []
+    if not isinstance(raw_records, (list, tuple)):
+        return records
+    for record in raw_records:
+        serialized = _serialize_ai_record(record)
+        if isinstance(serialized, dict):
+            records.append(serialized)
+    return records
+
+
+def _row_has_evidence(row: dict) -> bool:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    if row.get("source_citation") or row.get("table_label") or row.get("source_quote"):
+        return True
+    return any(metadata.get(key) for key in EVIDENCE_METADATA_KEYS)
+
+
+def _row_has_table_signal(row: dict) -> bool:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    location_type = str(row.get("source_location_type") or metadata.get("source_location_type") or "").casefold()
+    table_label = str(row.get("table_label") or metadata.get("table_label") or "").casefold()
+    citation = str(row.get("source_citation") or "").casefold()
+    quote = str(row.get("source_quote") or metadata.get("source_quote") or "").casefold()
+    return "table" in location_type or "table" in table_label or "table" in citation or "tablo" in table_label or "per 100" in quote
+
+
+def _row_has_per_100g_signal(row: dict) -> bool:
+    unit = str(row.get("unit") or "").strip().casefold().replace(" ", "")
+    basis = str(row.get("basis") or "").strip().casefold().replace(" ", "")
+    quote = str(row.get("source_quote") or "").casefold()
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    metadata_quote = str(metadata.get("source_quote") or "").casefold()
+    return (
+        "/100g" in unit
+        or "100g" in basis
+        or "per_100g" in basis
+        or "per100g" in basis
+        or "100 g" in quote
+        or "100g" in quote
+        or "100 g" in metadata_quote
+        or "100g" in metadata_quote
+    )
+
+
+def _raw_priority_stats(ai_result) -> dict[str, int]:
+    rows = _raw_result_records(ai_result)
+    unsupported_rows = 0
+    evidence_rows = 0
+    table_rows = 0
+    per_100g_rows = 0
+    complete_rows = 0
+    for row in rows:
+        has_food = bool(str(row.get("food_name") or row.get("raw_food_name") or "").strip())
+        has_nutrient = bool(str(row.get("nutrient_name") or row.get("raw_nutrient_name") or "").strip())
+        has_amount = row.get("amount") is not None or row.get("value") is not None
+        if has_food and has_nutrient and has_amount:
+            complete_rows += 1
+        if _row_has_evidence(row):
+            evidence_rows += 1
+        if _row_has_table_signal(row):
+            table_rows += 1
+        if _row_has_per_100g_signal(row):
+            per_100g_rows += 1
+        if has_food and has_nutrient and has_amount and _row_has_per_100g_signal(row):
+            continue
+        unit = str(row.get("unit") or "").strip()
+        basis = str(row.get("basis") or "").strip()
+        if has_food and has_nutrient and has_amount and (unit or basis):
+            unsupported_rows += 1
+    return {
+        "raw_row_count": len(rows),
+        "raw_complete_row_count": complete_rows,
+        "raw_evidence_row_count": evidence_rows,
+        "raw_table_row_count": table_rows,
+        "raw_per_100g_row_count": per_100g_rows,
+        "raw_unsupported_row_count": unsupported_rows,
+    }
+
+
+def _signal_text_for_priority(ai_result, *, paper_title: str = "") -> str:
+    return " ".join(
+        str(value or "")
+        for value in (
+            paper_title,
+            getattr(ai_result, "reasoning", ""),
+            getattr(ai_result, "paper_type", ""),
+            getattr(ai_result, "database_value", ""),
+            getattr(ai_result, "raw_response_text", ""),
+        )
+    ).casefold()
+
+
+def score_followup_priority(
+    *,
+    ai_result,
+    normalization_summary: dict,
+    normalized_payload_json: dict,
+    paper_title: str = "",
+) -> int:
     confidence_values = []
     for field in ("overall_confidence", "paper_decision_confidence", "extraction_confidence"):
         try:
@@ -573,10 +688,12 @@ def score_followup_priority(*, ai_result, normalization_summary: dict, normalize
     confidence = max(confidence_values) if confidence_values else 0.0
     accepted_rows = int(normalization_summary.get("accepted_row_count") or 0)
     rejected_rows = int(normalization_summary.get("rejected_row_count") or 0)
+    unsupported_rows = int((normalization_summary.get("rejection_reasons") or {}).get("unsupported_unit_or_basis") or 0)
     unmapped_foods = int(normalization_summary.get("unmapped_food_count") or 0)
     unmapped_nutrients = int(normalization_summary.get("unmapped_nutrient_count") or 0)
     evidence_rows = 0
     per_100g_rows = 0
+    table_rows = 0
     for food_item in normalized_payload_json.get("food_items") or []:
         if not isinstance(food_item, dict):
             continue
@@ -586,23 +703,43 @@ def score_followup_priority(*, ai_result, normalization_summary: dict, normalize
             metadata = nutrient.get("metadata") if isinstance(nutrient.get("metadata"), dict) else {}
             if nutrient.get("source_citation") or any(metadata.get(key) for key in EVIDENCE_METADATA_KEYS):
                 evidence_rows += 1
+            if _row_has_table_signal(nutrient):
+                table_rows += 1
             unit = str(nutrient.get("unit") or "").strip().lower()
             basis = str(nutrient.get("basis") or "").strip().lower()
             if unit.endswith("/100g") or unit == "%" or basis == "per_100g":
                 per_100g_rows += 1
-    signal_text = " ".join(
-        str(value or "")
-        for value in (
-            getattr(ai_result, "reasoning", ""),
-            getattr(ai_result, "paper_type", ""),
-            getattr(ai_result, "database_value", ""),
-        )
-    ).casefold()
+    raw_stats = _raw_priority_stats(ai_result)
+    raw_rows = int(raw_stats["raw_row_count"])
+    raw_complete_rows = int(raw_stats["raw_complete_row_count"])
+    raw_evidence_rows = int(raw_stats["raw_evidence_row_count"])
+    raw_table_rows = int(raw_stats["raw_table_row_count"])
+    raw_per_100g_rows = int(raw_stats["raw_per_100g_row_count"])
+    raw_unsupported_rows = max(unsupported_rows, int(raw_stats["raw_unsupported_row_count"]))
+    signal_text = _signal_text_for_priority(ai_result, paper_title=paper_title)
     direct_fit_bonus = 0
-    if any(marker in signal_text for marker in ("food composition", "proximate composition", "nutritional composition", "ordinary_food_composition")):
-        direct_fit_bonus += 40
+    composition_markers = (
+        "food composition",
+        "composition of",
+        "nutrient composition",
+        "nutritional composition",
+        "chemical composition",
+        "proximate composition",
+        "proximate analysis",
+        "mineral composition",
+        "vitamin composition",
+        "fatty acid composition",
+        "amino acid composition",
+        "ordinary_food_composition",
+    )
+    if any(marker in signal_text for marker in composition_markers):
+        direct_fit_bonus += 70
     if any(marker in signal_text for marker in ("food product", "real-world food", "commercial product", "database_value\": \"high", "database value high")):
-        direct_fit_bonus += 20
+        direct_fit_bonus += 25
+    if raw_table_rows or table_rows:
+        direct_fit_bonus += min(45, (raw_table_rows + table_rows) * 8)
+    if raw_evidence_rows or evidence_rows:
+        direct_fit_bonus += min(35, (raw_evidence_rows + evidence_rows) * 4)
     penalty = 0
     penalty_markers = (
         ("review", 35),
@@ -614,23 +751,34 @@ def score_followup_priority(*, ai_result, normalization_summary: dict, normalize
         ("sensory", 25),
         ("outcome", 25),
         ("biomarker", 25),
+        ("cell culture", 25),
+        ("animal model", 25),
+        ("microbiome", 20),
         ("one-off formulation", 35),
         ("experimental formulation", 30),
         ("treatment", 20),
         ("supplement", 20),
+        ("extract", 20),
     )
     for marker, weight in penalty_markers:
         if marker in signal_text:
             penalty += weight
     score = (
-        120 * confidence
-        + min(120, accepted_rows * 6)
-        + min(60, evidence_rows * 4)
-        + min(50, per_100g_rows * 3)
+        80 * confidence
+        + min(160, accepted_rows * 8)
+        + min(90, evidence_rows * 5)
+        + min(80, per_100g_rows * 4)
+        + min(55, table_rows * 5)
+        + min(75, raw_complete_rows * 5)
+        + min(60, raw_evidence_rows * 4)
+        + min(55, raw_table_rows * 5)
+        + min(45, raw_per_100g_rows * 4)
+        + min(35, raw_unsupported_rows * 5)
+        + min(25, max(0, raw_rows - raw_complete_rows) * 2)
         + direct_fit_bonus
-        - min(60, rejected_rows * 5)
+        - min(55, max(0, rejected_rows - raw_unsupported_rows) * 4)
         - min(30, (unmapped_foods + unmapped_nutrients) * 2)
-        - min(120, penalty)
+        - min(160, penalty)
     )
     return max(-1000, min(1000, int(round(score))))
 
@@ -643,9 +791,11 @@ def _raw_has_data_decision(ai_result) -> bool:
     return bool(getattr(ai_result, "is_useful", False))
 
 
-def _strong_raw_has_data_decision(ai_result) -> bool:
+def _clear_raw_has_data_decision(ai_result, *, paper_title: str = "") -> bool:
     if not _raw_has_data_decision(ai_result):
         return False
+    if _raw_priority_stats(ai_result)["raw_complete_row_count"] > 0:
+        return True
     confidence_values = []
     for field in ("overall_confidence", "paper_decision_confidence"):
         try:
@@ -653,7 +803,20 @@ def _strong_raw_has_data_decision(ai_result) -> bool:
         except (TypeError, ValueError):
             continue
     confidence = max(confidence_values) if confidence_values else 0.0
-    return confidence >= 0.85
+    if confidence >= 0.75:
+        return True
+    signal_text = _signal_text_for_priority(ai_result, paper_title=paper_title)
+    return confidence >= 0.6 and any(
+        marker in signal_text
+        for marker in (
+            "food composition",
+            "nutrient composition",
+            "nutritional composition",
+            "proximate composition",
+            "proximate analysis",
+            "composition table",
+        )
+    )
 
 
 def finalize_ai_outcome(
@@ -884,7 +1047,7 @@ def process_one_task(
                 task_timeout_seconds=task_timeout_seconds,
             )
         except Exception as primary_exc:
-            primary_error_text = str(primary_exc)
+            primary_error_text = format_exception_for_storage(primary_exc)
             if is_non_retryable_model_error(primary_error_text):
                 raise
             if not (
@@ -914,7 +1077,7 @@ def process_one_task(
                     break
                 except Exception as fallback_exc:
                     last_fallback_error = fallback_exc
-                    if is_non_retryable_model_error(str(fallback_exc)):
+                    if is_non_retryable_model_error(format_exception_for_storage(fallback_exc)):
                         raise
             else:
                 if last_fallback_error is not None:
@@ -929,13 +1092,13 @@ def process_one_task(
         normalized_payload_json = normalization.payload
         normalized_is_useful = normalization.has_data
         followup_stage_key = str(stage_config.next_stage_on_has_data or "").strip()
-        strong_raw_followup = (
+        raw_positive_followup = (
             bool(followup_stage_key)
             and not preserve_human_route
             and not normalized_is_useful
-            and _strong_raw_has_data_decision(ai_result)
+            and _clear_raw_has_data_decision(ai_result, paper_title=str(paper.get("title") or ""))
         )
-        routing_is_useful = normalized_is_useful or strong_raw_followup
+        routing_is_useful = normalized_is_useful or raw_positive_followup
         routing_bucket = classify_routing_bucket(
             is_useful=routing_is_useful,
             overall_confidence=ai_result.overall_confidence,
@@ -957,10 +1120,11 @@ def process_one_task(
             ai_result=ai_result,
             normalization_summary=normalization.summary(),
             normalized_payload_json=normalized_payload_json,
+            paper_title=str(paper.get("title") or ""),
         )
         actual_route_destination = route_destination
         actual_finalized_without_human = finalized_without_human
-        if (normalized_is_useful or strong_raw_followup) and followup_stage_key and not preserve_human_route:
+        if (normalized_is_useful or raw_positive_followup) and followup_stage_key and not preserve_human_route:
             actual_route_destination = NEXT_STAGE_DESTINATION
             actual_finalized_without_human = False
         elif (
@@ -983,7 +1147,7 @@ def process_one_task(
             audit_sampled=audit_sampled,
             finalized_without_human=actual_finalized_without_human,
         )
-        if (normalized_is_useful or strong_raw_followup) and followup_stage_key and not preserve_human_route:
+        if (normalized_is_useful or raw_positive_followup) and followup_stage_key and not preserve_human_route:
             enqueue_followup_stage_task(
                 client,
                 paper_id=paper_id,
@@ -1008,7 +1172,8 @@ def process_one_task(
                 "finalized_without_human": False,
                 "followup_stage_key": followup_stage_key,
                 "followup_priority": followup_priority,
-                "strong_raw_followup": strong_raw_followup,
+                "strong_raw_followup": raw_positive_followup,
+                "raw_positive_followup": raw_positive_followup,
                 "fallback_model_used": fallback_model_used,
             }
         if (
@@ -1065,7 +1230,7 @@ def process_one_task(
             "fallback_model_used": fallback_model_used,
         }
     except Exception as exc:
-        error_text = str(exc)
+        error_text = format_exception_for_storage(exc)
         if is_non_retryable_model_error(error_text):
             update_paper_routing_summary(
                 client,

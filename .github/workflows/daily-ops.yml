@@ -34,16 +34,13 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
-      - name: Cache pipeline data
+      - name: Cache controller model data
         uses: actions/cache@v4
         with:
-          path: |
-            services/data-pipeline/data
-            ~/.cache/huggingface
-          key: opennutri-controller-${{ github.run_id }}
+          path: ~/.cache/huggingface
+          key: opennutri-controller-hf-${{ runner.os }}-${{ hashFiles('services/data-pipeline/requirements.txt') }}
           restore-keys: |
-            opennutri-controller-
-            opennutri-pipeline-
+            opennutri-controller-hf-${{ runner.os }}-
 
       - name: Install Python dependencies
         run: python3 -m pip install -r services/data-pipeline/requirements.txt
@@ -62,13 +59,13 @@ jobs:
               --controller-only \
               --tick-mode \
               --target-open 50 \
-              --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 \
+              --stage-rpm gemma_proof_extraction_v1=20,gemini_flash_db_payload_v2=15 \
               --max-wallclock-minutes 0 \
               --screening-daily-target 1500 \
-              --screening-active-target 75 \
+              --screening-active-target 150 \
               --extraction-daily-target 20 \
-              --screening-refill-batch-en 75 \
-              --screening-refill-chunk-en 75 \
+              --screening-refill-batch-en 150 \
+              --screening-refill-chunk-en 150 \
               --screening-prefill-stall-limit 3 \
               --paper-bucket-soft-limit-mb 900 \
               --refill-step-tr 0 \
@@ -97,27 +94,15 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: services/data-pipeline/requirements.txt
+          cache-dependency-path: services/data-pipeline/requirements-worker.txt
 
       - name: Install system dependencies
         if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
-      - name: Cache pipeline data
-        if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
-        uses: actions/cache@v4
-        with:
-          path: |
-            services/data-pipeline/data
-            ~/.cache/huggingface
-          key: opennutri-worker-${{ github.run_id }}-${{ matrix.worker }}
-          restore-keys: |
-            opennutri-worker-
-            opennutri-pipeline-
-
       - name: Install Python dependencies
         if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
-        run: python3 -m pip install -r services/data-pipeline/requirements.txt
+        run: python3 -m pip install -r services/data-pipeline/requirements-worker.txt
 
       - name: Run drain-only daily ops tick
         if: ${{ github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers) }}
@@ -141,10 +126,10 @@ jobs:
               --tick-mode \
               --interleave-extraction \
               --target-open 50 \
-              --stage-rpm gemma_proof_extraction_v1=15,gemini_flash_db_payload_v2=15 \
+              --stage-rpm gemma_proof_extraction_v1=20,gemini_flash_db_payload_v2=15 \
               --max-wallclock-minutes 0 \
               --screening-daily-target 1500 \
-              --screening-tick-tasks 15 \
+              --screening-tick-tasks 20 \
               --extraction-daily-target 20 \
               --extraction-tick-tasks 2 \
               --refill-step-tr 0 \

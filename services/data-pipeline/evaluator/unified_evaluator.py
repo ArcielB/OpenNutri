@@ -195,7 +195,7 @@ Full Text:
         self,
         raw_lake_dir: str = "data/raw_lake",
         api_key: str = None,
-        model_name: str = "gemini-3-flash-preview",
+        model_name: str = "gemini-3.5-flash",
         nutrient_catalog: list[dict] | None = None,
         food_candidates: list[dict] | None = None,
     ):

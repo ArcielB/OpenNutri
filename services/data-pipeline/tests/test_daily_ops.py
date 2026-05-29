@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -408,6 +409,56 @@ class DailyOpsTests(unittest.TestCase):
             ),
             (7, 0),
         )
+
+    def test_extraction_quota_day_uses_pacific_midnight(self) -> None:
+        now = datetime(2026, 5, 29, 8, 30, tzinfo=timezone.utc)
+
+        self.assertEqual(
+            daily_ops_orchestrator._quota_day_start_iso(
+                timezone_name="America/Los_Angeles",
+                now=now,
+            ),
+            "2026-05-29T00:00:00-07:00",
+        )
+        self.assertEqual(
+            daily_ops_orchestrator._quota_day_start_iso(timezone_name="UTC", now=now),
+            "2026-05-29T00:00:00+00:00",
+        )
+
+    def test_drain_only_import_path_does_not_require_sentence_transformers(self) -> None:
+        script = """
+import builtins
+import sys
+from pathlib import Path
+root = Path.cwd() / 'services' / 'data-pipeline'
+sys.path.insert(0, str(root))
+original_import = builtins.__import__
+def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+    if name == 'sentence_transformers' or name.startswith('sentence_transformers.'):
+        raise AssertionError('drain import tried to load sentence-transformers')
+    return original_import(name, globals, locals, fromlist, level)
+builtins.__import__ = guarded_import
+import scripts.daily_ops_orchestrator as orchestrator
+orchestrator.build_parser()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[3],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_daily_ops_workflow_uses_light_worker_requirements_and_tuned_gemma_slice(self) -> None:
+        workflow = (Path(__file__).resolve().parents[3] / ".github" / "workflows" / "daily-ops.yml").read_text()
+
+        self.assertIn("services/data-pipeline/requirements-worker.txt", workflow)
+        self.assertIn("--screening-active-target 150", workflow)
+        self.assertIn("--screening-refill-batch-en 150", workflow)
+        self.assertIn("--screening-tick-tasks 20", workflow)
+        self.assertNotIn("opennutri-worker-${{ github.run_id }}", workflow)
 
     @patch("scripts.daily_ops_orchestrator._count_queued_stage_tasks")
     @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")

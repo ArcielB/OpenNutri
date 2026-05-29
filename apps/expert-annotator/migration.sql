@@ -803,7 +803,7 @@ CREATE TABLE IF NOT EXISTS paper_review_outcomes (
 CREATE TABLE IF NOT EXISTS ai_extractions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
-    model_name TEXT NOT NULL DEFAULT 'gemini-3-flash-preview',
+    model_name TEXT NOT NULL DEFAULT 'gemini-3.5-flash',
     is_useful BOOLEAN NOT NULL,
     reasoning TEXT,
     overall_confidence REAL,
@@ -1031,7 +1031,7 @@ VALUES (
     'gemini_flash_db_payload_v2',
     'ai_model',
     'Gemini Flash DB Payload v2',
-    'gemini-3-flash-preview',
+    'gemini-3.5-flash',
     '[]'::jsonb,
     'opennutri_evidence_payload_v1',
     FALSE,
