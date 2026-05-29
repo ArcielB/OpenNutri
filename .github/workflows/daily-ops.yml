@@ -75,7 +75,9 @@ jobs:
           python3 -c 'import json, sys; data=json.loads(sys.argv[1]); screening=(data.get("stage_summaries") or {}).get(data.get("screening_stage_key"), {}); storage=data.get("storage_cleanup") or {}; print("Daily ops controller mode={mode} stopped_reason={reason} active_target={active_target} active_count={active_count} refills={refills} requested_en={requested_en} storage_remaining_bytes={storage_remaining} storage_soft_limit_exceeded={storage_exceeded}".format(mode=data.get("mode", "controller"), reason=data.get("stopped_reason", ""), active_target=screening.get("active_target", 0), active_count=screening.get("active_count", 0), refills=screening.get("refill_cycles", 0), requested_en=screening.get("refill_requested_en", 0), storage_remaining=storage.get("remaining_bytes_after_cleanup"), storage_exceeded=data.get("storage_soft_limit_exceeded", False)))' "$summary"
 
   drain-workers:
-    needs: refill-controller
+    # Runs in parallel with refill-controller (no longer gated on it). There is always a
+    # queued Gemma/Gemini backlog to drain, so workers must not idle through the controller's
+    # 12-23 min crawl/refill phase, and draining must continue even if the controller job fails.
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
