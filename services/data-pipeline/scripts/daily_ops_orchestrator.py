@@ -128,8 +128,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--screening-stage-key", default="gemma_proof_extraction_v1", help="Cheap first-pass model stage key")
     parser.add_argument("--extraction-stage-key", default="gemini_flash_db_payload_v2", help="Downstream Gemini extraction stage key")
     parser.add_argument(
+        "--triage-stage-key",
+        default="gemini_flash_lite_triage_v1",
+        help="Intermediate Gemini Flash-Lite triage/re-rank stage between Gemma and final extraction. Empty string disables the 3-stage cascade.",
+    )
+    parser.add_argument(
+        "--triage-daily-target",
+        type=int,
+        default=500,
+        help="Flash-Lite triage calls to run each provider quota day in tick mode.",
+    )
+    parser.add_argument(
+        "--triage-tick-tasks",
+        type=int,
+        default=10,
+        help="Maximum Flash-Lite triage tasks to process in one tick-mode invocation.",
+    )
+    parser.add_argument(
+        "--triage-quota-timezone",
+        default=os.environ.get("OPENNUTRI_TRIAGE_QUOTA_TIMEZONE", "America/Los_Angeles"),
+        help="IANA timezone whose midnight starts the Flash-Lite triage daily quota accounting window.",
+    )
+    parser.add_argument(
         "--stage-rpm",
-        default="gemma_proof_extraction_v1=20,gemini_flash_db_payload_v2=15",
+        default="gemma_proof_extraction_v1=20,gemini_flash_lite_triage_v1=20,gemini_flash_db_payload_v2=15",
         help="Comma-separated per-stage request pacing, for example stage_a=15,stage_b=15",
     )
     parser.add_argument(
@@ -334,7 +356,13 @@ def _count_active_stage_tasks(
     return int(queued_count) + int(processing_count)
 
 
-def _fetch_queue_counts(client: Any, *, screening_stage_key: str, extraction_stage_key: str) -> dict[str, int]:
+def _fetch_queue_counts(
+    client: Any,
+    *,
+    screening_stage_key: str,
+    extraction_stage_key: str,
+    triage_stage_key: str | None = None,
+) -> dict[str, int]:
     state = refill_assignment_queue.fetch_state(client)
     papers = state.get("papers", [])
     queued_total = _queued_ai_paper_count(papers)
@@ -346,15 +374,27 @@ def _fetch_queue_counts(client: Any, *, screening_stage_key: str, extraction_sta
         queued_screening = screening_task_count
     if extraction_task_count is not None:
         queued_extraction = extraction_task_count
+    queued_triage = 0
+    triage_task_count = None
+    if triage_stage_key:
+        triage_task_count = _count_queued_stage_tasks(client, stage_key=triage_stage_key)
+        queued_triage = (
+            int(triage_task_count)
+            if triage_task_count is not None
+            else _queued_ai_paper_count_for_stage(papers, triage_stage_key)
+        )
     if screening_task_count is not None and extraction_task_count is not None:
-        queued_total = queued_screening + queued_extraction
-    if queued_total > 0 and queued_screening <= 0 and queued_extraction <= 0:
+        queued_total = queued_screening + queued_extraction + (queued_triage if triage_stage_key else 0)
+    if queued_total > 0 and queued_screening <= 0 and queued_extraction <= 0 and queued_triage <= 0:
         queued_extraction = queued_total
-    return {
+    counts = {
         "total": queued_total,
         screening_stage_key: queued_screening,
         extraction_stage_key: queued_extraction,
     }
+    if triage_stage_key:
+        counts[triage_stage_key] = queued_triage
+    return counts
 
 
 def _fetch_active_stage_counts(
@@ -417,12 +457,17 @@ def _stage_quota_day_starts(
     *,
     screening_stage_key: str,
     extraction_stage_key: str,
+    triage_stage_key: str | None = None,
     now: datetime | None = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
     timezones = {
         screening_stage_key: str(getattr(args, "screening_quota_timezone", "UTC") or "UTC"),
         extraction_stage_key: str(getattr(args, "extraction_quota_timezone", "America/Los_Angeles") or "America/Los_Angeles"),
     }
+    if triage_stage_key:
+        timezones[triage_stage_key] = str(
+            getattr(args, "triage_quota_timezone", "America/Los_Angeles") or "America/Los_Angeles"
+        )
     starts = {
         stage_key: _quota_day_start_iso(timezone_name=timezone_name, now=now)
         for stage_key, timezone_name in timezones.items()
@@ -1539,7 +1584,7 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
             else:
                 summary["stopped_reason"] = reason
             if bool(getattr(args, "interleave_extraction", False)) and reason not in {"ai_stage_configuration_error", "daily_quota_exhausted", "dry_run"}:
-                extraction_reason = _tick_drain_extraction_if_available(
+                extraction_reason = _tick_drain_downstream(
                     client,
                     args,
                     summary=summary,
@@ -1562,7 +1607,7 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
         stage_summary["stop_reason"] = "queue_empty"
         summary["stopped_reason"] = "no_screening_candidates"
         if bool(getattr(args, "interleave_extraction", False)):
-            extraction_reason = _tick_drain_extraction_if_available(
+            extraction_reason = _tick_drain_downstream(
                 client,
                 args,
                 summary=summary,
@@ -1585,6 +1630,14 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
             extraction_stage_key=extraction_stage_key,
         )
 
+    _drain_triage_tick(
+        client,
+        args,
+        summary=summary,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+        stage_rpm=stage_rpm,
+    )
     stage_summary = _tick_stage_summary(
         summary,
         extraction_stage_key,
@@ -1716,7 +1769,116 @@ def _tick_drain_stage(
     return "tick_complete"
 
 
-def _tick_drain_extraction_if_available(
+def _tick_drain_followup_stage(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    summary: dict[str, Any],
+    screening_stage_key: str,
+    extraction_stage_key: str,
+    triage_stage_key: str | None,
+    stage_key: str,
+    daily_target: int,
+    tick_tasks: int,
+    stage_rpm: dict[str, int],
+    day_start_iso: str,
+    role: str,
+) -> str | None:
+    completed_today = _count_completed_stage_tasks_since(
+        client,
+        stage_key=stage_key,
+        since_iso=day_start_iso,
+    )
+    summary.setdefault("daily_completed", {})[stage_key] = completed_today
+    stage_summary = summary["stage_summaries"].get(stage_key)
+    if stage_summary is None:
+        stage_summary = _tick_stage_summary(
+            summary,
+            stage_key,
+            rpm=int(stage_rpm.get(stage_key, 15)),
+            role=role,
+            daily_target=daily_target,
+        )
+    if completed_today >= daily_target:
+        stage_summary["daily_target_reached"] = True
+        stage_summary["stop_reason"] = "daily_target_reached"
+        return "daily_target_reached"
+
+    if not bool(getattr(args, "drain_only", False)):
+        _requeue_stale_stage_tasks(client, args, stage_key=stage_key, stage_summary=stage_summary)
+    queue_counts = _fetch_queue_counts(
+        client,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
+    )
+    queue_count = int(queue_counts.get(stage_key) or 0)
+    stage_summary["queue_observations"].append(
+        {
+            "total": queue_counts["total"],
+            "queued_for_stage": queue_count,
+            "tick": True,
+            "interleaved": True,
+        }
+    )
+    _log(args, f"{stage_key} interleaved tick observation: completed_today={completed_today} queued_for_stage={queue_count}")
+    if queue_count <= 0:
+        stage_summary["queue_empty"] = True
+        stage_summary["stop_reason"] = "queue_empty"
+        return "no_followup_candidates"
+
+    remaining_today = max(0, daily_target - completed_today)
+    drain_limit = min(tick_tasks, remaining_today, queue_count)
+    reason = _tick_drain_stage(
+        client,
+        args,
+        stage_key=stage_key,
+        stage_summary=stage_summary,
+        max_tasks=drain_limit,
+        summary=summary,
+        role=role,
+    )
+    if role == "extraction":
+        assignment_after_ai = _assign_new_human_ready_after_ai(client, args, stage_summary)
+        if assignment_after_ai is not None:
+            summary["assignment_after_ai"] = assignment_after_ai
+    return reason
+
+
+def _drain_triage_tick(
+    client: Any,
+    args: argparse.Namespace,
+    *,
+    summary: dict[str, Any],
+    screening_stage_key: str,
+    extraction_stage_key: str,
+    stage_rpm: dict[str, int],
+) -> str | None:
+    triage_stage_key = str(getattr(args, "triage_stage_key", "") or "").strip()
+    if not triage_stage_key:
+        return None
+    triage_day_start = _quota_day_start_iso(
+        timezone_name=str(getattr(args, "triage_quota_timezone", "America/Los_Angeles") or "America/Los_Angeles")
+    )
+    reason = _tick_drain_followup_stage(
+        client,
+        args,
+        summary=summary,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
+        stage_key=triage_stage_key,
+        daily_target=max(0, int(getattr(args, "triage_daily_target", 500))),
+        tick_tasks=max(1, int(getattr(args, "triage_tick_tasks", 10))),
+        stage_rpm=stage_rpm,
+        day_start_iso=triage_day_start,
+        role="triage",
+    )
+    summary["interleaved_triage_reason"] = reason
+    return reason
+
+
+def _tick_drain_downstream(
     client: Any,
     args: argparse.Namespace,
     *,
@@ -1728,63 +1890,34 @@ def _tick_drain_extraction_if_available(
     stage_rpm: dict[str, int],
     day_start_iso: str,
 ) -> str | None:
-    extraction_completed_today = _count_completed_stage_tasks_since(
-        client,
-        stage_key=extraction_stage_key,
-        since_iso=day_start_iso,
-    )
-    summary.setdefault("daily_completed", {})[extraction_stage_key] = extraction_completed_today
-    stage_summary = summary["stage_summaries"].get(extraction_stage_key)
-    if stage_summary is None:
-        stage_summary = _tick_stage_summary(
-            summary,
-            extraction_stage_key,
-            rpm=int(stage_rpm.get(extraction_stage_key, 15)),
-            role="extraction",
-            daily_target=extraction_daily_target,
-        )
-    if extraction_completed_today >= extraction_daily_target:
-        stage_summary["daily_target_reached"] = True
-        stage_summary["stop_reason"] = "daily_target_reached"
-        return "daily_target_reached"
-
-    if not bool(getattr(args, "drain_only", False)):
-        _requeue_stale_stage_tasks(client, args, stage_key=extraction_stage_key, stage_summary=stage_summary)
-    queue_counts = _fetch_queue_counts(
-        client,
-        screening_stage_key=screening_stage_key,
-        extraction_stage_key=extraction_stage_key,
-    )
-    queue_count = int(queue_counts.get(extraction_stage_key) or 0)
-    stage_summary["queue_observations"].append(
-        {
-            "total": queue_counts["total"],
-            "queued_for_stage": queue_count,
-            "tick": True,
-            "interleaved": True,
-        }
-    )
-    _log(args, f"{extraction_stage_key} interleaved tick observation: completed_today={extraction_completed_today} queued_for_stage={queue_count}")
-    if queue_count <= 0:
-        stage_summary["queue_empty"] = True
-        stage_summary["stop_reason"] = "queue_empty"
-        return "no_extraction_candidates"
-
-    remaining_today = max(0, extraction_daily_target - extraction_completed_today)
-    drain_limit = min(extraction_tick_tasks, remaining_today, queue_count)
-    reason = _tick_drain_stage(
+    # Drain the intermediate Flash-Lite triage stage first so it feeds fresh
+    # ranked candidates into the final extraction queue within the same tick,
+    # then drain the scarce final extraction stage.
+    triage_reason = _drain_triage_tick(
         client,
         args,
-        stage_key=extraction_stage_key,
-        stage_summary=stage_summary,
-        max_tasks=drain_limit,
         summary=summary,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+        stage_rpm=stage_rpm,
+    )
+    if triage_reason == "ai_stage_configuration_error":
+        return triage_reason
+    triage_stage_key = str(getattr(args, "triage_stage_key", "") or "").strip() or None
+    return _tick_drain_followup_stage(
+        client,
+        args,
+        summary=summary,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
+        stage_key=extraction_stage_key,
+        daily_target=extraction_daily_target,
+        tick_tasks=extraction_tick_tasks,
+        stage_rpm=stage_rpm,
+        day_start_iso=day_start_iso,
         role="extraction",
     )
-    assignment_after_ai = _assign_new_human_ready_after_ai(client, args, stage_summary)
-    if assignment_after_ai is not None:
-        summary["assignment_after_ai"] = assignment_after_ai
-    return reason
 
 
 def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
@@ -1925,7 +2058,7 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             stage_summary["stop_reason"] = "queue_empty"
             summary["stopped_reason"] = "source_exhausted"
             if bool(getattr(args, "interleave_extraction", False)):
-                extraction_reason = _tick_drain_extraction_if_available(
+                extraction_reason = _tick_drain_downstream(
                     client,
                     args,
                     summary=summary,
@@ -1967,7 +2100,7 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         else:
             summary["stopped_reason"] = reason
         if bool(getattr(args, "interleave_extraction", False)) and reason not in {"ai_stage_configuration_error", "daily_quota_exhausted", "dry_run"}:
-            extraction_reason = _tick_drain_extraction_if_available(
+            extraction_reason = _tick_drain_downstream(
                 client,
                 args,
                 summary=summary,
@@ -1986,6 +2119,14 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             extraction_stage_key=extraction_stage_key,
         )
 
+    _drain_triage_tick(
+        client,
+        args,
+        summary=summary,
+        screening_stage_key=screening_stage_key,
+        extraction_stage_key=extraction_stage_key,
+        stage_rpm=stage_rpm,
+    )
     stage_summary = _tick_stage_summary(
         summary,
         extraction_stage_key,

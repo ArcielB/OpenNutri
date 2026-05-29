@@ -16,6 +16,7 @@ from scripts import daily_ops_orchestrator, ensure_paper_stock, refill_assignmen
 
 SCREENING_STAGE = "gemma_proof_extraction_v1"
 EXTRACTION_STAGE = "gemini_flash_db_payload_v2"
+TRIAGE_STAGE = "gemini_flash_lite_triage_v1"
 
 
 def build_args(**overrides):
@@ -847,6 +848,76 @@ orchestrator.build_parser()
         self.assertEqual(summary["stopped_reason"], "daily_targets_reached")
         crawl_mock.assert_not_called()
         drain_mock.assert_not_called()
+
+    def test_downstream_drains_triage_before_extraction(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def fake_followup(_client, _args, *, stage_key, role, **_kwargs):
+            calls.append((role, stage_key))
+            return "tick_complete"
+
+        summary = {"stage_summaries": {}}
+        with patch.object(daily_ops_orchestrator, "_tick_drain_followup_stage", side_effect=fake_followup):
+            daily_ops_orchestrator._tick_drain_downstream(
+                object(),
+                build_args(triage_stage_key=TRIAGE_STAGE),
+                summary=summary,
+                screening_stage_key=SCREENING_STAGE,
+                extraction_stage_key=EXTRACTION_STAGE,
+                extraction_daily_target=20,
+                extraction_tick_tasks=2,
+                stage_rpm={TRIAGE_STAGE: 20, EXTRACTION_STAGE: 15},
+                day_start_iso="2026-05-29T00:00:00-07:00",
+            )
+
+        self.assertEqual(calls, [("triage", TRIAGE_STAGE), ("extraction", EXTRACTION_STAGE)])
+        self.assertEqual(summary["interleaved_triage_reason"], "tick_complete")
+
+    def test_downstream_skips_triage_when_disabled(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def fake_followup(_client, _args, *, stage_key, role, **_kwargs):
+            calls.append((role, stage_key))
+            return "tick_complete"
+
+        summary = {"stage_summaries": {}}
+        with patch.object(daily_ops_orchestrator, "_tick_drain_followup_stage", side_effect=fake_followup):
+            daily_ops_orchestrator._tick_drain_downstream(
+                object(),
+                build_args(triage_stage_key=""),
+                summary=summary,
+                screening_stage_key=SCREENING_STAGE,
+                extraction_stage_key=EXTRACTION_STAGE,
+                extraction_daily_target=20,
+                extraction_tick_tasks=2,
+                stage_rpm={EXTRACTION_STAGE: 15},
+                day_start_iso="2026-05-29T00:00:00-07:00",
+            )
+
+        self.assertEqual(calls, [("extraction", EXTRACTION_STAGE)])
+        self.assertNotIn("interleaved_triage_reason", summary)
+
+    @patch("scripts.daily_ops_orchestrator._count_queued_stage_tasks")
+    @patch("scripts.daily_ops_orchestrator.refill_assignment_queue.fetch_state")
+    def test_fetch_queue_counts_include_triage_stage(
+        self,
+        fetch_state_mock: Mock,
+        count_tasks_mock: Mock,
+    ) -> None:
+        fetch_state_mock.return_value = {"papers": []}
+        # _fetch_queue_counts queries screening, then extraction, then triage.
+        count_tasks_mock.side_effect = [5, 400, 30]
+
+        counts = daily_ops_orchestrator._fetch_queue_counts(
+            object(),
+            screening_stage_key=SCREENING_STAGE,
+            extraction_stage_key=EXTRACTION_STAGE,
+            triage_stage_key=TRIAGE_STAGE,
+        )
+
+        self.assertEqual(counts[TRIAGE_STAGE], 30)
+        self.assertEqual(counts[EXTRACTION_STAGE], 400)
+        self.assertEqual(counts["total"], 435)
 
 
 if __name__ == "__main__":

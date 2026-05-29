@@ -128,10 +128,12 @@ jobs:
               --tick-mode \
               --interleave-extraction \
               --target-open 50 \
-              --stage-rpm gemma_proof_extraction_v1=20,gemini_flash_db_payload_v2=15 \
+              --stage-rpm gemma_proof_extraction_v1=20,gemini_flash_lite_triage_v1=20,gemini_flash_db_payload_v2=15 \
               --max-wallclock-minutes 0 \
               --screening-daily-target 1500 \
               --screening-tick-tasks 20 \
+              --triage-daily-target 500 \
+              --triage-tick-tasks 10 \
               --extraction-daily-target 20 \
               --extraction-tick-tasks 2 \
               --refill-step-tr 0 \
