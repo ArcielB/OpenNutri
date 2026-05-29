@@ -1001,6 +1001,7 @@ SET
     active = FALSE,
     stage_order = EXCLUDED.stage_order,
     next_stage_on_has_data = EXCLUDED.next_stage_on_has_data,
+    next_stage_on_low_confidence = EXCLUDED.next_stage_on_low_confidence,
     no_data_route_destination = EXCLUDED.no_data_route_destination,
     updated_at = NOW();
 
@@ -1054,6 +1055,55 @@ SET
     active = FALSE,
     stage_order = EXCLUDED.stage_order,
     next_stage_on_has_data = EXCLUDED.next_stage_on_has_data,
+    next_stage_on_low_confidence = EXCLUDED.next_stage_on_low_confidence,
+    no_data_route_destination = EXCLUDED.no_data_route_destination,
+    updated_at = NOW();
+
+INSERT INTO routing_stage_configs (
+    stage_key,
+    stage_kind,
+    display_name,
+    model_name,
+    fallback_model_names,
+    prompt_version,
+    active,
+    positive_threshold,
+    negative_threshold,
+    audit_rate,
+    next_stage_on_low_confidence,
+    counts_as_truth,
+    stage_order,
+    next_stage_on_has_data,
+    no_data_route_destination
+)
+VALUES (
+    'gemini_flash_lite_triage_v1',
+    'ai_model',
+    'Gemini Flash-Lite Triage v1',
+    'gemini-3.1-flash-lite',
+    '[]'::jsonb,
+    'opennutri_evidence_payload_v1',
+    FALSE,
+    1.0,
+    1.0,
+    0.05,
+    'gemini_flash_db_payload_v2',
+    FALSE,
+    15,
+    'gemini_flash_db_payload_v2',
+    'provisional_skip'
+)
+ON CONFLICT (stage_key) DO UPDATE
+SET
+    stage_kind = EXCLUDED.stage_kind,
+    display_name = EXCLUDED.display_name,
+    model_name = EXCLUDED.model_name,
+    fallback_model_names = EXCLUDED.fallback_model_names,
+    prompt_version = EXCLUDED.prompt_version,
+    active = FALSE,
+    stage_order = EXCLUDED.stage_order,
+    next_stage_on_has_data = EXCLUDED.next_stage_on_has_data,
+    next_stage_on_low_confidence = EXCLUDED.next_stage_on_low_confidence,
     no_data_route_destination = EXCLUDED.no_data_route_destination,
     updated_at = NOW();
 
@@ -1085,10 +1135,10 @@ VALUES (
     1.0,
     1.0,
     0.02,
-    'gemini_flash_db_payload_v2',
+    'gemini_flash_lite_triage_v1',
     FALSE,
     10,
-    'gemini_flash_db_payload_v2',
+    'gemini_flash_lite_triage_v1',
     'provisional_skip'
 )
 ON CONFLICT (stage_key) DO UPDATE
@@ -1101,6 +1151,7 @@ SET
     active = TRUE,
     stage_order = EXCLUDED.stage_order,
     next_stage_on_has_data = EXCLUDED.next_stage_on_has_data,
+    next_stage_on_low_confidence = EXCLUDED.next_stage_on_low_confidence,
     no_data_route_destination = EXCLUDED.no_data_route_destination,
     updated_at = NOW();
 

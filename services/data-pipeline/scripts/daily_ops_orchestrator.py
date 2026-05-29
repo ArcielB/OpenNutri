@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -402,6 +402,7 @@ def _fetch_active_stage_counts(
     *,
     screening_stage_key: str,
     extraction_stage_key: str,
+    triage_stage_key: str | None = None,
     stale_after_minutes: int = 120,
 ) -> dict[str, int]:
     screening_task_count = _count_active_stage_tasks(
@@ -414,17 +415,28 @@ def _fetch_active_stage_counts(
         stage_key=extraction_stage_key,
         stale_after_minutes=stale_after_minutes,
     )
-    if screening_task_count is None or extraction_task_count is None:
+    triage_task_count = None
+    if triage_stage_key:
+        triage_task_count = _count_active_stage_tasks(
+            client,
+            stage_key=triage_stage_key,
+            stale_after_minutes=stale_after_minutes,
+        )
+    if screening_task_count is None or extraction_task_count is None or (triage_stage_key and triage_task_count is None):
         return _fetch_queue_counts(
             client,
             screening_stage_key=screening_stage_key,
             extraction_stage_key=extraction_stage_key,
+            triage_stage_key=triage_stage_key,
         )
-    return {
-        "total": int(screening_task_count) + int(extraction_task_count),
+    counts = {
+        "total": int(screening_task_count) + int(extraction_task_count) + (int(triage_task_count or 0) if triage_stage_key else 0),
         screening_stage_key: int(screening_task_count),
         extraction_stage_key: int(extraction_task_count),
     }
+    if triage_stage_key:
+        counts[triage_stage_key] = int(triage_task_count or 0)
+    return counts
 
 
 def _log(args: argparse.Namespace, message: str) -> None:
@@ -493,11 +505,34 @@ def _count_completed_stage_tasks_since(client: Any, *, stage_key: str, since_iso
     return int(count)
 
 
-def _parse_stage_rpm(raw_value: object, *, screening_stage_key: str, extraction_stage_key: str) -> dict[str, int]:
+def _optional_triage_stage_key(args: argparse.Namespace) -> str | None:
+    stage_key = str(getattr(args, "triage_stage_key", "") or "").strip()
+    return stage_key or None
+
+
+def _ordered_stage_keys(screening_stage_key: str, extraction_stage_key: str, triage_stage_key: str | None = None) -> list[str]:
+    if triage_stage_key:
+        return [screening_stage_key, triage_stage_key, extraction_stage_key]
+    return [screening_stage_key, extraction_stage_key]
+
+
+def _stage_rpm_summary(stage_order: Sequence[str], stage_rpm: dict[str, int]) -> dict[str, int]:
+    return {stage_key: int(stage_rpm.get(stage_key, 15)) for stage_key in stage_order}
+
+
+def _parse_stage_rpm(
+    raw_value: object,
+    *,
+    screening_stage_key: str,
+    extraction_stage_key: str,
+    triage_stage_key: str | None = None,
+) -> dict[str, int]:
     stage_rpm = {
         screening_stage_key: 20,
         extraction_stage_key: 15,
     }
+    if triage_stage_key:
+        stage_rpm[triage_stage_key] = 20
     raw = str(raw_value or "").strip()
     if not raw:
         return stage_rpm
@@ -1109,11 +1144,13 @@ def _final_queue_snapshot(
     *,
     screening_stage_key: str,
     extraction_stage_key: str,
+    triage_stage_key: str | None = None,
 ) -> dict[str, int]:
     return _fetch_queue_counts(
         client,
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
     )
 
 
@@ -1124,10 +1161,17 @@ def _finish_summary(
     screening_stage_key: str,
     extraction_stage_key: str,
 ) -> dict[str, Any]:
+    triage_stage_key = str(summary.get("triage_stage_key") or "").strip() or None
     screening_summary = summary["stage_summaries"].get(screening_stage_key, {})
+    triage_summary = summary["stage_summaries"].get(triage_stage_key, {}) if triage_stage_key else {}
     extraction_summary = summary["stage_summaries"].get(extraction_stage_key, {})
     summary["screened"] = int(screening_summary.get("model_calls") or 0)
-    summary["routed_to_gemini"] = int(screening_summary.get("followup_queued") or 0)
+    if triage_stage_key:
+        summary["routed_to_triage"] = int(screening_summary.get("followup_queued") or 0)
+        summary["triage_used"] = int(triage_summary.get("model_calls") or 0)
+        summary["routed_to_gemini"] = int(triage_summary.get("followup_queued") or 0)
+    else:
+        summary["routed_to_gemini"] = int(screening_summary.get("followup_queued") or 0)
     summary["gemini_used"] = int(extraction_summary.get("model_calls") or 0)
     summary["human_ready"] = int(extraction_summary.get("human_ready") or 0)
     try:
@@ -1135,6 +1179,7 @@ def _finish_summary(
             client,
             screening_stage_key=screening_stage_key,
             extraction_stage_key=extraction_stage_key,
+            triage_stage_key=triage_stage_key,
         )
     except Exception as exc:
         summary["remaining_queued_error"] = str(exc)
@@ -1260,12 +1305,16 @@ def run_daily_ops(
 def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str, Any]:
     screening_stage_key = str(getattr(args, "screening_stage_key", "gemma_proof_extraction_v1") or "gemma_proof_extraction_v1")
     extraction_stage_key = str(getattr(args, "extraction_stage_key", "gemini_flash_db_payload_v2") or "gemini_flash_db_payload_v2")
+    triage_stage_key = _optional_triage_stage_key(args)
     stage_rpm = _parse_stage_rpm(
         getattr(args, "stage_rpm", ""),
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
     )
+    stage_order = _ordered_stage_keys(screening_stage_key, extraction_stage_key, triage_stage_key)
     screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
+    triage_daily_target = max(0, int(getattr(args, "triage_daily_target", 500)))
     extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
     screening_active_target = max(0, int(getattr(args, "screening_active_target", 150)))
     stale_after_minutes = max(0, int(getattr(args, "stage_task_stale_minutes", 120)))
@@ -1273,6 +1322,7 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         args,
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
     )
     soft_limit_bytes = _paper_bucket_soft_limit_bytes(args)
     extraction_reservoir_target = max(0, int(getattr(args, "extraction_candidate_reservoir_target", 500)))
@@ -1282,13 +1332,12 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         "dry_run": bool(args.dry_run),
         "target_open": int(args.target_open),
         "screening_stage_key": screening_stage_key,
+        "triage_stage_key": triage_stage_key,
         "extraction_stage_key": extraction_stage_key,
-        "stage_order": [screening_stage_key, extraction_stage_key],
-        "stage_rpm": {
-            screening_stage_key: int(stage_rpm.get(screening_stage_key, 15)),
-            extraction_stage_key: int(stage_rpm.get(extraction_stage_key, 15)),
-        },
+        "stage_order": stage_order,
+        "stage_rpm": _stage_rpm_summary(stage_order, stage_rpm),
         "screening_daily_target": screening_daily_target,
+        "triage_daily_target": triage_daily_target,
         "extraction_daily_target": extraction_daily_target,
         "screening_active_target": screening_active_target,
         "extraction_candidate_reservoir_target": extraction_reservoir_target,
@@ -1321,6 +1370,15 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         role="extraction_controller",
         daily_target=extraction_daily_target,
     )
+    triage_summary = None
+    if triage_stage_key:
+        triage_summary = _tick_stage_summary(
+            summary,
+            triage_stage_key,
+            rpm=int(stage_rpm.get(triage_stage_key, 20)),
+            role="triage_controller",
+            daily_target=triage_daily_target,
+        )
 
     try:
         storage_cleanup = _run_controller_storage_cleanup(client, args)
@@ -1330,6 +1388,8 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
     summary["storage_cleanup"] = storage_cleanup
 
     _requeue_stale_stage_tasks(client, args, stage_key=screening_stage_key, stage_summary=screening_summary)
+    if triage_stage_key and triage_summary is not None:
+        _requeue_stale_stage_tasks(client, args, stage_key=triage_stage_key, stage_summary=triage_summary)
     _requeue_stale_stage_tasks(client, args, stage_key=extraction_stage_key, stage_summary=extraction_summary)
 
     screening_completed_today = _count_completed_stage_tasks_since(
@@ -1346,15 +1406,24 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         screening_stage_key: screening_completed_today,
         extraction_stage_key: extraction_completed_today,
     }
+    if triage_stage_key:
+        summary["daily_completed"][triage_stage_key] = _count_completed_stage_tasks_since(
+            client,
+            stage_key=triage_stage_key,
+            since_iso=quota_day_starts[triage_stage_key],
+        )
 
     active_counts = _fetch_active_stage_counts(
         client,
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
         stale_after_minutes=stale_after_minutes,
     )
     active_screening = int(active_counts.get(screening_stage_key) or 0)
+    active_triage = int(active_counts.get(triage_stage_key) or 0) if triage_stage_key else 0
     queued_extraction = int(_count_queued_stage_tasks(client, stage_key=extraction_stage_key) or active_counts.get(extraction_stage_key) or 0)
+    queued_triage = int(_count_queued_stage_tasks(client, stage_key=triage_stage_key) or active_triage or 0) if triage_stage_key else 0
     remaining_today = max(0, screening_daily_target - screening_completed_today)
     controller_target = min(remaining_today, screening_active_target)
     deficit = max(0, controller_target - active_screening)
@@ -1363,6 +1432,10 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
     extraction_summary["candidate_reservoir_target"] = extraction_reservoir_target
     extraction_summary["queued_candidate_count"] = queued_extraction
     extraction_summary["reservoir_satisfied"] = queued_extraction >= extraction_reservoir_target if extraction_reservoir_target > 0 else True
+    if triage_summary is not None:
+        triage_summary["candidate_reservoir_target"] = extraction_reservoir_target
+        triage_summary["queued_candidate_count"] = queued_triage
+        triage_summary["reservoir_satisfied"] = queued_triage >= extraction_reservoir_target if extraction_reservoir_target > 0 else True
     screening_summary["queue_observations"].append(
         {
             "total": active_counts["total"],
@@ -1379,6 +1452,15 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
             "controller": True,
         }
     )
+    if triage_summary is not None:
+        triage_summary["queue_observations"].append(
+            {
+                "total": active_counts["total"],
+                "queued_for_stage": queued_triage,
+                "candidate_reservoir_target": extraction_reservoir_target,
+                "controller": True,
+            }
+        )
     _log(
         args,
         f"{screening_stage_key} controller observation: completed_today={screening_completed_today} "
@@ -1449,6 +1531,7 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
                 client,
                 screening_stage_key=screening_stage_key,
                 extraction_stage_key=extraction_stage_key,
+                triage_stage_key=triage_stage_key,
                 stale_after_minutes=stale_after_minutes,
             )
             refreshed_screening = int(refreshed_counts.get(screening_stage_key) or 0)
@@ -1472,6 +1555,8 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
                 summary["stopped_reason"] = "controller_refill_complete"
 
     extraction_summary["stop_reason"] = extraction_summary.get("stop_reason") or "controller_no_drain"
+    if triage_summary is not None:
+        triage_summary["stop_reason"] = triage_summary.get("stop_reason") or "controller_no_drain"
     return _finish_summary(
         client,
         summary,
@@ -1483,19 +1568,25 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
 def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]:
     screening_stage_key = str(getattr(args, "screening_stage_key", "gemma_proof_extraction_v1") or "gemma_proof_extraction_v1")
     extraction_stage_key = str(getattr(args, "extraction_stage_key", "gemini_flash_db_payload_v2") or "gemini_flash_db_payload_v2")
+    triage_stage_key = _optional_triage_stage_key(args)
     stage_rpm = _parse_stage_rpm(
         getattr(args, "stage_rpm", ""),
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
     )
+    stage_order = _ordered_stage_keys(screening_stage_key, extraction_stage_key, triage_stage_key)
     screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
+    triage_daily_target = max(0, int(getattr(args, "triage_daily_target", 500)))
     extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
     screening_tick_tasks = max(1, int(getattr(args, "screening_tick_tasks", stage_rpm.get(screening_stage_key, 20))))
+    triage_tick_tasks = max(1, int(getattr(args, "triage_tick_tasks", stage_rpm.get(triage_stage_key or "", 20))))
     extraction_tick_tasks = max(1, int(getattr(args, "extraction_tick_tasks", stage_rpm.get(extraction_stage_key, 15))))
     quota_day_starts, quota_timezones = _stage_quota_day_starts(
         args,
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
     )
 
     summary: dict[str, Any] = {
@@ -1503,15 +1594,15 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
         "dry_run": bool(args.dry_run),
         "target_open": int(args.target_open),
         "screening_stage_key": screening_stage_key,
+        "triage_stage_key": triage_stage_key,
         "extraction_stage_key": extraction_stage_key,
-        "stage_order": [screening_stage_key, extraction_stage_key],
-        "stage_rpm": {
-            screening_stage_key: int(stage_rpm.get(screening_stage_key, 15)),
-            extraction_stage_key: int(stage_rpm.get(extraction_stage_key, 15)),
-        },
+        "stage_order": stage_order,
+        "stage_rpm": _stage_rpm_summary(stage_order, stage_rpm),
         "screening_daily_target": screening_daily_target,
+        "triage_daily_target": triage_daily_target,
         "extraction_daily_target": extraction_daily_target,
         "screening_tick_tasks": screening_tick_tasks,
+        "triage_tick_tasks": triage_tick_tasks,
         "extraction_tick_tasks": extraction_tick_tasks,
         "interleave_extraction": bool(getattr(args, "interleave_extraction", False)),
         "day_start_utc": _utc_day_start_iso(),
@@ -1540,6 +1631,12 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
         screening_stage_key: screening_completed_today,
         extraction_stage_key: extraction_completed_today,
     }
+    if triage_stage_key:
+        summary["daily_completed"][triage_stage_key] = _count_completed_stage_tasks_since(
+            client,
+            stage_key=triage_stage_key,
+            since_iso=quota_day_starts[triage_stage_key],
+        )
 
     if screening_completed_today < screening_daily_target:
         stage_summary = _tick_stage_summary(
@@ -1553,6 +1650,7 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
             client,
             screening_stage_key=screening_stage_key,
             extraction_stage_key=extraction_stage_key,
+            triage_stage_key=triage_stage_key,
         )
         queue_count = int(queue_counts.get(screening_stage_key) or 0)
         stage_summary["queue_observations"].append(
@@ -1660,6 +1758,7 @@ def run_daily_ops_drain(client: Any, args: argparse.Namespace) -> dict[str, Any]
         client,
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
     )
     queue_count = int(queue_counts.get(extraction_stage_key) or 0)
     stage_summary["queue_observations"].append(
@@ -1923,19 +2022,25 @@ def _tick_drain_downstream(
 def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
     screening_stage_key = str(getattr(args, "screening_stage_key", "gemma_proof_extraction_v1") or "gemma_proof_extraction_v1")
     extraction_stage_key = str(getattr(args, "extraction_stage_key", "gemini_flash_db_payload_v2") or "gemini_flash_db_payload_v2")
+    triage_stage_key = _optional_triage_stage_key(args)
     stage_rpm = _parse_stage_rpm(
         getattr(args, "stage_rpm", ""),
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
     )
+    stage_order = _ordered_stage_keys(screening_stage_key, extraction_stage_key, triage_stage_key)
     screening_daily_target = max(0, int(getattr(args, "screening_daily_target", 1500)))
+    triage_daily_target = max(0, int(getattr(args, "triage_daily_target", 500)))
     extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
     screening_tick_tasks = max(1, int(getattr(args, "screening_tick_tasks", stage_rpm.get(screening_stage_key, 20))))
+    triage_tick_tasks = max(1, int(getattr(args, "triage_tick_tasks", stage_rpm.get(triage_stage_key or "", 20))))
     extraction_tick_tasks = max(1, int(getattr(args, "extraction_tick_tasks", stage_rpm.get(extraction_stage_key, 15))))
     quota_day_starts, quota_timezones = _stage_quota_day_starts(
         args,
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
     )
 
     summary: dict[str, Any] = {
@@ -1943,15 +2048,15 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         "dry_run": bool(args.dry_run),
         "target_open": int(args.target_open),
         "screening_stage_key": screening_stage_key,
+        "triage_stage_key": triage_stage_key,
         "extraction_stage_key": extraction_stage_key,
-        "stage_order": [screening_stage_key, extraction_stage_key],
-        "stage_rpm": {
-            screening_stage_key: int(stage_rpm.get(screening_stage_key, 15)),
-            extraction_stage_key: int(stage_rpm.get(extraction_stage_key, 15)),
-        },
+        "stage_order": stage_order,
+        "stage_rpm": _stage_rpm_summary(stage_order, stage_rpm),
         "screening_daily_target": screening_daily_target,
+        "triage_daily_target": triage_daily_target,
         "extraction_daily_target": extraction_daily_target,
         "screening_tick_tasks": screening_tick_tasks,
+        "triage_tick_tasks": triage_tick_tasks,
         "extraction_tick_tasks": extraction_tick_tasks,
         "interleave_extraction": bool(getattr(args, "interleave_extraction", False)),
         "day_start_utc": _utc_day_start_iso(),
@@ -1980,6 +2085,12 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         screening_stage_key: screening_completed_today,
         extraction_stage_key: extraction_completed_today,
     }
+    if triage_stage_key:
+        summary["daily_completed"][triage_stage_key] = _count_completed_stage_tasks_since(
+            client,
+            stage_key=triage_stage_key,
+            since_iso=quota_day_starts[triage_stage_key],
+        )
 
     if screening_completed_today < screening_daily_target:
         stage_summary = _tick_stage_summary(
@@ -1994,6 +2105,7 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
             client,
             screening_stage_key=screening_stage_key,
             extraction_stage_key=extraction_stage_key,
+            triage_stage_key=triage_stage_key,
         )
         queue_count = int(queue_counts.get(screening_stage_key) or 0)
         stage_summary["queue_observations"].append(
@@ -2042,6 +2154,7 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
                     client,
                     screening_stage_key=screening_stage_key,
                     extraction_stage_key=extraction_stage_key,
+                    triage_stage_key=triage_stage_key,
                 )
                 queue_count = int(queue_counts.get(screening_stage_key) or 0)
                 stage_summary["queue_observations"].append(
@@ -2150,6 +2263,7 @@ def run_daily_ops_tick(client: Any, args: argparse.Namespace) -> dict[str, Any]:
         client,
         screening_stage_key=screening_stage_key,
         extraction_stage_key=extraction_stage_key,
+        triage_stage_key=triage_stage_key,
     )
     queue_count = int(queue_counts.get(extraction_stage_key) or 0)
     stage_summary["queue_observations"].append(

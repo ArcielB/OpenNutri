@@ -426,6 +426,62 @@ class DailyOpsTests(unittest.TestCase):
             "2026-05-29T00:00:00+00:00",
         )
 
+    def test_quota_day_summary_includes_triage_stage(self) -> None:
+        now = datetime(2026, 5, 29, 8, 30, tzinfo=timezone.utc)
+
+        starts, timezones = daily_ops_orchestrator._stage_quota_day_starts(
+            build_args(triage_stage_key=TRIAGE_STAGE),
+            screening_stage_key=SCREENING_STAGE,
+            extraction_stage_key=EXTRACTION_STAGE,
+            triage_stage_key=TRIAGE_STAGE,
+            now=now,
+        )
+
+        self.assertEqual(starts[TRIAGE_STAGE], "2026-05-29T00:00:00-07:00")
+        self.assertEqual(timezones[TRIAGE_STAGE], "America/Los_Angeles")
+
+    @patch("scripts.daily_ops_orchestrator._count_queued_stage_tasks", return_value=0)
+    @patch("scripts.daily_ops_orchestrator._final_queue_snapshot")
+    @patch("scripts.daily_ops_orchestrator._fetch_active_stage_counts")
+    @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since", return_value=0)
+    @patch("scripts.daily_ops_orchestrator._requeue_stale_stage_tasks")
+    @patch("scripts.daily_ops_orchestrator._run_controller_storage_cleanup", return_value={})
+    def test_controller_summary_and_stale_requeue_include_triage_stage(
+        self,
+        _storage_mock: Mock,
+        requeue_mock: Mock,
+        _completed_mock: Mock,
+        active_counts_mock: Mock,
+        final_snapshot_mock: Mock,
+        _queued_mock: Mock,
+    ) -> None:
+        active_counts_mock.return_value = {
+            "total": 0,
+            SCREENING_STAGE: 0,
+            TRIAGE_STAGE: 0,
+            EXTRACTION_STAGE: 0,
+        }
+        final_snapshot_mock.return_value = {
+            "total": 0,
+            SCREENING_STAGE: 0,
+            TRIAGE_STAGE: 0,
+            EXTRACTION_STAGE: 0,
+        }
+
+        summary = daily_ops_orchestrator.run_daily_ops_controller(
+            object(),
+            build_args(triage_stage_key=TRIAGE_STAGE, screening_daily_target=0),
+        )
+
+        self.assertEqual(summary["stage_order"], [SCREENING_STAGE, TRIAGE_STAGE, EXTRACTION_STAGE])
+        self.assertIn(TRIAGE_STAGE, summary["quota_day_starts"])
+        self.assertIn(TRIAGE_STAGE, summary["daily_completed"])
+        self.assertIn(TRIAGE_STAGE, summary["remaining_queued"])
+        self.assertEqual(
+            [call.kwargs["stage_key"] for call in requeue_mock.call_args_list],
+            [SCREENING_STAGE, TRIAGE_STAGE, EXTRACTION_STAGE],
+        )
+
     def test_drain_only_import_path_does_not_require_sentence_transformers(self) -> None:
         script = """
 import builtins
