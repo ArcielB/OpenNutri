@@ -353,7 +353,15 @@ export function buildFoodItemsFromPayload(payload) {
 }
 
 export function getPublicPdfUrl(filename, pdfUrl = null) {
-  if (pdfUrl) return pdfUrl
+  if (pdfUrl) {
+    // EuropePMC's getPdf endpoint already serves the PDF with CORS headers and
+    // no redirect, so load it directly. Every other external URL is routed
+    // through the same-origin /api/pdf proxy, which adds CORS so publisher PDFs
+    // (and CORS-less redirects) render in react-pdf.
+    if (/^https:\/\/europepmc\.org\/api\/getPdf/i.test(pdfUrl)) return pdfUrl
+    if (/^https?:\/\//i.test(pdfUrl)) return `/api/pdf?url=${encodeURIComponent(pdfUrl)}`
+    return pdfUrl
+  }
   if (!filename) return null
   return supabase.storage.from('papers').getPublicUrl(filename).data.publicUrl
 }
