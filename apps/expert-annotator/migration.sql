@@ -2213,6 +2213,8 @@ BEGIN
       ON latest_ai.id = p.latest_ai_extraction_id
     WHERE p.routing_status = 'human_review_ready'
       AND p.workflow_language IN ('en', 'tr')
+      AND p.pdf_url IS NOT NULL
+      AND btrim(p.pdf_url) <> ''
       AND latest_ai.normalized_payload_json ->> 'decision_kind' = 'has_data'
       AND NOT EXISTS (
           SELECT 1

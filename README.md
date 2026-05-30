@@ -71,7 +71,7 @@ Notes:
 - `papers` includes `ingest_status`, `audit_flag`, `rejection_reasons` for audit sampling.
 - `papers` now also carries paper-level AI routing summary fields:
   `current_stage_key`, `routing_status`, `routing_bucket`, `route_destination`, `latest_ai_extraction_id`, `routing_updated_at`.
-- `papers.pdf_url` is the source PDF URL used by model workers and the annotator. Supabase paper-PDF storage is disabled by default to avoid storage and egress caps.
+- `papers.pdf_url` is the source PDF URL used by model workers and the annotator. The shared labeler queue only exposes human-ready papers with a non-empty `papers.pdf_url`, because Supabase paper-PDF storage is disabled by default to avoid storage and egress caps.
 - `paper_search_hits` stores metadata-stage search discoveries separately from downloaded papers, including source, language, source PDF URL when known, rendered query text, search-gate score, filter score, and duplicate status.
 - `paper_search_batches` and `paper_search_batch_hits` now store per-query-batch history separately from hit evidence, so the crawler can evaluate exact query batches by downstream label yield without duplicating raw hit rows.
 - `get_pipeline_ops_snapshot(p_start_at, p_end_at, p_workflow_language, p_paper_id)` is the cockpit-only RPC backing the Pipeline tab. It is `SECURITY DEFINER` so cockpit users can see aggregate `paper_stage_tasks` queue/error state without granting direct task-table reads to every authenticated user.
