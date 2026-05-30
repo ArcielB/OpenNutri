@@ -28,7 +28,7 @@ from food_paper_crawler.models import build_search_batch_key, build_search_hit_k
 from pdf_limits import max_paper_pdf_bytes, pdf_size_limit_message
 
 
-EXISTING_PAPER_SELECT = "id,canonical_key,routing_status,current_stage_key,latest_ai_extraction_id"
+EXISTING_PAPER_SELECT = "id,canonical_key,routing_status,current_stage_key,latest_ai_extraction_id,pdf_url"
 CLOSED_AI_ROUTING_STATUSES = {
     ROUTING_STATUS_HUMAN_READY,
     ROUTING_STATUS_AI_PROVISIONAL_NO_DATA,
@@ -63,6 +63,36 @@ def _is_duplicate_paper_key_error(exc: Exception) -> bool:
         ("23505" in text or "duplicate key" in text)
         and ("canonical_key" in text or "idx_papers_canonical_key_unique" in text)
     )
+
+
+def _truthy_env(name: str, *, default: bool = False) -> bool:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def store_pdfs_in_supabase() -> bool:
+    return _truthy_env("OPENNUTRI_STORE_PDFS_IN_SUPABASE", default=False)
+
+
+def _normalize_pmcid(value: object) -> str:
+    text = "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum())
+    if not text:
+        return ""
+    if not text.startswith("pmc"):
+        text = f"pmc{text}"
+    return text.upper()
+
+
+def _paper_pdf_url(record: dict) -> str | None:
+    explicit_url = str(record.get("pdf_url") or "").strip()
+    if explicit_url:
+        return explicit_url
+    pmcid = _normalize_pmcid(record.get("pmc_id") or record.get("pmcid"))
+    if pmcid:
+        return f"https://europepmc.org/articles/{pmcid}?pdf=render"
+    return None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -155,6 +185,7 @@ def _paper_payload(record: dict, filename: str) -> dict:
         "doi": record.get("doi") or (f"pmc:{pmc_id}" if pmc_id else None),
         "canonical_key": record.get("canonical_key"),
         "filename": filename,
+        "pdf_url": _paper_pdf_url(record),
         "source": record.get("source"),
         "source_record_id": record.get("source_record_id"),
         "workflow_language": record.get("workflow_language"),
@@ -397,6 +428,7 @@ def _prepare_search_hits(
             "external_id": row.get("external_id"),
             "pmcid": row.get("pmcid"),
             "doi": row.get("doi"),
+            "pdf_url": _paper_pdf_url(row),
             "title": row.get("title"),
             "abstract": row.get("abstract"),
             "workflow_language": row.get("workflow_language"),
@@ -537,15 +569,20 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
     }
     paper_id_cache: dict[str, int | None] = {}
 
-    try:
-        supabase.storage.create_bucket("papers", options={"public": True})
-    except Exception:
-        pass
+    store_pdf_files = store_pdfs_in_supabase()
+    if store_pdf_files:
+        try:
+            supabase.storage.create_bucket("papers", options={"public": True})
+        except Exception:
+            pass
+    else:
+        print("Supabase paper PDF Storage upload is disabled; source pdf_url will be used on demand.")
 
     paper_id_by_key: dict[str, int] = {}
     upload_errors: list[str] = []
     skipped_uploads: list[str] = []
-    uploaded_count = 0
+    registered_count = 0
+    storage_upload_count = 0
     active_stage = _fetch_active_stage_config(supabase)
     max_upload_bytes = max_paper_pdf_bytes()
 
@@ -585,24 +622,33 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
             print(f"  Skipped Storage upload: {reason}.")
             continue
 
-        file_size = file_path.stat().st_size
-        if file_size > max_upload_bytes:
-            reason = pdf_size_limit_message(file_size, limit_bytes=max_upload_bytes)
-            skipped_uploads.append(f"{filename}: {reason}")
-            print(f"  Skipped oversized PDF: {reason}.")
+        if not store_pdf_files and not payload.get("pdf_url"):
+            upload_errors.append(
+                f"{filename}: missing source pdf_url while OPENNUTRI_STORE_PDFS_IN_SUPABASE is disabled"
+            )
             continue
 
         try:
-            with file_path.open("rb") as handle:
-                supabase.storage.from_("papers").upload(
-                    path=filename,
-                    file=handle,
-                    file_options={
-                        "cache-control": "3600",
-                        "upsert": "true",
-                        "content-type": "application/pdf",
-                    },
-                )
+            if store_pdf_files:
+                file_size = file_path.stat().st_size
+                if file_size > max_upload_bytes:
+                    reason = pdf_size_limit_message(file_size, limit_bytes=max_upload_bytes)
+                    skipped_uploads.append(f"{filename}: {reason}")
+                    print(f"  Skipped oversized PDF: {reason}.")
+                    continue
+                with file_path.open("rb") as handle:
+                    supabase.storage.from_("papers").upload(
+                        path=filename,
+                        file=handle,
+                        file_options={
+                            "cache-control": "604800",
+                            "upsert": "true",
+                            "content-type": "application/pdf",
+                        },
+                    )
+                storage_upload_count += 1
+            else:
+                print("  Skipped Supabase Storage upload; source PDF URL retained.")
 
             if existing:
                 paper_id = existing_paper_id if existing_paper_id is not None else int(existing["id"])
@@ -615,7 +661,7 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
 
             if canonical_key:
                 paper_id_by_key[canonical_key] = paper_id
-            uploaded_count += 1
+            registered_count += 1
             if preserve_human_route:
                 print("  Existing paper has a human outcome; leaving routing unchanged.")
             elif has_closed_ai_route:
@@ -703,8 +749,11 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
         inserted_batch_hits += len(batch)
 
     print("=" * 60)
-    if uploaded_count > 0:
-        print(f"Successfully uploaded and registered {uploaded_count} PDFs.")
+    if registered_count > 0:
+        if store_pdf_files:
+            print(f"Successfully uploaded {storage_upload_count} PDFs and registered {registered_count} papers.")
+        else:
+            print(f"Successfully registered {registered_count} papers without Supabase PDF upload.")
     else:
         print("No PDFs were accepted in this run; persisted metadata-stage search hits only.")
     if skipped_uploads:

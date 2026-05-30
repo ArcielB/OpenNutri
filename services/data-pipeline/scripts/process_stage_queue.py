@@ -229,7 +229,7 @@ def _fetch_all_rows(client: Client, table_name: str, select: str) -> list[dict]:
 def fetch_paper(client: Client, paper_id: int) -> dict:
     response = (
         client.table("papers")
-        .select("id,title,doi,filename,workflow_language,current_stage_key,routing_status,route_destination,latest_ai_extraction_id")
+        .select("id,title,doi,filename,pdf_url,source,source_record_id,workflow_language,current_stage_key,routing_status,route_destination,latest_ai_extraction_id")
         .eq("id", paper_id)
         .limit(1)
         .execute()
@@ -263,13 +263,59 @@ def _public_paper_url(filename: str) -> str:
     return f"{supabase_url.rstrip('/')}/storage/v1/object/public/papers/{quote(filename)}"
 
 
-def extract_pdf_text(filename: str) -> str:
-    if not filename:
-        raise RuntimeError("Paper is missing filename.")
+def _truthy_env(name: str, *, default: bool = False) -> bool:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def paper_storage_enabled() -> bool:
+    return _truthy_env("OPENNUTRI_STORE_PDFS_IN_SUPABASE", default=False)
+
+
+def _normalize_pmcid(value: object) -> str:
+    text = "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum())
+    if not text:
+        return ""
+    if not text.startswith("pmc"):
+        text = f"pmc{text}"
+    return text.upper()
+
+
+def source_pdf_url_for_paper(paper: dict) -> str | None:
+    explicit_url = str(paper.get("pdf_url") or "").strip()
+    if explicit_url:
+        return explicit_url
+    doi = str(paper.get("doi") or "").strip()
+    pmcid = ""
+    if doi.lower().startswith("pmc:"):
+        pmcid = _normalize_pmcid(doi.split(":", 1)[1])
+    if not pmcid:
+        source_record_id = str(paper.get("source_record_id") or "").strip()
+        if source_record_id.lower().startswith("pmc"):
+            pmcid = _normalize_pmcid(source_record_id)
+    if not pmcid:
+        filename = str(paper.get("filename") or "").strip()
+        if filename.lower().startswith("pmcid_"):
+            pmcid = _normalize_pmcid(filename.rsplit(".", 1)[0].split("_", 1)[1])
+    if pmcid:
+        return f"https://europepmc.org/articles/{pmcid}?pdf=render"
+    return None
+
+
+def extract_pdf_text(filename: str, pdf_url: str | None = None) -> str:
     if shutil.which("pdftotext") is None:
         raise RuntimeError("Missing required dependency: pdftotext")
 
-    url = _public_paper_url(filename)
+    url = str(pdf_url or "").strip()
+    if not url:
+        if paper_storage_enabled():
+            if not filename:
+                raise RuntimeError("Paper is missing filename.")
+            url = _public_paper_url(filename)
+        else:
+            raise RuntimeError("Paper is missing pdf_url and Supabase PDF storage is disabled.")
     with urlopen(url, timeout=60) as response:
         pdf_bytes = response.read()
     if not pdf_bytes:
@@ -293,6 +339,8 @@ def extract_pdf_text(filename: str) -> str:
 
 
 def remove_paper_pdf_from_storage(client: Client, filename: str) -> dict[str, object]:
+    if not paper_storage_enabled():
+        return {"attempted": False, "deleted": False, "storage_disabled": True}
     filename = str(filename or "").strip()
     if not filename:
         return {"attempted": False, "deleted": False}
@@ -1022,7 +1070,10 @@ def process_one_task(
     )
 
     try:
-        full_text = extract_pdf_text(str(paper.get("filename") or ""))
+        full_text = extract_pdf_text(
+            str(paper.get("filename") or ""),
+            source_pdf_url_for_paper(paper),
+        )
         stage_full_text = stage_text_for_model(full_text, stage_config=stage_config)
         input_hash = input_hash_for_text(title=paper.get("title"), full_text=stage_full_text)
         if reference_lookups is not None:

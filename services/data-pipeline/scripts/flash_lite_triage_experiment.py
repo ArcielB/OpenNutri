@@ -17,7 +17,12 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 from ai_routing import normalize_ai_payload_with_summary
 from evaluator.unified_evaluator import UnifiedEvaluator
-from scripts.process_stage_queue import extract_pdf_text, fetch_reference_lookups, select_food_candidates_for_text
+from scripts.process_stage_queue import (
+    extract_pdf_text,
+    fetch_reference_lookups,
+    select_food_candidates_for_text,
+    source_pdf_url_for_paper,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -71,7 +76,7 @@ def _fetch_papers(client: Client, paper_ids: list[int]) -> dict[int, dict]:
     for offset in range(0, len(paper_ids), 500):
         response = (
             client.table("papers")
-            .select("id,title,doi,filename")
+            .select("id,title,doi,filename,pdf_url,source_record_id")
             .in_("id", paper_ids[offset:offset + 500])
             .execute()
         )
@@ -165,7 +170,7 @@ def run_experiment(client: Client, args: argparse.Namespace) -> dict[str, Any]:
             useful_total += 1
         elif known_decision == "no_usable_data":
             no_data_total += 1
-        full_text = extract_pdf_text(str(paper.get("filename") or ""))
+        full_text = extract_pdf_text(str(paper.get("filename") or ""), source_pdf_url_for_paper(paper))
         stage_text = _trim_text(full_text, int(args.text_limit_chars))
         evaluator.food_candidates = select_food_candidates_for_text(
             stage_text,

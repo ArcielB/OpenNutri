@@ -1216,6 +1216,7 @@ class QueueAndBackfillTests(unittest.TestCase):
                 "external_id": "W1",
                 "pmcid": None,
                 "doi": "10.123/known",
+                "pdf_url": "https://example.com/known.pdf",
                 "title": "Known composition paper",
                 "abstract": "Composition table.",
                 "workflow_language": "en",
@@ -1317,6 +1318,7 @@ class QueueAndBackfillTests(unittest.TestCase):
                 "external_id": "W-race",
                 "pmcid": None,
                 "doi": "10.123/race",
+                "pdf_url": "https://example.com/race.pdf",
                 "title": "Concurrent paper",
                 "abstract": "Composition table.",
                 "workflow_language": "en",
@@ -1400,7 +1402,7 @@ class QueueAndBackfillTests(unittest.TestCase):
                     )
                 )
 
-        self.assertEqual(client.storage_uploads[0][1], "race.pdf")
+        self.assertEqual(client.storage_uploads, [])
         self.assertEqual(client.tables["paper_search_hits"][0]["paper_id"], 88)
         self.assertEqual(client.tables["paper_stage_tasks"][0]["paper_id"], 88)
         self.assertEqual(client.tables["paper_stage_tasks"][0]["stage_key"], "gemma_proof_extraction_v1")
@@ -1773,9 +1775,9 @@ class QueueAndBackfillTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "queued_for_ai")
         self.assertEqual(result["route_destination"], "blocked")
-        self.assertIn("missing filename", result["error"])
+        self.assertIn("missing pdf_url", result["error"])
         self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "queued")
-        self.assertIn("missing filename", client.tables["paper_stage_tasks"][0]["last_error"])
+        self.assertIn("missing pdf_url", client.tables["paper_stage_tasks"][0]["last_error"])
         self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
         self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
 
@@ -2222,6 +2224,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["papers"][0]["current_stage_key"], "gemini_flash_db_payload_v2")
         self.assertEqual(client.tables["papers"][0]["latest_ai_extraction_id"], client.inserts[0][1][0].get("id"))
 
+    @patch.dict("os.environ", {"OPENNUTRI_STORE_PDFS_IN_SUPABASE": "1"})
     @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
     def test_stage_no_data_can_be_provisional_skip(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
@@ -2279,6 +2282,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertTrue(result["storage_pdf_deleted"])
         self.assertEqual(client.storage_removals, [("papers", ["paper.pdf"])])
 
+    @patch.dict("os.environ", {"OPENNUTRI_STORE_PDFS_IN_SUPABASE": "1"})
     @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
     def test_stage_no_data_storage_cleanup_failure_does_not_requeue(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(

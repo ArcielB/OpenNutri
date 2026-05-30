@@ -352,7 +352,8 @@ export function buildFoodItemsFromPayload(payload) {
     .filter(isValidFoodItem)
 }
 
-export function getPublicPdfUrl(filename) {
+export function getPublicPdfUrl(filename, pdfUrl = null) {
+  if (pdfUrl) return pdfUrl
   if (!filename) return null
   return supabase.storage.from('papers').getPublicUrl(filename).data.publicUrl
 }

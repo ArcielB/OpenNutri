@@ -7,6 +7,78 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- =============================================
+-- Auth signup allowlist
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS public.allowed_auth_emails (
+    email TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.allowed_auth_emails ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.allowed_auth_emails FROM anon, authenticated, public;
+GRANT ALL ON TABLE public.allowed_auth_emails TO service_role;
+
+INSERT INTO public.allowed_auth_emails (email)
+VALUES
+    ('ayseguldogann99@gmail.com'),
+    ('ayseguldogan2706@gmail.com'),
+    ('baezarciel@gmail.com'),
+    ('dainesalazarromero@gmail.com'),
+    ('f221229078@ktun.edu.tr'),
+    ('mcraft160105@gmail.com'),
+    ('ozcnaleyna2@gmail.com'),
+    ('periacikgoz22@gmail.com')
+ON CONFLICT (email) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION public.hook_restrict_signup_by_email_allowlist(event jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    attempted_email TEXT;
+    is_allowed BOOLEAN;
+BEGIN
+    attempted_email := lower(trim(event->'user'->>'email'));
+
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.allowed_auth_emails
+        WHERE lower(email) = attempted_email
+    )
+    INTO is_allowed;
+
+    IF is_allowed THEN
+        RETURN '{}'::jsonb;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'error',
+        jsonb_build_object(
+            'http_code', 403,
+            'message', 'This email is not allowed to access OpenNutri.'
+        )
+    );
+END;
+$$;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_auth_admin') THEN
+        GRANT EXECUTE
+            ON FUNCTION public.hook_restrict_signup_by_email_allowlist(jsonb)
+            TO supabase_auth_admin;
+    END IF;
+END $$;
+
+REVOKE EXECUTE
+    ON FUNCTION public.hook_restrict_signup_by_email_allowlist(jsonb)
+    FROM authenticated, anon, public;
+
+-- =============================================
 -- Reference data model
 -- =============================================
 
@@ -81,6 +153,7 @@ CREATE TABLE IF NOT EXISTS papers (
     doi TEXT,
     canonical_key TEXT,
     filename TEXT NOT NULL,
+    pdf_url TEXT,
     source TEXT,
     source_record_id TEXT,
     workflow_language TEXT
@@ -96,6 +169,7 @@ CREATE TABLE IF NOT EXISTS papers (
 ALTER TABLE papers
     ADD COLUMN IF NOT EXISTS abstract TEXT,
     ADD COLUMN IF NOT EXISTS canonical_key TEXT,
+    ADD COLUMN IF NOT EXISTS pdf_url TEXT,
     ADD COLUMN IF NOT EXISTS source TEXT,
     ADD COLUMN IF NOT EXISTS source_record_id TEXT,
     ADD COLUMN IF NOT EXISTS workflow_language TEXT
@@ -192,6 +266,7 @@ CREATE TABLE IF NOT EXISTS paper_search_hits (
     external_id TEXT,
     pmcid TEXT,
     doi TEXT,
+    pdf_url TEXT,
     title TEXT,
     abstract TEXT,
     workflow_language TEXT NOT NULL
@@ -211,6 +286,9 @@ CREATE TABLE IF NOT EXISTS paper_search_hits (
 
 ALTER TABLE paper_search_hits
     ADD COLUMN IF NOT EXISTS hit_key TEXT;
+
+ALTER TABLE paper_search_hits
+    ADD COLUMN IF NOT EXISTS pdf_url TEXT;
 
 UPDATE paper_search_hits
 SET hit_key = md5(
@@ -239,6 +317,9 @@ WHERE id IN (
 
 ALTER TABLE paper_search_hits
     ALTER COLUMN hit_key SET NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_search_hits_hit_key_unique
+    ON paper_search_hits(hit_key);
 
 CREATE TABLE IF NOT EXISTS paper_search_batches (
     batch_id TEXT PRIMARY KEY,
@@ -5037,7 +5118,7 @@ BEGIN
             'search_hits', coalesce((
                 SELECT jsonb_agg(to_jsonb(h) ORDER BY h.discovered_at DESC)
                 FROM (
-                    SELECT id, source, source_record_id, external_id, pmcid, doi, title,
+                    SELECT id, source, source_record_id, external_id, pmcid, doi, pdf_url, title,
                            workflow_language, template_id, source_term, term_type,
                            query_phrase, search_gate_score, search_gate_pass, filter_score,
                            filter_pass, is_duplicate, discovered_at

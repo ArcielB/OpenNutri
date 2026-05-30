@@ -49,6 +49,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENNUTRI_STORE_PDFS_IN_SUPABASE: "0"
           PYTHONUNBUFFERED: "1"
         run: |
           set -euo pipefail
@@ -68,7 +69,8 @@ jobs:
               --screening-refill-batch-en 150 \
               --screening-refill-chunk-en 150 \
               --screening-prefill-stall-limit 3 \
-              --paper-bucket-soft-limit-mb 900 \
+              --paper-bucket-soft-limit-mb 0 \
+              --skip-storage-cleanup \
               --refill-step-tr 0 \
               | tee /tmp/opennutri-daily-ops-controller.jsonl \
               | tail -n 1
@@ -113,6 +115,7 @@ jobs:
           OPENNUTRI_OPS_WORKER_INDEX: ${{ matrix.worker }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENNUTRI_STORE_PDFS_IN_SUPABASE: "0"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_REQUEST_TIMEOUT_SECONDS: "300"
           AI_MODEL_TASK_TIMEOUT_SECONDS: "300"

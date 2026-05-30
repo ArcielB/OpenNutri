@@ -72,7 +72,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const currentItem = queueItems.find((item) => item.id === selectedQueueId) || null
   const currentPaper = currentItem?.paper || null
   const currentIndex = queueItems.findIndex((item) => item.id === selectedQueueId)
-  const currentPdfUrl = getPublicPdfUrl(currentPaper?.filename)
+  const currentPdfUrl = getPublicPdfUrl(currentPaper?.filename, currentPaper?.pdf_url)
   const isTesterAccount = Boolean(reviewerProfile?.tester_access)
   const canApproveLabels = Boolean(reviewerProfile?.can_approve_labels && !reviewerProfile?.tester_access && !testMode)
   const canSeeCockpit = Boolean(
@@ -90,7 +90,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   )
   const selectedSubmission = pendingSubmissions.find((row) => row.id === selectedApprovalId) || pendingSubmissions[0] || null
   const selectedApprovalPaper = selectedSubmission ? paperById[selectedSubmission.paper_id] : null
-  const selectedApprovalPdfUrl = getPublicPdfUrl(selectedApprovalPaper?.filename)
+  const selectedApprovalPdfUrl = getPublicPdfUrl(selectedApprovalPaper?.filename, selectedApprovalPaper?.pdf_url)
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type })
@@ -174,7 +174,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       ] = await Promise.all([
         supabase.from('reviewer_profiles').select('*').order('display_name', { ascending: true }),
         supabase.from('reviewer_slot_members').select('*').order('slot_key', { ascending: true }),
-        supabase.from('papers').select('id,title,doi,filename,workflow_language,routing_status,routing_bucket,route_destination,current_stage_key,latest_ai_extraction_id,routing_updated_at,created_at').order('id', { ascending: false }),
+        supabase.from('papers').select('id,title,doi,filename,pdf_url,workflow_language,routing_status,routing_bucket,route_destination,current_stage_key,latest_ai_extraction_id,routing_updated_at,created_at').order('id', { ascending: false }),
         supabase.from('ai_extractions').select('*').order('created_at', { ascending: false }).limit(5000),
         supabase.from('routing_stage_configs').select('*').order('display_name', { ascending: true }),
         supabase.from('paper_search_hits').select('paper_id,source,template_id,source_term,query_phrase,workflow_language'),
