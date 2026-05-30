@@ -91,7 +91,10 @@ def _paper_pdf_url(record: dict) -> str | None:
         return explicit_url
     pmcid = _normalize_pmcid(record.get("pmc_id") or record.get("pmcid"))
     if pmcid:
-        return f"https://europepmc.org/articles/{pmcid}?pdf=render"
+        # Direct PDF endpoint: returns application/pdf with CORS headers and no
+        # redirect, so browser PDF.js (react-pdf) can fetch it. The ?pdf=render
+        # form 302-redirects without CORS headers and fails in-browser.
+        return f"https://europepmc.org/api/getPdf?pmcid={pmcid}"
     return None
 
 

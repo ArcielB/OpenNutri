@@ -300,7 +300,9 @@ def source_pdf_url_for_paper(paper: dict) -> str | None:
         if filename.lower().startswith("pmcid_"):
             pmcid = _normalize_pmcid(filename.rsplit(".", 1)[0].split("_", 1)[1])
     if pmcid:
-        return f"https://europepmc.org/articles/{pmcid}?pdf=render"
+        # Direct PDF endpoint: 200 application/pdf + CORS, no redirect, so the
+        # browser annotator can render it. ?pdf=render 302s without CORS headers.
+        return f"https://europepmc.org/api/getPdf?pmcid={pmcid}"
     return None
 
 

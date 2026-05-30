@@ -80,7 +80,7 @@ class EuropePMCClient:
                 return url
 
         if pmcid:
-            return f"https://europepmc.org/articles/{pmcid}?pdf=render"
+            return f"https://europepmc.org/api/getPdf?pmcid={pmcid}"
         return None
 
     def _search_ncbi(self, query: str, limit: int) -> List[CandidatePaper]:
@@ -163,13 +163,18 @@ class EuropePMCClient:
         return " ".join(part.strip() for part in node.itertext() if part and part.strip())
 
     def _normalize_pdf_url(self, url: str) -> str:
-        if "europepmc.org/articles/PMC" in url and "?pdf=render" in url:
-            pmcid = url.split("/articles/")[-1].split("?")[0]
-            return f"https://europepmc.org/articles/{pmcid}?pdf=render"
-        if "www.ncbi.nlm.nih.gov/pmc/articles/PMC" in url:
-            suffix = url.split("/pmc/articles/")[-1].split("?")[0]
-            return f"https://europepmc.org/articles/{suffix}?pdf=render"
-        if "pmc.ncbi.nlm.nih.gov/articles/PMC" in url and "/pdf" in url:
-            suffix = url.split("/articles/")[-1].split("/")[0]
-            return f"https://europepmc.org/articles/{suffix}?pdf=render"
+        # Canonicalize any PMC PDF URL to the direct getPdf endpoint, which
+        # serves application/pdf with CORS headers and no redirect (required for
+        # in-browser react-pdf rendering). Already-canonical URLs pass through.
+        if "europepmc.org/api/getpdf" in url.lower():
+            return url
+        pmcid = ""
+        if "europepmc.org/articles/PMC" in url:
+            pmcid = url.split("/articles/")[-1].split("?")[0].split("/")[0]
+        elif "www.ncbi.nlm.nih.gov/pmc/articles/PMC" in url:
+            pmcid = url.split("/pmc/articles/")[-1].split("?")[0].split("/")[0]
+        elif "pmc.ncbi.nlm.nih.gov/articles/PMC" in url:
+            pmcid = url.split("/articles/")[-1].split("?")[0].split("/")[0]
+        if pmcid:
+            return f"https://europepmc.org/api/getPdf?pmcid={pmcid}"
         return url
