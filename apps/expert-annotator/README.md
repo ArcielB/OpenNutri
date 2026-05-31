@@ -12,6 +12,7 @@ Annotators use it to:
 
 - Queue AI prefill is intentionally quiet: normalized Gemini rows are loaded directly into editable food/nutrient fields without a visible AI-prefill banner.
 - Queue and Approval source navigation use the compact `Sources` strip; selected sources draw visible overlays for matched table/paragraph evidence and map printed journal page numbers to actual PDF pages when page labels can be detected.
+- Evidence highlighting is content-driven, not `page_hint`-driven. The AI `page_hint` is only a navigation tiebreaker and is unreliable as a PDF page index (the model never sees PDF page boundaries; for journal offprints it reports the printed/volume page, e.g. 1217 on a 5-page file). When `page_hint` exceeds the PDF page count it is treated as non-gating so the table-caption and source-quote fallbacks can still locate the evidence by text. A source highlights wherever its table number or quote text is found, regardless of the hint.
 - Avoid emoji-dependent controls in the main workflow. Use stable text labels or icon-only buttons with accessible labels.
 
 ## Stack
