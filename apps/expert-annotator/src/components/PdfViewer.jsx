@@ -51,6 +51,7 @@ export default function PdfViewer({
             const printedPageNumber = detectPrintedPageNumber(textContent, pageNumber, numPages)
             const nextEvidencePlan = buildPageEvidenceHighlightPlan(textContent, evidenceLocations, pageNumber, {
                 printedPageNumber,
+                numPages,
             })
 
             const matchedEvidenceItemIndexes = new Set()

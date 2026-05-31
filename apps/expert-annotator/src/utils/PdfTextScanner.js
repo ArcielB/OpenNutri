@@ -118,6 +118,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
     const itemEvidenceIds = new Map()
     const matches = []
     const printedPageNumber = normalizePositiveInteger(options.printedPageNumber)
+    const numPages = normalizePositiveInteger(options.numPages)
 
     if (locations.length === 0) {
         return { itemEvidenceIds, matches }
@@ -154,6 +155,13 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
                 Number(location.pageHint) === Number(pageNumber) ||
                 (printedPageNumber && Number(location.pageHint) === printedPageNumber)
             )
+        // A page_hint that is larger than the whole PDF can never be a PDF page
+        // index — it is a printed/journal page number (e.g. "p. 1217" on a
+        // 5-page offprint). Such a hint tells us nothing about where the
+        // evidence sits *in this PDF*, so it must not gate content matching;
+        // otherwise the caption/quote fallbacks below stay locked and the
+        // source renders as a bare unverified chip with nothing to look at.
+        const hintExceedsPages = Boolean(location.pageHint && numPages && Number(location.pageHint) > numPages)
         const hasTableMatcher = Boolean(parseTableNumber(location.tableLabel || location.sourceCitation) !== null)
         const hasQuoteMatcher = Boolean(location.sourceQuote)
         const shouldSearchPage = !location.pageHint || pageMatchesHint || hasTableMatcher || hasQuoteMatcher
@@ -185,7 +193,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
         // same reason as the paragraph-quote fallback below: a stray
         // "Table 3" mention in a TOC or references list should not steal
         // the match from the real table on its hint page.
-        if (!matched && hasTableMatcher && pageMatchesHint) {
+        if (!matched && hasTableMatcher && (pageMatchesHint || hintExceedsPages)) {
             const captionFallback = findMatchingCaptionFallback(tableCaptionFallbacks, location)
             if (captionFallback) {
                 const itemIndexes = Array.from(captionFallback.itemIndexes)
@@ -210,7 +218,7 @@ export function buildPageEvidenceHighlightPlan(textContent, evidenceLocations = 
         // on a later page — wins the MATCHED slot before the real table is
         // scanned, dragging the chip's pageNumber/regionKey to page 1 and
         // making distinct table sources collapse into the same chip.
-        const allowParagraphFallback = !hasTableMatcher || pageMatchesHint
+        const allowParagraphFallback = !hasTableMatcher || pageMatchesHint || hintExceedsPages
         if (!matched && shouldSearchPage && location.sourceQuote && allowParagraphFallback) {
             const quoteMatch = findSourceQuoteTextMatch(rows, location, metrics, tableRegions, paragraphBlocks)
             if (quoteMatch) {
