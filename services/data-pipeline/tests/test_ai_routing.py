@@ -1480,7 +1480,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertIn("TRUNCATED FOR AI STAGE INPUT", text)
         self.assertTrue(text.endswith("qrstuvwxyz"))
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_gemma_fallback_model_is_used_after_retryable_primary_error(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -1540,7 +1540,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         fallback_evaluator.evaluate_and_extract.assert_called_once()
         self.assertEqual(client.inserts[0][1][0]["model_name"], "gemma-4-26b-a4b-it")
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_non_retryable_primary_model_error_stops_without_fallback_loop(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -1781,7 +1781,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
         self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_embedded_evaluator_errors_requeue_instead_of_routing_to_humans(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -1822,7 +1822,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
         self.assertEqual(client.inserts, [])
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_quota_errors_requeue_without_inflating_attempt_count(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -1868,7 +1868,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["paper_stage_tasks"][0]["attempt_count"], 3)
         self.assertEqual(client.tables["papers"][0]["routing_status"], "queued_for_ai")
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_quota_retry_history_does_not_trip_nonquota_attempt_limit(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -1918,7 +1918,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["paper_stage_tasks"][0]["attempt_count"], 99)
         evaluator.evaluate_and_extract.assert_called_once()
 
-    @patch("scripts.process_stage_queue.extract_pdf_text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes")
     def test_repeated_nonquota_errors_fail_without_another_model_call(self, extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -1964,7 +1964,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         extract_mock.assert_not_called()
         evaluator.evaluate_and_extract.assert_not_called()
 
-    @patch("scripts.process_stage_queue.extract_pdf_text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes")
     def test_high_attempt_claim_with_cleared_last_error_fails_before_model_call(self, extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -2003,7 +2003,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         extract_mock.assert_not_called()
         evaluator.evaluate_and_extract.assert_not_called()
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_missing_model_error_fails_task_instead_of_retrying_forever(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -2044,7 +2044,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["papers"][0]["route_destination"], "blocked")
         self.assertEqual(client.inserts, [])
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_ai_routing_uses_normalized_decision_not_raw_model_usefulness(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -2105,7 +2105,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.upserts[0][0], "paper_review_outcomes")
         self.assertEqual(client.upserts[0][1]["decision_kind"], "no_usable_data")
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_threshold_one_routes_no_usable_data_to_humans(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -2158,7 +2158,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(extraction_payload["normalized_payload_json"], {"decision_kind": "no_usable_data", "food_items": []})
         self.assertEqual(client.upserts, [])
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_screening_has_data_enqueues_followup_stage(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -2225,7 +2225,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.tables["papers"][0]["latest_ai_extraction_id"], client.inserts[0][1][0].get("id"))
 
     @patch.dict("os.environ", {"OPENNUTRI_STORE_PDFS_IN_SUPABASE": "1"})
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_stage_no_data_can_be_provisional_skip(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -2283,7 +2283,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.storage_removals, [("papers", ["paper.pdf"])])
 
     @patch.dict("os.environ", {"OPENNUTRI_STORE_PDFS_IN_SUPABASE": "1"})
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_stage_no_data_storage_cleanup_failure_does_not_requeue(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -2337,7 +2337,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertIn("storage unavailable", result["storage_cleanup_error"])
         self.assertEqual(client.tables["paper_stage_tasks"][0]["status"], "completed")
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_strong_screening_has_data_enqueues_followup_even_when_normalization_is_empty(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={
@@ -2398,7 +2398,7 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(client.inserts[0][1][0]["normalized_payload_json"], {"decision_kind": "no_usable_data", "food_items": []})
         self.assertEqual(client.inserts[0][1][0]["route_destination"], "next_stage")
 
-    @patch("scripts.process_stage_queue.extract_pdf_text", return_value="paper text")
+    @patch("scripts.process_stage_queue.extract_pdf_text_and_bytes", return_value=("paper text", b"%PDF-1.4 test"))
     def test_raw_positive_screening_rows_enqueue_followup_with_nonzero_priority(self, _extract_mock: Mock) -> None:
         client = FakeSupabaseClient(
             tables={

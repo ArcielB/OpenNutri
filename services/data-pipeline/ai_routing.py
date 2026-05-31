@@ -63,6 +63,10 @@ class RoutingStageConfig:
     next_stage_on_has_data: str = ""
     no_data_route_destination: str = HUMAN_REVIEW_DESTINATION
     fallback_model_names: tuple[str, ...] = ()
+    # How the paper is sent to the model: "text" (pdftotext output only) or
+    # "pdf" (native PDF document part + page-marked text). PDF mode lets a
+    # capable model read pages, tables, and report the true PDF page number.
+    model_input_mode: str = "text"
 
     @classmethod
     def from_row(cls, row: Mapping[str, object]) -> "RoutingStageConfig":
@@ -87,6 +91,7 @@ class RoutingStageConfig:
             next_stage_on_has_data=str(row.get("next_stage_on_has_data") or "").strip(),
             no_data_route_destination=str(row.get("no_data_route_destination") or HUMAN_REVIEW_DESTINATION).strip(),
             fallback_model_names=fallback_model_names,
+            model_input_mode=(str(row.get("model_input_mode") or "text").strip().lower() or "text"),
         )
 
 

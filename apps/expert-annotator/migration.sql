@@ -976,6 +976,7 @@ CREATE TABLE IF NOT EXISTS routing_stage_configs (
         CHECK (jsonb_typeof(fallback_model_names) = 'array'),
     no_data_route_destination TEXT NOT NULL DEFAULT 'human_review'
         CHECK (no_data_route_destination IN ('human_review', 'finalized', 'blocked', 'next_stage', 'provisional_skip')),
+    model_input_mode TEXT NOT NULL DEFAULT 'text',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -984,7 +985,28 @@ ALTER TABLE routing_stage_configs
     ADD COLUMN IF NOT EXISTS stage_order INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS next_stage_on_has_data TEXT,
     ADD COLUMN IF NOT EXISTS fallback_model_names JSONB NOT NULL DEFAULT '[]'::jsonb,
-    ADD COLUMN IF NOT EXISTS no_data_route_destination TEXT NOT NULL DEFAULT 'human_review';
+    ADD COLUMN IF NOT EXISTS no_data_route_destination TEXT NOT NULL DEFAULT 'human_review',
+    -- 'text' = pdftotext output only; 'pdf' = native PDF document part so a
+    -- capable model reads pages/tables and reports the true PDF page number.
+    ADD COLUMN IF NOT EXISTS model_input_mode TEXT NOT NULL DEFAULT 'text';
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'routing_stage_configs'
+          AND constraint_name = 'routing_stage_configs_model_input_mode_check'
+    ) THEN
+        ALTER TABLE routing_stage_configs
+            DROP CONSTRAINT routing_stage_configs_model_input_mode_check;
+    END IF;
+END $$;
+
+ALTER TABLE routing_stage_configs
+    ADD CONSTRAINT routing_stage_configs_model_input_mode_check
+    CHECK (model_input_mode IN ('text', 'pdf'));
 
 DO $$
 BEGIN
@@ -1115,7 +1137,7 @@ VALUES (
     'Gemini Flash DB Payload v2',
     'gemini-3.5-flash',
     '[]'::jsonb,
-    'opennutri_evidence_payload_v1',
+    'opennutri_evidence_payload_v2',
     FALSE,
     1.0,
     1.0,
@@ -1163,7 +1185,7 @@ VALUES (
     'Gemini Flash-Lite Triage v1',
     'gemini-3.1-flash-lite',
     '[]'::jsonb,
-    'opennutri_evidence_payload_v1',
+    'opennutri_evidence_payload_v2',
     FALSE,
     1.0,
     1.0,
@@ -1211,7 +1233,7 @@ VALUES (
     'Gemma Proof Extraction v1',
     'gemma-4-31b-it',
     '["gemma-4-26b-a4b-it"]'::jsonb,
-    'opennutri_evidence_payload_v1',
+    'opennutri_evidence_payload_v2',
     TRUE,
     1.0,
     1.0,
@@ -1235,6 +1257,16 @@ SET
     next_stage_on_low_confidence = EXCLUDED.next_stage_on_low_confidence,
     no_data_route_destination = EXCLUDED.no_data_route_destination,
     updated_at = NOW();
+
+-- Gemini stages read the PDF natively (pages/tables + true PDF page numbers);
+-- Gemma screening stays on text + injected PDF page markers.
+UPDATE routing_stage_configs
+SET model_input_mode = 'pdf', updated_at = NOW()
+WHERE model_name LIKE 'gemini%';
+
+UPDATE routing_stage_configs
+SET model_input_mode = 'text', updated_at = NOW()
+WHERE model_name LIKE 'gemma%';
 
 DO $$
 BEGIN

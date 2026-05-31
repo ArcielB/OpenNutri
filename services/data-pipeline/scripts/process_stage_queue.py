@@ -306,7 +306,45 @@ def source_pdf_url_for_paper(paper: dict) -> str | None:
     return None
 
 
-def extract_pdf_text(filename: str, pdf_url: str | None = None) -> str:
+PDF_PAGE_MARKER_TEMPLATE = "\n\n===== PDF PAGE {page} =====\n\n"
+
+
+def annotate_pdf_page_breaks(text: str) -> str:
+    """Replace pdftotext form-feed page breaks with explicit numbered markers.
+
+    pdftotext separates pages with a form-feed (\\f) but never labels page
+    numbers, so a model reading the flattened text can only echo the printed
+    journal page (e.g. 1217 on a 5-page offprint). Inserting ``===== PDF PAGE N
+    =====`` markers lets the model report the true 1-based PDF page index.
+    Markers must be inserted before any head/tail truncation so the surviving
+    pages keep their correct numbers.
+    """
+    if not text:
+        return text
+    pages = text.split("\f")
+    # Drop a trailing empty page produced by a terminal form-feed.
+    if len(pages) > 1 and not pages[-1].strip():
+        pages = pages[:-1]
+    parts: list[str] = []
+    for index, page in enumerate(pages, start=1):
+        parts.append(PDF_PAGE_MARKER_TEMPLATE.format(page=index))
+        parts.append(page.strip("\n"))
+    return "".join(parts).strip()
+
+
+def extract_pdf_text_and_bytes(
+    filename: str,
+    pdf_url: str | None = None,
+    *,
+    allow_empty_text: bool = False,
+) -> tuple[str, bytes]:
+    """Download the PDF once and return ``(pdftotext_output, raw_pdf_bytes)``.
+
+    The bytes are reused for native PDF model input so PDF-mode stages do not
+    download the file twice. ``allow_empty_text`` lets PDF-mode stages proceed
+    on scanned/image-only PDFs (empty text layer) where the model reads the
+    document directly instead of relying on extracted text.
+    """
     if shutil.which("pdftotext") is None:
         raise RuntimeError("Missing required dependency: pdftotext")
 
@@ -335,8 +373,13 @@ def extract_pdf_text(filename: str, pdf_url: str | None = None) -> str:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"pdftotext failed for {filename}")
     full_text = result.stdout.strip()
-    if not full_text:
+    if not full_text and not allow_empty_text:
         raise RuntimeError(f"Empty PDF text extracted for {filename}")
+    return full_text, pdf_bytes
+
+
+def extract_pdf_text(filename: str, pdf_url: str | None = None) -> str:
+    full_text, _ = extract_pdf_text_and_bytes(filename, pdf_url)
     return full_text
 
 
@@ -1009,15 +1052,18 @@ def _evaluate_paper_with_model(
     paper: dict,
     stage_full_text: str,
     task_timeout_seconds: int,
+    pdf_bytes: bytes | None = None,
 ):
+    request = {
+        "pmc_id": paper.get("doi") or paper.get("filename") or "",
+        "title": paper.get("title") or "",
+        "full_text": stage_full_text,
+    }
+    if pdf_bytes:
+        request["pdf_bytes"] = pdf_bytes
+        request["pdf_filename"] = paper.get("filename") or "paper.pdf"
     with ai_task_timeout(task_timeout_seconds):
-        ai_result = evaluator.evaluate_and_extract(
-            {
-                "pmc_id": paper.get("doi") or paper.get("filename") or "",
-                "title": paper.get("title") or "",
-                "full_text": stage_full_text,
-            }
-        )
+        ai_result = evaluator.evaluate_and_extract(request)
     embedded_error = ai_result_error(ai_result)
     if embedded_error:
         raise RuntimeError(embedded_error)
@@ -1072,11 +1118,16 @@ def process_one_task(
     )
 
     try:
-        full_text = extract_pdf_text(
+        pdf_input_mode = (stage_config.model_input_mode or "text").lower() == "pdf"
+        full_text, pdf_bytes = extract_pdf_text_and_bytes(
             str(paper.get("filename") or ""),
             source_pdf_url_for_paper(paper),
+            allow_empty_text=pdf_input_mode,
         )
-        stage_full_text = stage_text_for_model(full_text, stage_config=stage_config)
+        stage_full_text = stage_text_for_model(
+            annotate_pdf_page_breaks(full_text), stage_config=stage_config
+        )
+        model_pdf_bytes = pdf_bytes if pdf_input_mode else None
         input_hash = input_hash_for_text(title=paper.get("title"), full_text=stage_full_text)
         if reference_lookups is not None:
             evaluator.food_candidates = select_food_candidates_for_text(
@@ -1098,6 +1149,7 @@ def process_one_task(
                 paper=paper,
                 stage_full_text=stage_full_text,
                 task_timeout_seconds=task_timeout_seconds,
+                pdf_bytes=model_pdf_bytes,
             )
         except Exception as primary_exc:
             primary_error_text = format_exception_for_storage(primary_exc)
@@ -1124,6 +1176,7 @@ def process_one_task(
                         paper=paper,
                         stage_full_text=stage_full_text,
                         task_timeout_seconds=task_timeout_seconds,
+                        pdf_bytes=model_pdf_bytes,
                     )
                     active_stage_config = fallback_config
                     fallback_model_used = fallback_model_name

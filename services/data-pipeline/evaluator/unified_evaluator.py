@@ -6,6 +6,7 @@ Single-pass evaluation: Filter papers AND extract structured food composition da
 
 import os
 import json
+import tempfile
 from typing import Any, Optional, List, Dict
 from dataclasses import dataclass
 from json import JSONDecodeError
@@ -133,7 +134,7 @@ class UnifiedEvaluator:
       "source_citation": "Table 2, row 3",
       "table_label": "Table 2",
       "page_hint": 5,
-      "source_quote": "Fuji apple ... Vitamin C ... 4.6 mg/100g",
+      "source_quote": "Table 2. Vitamin content of apple cultivars",
       "metadata": {{
         "source_location_type": "table",
         "section_heading": "Results",
@@ -165,8 +166,8 @@ class UnifiedEvaluator:
 - confidence: 0.0-1.0 score for THIS specific data point.
 - source_citation: Broad location label that a reviewer can recognize (e.g., "Table 1", "Table 1, row 2", "Results paragraph on vitamin C").
 - table_label: Table identifier if available (e.g., "Table 1"), otherwise null. Reuse the same table_label for all rows from the same table.
-- page_hint: PDF page number if available, otherwise null. This is a navigation hint, not a coordinate.
-- source_quote: Short exact excerpt from the table caption/header/body row or paragraph containing the evidence. Keep it under 40 words. Do not paraphrase.
+- page_hint: The 1-based PDF page index where the evidence appears (page 1 = the first page of the file). If the text contains "===== PDF PAGE N =====" markers, report the N of the marker the evidence falls under. If you are reading the attached PDF or page images, count rendered pages from 1. NEVER report the printed or journal page number shown in a header/footer (e.g. 1217 on a short offprint) — report the file page index. Use null only if you truly cannot tell.
+- source_quote: A SHORT, CONTIGUOUS, VERBATIM excerpt copied character-for-character from the paper (a table caption line such as "Table 2. ...", a column header, or a single body row), at most 20 words. Do NOT paraphrase, do NOT join distant fragments with "...", and do NOT invent spacing or punctuation. Prefer the table caption line for table rows. This text is matched against the PDF to place the highlight, so it must appear verbatim in the document.
 - metadata.source_location_type: "table", "paragraph", or "section".
 - metadata.section_heading: Nearby section heading if visible, otherwise null.
 - metadata.paragraph_hint: Short paragraph/location hint when the evidence is not in a table, otherwise null.
@@ -229,6 +230,51 @@ Full Text:
         else:
             print("⚠️ No LLM available. API key required for UnifiedEvaluator.")
 
+    # Inline request payloads must stay well under the API's ~20MB cap; larger
+    # PDFs are sent through the Files API instead.
+    _MAX_INLINE_PDF_BYTES = 15 * 1024 * 1024
+
+    def _build_generate_content(self, prompt, pdf_bytes, pdf_filename=None):
+        """Return ``(content, cleanup)`` for ``generate_content``.
+
+        When ``pdf_bytes`` is provided the PDF is attached as a native document
+        part so a PDF-capable model reads pages/tables directly (and can report
+        the true PDF page number); otherwise the content is just the text
+        prompt. Small PDFs go inline; larger ones use the Files API and are
+        deleted by the returned ``cleanup`` callable.
+        """
+        if not pdf_bytes or not HAS_GEMINI:
+            return prompt, None
+
+        if len(pdf_bytes) <= self._MAX_INLINE_PDF_BYTES:
+            pdf_part = {"mime_type": "application/pdf", "data": pdf_bytes}
+            return [pdf_part, prompt], None
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        try:
+            tmp.write(pdf_bytes)
+            tmp.flush()
+            tmp.close()
+            uploaded = genai.upload_file(path=tmp.name, mime_type="application/pdf")
+        except Exception:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+            raise
+
+        def cleanup():
+            try:
+                genai.delete_file(uploaded.name)
+            except Exception:
+                pass
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+
+        return [uploaded, prompt], cleanup
+
     def evaluate_and_extract(self, paper: dict) -> ExtractionResult:
         """
         Evaluate paper and extract data in single call.
@@ -269,13 +315,22 @@ Full Text:
                 food_candidates=self._format_food_candidates(getattr(self, "food_candidates", [])),
             )
             
-            response = self.model.generate_content(
+            content, cleanup = self._build_generate_content(
                 prompt,
-                request_options={
-                    "timeout": int(os.environ.get("GEMINI_REQUEST_TIMEOUT_SECONDS", "240"))
-                },
+                paper.get("pdf_bytes"),
+                paper.get("pdf_filename"),
             )
-            
+            try:
+                response = self.model.generate_content(
+                    content,
+                    request_options={
+                        "timeout": int(os.environ.get("GEMINI_REQUEST_TIMEOUT_SECONDS", "240"))
+                    },
+                )
+            finally:
+                if cleanup:
+                    cleanup()
+
             response_text = response.text.strip()
             parsed_response = self._parse_response_json(response_text)
             result_json = self._coerce_result_root(parsed_response)
