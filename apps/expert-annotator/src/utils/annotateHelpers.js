@@ -354,11 +354,12 @@ export function buildFoodItemsFromPayload(payload) {
 
 export function getPublicPdfUrl(filename, pdfUrl = null) {
   if (pdfUrl) {
-    // EuropePMC's getPdf endpoint already serves the PDF with CORS headers and
-    // no redirect, so load it directly. Every other external URL is routed
-    // through the same-origin /api/pdf proxy, which adds CORS so publisher PDFs
-    // (and CORS-less redirects) render in react-pdf.
-    if (/^https:\/\/europepmc\.org\/api\/getPdf/i.test(pdfUrl)) return pdfUrl
+    // Route every external PDF through the same-origin /api/pdf proxy. The proxy
+    // adds permissive CORS (so publisher PDFs and CORS-less redirects render in
+    // react-pdf) and overrides the upstream cache headers with a long-lived
+    // immutable policy, so each paper is downloaded once and then served from the
+    // browser / edge cache. This includes EuropePMC, whose getPdf endpoint sends
+    // `no-store` and would otherwise re-download on every open.
     if (/^https?:\/\//i.test(pdfUrl)) return `/api/pdf?url=${encodeURIComponent(pdfUrl)}`
     return pdfUrl
   }

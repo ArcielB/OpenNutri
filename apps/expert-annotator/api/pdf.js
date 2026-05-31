@@ -91,7 +91,10 @@ export default async function handler(req, res) {
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800');
+  // Paper PDFs are content-immutable, so cache aggressively: the browser keeps a
+  // copy for a year and skips revalidation (`immutable`), and the Vercel edge
+  // holds it too. Each paper is downloaded from the upstream host at most once.
+  res.setHeader('Cache-Control', 'public, max-age=31536000, s-maxage=31536000, immutable');
   res.setHeader('Content-Length', String(buf.length));
   res.status(200).send(buf);
 }
