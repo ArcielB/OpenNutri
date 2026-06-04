@@ -13,8 +13,13 @@ import {
 } from '../utils/PdfTextScanner'
 import { EVIDENCE_STATUS, mergeEvidenceStatuses } from '../utils/EvidenceLocations'
 
-// Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+// Configure PDF.js worker — self-hosted (bundled by Vite as a same-origin,
+// content-hashed asset) instead of fetched at runtime from the unpkg CDN, which
+// was a third-party serial dependency on the critical path before every render.
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url,
+).toString()
 
 export default function PdfViewer({
     pdfUrl,

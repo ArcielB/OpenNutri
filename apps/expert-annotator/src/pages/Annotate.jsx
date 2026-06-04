@@ -31,6 +31,10 @@ import {
   buildGeneralHelpContext,
 } from '../utils/annotateHelpers'
 
+// Cockpit tabs whose data comes from refreshCockpit(); used to lazy-load that
+// heavy payload only when one is opened, instead of eagerly on every login.
+const COCKPIT_DATA_VIEWS = ['approval', 'dashboard', 'all-papers', 'reviewers', 'suggestions']
+
 export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [reviewerProfile, setReviewerProfile] = useState(null)
   const [profileError, setProfileError] = useState(null)
@@ -56,6 +60,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [testMode, setTestMode] = useState(() => isTestModeEnabled())
   const [showPaperList, setShowPaperList] = useState(false)
   const [cockpitData, setCockpitData] = useState(EMPTY_COCKPIT_DATA)
+  const [cockpitLoaded, setCockpitLoaded] = useState(false)
   const [reviewerDrafts, setReviewerDrafts] = useState({})
   const [savingReviewerTarget, setSavingReviewerTarget] = useState(null)
   const [savingSuggestionId, setSavingSuggestionId] = useState(null)
@@ -115,7 +120,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       const paperIds = papers.map((paper) => paper.id)
       const [aiResponse, annotationResponse] = await Promise.all([
         paperIds.length
-          ? supabase.from('ai_extractions').select('*').in('paper_id', paperIds).order('created_at', { ascending: false })
+          ? supabase.from('ai_extractions').select('id, paper_id, created_at, normalized_payload_json').in('paper_id', paperIds).order('created_at', { ascending: false })
           : Promise.resolve({ data: [], error: null }),
         paperIds.length
           ? supabase.from('annotations').select('*').eq('user_id', user.id).in('paper_id', paperIds)
@@ -299,14 +304,28 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   useEffect(() => {
     if (!reviewerProfile) return
     refreshQueue()
-    if (canSeeCockpit) refreshCockpit()
     if (!canSeeCockpit) refreshMySuggestions()
-  }, [canSeeCockpit, refreshCockpit, refreshMySuggestions, refreshQueue, reviewerProfile])
+  }, [canSeeCockpit, refreshMySuggestions, refreshQueue, reviewerProfile])
 
   useEffect(() => {
     if (!canSeeCockpit || activeView !== 'pipeline') return
     void refreshPipeline()
   }, [activeView, canSeeCockpit, refreshPipeline])
+
+  // Lazy-load cockpit data on first visit to a cockpit tab, not eagerly on login.
+  // refreshCockpit pulls a large payload (papers + AI extractions), so deferring
+  // it keeps the default Queue view fast for admin/cockpit accounts.
+  useEffect(() => {
+    if (!canSeeCockpit || cockpitLoaded) return
+    if (!COCKPIT_DATA_VIEWS.includes(activeView)) return
+    let cancelled = false
+    refreshCockpit().finally(() => {
+      if (!cancelled) setCockpitLoaded(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeView, canSeeCockpit, cockpitLoaded, refreshCockpit])
 
   useEffect(() => {
     if (reviewerProfile && !canSeeCockpit && activeView !== 'queue' && activeView !== 'my-suggestions') {
