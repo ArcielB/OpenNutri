@@ -7,6 +7,7 @@ import hashlib
 import subprocess
 import tarfile
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,6 +166,7 @@ class FoodCompositionCrawlerV2:
         food_term_limit: int = 0,
         nutrient_term_limit: int = 0,
         max_queries: int = 80,
+        max_wallclock_seconds: int = 0,
         sources: Optional[List[str]] = None,
         dergipark_scan_budget: int = 400,
     ) -> None:
@@ -230,6 +232,9 @@ class FoodCompositionCrawlerV2:
         }
         self.embedding_scorer = DualEmbeddingScorer()
         self.max_queries = max_queries
+        self.max_wallclock_seconds = max(0, int(max_wallclock_seconds))
+        self._crawl_deadline: Optional[float] = None
+        self._crawl_stop_reason: Optional[str] = None
         self.dergipark_scan_budget = max(1, int(dergipark_scan_budget))
         self.search_sources = build_search_sources(
             list(sources or DEFAULT_SEARCH_SOURCES),
@@ -241,6 +246,12 @@ class FoodCompositionCrawlerV2:
 
     def run(self, replace_existing: bool = False) -> Dict[str, object]:
         self.audit_reject_counter = int(self.state.get("audit_reject_counter", 0))
+        self._crawl_stop_reason = None
+        self._crawl_deadline = (
+            time.monotonic() + self.max_wallclock_seconds
+            if self.max_wallclock_seconds > 0
+            else None
+        )
         if replace_existing and self.raw_pdf_dir.exists():
             shutil.rmtree(self.raw_pdf_dir)
         if replace_existing:
@@ -289,6 +300,9 @@ class FoodCompositionCrawlerV2:
             "rule_version": "search-filter-acquisition-v5",
             "sources": list(self.search_sources.keys()),
             "dergipark_scan_budget": self.dergipark_scan_budget,
+            "max_wallclock_seconds": self.max_wallclock_seconds,
+            "stop_reason": self._crawl_stop_reason,
+            "wallclock_limited": self._crawl_stop_reason == "max_wallclock_reached",
             "dergipark_index": dergipark_index,
             "embedding": self.embedding_scorer.info(),
             "feedback": {
@@ -346,7 +360,16 @@ class FoodCompositionCrawlerV2:
         self._record_terminal_states(candidates, discovery_hits, accepted_records, rejected_records)
         self.state["audit_reject_counter"] = self.audit_reject_counter
         self._save_state()
+        self._crawl_deadline = None
         return manifest
+
+    def _wallclock_reached(self) -> bool:
+        if self._crawl_deadline is None:
+            return False
+        if time.monotonic() < self._crawl_deadline:
+            return False
+        self._crawl_stop_reason = self._crawl_stop_reason or "max_wallclock_reached"
+        return True
 
     def _run_search_batches(
         self,
@@ -371,6 +394,8 @@ class FoodCompositionCrawlerV2:
         raw_limit = self._raw_search_limit()
 
         for task in tasks:
+            if self._wallclock_reached():
+                break
             language = task.spec.language
             if language not in active_languages:
                 continue
@@ -382,6 +407,8 @@ class FoodCompositionCrawlerV2:
                 continue
 
             raw_candidates = client.search(task.spec, limit=raw_limit)[:raw_limit]
+            if self._wallclock_reached():
+                break
             stat_key = self._task_key(task)
             stats: Dict[str, object] = {
                 "batch_id": task.batch_id,
@@ -418,6 +445,8 @@ class FoodCompositionCrawlerV2:
             batch_hits: List[DiscoveryHit] = []
             batch_candidates_by_key: Dict[str, CandidatePaper] = {}
             for result_rank, candidate in enumerate(raw_candidates, start=1):
+                if self._wallclock_reached():
+                    break
                 candidate.query = task.query_text
                 candidate.source_term = task.spec.source_term
                 candidate.template_id = task.spec.template_id
@@ -489,6 +518,8 @@ class FoodCompositionCrawlerV2:
 
             batch_candidates = list(batch_candidates_by_key.values())
             self._filter_candidates(batch_candidates, batch_hits, [stats], {stat_key: stats})
+            if self._wallclock_reached():
+                break
             remaining_by_language = {
                 current_language: max(
                     0,
@@ -506,6 +537,8 @@ class FoodCompositionCrawlerV2:
             self._update_batch_outcome_stats(stats, batch_accepted, batch_rejected)
             accepted_counts[language] += sum(1 for record in batch_accepted if record.workflow_language == language)
 
+            if self._wallclock_reached():
+                break
             if all(
                 accepted_counts[current_language] >= self.target_pdfs_by_language.get(current_language, 0)
                 for current_language in active_languages
@@ -552,6 +585,8 @@ class FoodCompositionCrawlerV2:
         )
 
         for candidate in ranked_candidates:
+            if self._wallclock_reached():
+                break
             candidate_language = (
                 candidate.workflow_language if candidate.workflow_language in SUPPORTED_LANGUAGES else "en"
             )

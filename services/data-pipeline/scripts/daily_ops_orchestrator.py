@@ -167,6 +167,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum controller runtime in minutes; 0 disables the internal wall-clock stop",
     )
     parser.add_argument(
+        "--crawler-max-wallclock-seconds",
+        type=int,
+        default=0,
+        help="Maximum crawler refill runtime in seconds; 0 disables the crawler-level wall-clock stop",
+    )
+    parser.add_argument(
         "--screening-daily-target",
         type=int,
         default=1500,
@@ -277,6 +283,7 @@ def _crawler_args(args: argparse.Namespace) -> SimpleNamespace:
         data_dir=args.data_dir,
         query_limit=args.query_limit,
         max_queries=args.max_queries,
+        crawler_max_wallclock_seconds=getattr(args, "crawler_max_wallclock_seconds", 0),
         max_ai_tasks=args.max_ai_tasks,
         dergipark_journal_limit=args.dergipark_journal_limit,
         dergipark_max_issues_per_journal=args.dergipark_max_issues_per_journal,
@@ -1326,6 +1333,13 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
     )
     soft_limit_bytes = _paper_bucket_soft_limit_bytes(args)
     extraction_reservoir_target = max(0, int(getattr(args, "extraction_candidate_reservoir_target", 500)))
+    max_wallclock_minutes = max(0, int(getattr(args, "max_wallclock_minutes", 0)))
+    crawler_max_wallclock_seconds = max(0, int(getattr(args, "crawler_max_wallclock_seconds", 0)))
+    controller_deadline = (
+        time.monotonic() + max_wallclock_minutes * 60
+        if max_wallclock_minutes > 0
+        else None
+    )
 
     summary: dict[str, Any] = {
         "mode": "controller",
@@ -1342,6 +1356,8 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         "screening_active_target": screening_active_target,
         "extraction_candidate_reservoir_target": extraction_reservoir_target,
         "stage_task_stale_minutes": stale_after_minutes,
+        "max_wallclock_minutes": max_wallclock_minutes,
+        "crawler_max_wallclock_seconds": crawler_max_wallclock_seconds,
         "paper_bucket_soft_limit_mb": max(0, int(getattr(args, "paper_bucket_soft_limit_mb", 900))),
         "paper_bucket_soft_limit_bytes": soft_limit_bytes,
         "day_start_utc": _utc_day_start_iso(),
@@ -1486,6 +1502,9 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         screening_summary["prefill_satisfied"] = True
         screening_summary["stop_reason"] = "active_target_satisfied"
         summary["stopped_reason"] = "screening_active_target_satisfied"
+    elif _deadline_reached(controller_deadline, time.monotonic):
+        screening_summary["stop_reason"] = "max_wallclock_reached"
+        summary["stopped_reason"] = "max_wallclock_reached"
     elif storage_over_limit:
         screening_summary["stop_reason"] = "storage_soft_limit_exceeded"
         summary["stopped_reason"] = "storage_soft_limit_exceeded"

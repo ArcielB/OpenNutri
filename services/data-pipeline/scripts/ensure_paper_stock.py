@@ -259,6 +259,11 @@ def print_run_summary(data_dir: str) -> None:
         return
 
     print("Run summary:")
+    stop_reason = str(payload.get("stop_reason") or "").strip()
+    if stop_reason:
+        max_wallclock = int(payload.get("max_wallclock_seconds") or 0)
+        suffix = f" after {max_wallclock}s" if max_wallclock > 0 else ""
+        print(f"  Stopped: {stop_reason}{suffix}")
     dergipark_index = payload.get("dergipark_index") if isinstance(payload, dict) else None
     if isinstance(dergipark_index, dict):
         print(
@@ -374,6 +379,9 @@ def run_refill_cycle(
         "--sources",
         sources,
     ]
+    crawler_max_wallclock_seconds = max(0, int(getattr(args, "crawler_max_wallclock_seconds", 0) or 0))
+    if crawler_max_wallclock_seconds > 0:
+        crawler_cmd.extend(["--max-wallclock-seconds", str(crawler_max_wallclock_seconds)])
     run_command("Crawler v2", crawler_cmd, env)
     print_run_summary(args.data_dir)
 
@@ -428,6 +436,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max search hits to inspect per query batch before moving to the next batch",
     )
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count per crawler run")
+    parser.add_argument(
+        "--crawler-max-wallclock-seconds",
+        type=int,
+        default=0,
+        help="Stop crawler runs after this many seconds and upload accepted partial results (0 = disabled)",
+    )
     parser.add_argument(
         "--sources",
         default=DEFAULT_SEARCH_SOURCES,

@@ -61,13 +61,14 @@ jobs:
               --tick-mode \
               --target-open 50 \
               --stage-rpm gemma_proof_extraction_v1=20,gemini_flash_lite_triage_v1=20,gemini_flash_db_payload_v2=15 \
-              --max-wallclock-minutes 0 \
+              --max-wallclock-minutes 75 \
+              --crawler-max-wallclock-seconds 2400 \
               --screening-daily-target 1500 \
               --screening-active-target 150 \
               --triage-daily-target 500 \
               --extraction-daily-target 20 \
-              --screening-refill-batch-en 150 \
-              --screening-refill-chunk-en 150 \
+              --screening-refill-batch-en 30 \
+              --screening-refill-chunk-en 30 \
               --screening-prefill-stall-limit 3 \
               --paper-bucket-soft-limit-mb 0 \
               --skip-storage-cleanup \

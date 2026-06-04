@@ -26,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--food-term-limit", type=int, default=0, help="How many food terms to use (0 = all)")
     parser.add_argument("--nutrient-term-limit", type=int, default=0, help="How many nutrient terms to use (0 = all)")
     parser.add_argument("--max-queries", type=int, default=80, help="Cap on query count")
+    parser.add_argument(
+        "--max-wallclock-seconds",
+        type=int,
+        default=0,
+        help="Stop the crawl after this many seconds and write any accepted partial results (0 = disabled)",
+    )
     parser.add_argument("--refresh-dergipark-index", action="store_true", help="Refresh the local DergiPark index before crawling")
     parser.add_argument("--dergipark-journal-limit", type=int, default=0, help="Limit how many configured DergiPark journals are refreshed before crawl (0 = all)")
     parser.add_argument("--dergipark-max-issues-per-journal", type=int, default=12, help="How many newest archive issues to inspect per DergiPark journal refresh")
@@ -74,6 +80,7 @@ def run_cli() -> int:
         food_term_limit=args.food_term_limit,
         nutrient_term_limit=args.nutrient_term_limit,
         max_queries=args.max_queries,
+        max_wallclock_seconds=args.max_wallclock_seconds,
         dergipark_scan_budget=max_issues,
         sources=sources,
     )

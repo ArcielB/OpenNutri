@@ -513,7 +513,10 @@ orchestrator.build_parser()
 
         self.assertIn("services/data-pipeline/requirements-worker.txt", workflow)
         self.assertIn("--screening-active-target 150", workflow)
-        self.assertIn("--screening-refill-batch-en 150", workflow)
+        self.assertIn("--max-wallclock-minutes 75", workflow)
+        self.assertIn("--crawler-max-wallclock-seconds 2400", workflow)
+        self.assertIn("--screening-refill-batch-en 30", workflow)
+        self.assertIn("--screening-refill-chunk-en 30", workflow)
         self.assertIn("--screening-tick-tasks 20", workflow)
         self.assertNotIn("opennutri-worker-${{ github.run_id }}", workflow)
 
