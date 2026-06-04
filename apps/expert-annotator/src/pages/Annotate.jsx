@@ -35,6 +35,34 @@ import {
 // heavy payload only when one is opened, instead of eagerly on every login.
 const COCKPIT_DATA_VIEWS = ['approval', 'dashboard', 'all-papers', 'reviewers', 'suggestions']
 
+// Build a queue item from a get_general_queue_cards row. The card carries only
+// what the queue needs (no paper abstract / unused columns) plus the latest AI
+// payload and this user's annotation status, so the whole queue loads in one
+// lean round-trip.
+function buildQueueItemFromCard(card) {
+  return {
+    id: `general:${card.id}`,
+    paper_id: card.id,
+    workflow_language: card.workflow_language,
+    status: card.annotation_status === 'draft' ? 'draft' : 'available',
+    assigned_at: card.routing_updated_at || card.created_at,
+    paper: {
+      id: card.id,
+      title: card.title,
+      filename: card.filename,
+      pdf_url: card.pdf_url,
+      workflow_language: card.workflow_language,
+      routing_updated_at: card.routing_updated_at,
+      created_at: card.created_at,
+      latest_ai_extraction_id: card.latest_ai_extraction_id,
+    },
+    annotation: card.annotation_status ? { status: card.annotation_status } : null,
+    latest_ai_extraction: card.latest_ai_extraction_id
+      ? { id: card.latest_ai_extraction_id, normalized_payload_json: card.latest_normalized_payload_json }
+      : null,
+  }
+}
+
 export default function Annotate({ user, onLogout, theme, toggleTheme }) {
   const [reviewerProfile, setReviewerProfile] = useState(null)
   const [profileError, setProfileError] = useState(null)
@@ -103,53 +131,64 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     showToast.timer = window.setTimeout(() => setToast(null), 3200)
   }, [])
 
-  const refreshQueue = useCallback(async () => {
-    if (!reviewerProfile?.id) {
-      setQueueItems([])
-      setSelectedQueueId(null)
-      setLoadingQueue(false)
-      return []
-    }
+  // Legacy queue load: three round-trips (papers RPC, then AI extractions +
+  // annotations). Kept as a fallback for when get_general_queue_cards has not
+  // been deployed to the database yet.
+  const loadQueueItemsLegacy = useCallback(async () => {
+    const { data: paperRows, error: paperError } = await supabase.rpc('get_general_queue_papers', { p_limit: 250 })
+    if (paperError) throw paperError
 
+    const papers = (paperRows || []).filter((paper) => SUPPORTED_WORKFLOW_LANGUAGES.includes(paper.workflow_language))
+    const paperIds = papers.map((paper) => paper.id)
+    const latestAiExtractionIds = Array.from(new Set(
+      papers.map((paper) => paper.latest_ai_extraction_id).filter(Boolean)
+    ))
+    const [aiResponse, annotationResponse] = await Promise.all([
+      latestAiExtractionIds.length
+        ? supabase.from('ai_extractions').select('id, paper_id, created_at, normalized_payload_json').in('id', latestAiExtractionIds).order('created_at', { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+      paperIds.length
+        ? supabase.from('annotations').select('*').eq('user_id', user.id).in('paper_id', paperIds)
+        : Promise.resolve({ data: [], error: null }),
+    ])
+    if (aiResponse.error) throw aiResponse.error
+    if (annotationResponse.error) throw annotationResponse.error
+
+    const { byId, byPaperId } = buildLatestAiExtractionMaps(aiResponse.data || [])
+    const annotationByPaperId = Object.fromEntries((annotationResponse.data || []).map((row) => [row.paper_id, row]))
+    return papers.map((paper) => {
+      const annotation = annotationByPaperId[paper.id] || null
+      return {
+        id: `general:${paper.id}`,
+        paper_id: paper.id,
+        workflow_language: paper.workflow_language,
+        status: annotation?.status === 'draft' ? 'draft' : 'available',
+        assigned_at: paper.routing_updated_at || paper.created_at,
+        paper,
+        annotation,
+        latest_ai_extraction: byId[paper.latest_ai_extraction_id] || byPaperId[paper.id] || null,
+      }
+    })
+  }, [user.id])
+
+  const refreshQueue = useCallback(async () => {
     setLoadingQueue(true)
     try {
-      const { data: paperRows, error: paperError } = await supabase.rpc('get_general_queue_papers', { p_limit: 250 })
-      if (paperError) throw paperError
-
-      const papers = (paperRows || []).filter((paper) => SUPPORTED_WORKFLOW_LANGUAGES.includes(paper.workflow_language))
-      const paperIds = papers.map((paper) => paper.id)
-      const latestAiExtractionIds = Array.from(new Set(
-        papers
-          .map((paper) => paper.latest_ai_extraction_id)
-          .filter(Boolean)
-      ))
-      const [aiResponse, annotationResponse] = await Promise.all([
-        latestAiExtractionIds.length
-          ? supabase.from('ai_extractions').select('id, paper_id, created_at, normalized_payload_json').in('id', latestAiExtractionIds).order('created_at', { ascending: false })
-          : Promise.resolve({ data: [], error: null }),
-        paperIds.length
-          ? supabase.from('annotations').select('*').eq('user_id', user.id).in('paper_id', paperIds)
-          : Promise.resolve({ data: [], error: null }),
-      ])
-      if (aiResponse.error) throw aiResponse.error
-      if (annotationResponse.error) throw annotationResponse.error
-
-      const { byId, byPaperId } = buildLatestAiExtractionMaps(aiResponse.data || [])
-      const annotationByPaperId = Object.fromEntries((annotationResponse.data || []).map((row) => [row.paper_id, row]))
-      const nextItems = papers.map((paper) => {
-        const annotation = annotationByPaperId[paper.id] || null
-        return {
-          id: `general:${paper.id}`,
-          paper_id: paper.id,
-          reviewer_profile_id: reviewerProfile.id,
-          workflow_language: paper.workflow_language,
-          status: annotation?.status === 'draft' ? 'draft' : 'available',
-          assigned_at: paper.routing_updated_at || paper.created_at,
-          paper,
-          annotation,
-          latest_ai_extraction: byId[paper.latest_ai_extraction_id] || byPaperId[paper.id] || null,
-        }
-      })
+      // Fast path: one lean RPC returns the queue cards (no paper abstract or
+      // unused columns) already joined with the latest AI payload and this
+      // user's annotation status — three round-trips collapsed into one.
+      const { data: cardData, error: cardError } = await supabase.rpc('get_general_queue_cards', { p_limit: 250 })
+      let nextItems
+      if (!cardError) {
+        nextItems = (Array.isArray(cardData) ? cardData : [])
+          .filter((card) => SUPPORTED_WORKFLOW_LANGUAGES.includes(card.workflow_language))
+          .map(buildQueueItemFromCard)
+      } else if (cardError.code === 'PGRST202') {
+        // RPC not deployed yet — fall back to the legacy multi-query path.
+        nextItems = await loadQueueItemsLegacy()
+      } else {
+        throw cardError
+      }
 
       setQueueItems(nextItems)
       setSelectedQueueId((previousId) => {
@@ -164,7 +203,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     } finally {
       setLoadingQueue(false)
     }
-  }, [reviewerProfile?.id, showToast, user.id])
+  }, [loadQueueItemsLegacy, showToast])
 
   const refreshCockpit = useCallback(async () => {
     if (!canSeeCockpit) return
@@ -306,11 +345,17 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     }
   }, [showToast])
 
+  // The queue only needs the authenticated session, not the reviewer profile,
+  // so load it immediately on mount in parallel with the profile sync instead of
+  // waiting for that round-trip to finish first.
   useEffect(() => {
-    if (!reviewerProfile) return
     refreshQueue()
-    if (!canSeeCockpit) refreshMySuggestions()
-  }, [canSeeCockpit, refreshMySuggestions, refreshQueue, reviewerProfile])
+  }, [refreshQueue])
+
+  useEffect(() => {
+    if (!reviewerProfile || canSeeCockpit) return
+    refreshMySuggestions()
+  }, [canSeeCockpit, refreshMySuggestions, reviewerProfile])
 
   useEffect(() => {
     if (!canSeeCockpit || activeView !== 'pipeline') return
@@ -917,13 +962,8 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
     })
   }
 
-  if (loadingQueue && !queueItems.length) {
-    return (
-      <div className="login-page">
-        <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading queue...</div>
-      </div>
-    )
-  }
+  // No full-screen "Loading queue" gate: the shell (top bar + workspace) paints
+  // immediately and QueueView shows its own loading state while the queue loads.
 
   return (
     <div className="app-layout">
@@ -991,6 +1031,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
       {activeView === 'queue' && (
         <QueueView
           items={queueItems}
+          loadingQueue={loadingQueue}
           currentItem={currentItem}
           currentIndex={currentIndex}
           pdfUrl={currentPdfUrl}

@@ -14,6 +14,7 @@ import { prefetchPdf } from '../utils/pdfCache'
 
 export default function QueueView({
   items,
+  loadingQueue,
   currentItem,
   currentIndex,
   pdfUrl,
@@ -72,6 +73,19 @@ export default function QueueView({
     const handle = schedule(() => urls.forEach((url) => prefetchPdf(url)), { timeout: 3000 })
     return () => unschedule(handle)
   }, [currentIndex, items])
+
+  if (loadingQueue && !items.length) {
+    return (
+      <div className="workspace">
+        <div className={`pdf-panel ${theme === 'dark' ? 'pdf-panel-dark' : 'pdf-panel-light'}`}>
+          <div className="pdf-loading">Loading queue…</div>
+        </div>
+        <div className="annotation-panel">
+          <div className="empty-panel">Loading your papers…</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="workspace">

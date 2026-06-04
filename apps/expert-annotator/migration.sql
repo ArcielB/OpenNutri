@@ -2341,6 +2341,85 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.get_general_queue_cards(
+    p_limit INTEGER DEFAULT 250
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_result jsonb;
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'Authentication required';
+    END IF;
+
+    -- Same selection as get_general_queue_papers, but returns only the lean card
+    -- fields the queue UI needs (no paper abstract / unused columns), already
+    -- joined with the latest AI payload and THIS user's annotation status. The
+    -- frontend gets the whole queue in one round-trip instead of three.
+    SELECT coalesce(
+        jsonb_agg(sub.card ORDER BY sub.sort_routing NULLS FIRST, sub.sort_created, sub.sort_id),
+        '[]'::jsonb
+    )
+    INTO v_result
+    FROM (
+        SELECT
+            jsonb_build_object(
+                'id', p.id,
+                'title', p.title,
+                'filename', p.filename,
+                'pdf_url', p.pdf_url,
+                'workflow_language', p.workflow_language,
+                'routing_updated_at', p.routing_updated_at,
+                'created_at', p.created_at,
+                'latest_ai_extraction_id', p.latest_ai_extraction_id,
+                'latest_normalized_payload_json', latest_ai.normalized_payload_json,
+                'annotation_status', annotation.status
+            ) AS card,
+            p.routing_updated_at AS sort_routing,
+            p.created_at AS sort_created,
+            p.id AS sort_id
+        FROM papers p
+        JOIN ai_extractions latest_ai
+          ON latest_ai.id = p.latest_ai_extraction_id
+        LEFT JOIN annotations annotation
+          ON annotation.paper_id = p.id
+         AND annotation.user_id = auth.uid()
+        WHERE p.routing_status = 'human_review_ready'
+          AND p.workflow_language IN ('en', 'tr')
+          AND p.pdf_url IS NOT NULL
+          AND btrim(p.pdf_url) <> ''
+          AND latest_ai.normalized_payload_json ->> 'decision_kind' = 'has_data'
+          AND NOT EXISTS (
+              SELECT 1 FROM paper_review_outcomes outcome WHERE outcome.paper_id = p.id
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM paper_label_submissions submission
+              WHERE submission.paper_id = p.id
+                AND submission.status IN ('pending_approval', 'accepted')
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM paper_slot_assignments legacy_assignment
+              WHERE legacy_assignment.paper_id = p.id
+                AND legacy_assignment.status NOT IN ('resolved', 'cancelled')
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM paper_global_labels global_label
+              WHERE global_label.paper_id = p.id
+                AND global_label.label = 'definitely_no_data'
+          )
+        ORDER BY p.routing_updated_at NULLS FIRST, p.created_at, p.id
+        LIMIT greatest(1, least(coalesce(p_limit, 250), 1000))
+    ) sub;
+
+    RETURN v_result;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.sync_reviewer_profile()
 RETURNS reviewer_profiles
 LANGUAGE plpgsql
