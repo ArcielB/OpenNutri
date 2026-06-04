@@ -12,6 +12,7 @@ import {
     renderTextItemWithNutrientHighlights,
 } from '../utils/PdfTextScanner'
 import { EVIDENCE_STATUS, mergeEvidenceStatuses } from '../utils/EvidenceLocations'
+import { getPdfBytes } from '../utils/pdfCache'
 
 // Configure PDF.js worker — self-hosted (bundled by Vite as a same-origin,
 // content-hashed asset) instead of fetched at runtime from the unpkg CDN, which
@@ -41,6 +42,38 @@ export default function PdfViewer({
     const containerRef = useRef(null)
     const cleanupRef = useRef(null)
     const lastEvidenceStatusesRef = useRef('')
+    const [loadedPdf, setLoadedPdf] = useState(null) // { url, data } for the bytes we hold
+    const [pdfErrorUrl, setPdfErrorUrl] = useState(null) // url whose load failed
+
+    // Load the PDF bytes through the durable cache. On a repeat open they come
+    // straight from disk instead of re-fetching; we hand them to react-pdf as
+    // { data } so PDF.js renders from memory. A fresh buffer per load means
+    // PDF.js detaching it on transfer is harmless. State is set only from the
+    // async callbacks (tagged with the url), so switching papers needs no
+    // synchronous reset — the memo below ignores bytes from an older url.
+    useEffect(() => {
+        if (!pdfUrl) return undefined
+        let cancelled = false
+        getPdfBytes(pdfUrl)
+            .then((bytes) => {
+                if (!cancelled) setLoadedPdf({ url: pdfUrl, data: new Uint8Array(bytes) })
+            })
+            .catch(() => {
+                if (!cancelled) setPdfErrorUrl(pdfUrl)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [pdfUrl])
+
+    // Stable identity, and only for the current paper: while a newer paper is
+    // still loading this is null (so the loading state shows) without resetting
+    // state synchronously in the effect.
+    const pdfFile = useMemo(
+        () => (loadedPdf && loadedPdf.url === pdfUrl ? { data: loadedPdf.data } : null),
+        [loadedPdf, pdfUrl]
+    )
+    const pdfLoadError = pdfErrorUrl === pdfUrl
 
     const nutrientMatcher = useMemo(() => {
         if (!allNutrients || allNutrients.length === 0) {
@@ -303,8 +336,13 @@ export default function PdfViewer({
                 </span>
             </div>
             <div className="pdf-container">
+                {pdfLoadError ? (
+                    <div className="pdf-loading">Failed to load PDF</div>
+                ) : !pdfFile ? (
+                    <div className="pdf-loading">Loading PDF...</div>
+                ) : (
                 <Document
-                    file={pdfUrl}
+                    file={pdfFile}
                     onLoadSuccess={onDocumentLoadSuccess}
                     loading={<div className="pdf-loading">Loading PDF...</div>}
                     error={<div className="pdf-loading">Failed to load PDF</div>}
@@ -339,6 +377,7 @@ export default function PdfViewer({
                         )
                     })}
                 </Document>
+                )}
             </div>
 
             {/* Nutrient popover - floats on top of PDF */}

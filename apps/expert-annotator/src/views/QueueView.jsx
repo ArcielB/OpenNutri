@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
 import EvidenceStrip from '../components/EvidenceStrip'
@@ -7,8 +7,10 @@ import { useEvidenceStatusCache } from '../hooks/useEvidenceStatusCache'
 import {
   buildFoodItemsFromPayload,
   formatStatusLabel,
+  getPublicPdfUrl,
   getStatusBadgeClass,
 } from '../utils/annotateHelpers'
+import { prefetchPdf } from '../utils/pdfCache'
 
 export default function QueueView({
   items,
@@ -55,6 +57,21 @@ export default function QueueView({
   const activeEvidenceId = scanEvidenceLocations.some((location) => location.id === activeEvidence?.id)
     ? activeEvidence.id
     : null
+
+  // Warm the durable PDF cache for the next paper(s) during idle time so that
+  // hitting "Next" renders from cache instead of waiting on a fresh fetch.
+  useEffect(() => {
+    if (currentIndex < 0 || !items?.length) return undefined
+    const upcoming = items.slice(currentIndex + 1, currentIndex + 3)
+    const urls = upcoming
+      .map((item) => getPublicPdfUrl(item.paper?.filename, item.paper?.pdf_url))
+      .filter(Boolean)
+    if (urls.length === 0) return undefined
+    const schedule = window.requestIdleCallback || ((cb) => window.setTimeout(cb, 600))
+    const unschedule = window.cancelIdleCallback || window.clearTimeout
+    const handle = schedule(() => urls.forEach((url) => prefetchPdf(url)), { timeout: 3000 })
+    return () => unschedule(handle)
+  }, [currentIndex, items])
 
   return (
     <div className="workspace">
