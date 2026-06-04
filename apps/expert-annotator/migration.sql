@@ -2276,6 +2276,71 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.get_cockpit_ai_extractions(
+    p_limit INTEGER DEFAULT 5000
+)
+RETURNS TABLE (
+    id UUID,
+    paper_id INTEGER,
+    model_name TEXT,
+    is_useful BOOLEAN,
+    overall_confidence REAL,
+    status TEXT,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
+    stage_key TEXT,
+    prompt_version TEXT,
+    normalized_payload_json JSONB,
+    positive_threshold_snapshot REAL,
+    negative_threshold_snapshot REAL,
+    routing_bucket TEXT,
+    route_destination TEXT,
+    audit_sampled BOOLEAN,
+    finalized_without_human BOOLEAN,
+    raw_data JSONB
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF NOT (
+        public.current_user_has_cockpit_access()
+        OR public.current_user_can_approve_labels()
+    ) THEN
+        RAISE EXCEPTION 'Cockpit access required';
+    END IF;
+
+    RETURN QUERY
+    SELECT
+        extraction.id,
+        extraction.paper_id,
+        extraction.model_name,
+        extraction.is_useful,
+        extraction.overall_confidence,
+        extraction.status,
+        extraction.created_at,
+        extraction.updated_at,
+        extraction.stage_key,
+        extraction.prompt_version,
+        extraction.normalized_payload_json,
+        extraction.positive_threshold_snapshot,
+        extraction.negative_threshold_snapshot,
+        extraction.routing_bucket,
+        extraction.route_destination,
+        extraction.audit_sampled,
+        extraction.finalized_without_human,
+        jsonb_build_object(
+            'normalization_summary',
+            coalesce(extraction.raw_data -> 'normalization_summary', '{}'::jsonb)
+        ) AS raw_data
+    FROM ai_extractions extraction
+    ORDER BY extraction.created_at DESC
+    LIMIT greatest(1, least(coalesce(p_limit, 5000), 5000));
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.sync_reviewer_profile()
 RETURNS reviewer_profiles
 LANGUAGE plpgsql

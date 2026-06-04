@@ -10,6 +10,8 @@
 // Abuse hardening: https-only, IP-literal / loopback hosts rejected, and the
 // upstream payload must actually be a PDF (%PDF- magic) before we return it.
 
+import { Buffer } from 'node:buffer';
+
 export const config = { maxDuration: 30 };
 
 const MAX_BYTES = 25 * 1024 * 1024; // refuse absurdly large bodies

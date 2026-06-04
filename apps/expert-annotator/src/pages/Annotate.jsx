@@ -118,9 +118,14 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
 
       const papers = (paperRows || []).filter((paper) => SUPPORTED_WORKFLOW_LANGUAGES.includes(paper.workflow_language))
       const paperIds = papers.map((paper) => paper.id)
+      const latestAiExtractionIds = Array.from(new Set(
+        papers
+          .map((paper) => paper.latest_ai_extraction_id)
+          .filter(Boolean)
+      ))
       const [aiResponse, annotationResponse] = await Promise.all([
-        paperIds.length
-          ? supabase.from('ai_extractions').select('id, paper_id, created_at, normalized_payload_json').in('paper_id', paperIds).order('created_at', { ascending: false })
+        latestAiExtractionIds.length
+          ? supabase.from('ai_extractions').select('id, paper_id, created_at, normalized_payload_json').in('id', latestAiExtractionIds).order('created_at', { ascending: false })
           : Promise.resolve({ data: [], error: null }),
         paperIds.length
           ? supabase.from('annotations').select('*').eq('user_id', user.id).in('paper_id', paperIds)
@@ -180,7 +185,7 @@ export default function Annotate({ user, onLogout, theme, toggleTheme }) {
         supabase.from('reviewer_profiles').select('*').order('display_name', { ascending: true }),
         supabase.from('reviewer_slot_members').select('*').order('slot_key', { ascending: true }),
         supabase.from('papers').select('id,title,doi,filename,pdf_url,workflow_language,routing_status,routing_bucket,route_destination,current_stage_key,latest_ai_extraction_id,routing_updated_at,created_at').order('id', { ascending: false }),
-        supabase.from('ai_extractions').select('*').order('created_at', { ascending: false }).limit(5000),
+        supabase.rpc('get_cockpit_ai_extractions', { p_limit: 5000 }),
         supabase.from('routing_stage_configs').select('*').order('display_name', { ascending: true }),
         supabase.from('paper_search_hits').select('paper_id,source,template_id,source_term,query_phrase,workflow_language'),
         supabase.from('backlog_review_items').select('*').order('created_at', { ascending: false }),

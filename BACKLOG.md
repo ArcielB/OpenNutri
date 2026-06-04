@@ -8,6 +8,29 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
+## 1. Decide whether to archive or drop the unused `claims` reference table
+
+### Problem
+The 2026-06-04 Supabase usage audit found the live new-project database at about 286 MB by SQL, and `public.claims` alone used about 188 MB for roughly 644k imported legacy nutrition claim rows. Current runtime searches found no app or pipeline reads of `claims`; references are schema, ETL, docs, and test text.
+
+### Goal
+Reduce Free-plan database-size risk without harming the active annotator/pipeline:
+- confirm with Arciel whether legacy `claims` rows are required for any near-term demo, export, or planned product surface
+- if not needed online, dump/archive the table outside Supabase before deleting or truncating it
+- reclaim database space after deletion with the least disruptive vacuum strategy Supabase allows on Free
+- update schema/docs so future ETL does not refill `claims` accidentally
+
+### Likely technical area
+- `apps/expert-annotator/migration.sql`
+- `services/data-pipeline/etl_sr_legacy_to_opennutri.py`
+- `services/data-pipeline/create_opennutri_schema.sql`
+- Supabase SQL editor / pooler
+
+### Done when
+- a product decision is recorded
+- the live DB either keeps `claims` intentionally or removes/archives it
+- the dashboard database-size usage has a comfortable margin below 500 MB
+
 ## 10. Calibrate AI routing thresholds from audited human truth
 
 ### Problem
