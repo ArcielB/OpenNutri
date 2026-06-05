@@ -288,3 +288,336 @@ Arciel's work is the system backbone:
 - Backend-driven frontend integration, documentation, and project management.
 
 Direct evidence supports **211 `baezarciel` commits**, **the initial `ArcielB` commit**, **`+67,971/-17,639` filtered churn**, and **31,796 backend/ops/schema lines** at the current snapshot. The work also carries the highest operational risk: live database security, model quota reliability, unattended GitHub Actions, and data-quality truth all depend on it.
+
+## Expanded Backend / Ops / Integration Ledger
+
+### A. Repository Reorganization and Baseline Pipeline
+
+**When:** 2026-03-09 to 2026-03-15.
+**Commits:** `8728564`, `ed58f87`, `76e2c06`, `24c1755`, `c859acb`, `e303f40`.
+**Technology:** Git repository reorganization, Python service layout, React app placement, README/docs.
+
+What was done:
+
+- Imported the prior Tubitak/OpenNutri codebase snapshot into the current repository.
+- Preserved a Vercel production frontend build under `legacy/` for recovery.
+- Reorganized crawler files under `services/data-pipeline/`.
+- Added a README and clarified repo structure.
+- Ignored local keys.
+
+Why it was needed:
+
+The project needed a stable shared repository rather than scattered local/private code. Reorganization made the active surfaces clear: expert annotator app, Python data pipeline, SQL schema, docs, and legacy archive.
+
+How it was implemented:
+
+- Existing code was snapshotted and then split into current service/app directories.
+- Legacy artifacts were kept for recovery but excluded from normal work.
+- README and later AGENTS files documented which areas future agents should touch.
+
+Caveat:
+
+The snapshot imported earlier work. This report treats later active development separately from the imported foundation.
+
+### B. USDA and Reference Data Layer
+
+**When:** March 2026 baseline and later schema integration.
+**Technology:** Python ETL, Supabase/Postgres, USDA FoodData Central CSVs, SQL reference tables.
+
+What was done:
+
+- Retained USDA FoodData Central CSV dumps as source/reference data.
+- Added ETL scripts for SR Legacy and USDA-to-OpenNutri conversion.
+- Defined canonical `entities`, `entity_aliases`, `master_nutrients`, `sources`, and `claims`.
+
+Why it was needed:
+
+AI and human labelers need stable IDs for known foods and nutrients. Without a canonical reference layer, every paper would create uncontrolled strings and the database would not be useful for nutrition applications.
+
+How it was implemented:
+
+- ETL scripts map external USDA rows into OpenNutri's reference schema.
+- The annotator can select canonical foods/nutrients or mark custom entries when a paper reports something not yet in the reference set.
+- Claims store normalized `entity x nutrient x source` facts with amount, unit, basis, confidence, and provenance.
+
+Evidence:
+
+- `etl_sr_legacy_to_opennutri.py`
+- `etl_usda_to_opennutri.py`
+- `create_opennutri_schema.sql`
+- `migration.sql` reference table definitions.
+
+### C. Reviewer Workflow Generations
+
+**When:** April to May 2026.
+**Technology:** Supabase schema/RPCs, React views, RLS, JSONB payloads.
+
+What was done:
+
+1. Assignment/slot workflow:
+   - Reviewer slots.
+   - Slot memberships.
+   - Paper assignments.
+   - User assignment rows.
+   - Official/shadow reviewer distinction.
+
+2. Conflict workflow:
+   - Huan's conflict tables/view integrated into schema.
+   - Resolution functions retained.
+
+3. General queue plus approval:
+   - Shared `human_review_ready` queue.
+   - Immutable `paper_label_submissions`.
+   - Reviewer approval and correction.
+   - Final `paper_review_outcomes`.
+
+Why it changed:
+
+The slot model provided structure but slowed throughput. The general queue made labeling faster: all active labelers see available useful papers, and submission removes a paper from the queue. Approval preserves final truth quality.
+
+How it was implemented:
+
+- Arciel kept legacy tables for audit rather than deleting history.
+- `get_general_queue_cards` encodes visibility rules.
+- `submit_general_label` freezes a submission and auto-accepts when the caller can approve.
+- `approve_label_submission` writes correction diff and final outcome.
+- Dashboard and feedback learning use approved truth rather than drafts.
+
+Evidence:
+
+- `migration.sql`: legacy and current workflow tables.
+- `docs/reviewer_workflow_map.md`.
+- `README.md` reviewer workflow section.
+
+### D. AI Normalization and Routing Details
+
+**When:** April to June 2026.
+**Technology:** Python dataclasses, JSON, SHA-256, Supabase client, PL/pgSQL support tables.
+
+What was done:
+
+- Defined routing statuses and destinations.
+- Classified high/low positive/negative buckets.
+- Implemented deterministic audit sampling.
+- Implemented AI normalized payload generation.
+- Implemented supported unit/basis policy.
+- Implemented food/nutrient ID verification and exact/alias fallback.
+- Stored normalization summary and rejection histogram.
+- Stored threshold snapshots and route decisions.
+
+Why it was needed:
+
+The model's raw output is not trustworthy database data. It must be converted into the same normalized structure a human reviewer would submit, and the system must record why rows were rejected.
+
+How it was implemented:
+
+- `normalize_ai_payload_with_summary` iterates model rows, drops incomplete rows, standardizes units, resolves references, groups by food, sorts deterministically, and returns counts.
+- `_standardize_unit` accepts only supported units such as `g/100g`, `mg/100g`, `ug/100g`, energy units, IU, and percent.
+- Dry-matter or unsupported bases are rejected so final human/AI payloads stay DB-compliant.
+- `PayloadNormalizationResult.summary` feeds cockpit AI details and debugging.
+
+Evidence:
+
+- `ai_routing.py`: 842 lines.
+- `test_ai_routing.py`: 2,469 lines.
+
+### E. Model Worker Reliability
+
+**When:** May 2026, hardened repeatedly.
+**Technology:** Python CLI, Unix alarms/timeouts, Supabase RPCs, subprocess `pdftotext`, model SDK calls.
+
+What was done:
+
+- Model runtime validation before task claiming.
+- Atomic task claiming.
+- Stale processing requeue.
+- Claim attempt accounting.
+- Quota-safe requeue.
+- Retryable/non-retryable error classification.
+- Same-attempt fallback model use.
+- Timeout around model calls.
+- Failure after non-quota retry ceiling.
+
+Why it was needed:
+
+Unattended workers fail in practical ways: missing secrets, timed-out models, cancelled GitHub runners, quota errors, SDK exceptions, and repeatedly bad papers. The queue must recover without losing tasks or letting one paper monopolize automation.
+
+How it was implemented:
+
+- `claim_paper_stage_tasks` claims with `FOR UPDATE SKIP LOCKED`.
+- `process_stage_queue.py` constructs evaluator before claiming to catch config errors early.
+- `requeue_stale_processing_tasks` returns old `processing` tasks to `queued`.
+- Quota errors decrement/undo meaningful attempt count.
+- Non-retryable model configuration errors mark the task failed and stop automation.
+- `AI_STAGE_MAX_TASK_ATTEMPTS=2` prevents endless loops for non-quota failures.
+
+Evidence:
+
+- `process_stage_queue.py`: 1,560 lines.
+- `test_daily_ops.py`: 983 lines.
+- AGENTS/README daily ops notes.
+
+### F. Three-Stage Cascade Rationale
+
+**When:** Gemma stage on 2026-05-03; daily ops drain by quota on 2026-05-11; Flash-Lite on 2026-05-29; PDF-mode final Gemini on 2026-05-31.
+**Technology:** Data-driven stage configs, Gemini/Gemma model calls, PDF/text input modes.
+
+Why not one model:
+
+- Strong final Gemini extraction is limited and more valuable.
+- Screening every candidate with the strongest model would waste quota on mostly-useless papers.
+- A staged funnel processes many candidates cheaply, then spends expensive calls on the top-ranked subset.
+
+How the cascade works:
+
+- Gemma screens many papers/day with page-marked text.
+- Flash-Lite re-ranks the strongest useful Gemma outputs.
+- Final Gemini receives native PDF where possible and produces the DB payload.
+- Each stage writes `ai_extractions` and may enqueue the next `paper_stage_tasks` row.
+- Stage priority makes downstream tasks top-N by usefulness, not oldest-first.
+
+Why Gemma remains text-mode:
+
+- Probe results showed Gemma accepted PDF parts but timed out on a 5-page PDF.
+- For a high-volume stage, this would collapse throughput.
+- Text mode with inserted PDF page markers gives adequate page references without image rendering.
+
+Evidence:
+
+- `routing_stage_configs` seed/update rows in `migration.sql`.
+- `unified_evaluator.py`.
+- `process_stage_queue.py`.
+- `probe_model_file_input.py`.
+
+### G. Crawler v2 Mechanics
+
+**When:** March 2026 onward.
+**Technology:** Python, Europe PMC/OpenAlex/Semantic Scholar, DergiPark support, urllib/curl, tarfile, PDF validation, embeddings.
+
+What was done:
+
+- Built query tasks per source/language.
+- Built language-specific concept pools.
+- Added source-term and batch feedback.
+- Built search gate and metadata decision functions.
+- Added live Supabase canonical-key skip memory.
+- Added local terminal paper state.
+- Added acquisition fallback ladder.
+- Added audit sampling for rejects.
+- Added partial output on wall-clock stop.
+
+Why it was needed:
+
+Most papers returned by broad food/nutrition queries are not direct food-composition tables. The crawler must narrow candidates before expensive model/human work, but without hard-rejecting potentially useful papers due to one negative phrase.
+
+How it was implemented:
+
+- Additive scoring combines composition phrases, food/nutrient terms, units, methods, embeddings, learned feedback, and soft penalties.
+- `validate_pdf_text` strips reference sections and requires strong full-text evidence.
+- `_fetch_pdf_with_oa` tries PMC OA PDFs and tarballs.
+- `_fetch_pdf` falls back through direct fetch, curl, HTML PDF link scraping, and PMC proof-of-work solving.
+- Accepted outputs are recorded with reasons and funnel counters.
+
+Evidence:
+
+- `crawler_v2.py`: 2,215 lines.
+- `ranking.py`: 486 lines.
+- `test_bilingual_pipeline.py`: 1,120 lines.
+
+### H. Upload and Routing Integration
+
+**When:** April to June 2026.
+**Technology:** Python Supabase client, Postgres upserts, canonical keys, JSON manifests.
+
+What was done:
+
+- Register accepted papers in Supabase.
+- Persist source PDF URLs.
+- Upsert search-hit audit rows.
+- Persist query-batch history.
+- Enqueue active model stage tasks.
+- Preserve closed AI/human routes when a known paper is re-uploaded.
+- Recover duplicate-key races by reusing existing paper rows.
+
+Why it was needed:
+
+Crawler discovery and model processing are separate systems. Upload has to bridge them without corrupting already-finalized or human-ready papers. It also needs to preserve search evidence for feedback learning.
+
+How it was implemented:
+
+- `upload_to_supabase.py` maps manifest papers to `papers`.
+- `canonical_key` deduplicates across providers/DOIs/missing DOI cases.
+- Search hits use deterministic hit keys.
+- Existing routed/finalized rows are not reset just because the active stage changed.
+
+Evidence:
+
+- README upload script section.
+- `upload_to_supabase.py`.
+- `paper_search_hits`, `paper_search_batches`, `paper_search_batch_hits`.
+
+### I. Pipeline Cockpit
+
+**When:** 2026-05-13 and refined 2026-05-29.
+**Technology:** Postgres aggregate RPC, React view, role-stable model labels.
+
+What was done:
+
+- Added a Pipeline cockpit dashboard.
+- Showed crawler-to-human funnel.
+- Showed current stage queues/errors.
+- Added time filters.
+- Added stable role labels: Small model, Medium model, Strong model.
+- Backfilled historical direct Small -> Strong data into Medium counters for display.
+
+Why it was needed:
+
+Daily ops is complex. The team needed a cockpit view that answered "where are papers stuck right now?" without requiring direct database inspection.
+
+How it was implemented:
+
+- `get_pipeline_ops_snapshot` aggregates search batches, stage tasks, AI extraction outcomes, submissions, approvals, and review outcomes.
+- Frontend `PipelineOpsView` renders funnel bars and current queues.
+- `annotateHelpers.js` maps model specs into stable role labels.
+
+Evidence:
+
+- `get_pipeline_ops_snapshot` in `migration.sql`.
+- `PipelineOpsView.jsx`.
+- `annotateHelpers.js`.
+
+### J. Documentation, Agent Rules, and Live Ops State
+
+**When:** March to June 2026.
+**Technology:** Markdown, DOCX/PDF export scripts, repo instructions.
+
+What was done:
+
+- README updated repeatedly as architecture changed.
+- BACKLOG maintained and completed items removed.
+- AGENTS and INSTRUCTIONS written/updated.
+- Reviewer SOP and workflow map created.
+- Handoff state document maintained.
+- Defense reports/decks generated.
+- Runtime secret handling documented.
+
+Why it was needed:
+
+This project is large enough that undocumented decisions get accidentally undone. Documentation captures why Gemma is text-mode, why no hard-negative crawler vetoes are allowed, why source-URL PDFs are default, why cockpit AI lists must stay slim, and why final truth comes from approval outcomes.
+
+Assessment value:
+
+Documentation here is operational infrastructure. It keeps future agents and team members from breaking production assumptions.
+
+## Arciel Evidence Summary by Area
+
+| Area | Main files | Evidence |
+| --- | --- | --- |
+| Schema/RLS/RPC | `migration.sql` | 5,396 lines, 31 tables, 75 policies. |
+| AI cascade | `unified_evaluator.py`, `ai_routing.py`, `process_stage_queue.py` | 3,089 core lines plus tests. |
+| Crawler | `crawler_v2.py`, `ranking.py`, source adapters | 2,701 core crawler/ranking lines. |
+| Feedback | `update_terms.py`, feedback modules | 1,219 main feedback lines. |
+| Daily ops | `daily_ops_orchestrator.py`, workflow YAML, tests | GitHub Actions every 5 minutes, 5 workers. |
+| Upload/storage | `upload_to_supabase.py`, `api/pdf.js`, `pdfCache.js` | Source-URL PDF architecture and egress control. |
+| Tests | `test_ai_routing.py`, `test_daily_ops.py`, `test_bilingual_pipeline.py`, frontend scanner tests | 5,617 tracked test lines. |
+| Docs/project management | README, AGENTS, STATE, workflow map, defense reports | Standing instructions and operational handoff. |

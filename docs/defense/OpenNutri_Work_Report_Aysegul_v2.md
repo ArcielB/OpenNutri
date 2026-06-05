@@ -236,3 +236,288 @@ Ayşegül's assessable contribution is the user-facing frontend:
 - Frontend behavior needed to turn AI prefill into reviewed human truth.
 
 The defensible quantitative evidence is **7 all-ref commits**, **`+6,624/-88` direct all-ref filtered churn**, **13,788 current frontend lines**, **10,334 lines in the principal frontend files listed here**, and **`+20,820/-7,891` core frontend path churn** after excluding Huan-specific direct files. The current `main` branch alone under-represents her authorship because the original MVP/frontend commits are preserved on `origin/master`.
+
+## Expanded Frontend Work Ledger
+
+This section expands the frontend work into concrete deliverables, with "what, why, how, technology, and evidence" for each area.
+
+### A. Original Annotator MVP
+
+**When:** 2026-03-02.
+**Direct commits:** `7c2d372`, `614a82c`, `6245a17`.
+**Technology:** React, Vite, Supabase client, Supabase Auth, CSS.
+
+What was built:
+
+- Initial OpenNutri annotation tool.
+- Vite/React project setup.
+- Supabase client connection.
+- Login page.
+- Annotate page.
+- Basic PDF viewer.
+- Food item form.
+- Application styling.
+- Google OAuth button.
+- Light/dark theme toggle.
+- Forgot-password affordance.
+- First suggestion feedback modal.
+
+Why it was needed:
+
+OpenNutri needed a usable human labeling interface before a sophisticated backend would be useful. The original MVP established the core product concept: a reviewer opens a paper, reads the PDF, and enters food composition rows.
+
+How it was implemented:
+
+- React components were organized around `App`, `Login`, `Annotate`, `FoodItemForm`, and `PdfViewer`.
+- Supabase was used for auth and backend access.
+- CSS implemented the first app shell and theme.
+- The MVP was later imported/reorganized into `apps/expert-annotator/` on `main`.
+
+Assessment value:
+
+This was the first concrete user-facing application. Later work replaced and expanded many internals, but the core annotator surface started here.
+
+### B. Flexible Nutrient Model, Food Autocomplete, and PDF Highlight Redesign
+
+**When:** 2026-03-03.
+**Direct commit:** `00fd645`.
+**Technology:** React forms, SQL schema changes, PDF viewer/text scanning, autocomplete components.
+
+What was built:
+
+- Flexible nutrient rows rather than a rigid fixed nutrient list.
+- Food autocomplete component.
+- Nutrient autocomplete component.
+- Nutrient popover component.
+- PDF highlight redesign.
+- Schema changes to support the frontend data model.
+
+Why it was needed:
+
+Food composition papers do not all report the same nutrients. A rigid form would fail immediately. Reviewers needed flexible nutrient rows and search-based resolution. The PDF highlight redesign made the paper reading task more connected to data entry.
+
+How it was implemented:
+
+- `FoodItemForm.jsx` gained dynamic nutrient row behavior.
+- `FoodAutocomplete.jsx` and `NutrientAutocomplete.jsx` provided search/select interactions.
+- `NutrientPopover.jsx` connected PDF clicks to nutrient entry.
+- `PdfViewer.jsx` and `PdfTextScanner.js` started the path toward PDF text matching.
+- SQL was adjusted for nutrient values.
+
+Evidence:
+
+- Direct commit `00fd645` added 1,242 lines and modified 9 files.
+- Current descendant files: `FoodAutocomplete.jsx` (664), `NutrientAutocomplete.jsx` (334), `NutrientPopover.jsx` (128), `FoodItemForm.jsx` (110), `PdfViewer.jsx` (939), `PdfTextScanner.js` (2,323).
+
+### C. Dynamic PDF URL Handling
+
+**When:** 2026-03-03.
+**Direct commit:** `8a29dcb`.
+**Technology:** Supabase Storage URL retrieval, React page state.
+
+What was built:
+
+- Dynamic Supabase storage URL fetch for PDFs.
+
+Why it was needed:
+
+Hardcoded PDF URLs are brittle. A labeler queue needs to load whichever paper is selected, and the frontend should derive or fetch the correct PDF URL rather than requiring manual environment updates.
+
+Current evolution:
+
+The project later moved away from storing paper PDFs in Supabase by default, but the same user-facing requirement remained: the PDF viewer should load the paper associated with the current queue item without manual URL management.
+
+### D. Queue View and Main Annotation Workspace
+
+**When:** Initial MVP March; major current form May/June.
+**Technology:** React state/hooks, Supabase RPCs, Vite, CSS.
+
+What was built:
+
+- Paper list/queue selection.
+- PDF + editor workspace layout.
+- Food item and nutrient row editor.
+- Add/remove food items.
+- Save draft.
+- Submit reviewed data.
+- No usable data action.
+- Ask for Help action.
+- Test-mode/read-only UI messages.
+- Source/evidence strip.
+- Next-paper PDF prefetch.
+
+Why it was needed:
+
+This is the core work screen for labelers. It had to be dense enough for repeated use but not so complex that labelers could not review papers efficiently.
+
+How it was implemented:
+
+- `QueueView.jsx` composes the PDF viewer, evidence strip, food item forms, and action buttons.
+- `Annotate.jsx` owns the selected queue item, food item state, save/submit actions, help request, and queue refresh.
+- `get_general_queue_cards` feeds the view with a lean card plus latest AI payload.
+- `getPublicPdfUrl` chooses direct/proxied PDF URL.
+
+Evidence:
+
+- `QueueView.jsx`: 227 lines.
+- `Annotate.jsx`: 1,163 lines.
+- `annotateHelpers.js`: 574 lines.
+
+### E. AI Prefill Editing Experience
+
+**When:** April/May 2026 after AI extraction integration; refined through June.
+**Technology:** JSONB normalized payloads, React form conversion, Supabase RPCs.
+
+What was built:
+
+- Queue papers open with latest Gemini normalized payload prefilled into editable rows when no draft exists.
+- Existing user drafts/submissions are preserved and not overwritten.
+- Source metadata from normalized payload rows feeds the evidence strip/PDF viewer.
+- AI Details panel shows normalized rows and normalization summary without exposing raw reasoning.
+
+Why it was needed:
+
+The AI cascade should reduce human labor, not replace human review. Prefill turns the final Gemini extraction into a draft the reviewer can correct. Quiet prefill was important: labelers should review rows directly rather than interpret AI reasoning banners.
+
+How it was implemented:
+
+- `Annotate.jsx` checks for saved annotation; if none exists, it calls `buildFoodItemsFromPayload` on the latest AI payload.
+- `aiPrefillSources` records which extraction initialized the rows.
+- `EvidenceStrip` and `PdfViewer` receive evidence locations from current rows or fallback AI payload.
+- Details panels use normalized payload summaries.
+
+Assessment value:
+
+This is one of the project's key UX wins: reviewers correct structured draft rows instead of starting from a blank form.
+
+### F. PDF Evidence UX
+
+**When:** March start; major evidence overlay work April 22 to June 5.
+**Technology:** PDF.js/react-pdf, PDF text layer, geometry heuristics, coordinate overlays, browser cache.
+
+What was built:
+
+- Continuous/scanned PDF viewer.
+- Nutrient click marks.
+- Table-scoped highlighting.
+- Source/evidence overlays.
+- Table/paragraph block overlays.
+- Evidence page navigation.
+- Printed-page fallback handling.
+- Auto-open/highlight first evidence page.
+- Durable PDF caching and idle prefetch.
+
+Why it was needed:
+
+Reviewers need to verify source evidence rapidly. Scientific papers frequently contain dense tables, multi-column layouts, printed page numbers that do not match PDF indexes, and split text fragments. The frontend had to make the source evidence visible and navigable.
+
+How it was implemented:
+
+- `PdfTextScanner.js` turns flat PDF.js text items into rows, fragments, table regions, paragraph regions, and source matches.
+- `PdfViewer.jsx` renders overlays by scaling PDF coordinates to screen coordinates.
+- `EvidenceLocations.js` deduplicates source locations.
+- Caches persist evidence and PDF bytes to reduce reload time.
+
+Hard parts:
+
+- PDF.js does not give semantic tables.
+- Multi-column papers need gutter-aware row splitting.
+- AI page hints can be printed journal pages, so over-range hints must not block text matching.
+- Overlays must be stable and not flicker.
+
+Evidence:
+
+- `PdfTextScanner.js`: 2,323 lines.
+- `PdfViewer.jsx`: 939 lines.
+- `EvidenceLocations.js`: 439 lines.
+- Frontend PDF/evidence tests: 972 lines total.
+
+### G. Autocomplete and Search UX
+
+**When:** Initial direct work on 2026-03-03; expanded in current frontend.
+**Technology:** React autocomplete components, Supabase queries, local ranking, Huan's fuzzy matcher, search telemetry.
+
+What was built:
+
+- Food search over canonical names, aliases, base names, and custom entries.
+- Nutrient search over standard names/aliases/categories.
+- Keyboard navigation and custom entry fallback.
+- Debounced queries.
+- Local full-catalog ranking when loaded.
+- Supabase fallback search before full catalog load.
+- Search session logging.
+
+Why it was needed:
+
+Fast, accurate catalog resolution affects every submitted food/nutrient row. If autocomplete is slow or imprecise, labelers either make wrong mappings or create too many custom rows.
+
+How it was implemented:
+
+- `FoodAutocomplete.jsx` computes weighted scores for exact, prefix, base-name, alias, token, and fuzzy relations.
+- It penalizes processed variants for generic whole-food queries.
+- `NutrientAutocomplete.jsx` ranks nutrient names/aliases and formats units.
+- `searchSessionLogger.js` records query behavior for later UX analysis.
+
+### H. Approval, Dashboard, and Cockpit Views
+
+**When:** April/May 2026 onward.
+**Technology:** React views, Supabase RPCs, JSON payload summaries, CSS.
+
+What was built:
+
+- `ApprovalView`: pending submissions, original labeler payload, editable final reviewer payload.
+- `DashboardView`: labeler metrics, pending/accepted/corrected/superseded counts, correction items.
+- `AllPapersView`: Useful Papers list and Latest AI detail affordance.
+- `PipelineOpsView`: crawler/model/human funnel and current queue status.
+- `ReviewerAdminView`: reviewer profile/admin controls.
+- Suggestion views: cockpit review and user status.
+
+Why it was needed:
+
+The frontend had to support more than one labeler screen. Arciel needed approval and operations views; team members needed performance/correction feedback; cockpit users needed a view into useful papers and pipeline health.
+
+How it was implemented:
+
+- The monolithic annotator was refactored into smaller view components on 2026-05-16.
+- `annotateHelpers.js` centralizes status formatting, model-stage labels, payload summaries, and pipeline funnel construction.
+- Views consume slim RPC projections instead of raw large tables.
+
+Assessment value:
+
+These views are a complete operational UI, not a single-form demo.
+
+### I. Performance and Production Usability
+
+**When:** May/June 2026.
+**Technology:** requestIdleCallback, Cache Storage, localStorage LRU, Vite self-hosted worker, lean RPCs.
+
+What was built:
+
+- Food catalog loads during idle time.
+- Cockpit data loads only when cockpit tabs open.
+- Queue loads in parallel with profile sync.
+- PDF worker is self-hosted/bundled.
+- PDF bytes are cached durably.
+- Next two queue PDFs are prefetched during idle time.
+- Evidence pages render before the rest of the PDF.
+
+Why it was needed:
+
+The app is used for repeated labeling. Slow startup, repeated PDF downloads, and heavy Supabase payloads waste reviewer time and burn free-tier egress. The frontend had to become production-efficient.
+
+How it was implemented:
+
+- `Annotate.jsx` parallelizes queue/profile boot and lazy-loads cockpit data.
+- `QueueView.jsx` prefetches next PDFs.
+- `PdfViewer.jsx` scans evidence pages headlessly and prioritizes rendering.
+- `pdfCache.js` stores PDF bytes in Cache Storage.
+
+## Frontend Evidence Summary
+
+| Area | Current source evidence | Why it matters |
+| --- | ---: | --- |
+| App orchestration | `Annotate.jsx` 1,163 lines | Queue, save, submit, approval, cockpit loading. |
+| PDF scanner/viewer | `PdfTextScanner.js` 2,323 + `PdfViewer.jsx` 939 | Evidence verification and nutrient click UX. |
+| Food/nutrient forms | `FoodAutocomplete.jsx` 664, `NutrientAutocomplete.jsx` 334, form/popover components | Accurate data entry. |
+| Views | Queue/Approval/Dashboard/AllPapers/Pipeline/Admin/Suggestions views | Complete workflow UI. |
+| Frontend tests | 972 PDF/evidence/cache lines | Regression coverage for high-risk PDF evidence behavior. |

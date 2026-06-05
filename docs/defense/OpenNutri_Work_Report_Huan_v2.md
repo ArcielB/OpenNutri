@@ -155,3 +155,225 @@ Huan's work is best characterized as compact full-stack and algorithmic work:
 - Access/theme/PDF UX improvements.
 
 Direct git evidence supports **24 commits** and **`+2,188/-582` filtered churn**. The qualitative weight is higher than the line count because the suggestion and fuzzy-match features became infrastructure for other surfaces.
+
+## Expanded Feature Ledger
+
+This section expands the short assessment into a feature-by-feature list of what Huan did, why the work was needed, how it was implemented, and which technologies were involved.
+
+### A. Theme Centralization and System Preference
+
+**When:** 2026-03-16.
+**Commits:** `cbf61ad`, `341b40e`.
+**Technology:** React state, browser `prefers-color-scheme`, session storage, CSS theme variables.
+
+What was done:
+
+- Theme state was lifted into `App.jsx` so the login screen and authenticated annotator chrome used one source of truth.
+- The app follows the user's system/browser preference when there is no explicit override.
+- If a user changes theme during the session, the override is respected.
+- PDF display behavior was adjusted so dark/light theme changes did not leave the viewer visually inconsistent.
+
+Why it was needed:
+
+The annotator is used for long labeling sessions. A mismatched login/app theme or a PDF viewer that does not follow the rest of the app creates fatigue and makes the interface feel broken. A shared theme state also prevents different components from inventing separate theme logic.
+
+How it was implemented:
+
+- App-level theme state was passed to the annotator surface.
+- The hook detects system preference through `matchMedia`.
+- Session storage is used for override persistence, keeping behavior local and lightweight.
+
+Assessment value:
+
+This is a small feature in code size, but it touches the whole app shell and improves the daily usability of the tool.
+
+### B. Reset Password Recovery
+
+**When:** 2026-03-19.
+**Commit:** `4e208a5`.
+**Technology:** Supabase Auth, React recovery route, browser URL hash parsing, session management.
+
+What was done:
+
+- Added a dedicated password recovery page.
+- Routed recovery links to a password reset screen instead of dropping users into the normal logged-in annotator.
+- Parsed Supabase recovery tokens from the URL.
+- Established a Supabase recovery session.
+- Validated password length and confirmation.
+- Updated the user password through Supabase Auth.
+- Removed tokens from the URL after use.
+
+Why it was needed:
+
+Password recovery is a trust/security feature. The previous behavior could confuse users by logging them in directly from the recovery link. Users needed a clear "set a new password" screen that handled expired links and did not leave tokens visible in the address bar.
+
+How it was implemented:
+
+- `ResetPassword.jsx` handles the token/session flow and form state.
+- `App.jsx` detects recovery URLs/events and routes into the reset page.
+- `.env.example` was updated for the redirect URL requirement.
+
+Assessment value:
+
+This is a correctness fix in the authentication flow, not a cosmetic page. It required understanding Supabase's recovery session behavior and the app's route/session state.
+
+### C. Suggestion Review System
+
+**When:** 2026-04-21 to 2026-05-12.
+**Commits:** `2fcdc55`, `4db6334`, `ebe2a3d`, `bd29ab5`, `0a5fdd6`, `967c927`, `8dc6771`, `528848c`.
+**Technology:** React, Supabase Postgres, Supabase Storage, RLS policies, signed URLs, CSS.
+
+What was done:
+
+- Added a user-facing suggestion workflow.
+- Added cockpit/admin review of suggestions.
+- Added user-side tracking of submitted suggestions and status.
+- Created `backlog_review_items`.
+- Added private image attachments through the `suggestion-attachments` bucket.
+- Added attachment metadata to the suggestion row.
+- Hid the suggestion button from cockpit/admin users where it was not appropriate.
+- Fixed image viewing for both user and admin suggestion pages.
+- Improved admin dropdown styling.
+
+Why it was needed:
+
+The app was being used by multiple people, and feedback could not stay only in chat. Users needed a structured way to report UI issues, ask for improvements, or submit supervisor-requested changes. Cockpit users needed to review those requests without giving normal users broad admin access.
+
+How it was implemented:
+
+- `SuggestionModal.jsx` validates title/message and attachment files.
+- Images are limited to allowed MIME types, at most five files, and 10 MB per image.
+- File names are sanitized before upload.
+- Files are uploaded under a user-scoped path.
+- Attachment metadata is included in `backlog_review_items.attachments`.
+- If the database insert fails after one or more uploads, the modal deletes those uploaded objects so storage does not accumulate orphans.
+- Supabase Storage policies restrict access to the correct bucket/path.
+- Review views fetch signed URLs when images need to be displayed.
+
+Why these technology choices:
+
+- Supabase Storage was already used in the stack and provided private buckets, path-based policies, and signed URLs.
+- JSONB attachment metadata kept the schema simple while still preserving multiple images.
+- Client-side validation prevented obviously invalid files from consuming storage/bandwidth.
+
+Assessment value:
+
+This is Huan's strongest full-stack contribution. It spans UI, table design, private object storage, security policy alignment, error cleanup, and review workflow.
+
+### D. Conflict Resolution System
+
+**When:** 2026-04-27.
+**Commits:** `a979d3f`, `2121663`, `f54f2fb`.
+**Technology:** SQL tables/views, React UI, CSS.
+
+What was done:
+
+- Added a table for paper conflict resolutions.
+- Added a conflict candidate view.
+- Added UI support for displaying conflicting submissions.
+- Added a "Choose This" style resolution affordance.
+- Fixed CSS so reviewer names and buttons did not overlap.
+
+Why it was needed:
+
+The earlier assignment workflow allowed multiple reviewer submissions for the same paper. When reviewers disagreed, the app needed a structured way to identify those cases and choose the accepted submission. Otherwise conflicting labels would either be ignored or require ad hoc manual inspection.
+
+How it was implemented:
+
+- SQL grouped latest submissions and identified mismatches by decision and payload.
+- UI showed candidate submissions for resolution.
+- CSS was adjusted so the conflict list was usable.
+
+Current status:
+
+The later general queue plus approval workflow superseded this conflict model. It remains legitimate delivered work for the earlier architecture and is retained in the schema for audit/history.
+
+### E. Infinite PDF Scroll
+
+**When:** 2026-04-26.
+**Commit:** `4ade833`.
+**Technology:** React PDF viewer state, PDF text scanner coordination, CSS.
+
+What was done:
+
+- Replaced previous/next PDF page navigation with continuous/infinite scrolling.
+- Touched `PdfViewer.jsx`, `PdfTextScanner.js`, and CSS.
+- Kept PDF text/highlight behavior aligned with streamed page rendering.
+
+Why it was needed:
+
+Reviewers inspect scientific papers as documents, not as isolated slides. Continuous scroll is faster for scanning tables, captions, and nearby context. It also reduces friction when evidence is spread across multiple pages.
+
+Assessment value:
+
+The change was a UX improvement, but it affected PDF rendering/highlight assumptions, so it required more care than changing a button label.
+
+### F. Fuzzy Matching Engine
+
+**When:** 2026-05-09 and backlog cleanup 2026-05-20.
+**Commits:** `e3971b2`, `0c1d334`.
+**Technology:** JavaScript token processing, bounded Levenshtein distance, adjacent transposition detection.
+
+What was done:
+
+- Implemented `normalizeText`, `normalizeToken`, `tokenize`, `extractAliasSegments`.
+- Implemented singular/plural and irregular-token handling.
+- Implemented derived-prefix matching.
+- Implemented bounded edit distance with early exits.
+- Implemented adjacent transposition detection.
+- Implemented relation lookup functions used by food/nutrient search.
+- Cleared related backlog items after delivery.
+
+Why it was needed:
+
+Food and nutrient names are easy to mistype and vary by pluralization or alias. Exact string matching would slow labelers down. At the same time, aggressive fuzzy matching can return dangerous false positives. Huan's utility gives the autocomplete components relation tiers so they can score exact, derived, and fuzzy matches differently.
+
+How it was implemented:
+
+- The edit-distance function returns early when distance cannot fit the allowed band.
+- Short tokens allow zero fuzziness, longer tokens allow one or two edits.
+- Adjacent transpositions catch common typing mistakes.
+- Token variants support broader Supabase prefix/broad search fallback.
+
+Assessment value:
+
+The file is only 162 lines, but it is algorithmically dense and reused by both autocomplete components.
+
+### G. Developer/Tester Visibility
+
+**When:** 2026-05-19.
+**Commit:** `9f18a56`.
+**Technology:** React view gating, Supabase reviewer profile flags, SQL permission predicates.
+
+What was done:
+
+- Developer/tester accounts can view the workflow and most cockpit/admin tabs for training/review.
+- Tester accounts remain read-only.
+- Pipeline access still requires actual cockpit permissions where appropriate.
+
+Why it was needed:
+
+The team needed safe demonstration/training accounts. Testers should be able to click around and understand the workflow without accidentally mutating production data.
+
+How it was implemented:
+
+- Frontend view visibility was broadened for tester/developer roles.
+- Mutations remained blocked by UI guards and backend RPC predicates.
+
+Assessment value:
+
+This is a small code change with high correctness value: it expands visibility without weakening write safety.
+
+## Direct Evidence Summary
+
+Huan's direct work is backed by a compact but clear git trail:
+
+| Area | Main files/tables | Direct evidence |
+| --- | --- | --- |
+| Theme | `App.jsx`, `useTheme.js`, `PdfViewer.jsx`, CSS | `cbf61ad`, `341b40e` |
+| Reset password | `ResetPassword.jsx`, `App.jsx`, `.env.example` | `4e208a5` |
+| Suggestions | `SuggestionModal.jsx`, `backlog_review_items`, `suggestion-attachments`, review views | `2fcdc55`, `4db6334`, `bd29ab5`, `0a5fdd6`, `967c927`, `8dc6771` |
+| Conflict resolution | `paper_conflict_resolutions`, `paper_conflict_candidates`, `Annotate.jsx`, CSS | `a979d3f`, `2121663`, `f54f2fb` |
+| PDF scroll | `PdfViewer.jsx`, `PdfTextScanner.js`, CSS | `4ade833` |
+| Fuzzy matching | `fuzzyMatch.js`, autocomplete integration | `e3971b2`, `0c1d334` |
+| Tester visibility | `Annotate.jsx`, `migration.sql`, README | `9f18a56` |
