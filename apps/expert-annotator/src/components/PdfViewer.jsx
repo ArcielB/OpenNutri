@@ -31,6 +31,7 @@ export default function PdfViewer({
     activeEvidenceId = null,
     activeEvidenceRequestId = null,
     onEvidenceStatusesChange = null,
+    onAutoFocusEvidence = null,
     cachedEvidenceOverlays = null,
 }) {
     const [numPages, setNumPages] = useState(null)
@@ -39,9 +40,13 @@ export default function PdfViewer({
     const [popover, setPopover] = useState(null) // { nutrient, rect }
     const [pageTextContents, setPageTextContents] = useState(() => ({}))
     const [pageDimensionsByPage, setPageDimensionsByPage] = useState(() => ({}))
+    const [pageScanDims, setPageScanDims] = useState(() => ({})) // { n: { originalWidth, originalHeight } } from headless scan
+    const [pdfDoc, setPdfDoc] = useState(null) // PDFDocumentProxy — drives the headless evidence scan
+    const [scanComplete, setScanComplete] = useState(false)
     const containerRef = useRef(null)
     const cleanupRef = useRef(null)
     const lastEvidenceStatusesRef = useRef('')
+    const autoFocusDoneRef = useRef(false) // have we already jumped+highlighted for this paper
     const [loadedPdf, setLoadedPdf] = useState(null) // { url, data } for the bytes we hold
     const [pdfErrorUrl, setPdfErrorUrl] = useState(null) // url whose load failed
 
@@ -143,12 +148,47 @@ export default function PdfViewer({
         [pageDimensionsByPage, pageHighlightPlans, cachedEvidenceOverlays]
     )
 
-    function onDocumentLoadSuccess({ numPages }) {
-        setNumPages(numPages)
+    // The pages whose <Page> canvas should be mounted, derived (not stored) so it
+    // can't desync. Page 1 always; plus every page the scan proved holds evidence
+    // (so those render right after page 1); plus, once the scan is done, every
+    // remaining page. DOM order stays 1..N — this only controls *when* each page's
+    // canvas rasterizes, so evidence pages are ready for the auto-jump first.
+    const evidencePages = useMemo(() => {
+        const pages = []
+        for (const [pageNumberKey, plan] of Object.entries(pageHighlightPlans)) {
+            const hasMatch = (plan.evidenceMatches || []).some(
+                (match) => match.status === EVIDENCE_STATUS.MATCHED
+            )
+            if (hasMatch) pages.push(Number(pageNumberKey))
+        }
+        return pages.sort((a, b) => a - b)
+    }, [pageHighlightPlans])
+
+    const firstEvidencePage = evidencePages.length ? evidencePages[0] : null
+
+    const activePages = useMemo(() => {
+        const pages = new Set()
+        if (!numPages) return pages
+        pages.add(1)
+        for (const pageNumber of evidencePages) pages.add(pageNumber)
+        if (scanComplete) {
+            for (let pageNumber = 1; pageNumber <= numPages; pageNumber += 1) pages.add(pageNumber)
+        }
+        return pages
+    }, [numPages, evidencePages, scanComplete])
+
+    function onDocumentLoadSuccess(pdf) {
+        // Page 1 paints immediately (activePages always includes 1) for an instant
+        // first pixel; the scan below backfills evidence pages, then the rest.
+        setNumPages(pdf.numPages)
         setCurrentPageNumber(1)
         setPageTextContents({})
         setPageDimensionsByPage({})
+        setPageScanDims({})
+        setScanComplete(false)
         lastEvidenceStatusesRef.current = ''
+        autoFocusDoneRef.current = false
+        setPdfDoc(pdf)
     }
 
     const handleNutrientClick = useCallback((nutrient, rect) => {
@@ -187,6 +227,71 @@ export default function PdfViewer({
             }
         })
     }, [])
+
+    // Headless evidence scan: read each page's text + intrinsic size straight from
+    // the already-parsed document, WITHOUT rendering its canvas. This is far
+    // cheaper than rendering and lets us (a) precompute highlight plans for every
+    // page, (b) size placeholders so the layout/scroll is stable before anything
+    // rasterizes, and (c) learn which real PDF pages hold evidence so we can render
+    // those first and jump to them. Runs once per loaded document.
+    useEffect(() => {
+        if (!pdfDoc) return undefined
+        let cancelled = false
+        const idleYield = () => new Promise((resolve) => {
+            const schedule = window.requestIdleCallback || ((cb) => window.setTimeout(cb, 0))
+            schedule(() => resolve(), { timeout: 200 })
+        })
+        const run = async () => {
+            const total = pdfDoc.numPages || 0
+            for (let pageNumber = 1; pageNumber <= total; pageNumber += 1) {
+                if (cancelled) return
+                try {
+                    const page = await pdfDoc.getPage(pageNumber)
+                    if (cancelled) return
+                    const viewport = page.getViewport({ scale: 1 })
+                    const textContent = await page.getTextContent()
+                    if (cancelled) return
+                    setPageScanDims((previous) => (
+                        previous[pageNumber]
+                            ? previous
+                            : {
+                                ...previous,
+                                [pageNumber]: {
+                                    originalWidth: viewport.width,
+                                    originalHeight: viewport.height,
+                                },
+                            }
+                    ))
+                    handlePageTextSuccess(pageNumber, textContent)
+                } catch {
+                    // A single page failing to scan is non-fatal — it still renders
+                    // normally and matches evidence on render.
+                }
+                if (cancelled) return
+                await idleYield()
+            }
+            if (!cancelled) setScanComplete(true)
+        }
+        run()
+        return () => {
+            cancelled = true
+        }
+    }, [pdfDoc, handlePageTextSuccess])
+
+    // Once the first evidence page has actually rendered (its real dimensions are
+    // known), jump to it and highlight its evidence — by handing the parent the
+    // evidence id, which drives the strip selection and the existing scroll/overlay
+    // effect. Fires at most once per paper.
+    useEffect(() => {
+        if (autoFocusDoneRef.current) return
+        if (!firstEvidencePage || !onAutoFocusEvidence) return
+        if (!pageDimensionsByPage[firstEvidencePage]) return // wait until it's rendered
+
+        const evidenceId = findFirstMatchedEvidenceId(pageHighlightPlans, firstEvidencePage)
+        if (!evidenceId) return
+        autoFocusDoneRef.current = true
+        onAutoFocusEvidence(evidenceId)
+    }, [firstEvidencePage, pageDimensionsByPage, pageHighlightPlans, onAutoFocusEvidence])
 
     useEffect(() => {
         if (cleanupRef.current) {
@@ -349,7 +454,13 @@ export default function PdfViewer({
                 >
                     {Array.from({ length: numPages || 0 }, (_, index) => {
                         const pageNumber = index + 1
-                        const pageDimensions = pageDimensionsByPage[pageNumber]
+                        const pageDimensions = resolvePageDisplayDimensions(
+                            pageNumber,
+                            pageDimensionsByPage,
+                            pageScanDims,
+                            scale
+                        )
+                        const isActive = activePages.has(pageNumber)
                         return (
                             <div
                                 className="pdf-page-wrap"
@@ -360,18 +471,25 @@ export default function PdfViewer({
                                     className="pdf-page-stage"
                                     style={buildPageStageStyle(pageDimensions)}
                                 >
-                                    <Page
-                                        pageNumber={pageNumber}
-                                        scale={scale}
-                                        customTextRenderer={buildCustomTextRenderer(pageNumber)}
-                                        renderTextLayer={true}
-                                        renderAnnotationLayer={false}
-                                        onLoadSuccess={(page) => handlePageLoadSuccess(pageNumber, page)}
-                                        onGetTextSuccess={(textContent) =>
-                                            handlePageTextSuccess(pageNumber, textContent)
-                                        }
-                                    />
-                                    <EvidenceRegionOverlay overlays={evidenceOverlaysByPage[pageNumber] || []} />
+                                    {isActive ? (
+                                        <>
+                                            <Page
+                                                pageNumber={pageNumber}
+                                                scale={scale}
+                                                customTextRenderer={buildCustomTextRenderer(pageNumber)}
+                                                renderTextLayer={true}
+                                                renderAnnotationLayer={false}
+                                                onLoadSuccess={(page) => handlePageLoadSuccess(pageNumber, page)}
+                                                onGetTextSuccess={(textContent) =>
+                                                    handlePageTextSuccess(pageNumber, textContent)
+                                                }
+                                                loading={<div className="pdf-page-placeholder" />}
+                                            />
+                                            <EvidenceRegionOverlay overlays={evidenceOverlaysByPage[pageNumber] || []} />
+                                        </>
+                                    ) : (
+                                        <div className="pdf-page-placeholder" />
+                                    )}
                                 </div>
                             </div>
                         )
@@ -684,6 +802,42 @@ function buildPageStageStyle(pageDimensions) {
         width: pageDimensions.width,
         height: pageDimensions.height,
     }
+}
+
+// Best available size for a page slot at the current scale: a rendered page's
+// exact dimensions if we have them, else the headless-scan size, else an estimate
+// from the first page we've sized (papers are near-uniform). Keeps placeholders
+// holding the right space so the document height and scroll targets are correct
+// before any canvas paints.
+function resolvePageDisplayDimensions(pageNumber, dimensionsByPage, scanDims, scale) {
+    const rendered = dimensionsByPage[pageNumber]
+    if (rendered) return rendered // already at the current scale
+
+    const scanned = scanDims[pageNumber]
+    if (scanned) {
+        return { width: scanned.originalWidth * scale, height: scanned.originalHeight * scale }
+    }
+
+    const anyScan = Object.values(scanDims)[0]
+    if (anyScan) {
+        return { width: anyScan.originalWidth * scale, height: anyScan.originalHeight * scale }
+    }
+
+    const anyRendered = Object.values(dimensionsByPage)[0]
+    if (anyRendered) return anyRendered
+
+    return undefined
+}
+
+function findFirstMatchedEvidenceId(pageHighlightPlans, pageNumber) {
+    const plan = pageHighlightPlans?.[pageNumber]
+    if (!plan) return null
+    for (const match of plan.evidenceMatches || []) {
+        if (match.status === EVIDENCE_STATUS.MATCHED && match.evidenceId) {
+            return match.evidenceId
+        }
+    }
+    return null
 }
 
 function scrollPageRegionIntoView(panel, pageNode, overlay) {

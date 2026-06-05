@@ -537,6 +537,23 @@ body {
   line-height: 0;
 }
 
+/* Spacer shown for pages whose canvas hasn't been rendered yet. It carries the
+   page's real dimensions (from the headless scan) so the document's total height
+   and every page's scroll position are correct before anything is rasterized —
+   which keeps the auto-jump to the first evidence page landing in the right place. */
+.pdf-page-placeholder {
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  border-radius: 4px;
+  background: linear-gradient(
+    180deg,
+    rgba(127, 127, 127, 0.08),
+    rgba(127, 127, 127, 0.14)
+  );
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
 .pdf-container canvas {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
   border-radius: 4px;

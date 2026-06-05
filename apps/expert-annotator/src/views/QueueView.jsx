@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import PdfViewer from '../components/PdfViewer'
 import FoodItemForm from '../components/FoodItemForm'
 import EvidenceStrip from '../components/EvidenceStrip'
@@ -58,6 +58,12 @@ export default function QueueView({
   const activeEvidenceId = scanEvidenceLocations.some((location) => location.id === activeEvidence?.id)
     ? activeEvidence.id
     : null
+  // When the PDF viewer locates the first evidence page, jump+highlight it by
+  // selecting that evidence (drives the strip selection and the scroll/overlay).
+  const handleAutoFocusEvidence = useCallback(
+    (evidenceId) => setActiveEvidence({ id: evidenceId, requestId: Date.now() }),
+    []
+  )
 
   // Warm the durable PDF cache for the next paper(s) during idle time so that
   // hitting "Next" renders from cache instead of waiting on a fresh fetch.
@@ -98,6 +104,7 @@ export default function QueueView({
         activeEvidenceId={activeEvidenceId}
         activeEvidenceRequestId={activeEvidenceId ? activeEvidence?.requestId || null : null}
         onEvidenceStatusesChange={setEvidenceStatuses}
+        onAutoFocusEvidence={handleAutoFocusEvidence}
         cachedEvidenceOverlays={cachedEvidenceOverlays}
       />
 
