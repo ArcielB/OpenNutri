@@ -1,291 +1,563 @@
-# OpenNutri — Full Work Report (Master)
+# OpenNutri — Full Technical Work Report (Master)
 
-*Comprehensive, evidence-based account of everything built for OpenNutri, who built it, how, why, what made it hard, and how it was solved.*
+*An exhaustive, code-grounded account of everything built for OpenNutri: who built it, how it works, why it was hard, why it matters, and the trade-offs. Every claim below was written after reading the actual source — not the README, not commit messages.*
 
 **Prepared:** 2026-06-05 · **Repository HEAD:** `ac8bf72` · **Activity span:** 2025-12-19 → 2026-06-05 (≈5.5 months)
-**Source of truth:** the git history of this repository (`git log --all --numstat`), the live schema (`apps/expert-annotator/migration.sql`), `README.md`, and `AGENTS.md`. Nothing in this report is invented; every claim is traceable to a commit, file, or line count.
+**Method:** the source files of each subsystem were read in full (or, for the largest files, mapped and then read region-by-region) and the behavior described from the code itself. File names, function names, line counts, algorithms, and constants are taken directly from the repository.
 
 ---
 
-## 1. Team and how to read the attribution
+## 1. Team and attribution
 
-| Member | Student no. | Primary area in this report |
+| Member | Student no. | Primary area |
 | --- | --- | --- |
-| Duc Huan Ngo | 221229075 | Suggestions system, conflicts, theme, reset-password, fuzzy match, infinite scroll, tester access |
-| Ayşegül Doğan | 221229031 | Annotator frontend (React) — UI, PDF viewer, highlighting, autocomplete, views |
-| Arciel Aliognis Baez Zamora | 221229078 | Database/RLS, paper-discovery crawler, AI extraction cascade, daily-ops automation, infra, docs |
+| Duc Huan Ngo | 221229075 | Fuzzy-match engine, suggestions system (UI + table + bucket + RLS), conflicts, reset-password, theme, infinite scroll, tester access |
+| Ayşegül Doğan | 221229031 | Annotator frontend — PDF highlighting engine, evidence overlays, autocomplete, workflow UI, cockpit views, performance |
+| Arciel Aliognis Baez Zamora | 221229078 | Database/RLS/RPCs, paper-discovery crawler, feedback learning, AI extraction cascade, daily-ops automation, infra, ETL, tests, docs |
 
-### Attribution method (read this before the numbers)
+**Attribution rule (the team's standing division of labor):** every `landeryt` commit → **Huan**, wholesale. Every other commit is split by file area: `apps/expert-annotator/src/**` (the React app) → **Ayşegül (frontend)**; schema, AI/pipeline, infra, ETL, tests, docs → **Arciel (backend)**. Most integration/deployment ran from Arciel's machine, so this area split — not raw commit authorship — reflects who owned which work. Ayşegül authored the original MVP and core frontend under her own `ayseguldogan2706-cpu` identity before the app was reorganized into `apps/expert-annotator/`.
 
-The repository has four git identities: `baezarciel` + `ArcielB` (both Arciel), `landeryt` (Huan), and `ayseguldogan2706-cpu` (Ayşegül). Because day-to-day integration, deployment, and most pushes ran from Arciel's machine, raw commit authorship under-represents the agreed division of labor. Work is therefore attributed by the team's standing split:
+### Headline numbers (code only; excludes USDA CSV dumps, `package-lock.json`, generated DOCX/PDF)
 
-- **Every `landeryt` commit → Huan**, wholesale, regardless of whether it touched frontend or SQL.
-- **Every other commit is split by file area:** lines under `apps/expert-annotator/src/**` (plus the HTML/Vite shell) → **Ayşegül (frontend)**; everything else — schema, AI/pipeline, infra, ETL, tests, docs → **Arciel (backend)**.
+| Member | Commits | Lines added | Net new | Gross-add share |
+| --- | --- | --- | --- | --- |
+| **Arciel** | 208 | **+47,682** | **+38,584** | ~66% |
+| **Ayşegül** | 7 own + frontend area | **+22,681** | **+15,100** | ~31% |
+| **Huan** | 23 | **+2,188** | **+1,606** | ~3% |
 
-This is the same rule the team has used since the first internal breakdown; this report re-derives it from scratch against the current HEAD and corrects two accounting issues in the older draft (Ayşegül's original MVP lived at the repo root before it was reorganized into `apps/expert-annotator/`, and the now-archived `legacy/` snapshot must not be double-counted).
-
-### Headline numbers (code only; excludes USDA CSV dumps, `package-lock.json`, generated DOCX/PDF/PPTX/PNG)
-
-| Member | Commits (authored identity) | Lines added | Lines deleted | Net new | Gross-add share |
-| --- | --- | --- | --- | --- | --- |
-| **Arciel** | 208 | **+47,682** | −9,098 | **+38,584** | ~66% |
-| **Ayşegül** | 7 own + frontend area | **+22,681** | −7,581 | **+15,100** | ~31% |
-| **Huan** | 23 | **+2,188** | −582 | **+1,606** | ~3% |
-
-The share by *current* shipping code (what runs in production today, a fairer "result" metric than churn) is roughly: **~13,500 lines of frontend** (Ayşegül's surface, less Huan's ~450 lines of suggestion/reset/fuzzy code), **~25,500 lines of Python pipeline + 4,900 lines of tests + a 5,396-line schema** (Arciel), and **Huan's distinct feature surfaces** (suggestion attachments, conflicts, fuzzy match, reset-password page). Total tracked source: **47,198 lines**.
-
-> Why "net new" is smaller than "added": OpenNutri was rewritten in place several times — the crawler went v1 → v2, the labeling model went from slot-assignment → general approval queue, the AI path went from single-model → 3-stage cascade, and `Annotate.jsx` was decomposed into eight view files. Churn (lines added) measures *effort*; current size measures *result*. Both are reported because both are real.
+Current shipping code: **47,198 lines** of tracked source — ~13,500 frontend (React), ~25,500 Python pipeline, a 5,396-line SQL schema, ~4,900 lines of tests. Net-new < added because the project was rewritten in place repeatedly (crawler v1→v2, slot workflow → general approval queue, single-model → 3-stage cascade, `Annotate.jsx` → eight views). Churn measures effort; current size measures result.
 
 ---
 
 ## 2. What OpenNutri is
 
-OpenNutri is a **food-composition data platform**: it discovers scientific papers that contain real food/product nutrient tables, uses an AI cascade to pre-extract candidate composition rows, and gives human experts a precision labeling UI to verify them into normalized, provenance-backed nutrition facts.
+A **food-composition data platform**. It discovers scientific papers that contain real food/product nutrient tables, runs a three-stage AI cascade to pre-extract candidate composition rows, and gives human experts a precision labeling UI to verify them into normalized, provenance-backed nutrition facts. Two halves over one Supabase Postgres database:
 
-Two halves, one Supabase Postgres database between them:
-
-1. **Annotator web app** (`apps/expert-annotator/`, React 19 + Vite, deployed on Vercel) — auth, a shared labeling queue, a PDF viewer with table-scoped highlighting and AI-evidence overlays, an approval workflow, and cockpit dashboards.
-2. **Python data pipeline** (`services/data-pipeline/`) — a multi-source crawler, a feedback-learning loop, a 3-stage LLM extraction cascade (Gemma → Gemini Flash-Lite → Gemini Flash), and a daily-ops orchestrator that runs unattended on **GitHub Actions every 5 minutes**.
-
-The canonical data model separates **reference facts** (`entities`, `master_nutrients`, `sources`, `claims`) from the **human/AI workflow** (`papers`, `annotations`, `paper_label_submissions`, `paper_review_outcomes`, `ai_extractions`, …), so every nutrition fact is traceable from discovery → extraction → human approval → claim.
+1. **Annotator web app** (`apps/expert-annotator/`, React 19 + Vite, on Vercel) — auth, a shared labeling queue, a PDF viewer with table-scoped highlighting + AI-evidence overlays, an approval workflow, cockpit dashboards.
+2. **Python data pipeline** (`services/data-pipeline/`) — a learning crawler, a feedback loop, a Gemma→Gemini-Flash-Lite→Gemini-Flash extraction cascade, and a daily-ops orchestrator that runs unattended on **GitHub Actions every 5 minutes**.
 
 ### End-to-end data flow
 
 ```
-USDA CSV ──ETL──▶ entities / master_nutrients / sources / claims  (reference layer)
+USDA CSV ──ETL──▶ entities / master_nutrients / sources / claims   (canonical reference layer)
 
-crawl (Europe PMC, OpenAlex, Semantic Scholar)
-  └─▶ Search → Filter (lexical + embeddings + learned feedback) → Acquisition (PDF)
-        └─▶ upload_to_supabase  ──▶ papers (+ paper_search_hits / batches)
-              └─▶ Gemma proof-extraction (≈1500/day, text)        [Small model]
-                    └─▶ Gemini Flash-Lite triage (≈500/day)        [Medium model]
-                          └─▶ Gemini Flash final extraction (≈20/day, native PDF)  [Strong model]
-                                └─▶ human_review_ready  ──▶ general labeling queue
-                                      └─▶ submission → Arciel approval → paper_review_outcomes
-                                            └─▶ feedback loop (L2) re-scores the next crawl
+crawl (Europe PMC / OpenAlex / Semantic Scholar)
+  └▶ Search → Filter (lexical + embeddings + learned log-odds n-grams) → Acquisition (PDF + strict validation)
+       └▶ upload_to_supabase ─▶ papers (+ paper_search_hits / batches)
+            └▶ Gemma proof-extraction   (~1500/day, text)            [Small model]
+                 └▶ Gemini Flash-Lite triage (~500/day)              [Medium model]
+                      └▶ Gemini Flash final extraction (~20/day, PDF) [Strong model]
+                           └▶ human_review_ready ─▶ general labeling queue
+                                └▶ submission → Arciel approval → paper_review_outcomes
+                                     └▶ feedback loop (L2) re-scores the next crawl
 ```
 
 ---
 
-## 3. Timeline (phases)
+## 3. Timeline
 
-| Phase | Dates | Headline work |
+| Phase | Dates | Headline |
 | --- | --- | --- |
-| 0 — Repo bootstrap | 2025-12-19 | Repo created; push-access verified |
-| 1 — Annotator MVP | 2026-03-02 → 03-03 | Ayşegül: annotation tool, Google OAuth, theme, flexible nutrient model, food/nutrient autocomplete, first PDF highlight |
-| 2 — Pipeline import + crawler v1 | 2026-03-09 → 03-22 | Arciel: snapshot the harvester/crawler/embeddings codebase, USDA ETL, README, balanced rule-based gating, audit sampling; Huan: theme centralization, reset-password page |
-| 3 — Feedback learning + crawler v2 | 2026-03-20 → 03-30 | Arciel: L2 dual-embedding scoring, cumulative soft n-gram feedback, field-aware learning, bilingual split, DergiPark journal index, test mode, handoff/AGENTS docs |
-| 4 — AI integration + workflow | 2026-04-13 → 05-02 | Arciel: Gemini Flash triage/extraction, assignment-driven labeling → general approval queue, staged AI-routing gate; Huan: conflicts system, suggestions system + image attachments |
-| 5 — Cascade + cockpit + daily ops | 2026-05-03 → 05-20 | Arciel: Gemma screening cascade, daily-ops orchestrator (recurring ticks, quota pacing), pipeline cockpit, coordinate-based PDF evidence overlays, `Annotate.jsx` → `views/` refactor; Huan: dev/tester read-only, fuzzy match |
-| 6 — Hardening + 3-model cascade | 2026-05-27 → 05-31 | Arciel: controller/drain-worker split, Flash-Lite triage stage, auth-RLS hardening, source-URL PDFs + same-origin proxy, native-PDF Gemini with true page numbers |
-| 7 — Performance + cost | 2026-06-04 → 06-05 | Arciel: durable browser PDF cache, lean queue RPC, egress reduction, evidence-page-first rendering |
+| 0 — Bootstrap | 2025-12-19 | Repo created; push access verified |
+| 1 — Annotator MVP | 2026-03-02→03 | Ayşegül: tool, OAuth, theme, flexible nutrient model, autocomplete, first PDF highlight |
+| 2 — Pipeline + crawler v1 | 2026-03-09→22 | Arciel: pipeline snapshot, USDA ETL, README, rule-based gating; Huan: theme, reset-password |
+| 3 — Feedback + crawler v2 | 2026-03-20→30 | Arciel: dual-embedding L2, log-odds n-gram feedback, bilingual split, DergiPark index, test mode |
+| 4 — AI + workflow | 2026-04-13→05-02 | Arciel: Gemini triage/extraction, assignment→general approval queue, staged routing gate; Huan: conflicts, suggestions + image attachments |
+| 5 — Cascade + cockpit | 2026-05-03→20 | Arciel: Gemma screening, daily-ops orchestrator, pipeline cockpit, coordinate evidence overlays, views refactor; Huan: dev/tester access, fuzzy match |
+| 6 — Hardening + 3-model | 2026-05-27→31 | Arciel: controller/drain split, Flash-Lite stage, auth-RLS hardening, source-URL PDFs + proxy, native-PDF Gemini |
+| 7 — Performance | 2026-06-04→05 | Arciel: durable browser PDF cache, lean queue RPC, egress cuts, evidence-page-first rendering |
 
 ---
 
-## 4. Subsystem-by-subsystem work log
+## 4. Subsystem-by-subsystem work log (read from the source)
 
-Each entry: **what / why / how / what made it hard / how solved / when / size / trade-offs.**
+*Each subsystem below was documented after reading its actual implementation. Backend subsystems are Arciel's; the two PDF/app frontend subsystems are Ayşegül's; the suggestions/fuzzy/auth subsystems are Huan's.*
+## AI extraction cascade — Gemma → Gemini Flash-Lite → Gemini Flash *(Arciel)*
 
-### A. Annotator frontend — React labeling app *(Ayşegül)*
+**Files read in full for this section:** `evaluator/unified_evaluator.py` (688 lines), `ai_routing.py` (843), `scripts/process_stage_queue.py` (1,561), with `scripts/recover_gemini_candidates.py` (446) and `scripts/flash_lite_triage_experiment.py` (245). **34 commits** touch this subsystem.
 
-#### A1. Annotation tool MVP — `7c2d372` (2026-03-02, +5,010)
-- **What:** the first working app — `App.jsx`, `Login.jsx`, `Annotate.jsx`, `FoodItemForm.jsx`, `PdfViewer.jsx`, `supabaseClient.js`, a 695-line `index.css`, and the initial `supabase_schema.sql`.
-- **Why:** nothing existed; this is the skeleton everything else hangs on.
-- **How:** React + Vite SPA against Supabase (auth + Postgres). Email/password login, a paper view, a per-food form, a basic PDF render.
-- **Hard part / trade-off:** establishing the React/Supabase/Vite toolchain and a schema good enough to label against, before the data model was settled. The schema was deliberately simple and later superseded by Arciel's 5,396-line `migration.sql`.
+### What it is and why it exists
+Every accepted paper passes a three-stage model funnel before a human ever sees it:
 
-#### A2. Auth + theme + suggestion scaffold — `614a82c`, `6245a17` (2026-03-02, +369)
-- Google OAuth sign-in button; light/dark theme toggle (`useTheme.js`); first `SuggestionModal.jsx` and forgot-password entry.
+```
+gemma_proof_extraction_v1   gemma-4-31b-it   text mode   ~1500/day   "Small model"
+        │  (has_data + priority score)         fallback: gemma-4-26b-a4b-it
+        ▼
+gemini_flash_lite_triage_v1 gemini-3.1-flash-lite  ~500/day          "Medium model"
+        │  (re-ranks the strongest Gemma output)
+        ▼
+gemini_flash_db_payload_v2  gemini-3.5-flash  native PDF  ~20/day     "Strong model"
+        │  (final extraction)
+        ▼
+   human_review_ready  ──►  general labeling queue
+```
 
-#### A3. Flexible nutrient model + autocomplete + first PDF highlight — `00fd645` (2026-03-03, +1,242/−80)
-- **What:** the redesign that defined the product — arbitrary nutrient rows per food, `FoodAutocomplete.jsx`, `NutrientAutocomplete.jsx`, `NutrientPopover.jsx`, and the first `PdfTextScanner.js` (145 lines then; **2,323 lines today**).
-- **Why:** real food tables have variable nutrient sets; a fixed form can't capture them.
-- **Hard part:** matching nutrient names against the PDF text layer to highlight them — the seed of what became the hardest frontend problem in the project (see A5).
+**Why a cascade and not one model:** the final Gemini extraction is the scarce, expensive resource (~20 calls/day on the free quota). A cheap high-volume screener (Gemma, ~1500/day) → a mid re-ranker (Flash-Lite, ~500/day) → the expensive extractor (~20/day) means those 20 calls are spent on the **top-ranked** papers out of 1500, not on whatever arrived first. Each stage is configured in the `routing_stage_configs` table (`positive_threshold`, `negative_threshold`, `audit_rate`, `next_stage_on_has_data`, `fallback_model_names`, `model_input_mode`), so the pipeline shape is data-driven and a model can be swapped without code changes.
 
-#### A4. AI-prefill verification UI + workflow surfaces *(attributed frontend; built through Phase 4–5)*
-- **What:** queue papers with no saved draft open with the latest Gemini `normalized_payload_json` **preloaded as editable food/nutrient rows** — the labeler verifies/corrects AI output instead of starting blank. Plus the Details panel for AI extraction (`AiDetailPanel.jsx`), the "Ask for Help" flow (`HelpRequestModal.jsx`), test-mode local-write toggle, and global no-data skip.
-- **Why:** AI pre-extraction is only useful if the human can see and correct it in one place; the UI must show DB-compliant rows **without** leaking model reasoning.
-- **Hard part / trade-off:** never overwrite an existing draft/submission while still prefilling empty papers; keep the prefill silent (no banner) per product decision. Required careful guarding in `Annotate.jsx` (1,163 lines today, the central orchestrator).
+### The shared contract: `UnifiedEvaluator` (one prompt for every model)
+All three stages run the *same* `evaluate_and_extract()` against the same `EXTRACTION_PROMPT` (`opennutri_evidence_payload_v2`). The prompt is the product's domain definition in code: it spends ~25 lines enumerating exactly what "useful OpenNutri data" is (direct food/product composition values) versus what is **empty** — intervention/effect studies, one-off experimental formulations (1%/2%/4% additive levels, fertilizer/irradiation/storage/salt-stress treatments), digestibility, sensory, biomarkers, review aggregates. This precision is the difference between a database of real foods and a pile of irrelevant agronomy papers.
 
-#### A5. PDF nutrient highlighting — the precision problem — `6aba2f2`, `f383732`, `cce6945`, `c885403` (+ scanner growth) *(2026-04-22 → 05-20)*
-- **What:** table-scoped, click-to-add nutrient highlighting. The viewer builds a **page-local allowlist** from the PDF.js text layer and only marks detected table body/header cells and table caption lines.
-- **Why:** naive "highlight every nutrient word" lights up prose and is useless; click targets must be precise.
-- **What made it hard:** PDFs have no notion of "table." Table regions have to be *inferred* from text-item geometry, and nutrient words appearing in narrative paragraphs must be excluded.
-- **How solved:** detect table anchors per page; if a page has no confident anchor (or a table continues onto a caption-less page), **suppress** highlights rather than fall back to page-wide matching. Precision-first by design.
-- **Trade-off:** matches that split across multiple PDF text items inside a table are deliberately left as a known follow-up — correctness over coverage.
+Each extracted row must carry **evidence-location metadata** so the frontend can later highlight it: `table_label`, `page_hint`, `source_quote` (a *short contiguous verbatim* excerpt, ≤20 words, matched against the PDF to place the highlight), `source_location_type`, `section_heading`, `paragraph_hint`. The prompt explicitly instructs the model that `page_hint` is the **1-based PDF page index from the `===== PDF PAGE N =====` markers, never the printed journal page** — the single most important instruction, because the printed-page bug is what broke highlighting (see frontend section).
 
-#### A6. AI-evidence overlays — coordinate-based highlighting — `63ac650`, `582c34e`, `a683c49`, `8fb77f5`, `ad1b38b`, `398cc46`, `b1ab87b`, `662a5f8`, `faf5341`, `82b09b0`, `c875853`, `5a23ac3`, `3564c57`, `8e89198`, `dc855e4`, `27c44ae`, `ac8bf72` *(2026-05-13 → 06-05, 17 commits)*
-- **What:** a deduplicated **Sources strip** built from normalized payload rows; matched evidence snaps to whole detected table blocks or paragraph blocks and is painted as an always-on coordinate overlay scaled onto the rendered page.
-- **Why:** show the reviewer *where in the paper* each AI-extracted value came from.
-- **What made it hard — and the clever solutions:**
-  - **Multi-column journals:** paragraphs from adjacent columns were being merged. Solved by **column-clip bounds** and splitting fragments at narrow column gutters (`82b09b0`, `c875853`), rejecting cross-column adjacency.
-  - **Document chrome:** affiliations, article-history sidebars, keyword boxes, and copyright rows polluted evidence blocks — explicitly filtered out.
-  - **`page_hint` lies:** the AI only sees extracted text, so for a journal offprint it reports the *printed* page (e.g. `1217` on a 5-page file). When `page_hint > numPages` it cannot be a page index, so highlighting was made **non-gating** — caption/quote text locates the evidence on any page (`27c44ae`). Printed page labels in headers/footers are mapped to real PDF pages.
-  - **Stability:** stable region IDs and suppressed inner marks stop overlays from flickering between renders (`82b09b0`).
-  - **Evidence-first rendering (`ac8bf72`, 2026-06-05):** render the evidence pages first and auto-open/highlight the first one, so reviewers land on the relevant page instantly.
-- **Trade-off:** overlays are *broad navigation guidance*, not exact nutrient-coordinate matching; unmatched AI evidence stays visible but flagged "unverified."
+The prompt is fed the **full `master_nutrients` catalog** (id + standard_name) but only **text-matched food candidates**, not the whole food table — `select_food_candidates_for_text()` substring-matches every food/alias (≥4 chars, word-boundary) against the first 500 KB of the paper and keeps the 250 longest matches. Trade-off: full nutrient catalog (small, high value for ID resolution) vs. a filtered food shortlist (the food table is large; sending it all would blow the prompt and cost).
 
-#### A7. Codebase decomposition — `675feee`, `9de76ba`, `cf35755` *(2026-05-16)*
-- Extracted pure helpers into `utils/annotateHelpers.js` (574 lines), small components, and **8 sub-views** into `src/views/` (`QueueView`, `ApprovalView`, `DashboardView`, `AllPapersView`, `PipelineOpsView`, `SuggestionsReviewView`, `MySuggestionsView`, `ReviewerAdminView`). Turned a monolithic `Annotate.jsx` into an orchestrator + view modules.
+### Robustness 1 — surviving model JSON drift
+LLMs return malformed or differently-shaped JSON constantly; naively this becomes an infinite retry loop. The evaluator defends in depth (`_parse_response_json`, `_coerce_result_root`, `_iter_candidate_rows`):
+- **Markdown fence stripping** (` ```json … ``` `).
+- **Balanced-bracket candidate scanner** (`_balanced_json_candidates`) — a hand-written character scanner that tracks string/escape state and brace/bracket depth to extract the first *balanced* JSON object/array even when the model wraps it in prose. It yields candidates and picks the first that "looks like a result root."
+- **Four accepted shapes**, all coerced to one canonical root: the requested object; a bare top-level array of rows; a single object wrapped in a one-element array; and nested `food → nutrients[]` rows (flattened by `_iter_candidate_rows` using a shared `_food_context`). A row missing food/nutrient/amount/unit is dropped, not fatal.
 
-#### A8. Frontend performance & cost overhaul — `e15356e`, `390c162`, `376d687`, `9d0fbc0`, `ac8bf72` *(2026-06-04 → 06-05)*
-- **What:** lazy-loaded cockpit data (only when a cockpit tab opens), a **self-hosted PDF.js worker**, a **durable PDF cache in the browser Cache Storage** (`pdfCache.js`, 107 lines) with prefetch of the next queue papers, and a queue redesigned around one lean RPC running in parallel with the profile fetch.
-- **Why:** load time and Supabase egress were the binding constraints on a free tier.
-- **Trade-off:** more client-side caching complexity in exchange for far fewer round-trips and bytes.
+So *valid-but-differently-shaped* output is salvaged instead of triggering a retry. This is the concrete realization of the AGENTS rule "keep these parser variants so shape drift does not become an infinite AI retry loop."
 
-> **Current frontend surface:** `PdfTextScanner.js` 2,323 · `Annotate.jsx` 1,163 · `index.css` 2,970 · `PdfViewer.jsx` 939 · `FoodAutocomplete.jsx` 664 · `annotateHelpers.js` 574 · `EvidenceLocations.js` 439 · plus 8 views, ~12 components, hooks, and tests (`PdfTextScanner.test.js` 655, `EvidenceLocations.test.js` 225). **PDF viewer + scanner alone span 27 commits.**
+### Robustness 2 — native PDF input + true page numbers
+`_build_generate_content()` attaches the PDF as a native document part when the stage's `model_input_mode == "pdf"`: **inline** under a 15 MB cap, otherwise uploaded via the Files API with a `cleanup` callback that deletes the temp file *and* the remote upload in a `finally` (so failures don't leak files or quota). Native PDF gives the model rendered pages + tables + the auto-extracted (un-billed) embedded text, and lets it report the true page.
 
----
+For text-mode stages, `annotate_pdf_page_breaks()` splits `pdftotext` output on form-feeds (`\f`), drops a trailing empty page, and injects `===== PDF PAGE N =====` markers **before** any truncation, so surviving pages keep correct numbers. **Why Gemma stays text-mode:** the probe (`probe_model_file_input.py`) confirmed Gemma *accepts* PDF parts but was measured to **time out >600 s on a 5-page PDF** (both 31B and 26B) — fatal for a ~1500/day stage — so Gemma gets page-marked text, which already gives it correct page numbers without images. This decision is encoded and documented so it isn't naively reverted.
 
-### B. Suggestions, conflicts, theme, auth-UX *(Huan — all `landeryt` commits)*
+### The deterministic normalizer (`normalize_ai_payload_with_summary`, ai_routing.py)
+The model's free-form rows are converted into the exact same `normalized_payload_json` contract a human labeler submits — this is what makes AI output and human output interchangeable downstream. The pipeline:
+1. **Required-field gate:** drop rows missing food/nutrient/amount → counted as `missing_required_field`.
+2. **Unit standardization (`_standardize_unit`)** — the strict gatekeeper. Only `g/100g`, `mg/100g`, `μg/100g`, `kcal/100g`, `kJ/100g`, `IU/100g`, `%` survive. It handles `µ`-vs-`μ`, casefolding, `gram(s)`/`mg`/`milligram`/`mcg`/`ug`/`microgram`/`kcal`/`kJ`/`IU` spellings, compound `mg/100g` forms, and a **basis policy**: per-100g required, **dry-matter/`dm` rejected**, but `fresh`/`wet`/`as-is`/`edible portion` accepted. Rejections counted as `unsupported_unit_or_basis`.
+3. **Reference resolution (`_resolve_reference_row`)** — ID-first (verify the model's `food_fdc_id`/`nutrient_id` against live rows *and* that the row's name matches), then exact name, then alias. The name resolver (`_build_exact_name_resolver`) maps **ambiguous names to `None`** (if two DB rows share a name, neither matches) to avoid wrong links. Unresolved foods/nutrients are kept as explicit `is_custom_food`/`is_custom_nutrient` rows, not dropped.
+4. **Grouping + deterministic ordering:** rows group by (resolved food, id, custom flag, raw name, prep state); foods and nutrients are sorted by a long stable key; values `round(…, 6)`. This determinism matters because the payload is **canonically serialized and SHA-256 hashed** (`payload_text_and_hash`) for dedup and exact-match comparison against human submissions — two equal extractions must hash identically.
+5. **Summary accounting:** `accepted/rejected/unmapped` counts and a `rejection_reasons` histogram are stored on every extraction, so the cockpit can see *why* rows were dropped.
 
-> 23 commits, **+2,188/−582**, 2026-03-16 → 2026-05-20. Small in lines but **end-to-end features** spanning React UI, SQL tables, RLS policies, and a Storage bucket.
+### Routing logic (`ai_routing.py` + `process_one_task`)
+After normalization the paper is bucketed and routed:
+- **`classify_routing_bucket`** → high/low × positive/negative, comparing `overall_confidence` to the stage's thresholds.
+- **`stable_audit_sample`** — deterministic audit sampling: `SHA256(paper|stage|model)` compared against `audit_rate × 2^64`. Same paper always gets the same audit decision (reproducible), and a configurable fraction of even high-confidence AI finalizations are forced to human review as a quality check.
+- **`route_bucket`** → low-confidence or audit-sampled or already-has-human-truth ⇒ `human_review_ready`; high-positive ⇒ `ai_finalized_has_data`; high-negative ⇒ finalized no-data.
+- **Per-stage destinations** layered on top in `process_one_task`: if the stage has a `next_stage_on_has_data` and the paper is useful (or a *raw-positive rescue*, below), it is **enqueued to the next stage** instead of finalized; if the stage's `no_data_route_destination == provisional_skip`, no-data becomes a **provisional skip** (kept out of the human queue and, if legacy storage is on, its PDF is deleted).
+- **Raw-positive rescue (`_clear_raw_has_data_decision`):** a Gemma output that is raw-positive but normalizes to *empty* rows still advances to the next stage if it had complete raw rows, or confidence ≥ 0.75, or ≥ 0.6 with composition language — so parser/normalizer drift never silently drops a likely-real paper. Strict normalization still gates final Gemini/human entry.
 
-#### B1. Theme centralization + system-preference fallback — `cbf61ad`, `341b40e` *(2026-03-16)*
-- Lifted theme state into `App.jsx` so login and app chrome share one source; follows the OS/browser theme when no explicit override exists; fixed PDF-viewer dark mode.
+### The follow-up priority score (`score_followup_priority`) — why each stage processes the *top-N*
+This is the function that makes the funnel a funnel. Each useful output gets an integer score (clamped −1000…1000) combining:
+- `80 × confidence`
+- accepted normalized rows (`×8`, cap 160), evidence rows (`×5`, cap 90), per-100g rows (`×4`), table rows (`×5`)
+- raw-output signals (complete rows, evidence, table, per-100g, unsupported-unit rows that still indicate a real table)
+- a **direct-fit bonus**: +70 for "food/nutrient/proximate composition" language, +25 for "food product / real-world / commercial / high database value", +up-to-45 for table rows, +up-to-35 for evidence rows
+- **soft penalties** (subtracted): review/meta-analysis/database-aggregate (−35/−20), feed/digestibility (−30), sensory/outcome/biomarker/cell-culture/animal-model (−25), one-off/experimental formulation (−35/−30), treatment/supplement/extract (−20).
 
-#### B2. Reset-password page — `4e208a5` (2026-03-19, +175/−1)
-- **What/why:** the recovery email used to silently log the user in. Added `ResetPassword.jsx` (145 lines) + `App.jsx` routing so the link lands on a real "set new password" page.
+The next stage then claims tasks ordered by this priority, so Flash-Lite processes the best 500 of Gemma's output and the final Gemini the best 20 of that. The penalty list mirrors the prompt's "empty" definition — the same domain judgment encoded twice, once for the model and once for the ranker.
 
-#### B3. Suggestions system (the largest Huan feature) — `2fcdc55`, `4db6334`, `81d96af`, `bd29ab5`, `0a5fdd6`, `967c927`, `8dc6771`, `528848c`, `ebe2a3d` *(2026-04-21 → 04-25)*
-- **What:** a full feedback channel. Labelers submit suggestions and track status in `My Suggestions`; cockpit/admins triage them. Image attachments upload to a **private `suggestion-attachments` Supabase Storage bucket** (10 MiB cap, image MIME allowlist, four `storage.objects` RLS policies using `storage.foldername(name)` for per-user containment); metadata in `backlog_review_items.attachments`.
-- **Backend Huan wrote:** the `backlog_review_items` table + role-based RLS via `current_user_has_cockpit_access()`, and the storage bucket + policies.
-- **Hard part:** signed-URL image viewing at view-time + correct per-user storage isolation in RLS — security-sensitive, small in lines, exact in logic. Largest single Huan commit: image attachments UI `0a5fdd6` (+445/−4).
+### Retry-fairness, fallback ladder, and quota safety (`process_stage_queue.py`)
+The execution engine is built so that **no single bad paper or quota blip can stall automation**:
+- **Atomic claiming:** tasks come from the `claim_paper_stage_tasks` RPC (DB-atomic), so overlapping GitHub Actions worker matrices never double-process a row.
+- **Fair ordering:** claimed tasks are sorted `(attempt_count ASC, priority DESC, created_at, id)` — lowest-attempt first so a repeatedly-failing paper can't monopolize; then highest priority; then oldest. (AGENTS explicitly forbids reverting to pure oldest-first for this reason.)
+- **Stale requeue:** `requeue_stale_processing_tasks` returns `processing` rows older than 120 min to `queued` before claiming, so a killed runner never strands a paper.
+- **Model validated before claiming:** `get_evaluator(initial_config)` constructs the model first; a missing `GEMINI_API_KEY` raises *before* any row is claimed, so config errors don't leave rows stuck in `processing`.
+- **Hard per-paper timeout:** `ai_task_timeout` uses `SIGALRM`/`setitimer` to raise after `AI_MODEL_TASK_TIMEOUT_SECONDS` (300 s in prod) — one slow paper can't consume a large slice of the GitHub Actions job.
+- **Error taxonomy:** `is_quota_error` (quota/rate-limit/429), `is_non_retryable_model_error` ("model not found / not supported for generateContent"), `is_retryable_model_error` (timeout/deadline/503/500/quota). Each routes differently:
+  - **Non-retryable** ⇒ task `failed`, paper `ai_failed`, automation stops with a config error (don't loop on a misconfigured model).
+  - **Retryable + the stage has `fallback_model_names`** ⇒ try each fallback (Gemma 31B → 26B) **in the same task attempt** via `replace(stage_config, model_name=…)`.
+  - **Quota** ⇒ requeue but **decrement `attempt_count`** (`mark_task_requeued_after_quota_error`) so a quota wait never looks like a paper failure and never burns the retry budget.
+  - **Other retryable** ⇒ requeue with the formatted error (type + `repr` + traceback tail, via `format_exception_for_storage`, so even empty SDK exceptions are classifiable).
+  - **> `AI_STAGE_MAX_TASK_ATTEMPTS=2` non-quota attempts** ⇒ fail the task instead of retrying forever.
 
-#### B4. Conflicts system — `a979d3f`, `f54f2fb`, `2121663` *(2026-04-27)*
-- `paper_conflict_resolutions` table + `paper_conflict_candidates` view (joining assignment/submission tables) and a "Choose This" picker wired into `Annotate.jsx` with CSS. Delivered fully; later **superseded** by Arciel's general approval queue (`fc67b30`, 2026-05-02) — a normal architecture evolution, not a defect.
+### Persistence + finalization
+`insert_ai_extraction` stores the full audit trail in `ai_extractions`: raw model response, parsed result, the `normalization_summary` (with rejection histogram), the normalized payload, the **threshold snapshots** at decision time, the routing bucket/destination, and `audit_sampled`/`finalized_without_human`. High-confidence AI finalizations also `upsert` into `paper_review_outcomes` with `truth_source_kind='ai_model'` (`finalize_ai_outcome`) — recorded as provenance but *excluded* from the human-truth feedback export (see feedback section). Papers that already have human truth are never overwritten (`preserve_human_route`).
 
-#### B5. Fuzzy match utility — `e3971b2` (2026-05-09, +203/−100)
-- `src/utils/fuzzyMatch.js` (162 lines today), integrated into food/nutrient autocomplete; closed backlog §8.
+### Recovery + regression tooling
+- `recover_gemini_candidates.py` (446) recomputes Gemini priorities from historical Gemma `raw_data`, ranks raw-positive/normalized-empty rows against the 500-candidate soft reservoir target, and **dry-runs by default** (apply mode capped at 200/run) — so a backfill can never stampede the live queue.
+- `flash_lite_triage_experiment.py` (245) samples known useful/no-data papers, runs Flash-Lite against the same contract, and reports agreement / useful-recall / no-data false-positive rate — the regression gate kept around the triage stage now that it is production, not experiment.
 
-#### B6. Infinite PDF scrolling — `4ade833` (2026-04-26, +108/−74)
-- Replaced prev/next paging with continuous scroll in `PdfViewer.jsx`; touched `PdfTextScanner.js` to keep highlight matching consistent across scrolled pages.
+### Trade-offs, summarized
+- **Recall sacrificed for cost/precision:** ~20 Gemini calls/day means most of 1500 screened papers wait; the priority funnel makes that acceptable by always processing the best first, and `recover_gemini_candidates.py` revisits the rest later.
+- **Determinism over flexibility:** strict unit/basis acceptance rejects exotic-but-real rows (e.g., dry-matter basis) to keep the database clean and payload hashing exact.
+- **Two encodings of one judgment:** the "what is useful" rule lives both in the prompt and in the priority penalties — duplication, but it keeps the screener's *ranking* aligned with the extractor's *decision*.
+## Database — schema, RLS, RPCs, workflow engine *(Arciel)*
 
-#### B7. Suggestion role-split + dev/tester read-only — `967c927`, `9f18a56` *(2026-05-07, 05-19)*
-- `Suggest` visible to labelers only; admins get a triage list. Developer/Tester accounts can **read** admin/cockpit tabs (except Pipeline) while every DB mutation stays blocked — a small (+13/−6) but correctness-critical change across multiple read policies.
-- Also: dual admin/labeler login (`de13677`, reverted same day per supervisor), suggestion photo hotfix (`8dc6771`), dropdown CSS polish (`528848c`).
+**File read for this section:** `apps/expert-annotator/migration.sql` (5,396 lines) — table definitions, constraints, the security-predicate functions, `claim_paper_stage_tasks`, the deterministic payload builders, the queue RPCs, and the RLS region. **43 commits.** Object counts: **31 tables, 26 functions/RPCs, 75 RLS policies, 32 RLS-enabled tables, 69 indexes, 2 triggers, 22 `SECURITY DEFINER` functions.** This one file is the contract between the Python pipeline and the React app.
 
----
+### Migration discipline — idempotent and self-healing
+The whole file is written to run repeatedly against a live database without breaking. Columns are added with `ADD COLUMN IF NOT EXISTS`; `CHECK` constraints are dropped-and-recreated inside `DO $$ … $$` blocks that first query `information_schema.table_constraints` (so re-running never errors on an existing constraint); a legacy `food_items.food_fdc_id` of the wrong type is detected and converted in place. This is what lets `run-migration.js` re-apply the schema safely after every change — the alternative (numbered migrations) was rejected in favour of one convergent file.
 
-### C. Database, RLS, auth, storage, workflow *(Arciel)*
+### Layer 1 — canonical reference model
+`entities` (canonical foods, `UNIQUE canonical_name`), `entity_aliases` (`UNIQUE(entity_id, alias_name)`), `master_nutrients` (`UNIQUE standard_name`, `sort_rank`), `sources` (provenance + `source_metadata` jsonb), and `claims` — the normalized output: `entity × nutrient × source` with `amount`, `unit`, `basis` (default `per_100g`), `preparation_state`, `sample_size`, `confidence`, `extraction_method`, `status`. Foreign keys cascade so deleting a food cleans up its aliases and claims. This layer is read-shared across all users; only the service role writes it (via ETL).
 
-> `apps/expert-annotator/migration.sql` — **5,396 lines, 43 commits**: 31 tables, 26 functions/RPCs, 75 RLS policies, 32 RLS-enabled tables, 69 indexes, 2 triggers.
+### Layer 2 — discovery model + the dedup engine
+`papers` is the hub: `id SERIAL`, `doi` **and** `canonical_key` (DOI when a reliable external id exists, `canonical_key` for missing-DOI/cross-provider dupes), `filename`, `pdf_url`, `workflow_language CHECK IN ('en','tr')`, `search_gate_score`/`filter_score`, `ingest_status`, `audit_flag`, `rejection_reasons` jsonb, and the AI-routing summary columns (`current_stage_key`, `routing_status`, `routing_bucket`, `route_destination`, `latest_ai_extraction_id`, `routing_updated_at`). Three `CHECK` constraints pin the routing vocabulary to exact enums (7 statuses, 4 buckets, 5 destinations) — the same constants hard-coded in `ai_routing.py`, so the DB rejects any value the router doesn't know.
 
-#### C1. Canonical + workflow schema
-- **Reference layer:** `entities`, `entity_aliases`, `master_nutrients`, `sources`, `claims` (normalized facts: food × nutrient × source with amount/unit/basis/confidence).
-- **Discovery layer:** `papers` (DOI + `canonical_key` dedup identity, `ingest_status`, `rejection_reasons`, routing summary columns), `paper_search_hits`, `paper_search_batches`, `paper_search_batch_hits`.
-- **Annotation layer:** `annotations`, `food_items`, `annotation_nutrient_values`, `paper_label_events`, `paper_global_labels`, `search_sessions`.
-- **Reviewer/approval layer:** `reviewer_profiles`, `paper_label_submissions`, `paper_label_approvals` (`correction_diff_json`), `paper_review_outcomes`.
-- **AI-routing layer:** `routing_stage_configs`, `paper_stage_tasks`, `ai_extractions`.
+`paper_search_hits` is the idempotent discovery ledger. Its `hit_key` is an **md5 of `canonical_key|source|language|template|term|phrase|query`** computed in SQL; the migration backfills it for legacy rows, **deletes duplicates** with a `ROW_NUMBER() OVER (PARTITION BY hit_key)` window, then adds a `UNIQUE` index — so repeated crawls never create duplicate hit rows. `paper_search_batches` + `paper_search_batch_hits` store per-query-batch funnel counters (`results`, `search_gate_passed/rejected`, `filter_passed`, `duplicates`, `accepted`, `pdf_fetch_fail`, `pdf_validation_fail`) **separately** from hit evidence, so the feedback loop can score exact query batches by downstream yield without polluting the idempotent hit table. A backfill `INSERT … SELECT … GROUP BY` reconstructs legacy batches from existing hits.
 
-#### C2. Row-Level Security model — 75 policies
-- **Why hard:** four distinct principals (end labeler, cockpit, tester/developer, service role) over 31 tables, each needing the right read/write boundary. Users read shared reference data and only their own annotations; pipeline tables are service-role only; testers get cockpit **read** visibility but no mutation.
-- **RPCs as the security surface:** `get_pipeline_ops_snapshot`, `get_general_queue_papers`, `get_cockpit_ai_extractions`, `current_user_can_approve_labels`, `current_user_has_cockpit_access`, `current_user_has_cockpit_write_access`, `current_user_is_tester` — `SECURITY DEFINER` functions expose aggregates without granting raw table reads.
+### Layer 3 — annotation model
+`annotations` (`UNIQUE(paper_id, user_id)` — one session per user per paper, `status` draft/done/skipped), `food_items` (→ `entities`, `is_custom_food`, `raw_food_name`, `preparation_state`), `annotation_nutrient_values` (→ `master_nutrients`, `is_custom_nutrient`, `value`, `unit`, `basis`, `sample_size`, `confidence CHECK 0..1`, `metadata` jsonb), plus `paper_label_events` (audit history) and `paper_global_labels` (`definitely_no_data` with reason, `UNIQUE(paper_id, label)`). The custom-vs-canonical split (`is_custom_*` + nullable FK) is what lets a labeler record a food/nutrient the reference DB doesn't have yet without losing the mapping for ones it does.
 
-#### C3. Auth allowlist — `auth_allowlist.sql` + `87e2a18` (hardening)
-- Private `allowed_auth_emails` + a security-definer signup hook; RLS enabled and client-role privileges revoked so the allowlist can't be read/written from the client. `87e2a18` hardened the RLS further.
+### Layer 4 — the workflow engine (it was rebuilt twice, the tables prove it)
+The schema preserves all three generations:
+1. **Slot model (legacy):** `reviewer_slots`, `reviewer_slot_members`, `paper_slot_assignments`, `paper_user_assignments`, `paper_assignment_submissions` — official/shadow reviewers per language.
+2. **Conflict model (Huan, legacy):** `paper_conflicts`, `paper_conflict_resolutions`, and the `paper_conflict_candidates` **view** — a CTE that groups the latest submission per assignment, counts `distinct_decision_count`/`distinct_payload_count`, and surfaces only papers with ≥2 submissions that actually disagree, labelling each `decision_mismatch` / `payload_mismatch` / `decision_and_payload_mismatch`.
+3. **General approval queue (current):** `paper_label_submissions` (immutable, `payload_hash`, `status` pending/accepted/superseded) and `paper_label_approvals` (`UNIQUE(paper_id)`, `correction_diff_json`). Final truth lands in `paper_review_outcomes` (`UNIQUE(paper_id)`, `resolution_source`, plus a later `truth_source_kind` distinguishing human vs `ai_model`).
 
-#### C4. Workflow transitions (the model changed twice)
-- `e0c7254` (04-13) assignment-driven labeling → `7988e51` slot-level no-data → **`fc67b30` (05-02) replaced reviewer slots with a general approval queue** (drafts don't claim papers; every exact submission retained; first submission removes the paper from the queue; Arciel approves non-Arciel submissions). Old slot/conflict tables kept as legacy audit only.
-- **Trade-off:** the general queue tolerates duplicate stale submissions (simplicity, no locking) at the cost of occasional redundant labeling, resolved at approval.
+A `BEFORE INSERT/UPDATE` trigger (`enforce_human_review_ready_assignment`) refuses to attach an assignment to a paper that isn't `human_review_ready` — a schema-level guard against routing bugs. Old slot tables are kept for audit only; the README/AGENTS forbid driving new work from them.
 
----
+### Layer 5 — AI routing tables
+`ai_extractions` (raw_data, `normalized_payload_json`, `positive/negative_threshold_snapshot`, `routing_bucket`, `route_destination`, `audit_sampled`, `finalized_without_human`, `status`), `routing_stage_configs` (the data-driven stage table: thresholds, `fallback_model_names` jsonb-array with a `jsonb_typeof = 'array'` CHECK, `no_data_route_destination`, `model_input_mode` text/pdf), and `paper_stage_tasks` (`status`, `priority`, `attempt_count`, `last_error`, `UNIQUE(paper_id, stage_key)`). The seed `INSERT`s show the model history in the data itself: `gemini_flash_triage_v1` (`gemini-3-flash-preview`) was seeded then deactivated; `gemini_flash_db_payload_v2` (`gemini-3.5-flash`) is the final stage with `no_data_route_destination = 'provisional_skip'`.
 
-### D. Paper-discovery crawler + feedback learning *(Arciel)*
+### The security model — least privilege over 31 tables
+**75 RLS policies** on **32 RLS-enabled tables**, built on six `SECURITY DEFINER` predicate functions:
+- `current_auth_email()` — the JWT email, lowercased.
+- `current_user_has_cockpit_access()` — `cockpit_access OR tester_access`, active, matched by `auth_user_id` **or** email (so a profile works before the auth row links).
+- `current_user_is_tester()`, and the key one-liner **`current_user_can_write() = NOT current_user_is_tester()`** — read-only tester access falls out of a single negation rather than being re-encoded per table.
+- `current_user_has_cockpit_write_access() = cockpit AND can_write`, `current_user_can_approve_labels() = can_write AND can_approve_labels`.
 
-> `food_paper_crawler/` (crawler_v2.py 2,215 · dergipark_source.py 687 · pipeline.py 600 · ranking.py 485 · feedback/update_terms.py 1,219) — **30 commits.**
+Because these are `SECURITY DEFINER`, the RPCs can expose aggregates and queue slices without granting any authenticated user direct reads of `paper_stage_tasks`, `ai_extractions`, or other users' annotations. The **signup allowlist** is enforced by `hook_restrict_signup_by_email_allowlist(event jsonb)` — a `SECURITY DEFINER` auth hook granted only to `supabase_auth_admin`, with `EXECUTE` revoked from `anon`/`authenticated` and all table privileges on `allowed_auth_emails` revoked from the client roles, so the allowlist can be neither read nor bypassed from the browser. `upsert_reviewer_admin_config` even refuses to complete if it would leave **zero** active cockpit-write reviewers — you cannot lock the whole team out.
 
-#### D1. Crawler v2 — `Search → Filter → Acquisition` — `c4a695b`, `5863d74`, `95ad659`, `fd9adf9`, `b895f8a`, `64f1adb`, `b03f801`, `6df1623`, `f6d1745` …
-- **What:** metadata-only retrieval from Europe PMC / OpenAlex / Semantic Scholar, then language-scoped relevance filtering, then PDF download **only** for candidates that pass the filter.
-- **Why:** downloading PDFs is the expensive step; filter on cheap metadata first.
-- **Hard parts:** identity-based dedup (`pmcid_*`/`doi_*`/hashed `canonical_key`) instead of title slugs; merging local terminal crawl state with live `papers.canonical_key` so already-seen papers aren't re-downloaded; **batch-aware** query budgeting where the batch size is counted at the *search gate*, not on raw hits.
-- **Design rule (in `AGENTS.md`):** **no hard-negative veto** — relevance is additive scoring + soft penalties only, so one stray negative phrase never auto-rejects a paper (`b895f8a` removed the old veto logic).
+### Concurrency primitive — `claim_paper_stage_tasks`
+The single most important RPC for the automation: `SECURITY DEFINER`, requires `service_role`, and claims queued tasks with
+```sql
+SELECT id FROM paper_stage_tasks
+WHERE status='queued' AND (p_stage_key IS NULL OR stage_key=p_stage_key)
+ORDER BY attempt_count ASC, priority DESC, created_at ASC, id ASC
+LIMIT … FOR UPDATE SKIP LOCKED
+```
+then flips them to `processing` and bumps `attempt_count`. **`FOR UPDATE SKIP LOCKED`** is what lets the five parallel GitHub Actions drain workers grab *disjoint* sets of tasks with zero coordination and zero double-processing — the entire parallel-worker design rests on this one clause. The `ORDER BY` is the retry-fair ordering (lowest attempts first) enforced at the database.
 
-#### D2. DergiPark as a journal index — `fd9adf9`
-- Rebuilt the Turkish source as a locally refreshed journal/article index (`dergipark_source.py` 687 lines + `refresh_dergipark_index.py`) instead of the old global OAI slice. Currently dormant (ops are English-only) but retained.
+### Deterministic payload builders (why AI output == human output)
+`build_annotation_submission_payload(annotation_id, decision_kind)` assembles the canonical submission JSON straight from `food_items` + `annotation_nutrient_values`, with `normalize_submission_text()` (collapse whitespace), `round(value, 6)`, and a long deterministic `ORDER BY`. It produces **byte-identical structure** to the Python `normalize_ai_payload` — so a human submission and an AI extraction of the same data hash identically, which is what makes exact-match comparison and dedup work across the human/AI boundary.
 
-#### D3. L2 feedback-learning loop — `76215a9`, `8963173`, `e61583f`, `8573bbb`, `0841793`, `3cbe7d9` …
-- **What:** `feedback/update_terms.py` (1,219 lines) reads accepted reviewer truth from `paper_review_outcomes`, classifies positive/negative papers, extracts **title-only and title+abstract n-grams**, runs **log-odds scoring**, and writes weighted terms / query phrases / anchor phrases / pair scores / source priors / concept scores / **batch scores**, per language, into `latest.json` for the next crawl.
-- **Why:** the crawler should get better at finding composition papers as humans label more — a closed learning loop.
-- **Hard part / trade-off:** only *accepted* truth feeds learning (pending/superseded submissions excluded); dual embeddings (`sentence-transformers`) score metadata but feedback is **soft** — it never hard-rejects, matching the no-veto rule.
+`build_label_payload_diff(original, final)` is a full structural diff in SQL: it explodes both payloads into food-level and nutrient-level rows with composite keys, then computes `missing_foods`/`added_foods`/`missing_nutrient_rows`/`added_nutrient_rows` via `NOT EXISTS` anti-joins, plus decision-change flags and counts. Its output is stored as `paper_label_approvals.correction_diff_json` — the exact record of what the approver changed versus what the labeler submitted, which is the raw material for labeler-performance metrics.
 
----
+### Queue + cockpit RPCs
+- `get_general_queue_papers` / `get_general_queue_cards` encode the precise "visible paper" predicate: `routing_status='human_review_ready'` **AND** non-empty `pdf_url` **AND** latest AI decision `has_data` **AND** `NOT EXISTS` (a final outcome, a pending/accepted submission, an open legacy assignment, or a `definitely_no_data` global label). `get_general_queue_cards` returns the whole queue — minimal card fields joined with the latest AI payload **and this user's annotation status** — as **one jsonb round-trip** (the performance redesign that replaced three separate fetches).
+- `get_cockpit_ai_extractions` is deliberately **egress-slim**: it returns the normalized payload and only `raw_data->'normalization_summary'`, dropping the large raw model response/reasoning. AGENTS explicitly forbids reverting it to `select('*')` because that burns Supabase egress.
+- `get_pipeline_ops_snapshot` (≈500 lines) backs the cockpit Pipeline funnel with stage-level queue/error aggregates, role-stable model-stage labels, and `model_stage_backfill` so historical direct Small→Strong papers count into the Medium stage.
 
-### E. AI extraction cascade *(Arciel)*
+### Trade-offs
+- **One convergent migration file** (not numbered migrations): simpler to reason about and re-apply, at the cost of a 5,396-line file with lots of defensive `DO` blocks.
+- **Legacy tables kept, not dropped:** the slot/conflict generations remain for audit history, accepting schema bloat to preserve provenance.
+- **Determinism enforced twice** (SQL builder + Python normalizer): duplicated ordering logic, but it's the only way the two producers of truth can be compared by hash.
+- **General queue tolerates duplicate submissions** (no row-level claim/lock on papers): simpler concurrency, redundant labeling resolved at approval instead of prevented.
+## Paper-discovery crawler v2 — Search → Filter → Acquisition *(Arciel)*
 
-> `ai_routing.py` 842 · `process_stage_queue.py` 1,560 · `evaluator/unified_evaluator.py` 687 · `recover_gemini_candidates.py` 446 · `flash_lite_triage_experiment.py` 245 — **34 commits.**
+**Files read for this section:** `food_paper_crawler/crawler_v2.py` (2,215 lines), `ranking.py` (486), with the source adapters `europe_pmc.py`, `dergipark_source.py` (687), `search_sources.py`. **30 commits.** `FoodCompositionCrawlerV2` is a ~2,200-line orchestrator class with ~70 methods.
 
-#### E1. From single model to a 3-stage cascade
-- **What:** `gemma_proof_extraction_v1` (`gemma-4-31b-it`, ~1500/day, **text mode**, 26B same-stage fallback) screens & ranks → `gemini_flash_lite_triage_v1` (`gemini-3.1-flash-lite`, ~500/day) re-ranks the strongest → `gemini_flash_db_payload_v2` (`gemini-3.5-flash`, ~20/day, **native PDF**) does the final extraction. Each stage ranks via `score_followup_priority`; per-stage daily targets + priority claiming make each stage process the top-N of the previous (1500 → 500 → 20).
-- **Why:** a funnel of a cheap screener → mid triage → expensive extractor maximizes useful papers per scarce Gemini call.
-- **First cut:** `92fe454` (2026-04-19) integrated Gemini Flash for automated triage/extraction (blind study); `cc039eb` added the Gemma screening cascade; `686fed8` added the Flash-Lite middle stage.
+### Architecture and why it's staged
+`run()` executes **Search → Filter → Acquisition** so the expensive step happens last:
+1. **Search** — metadata-only retrieval from Europe PMC / OpenAlex / Semantic Scholar (DergiPark for Turkish) via per-source query rendering.
+2. **Filter** — a two-gate, purely *additive* relevance decision on title+abstract (no PDF downloaded yet).
+3. **Acquisition** — only papers that pass the metadata filter get their PDF fetched, then a *stricter* full-text validation gate.
 
-#### E2. `UnifiedEvaluator` — one contract for every model
-- **What:** all stages share `opennutri_evidence_payload_v2`. The model may return broad candidate rows, but routing uses a deterministic `normalized_payload_json` with the **same contract as a human label submission** (food/nutrient identity, value, unit, basis, sample size, confidence, source citation, and per-row evidence metadata: `table_label`, `page_hint`, `source_quote`, `source_location_type`, `section_heading`, `paragraph_hint`).
-- **Hard parts solved:**
-  - **Shape drift → infinite retries:** models return four different JSON shapes (object, top-level array, single-object-in-array, nested `food→nutrients[]`); all are flattened before normalization so valid output never becomes a parse-error retry loop.
-  - **Deterministic normalization:** only DB-compatible units (`g/100g`, `mg/100g`, `μg/100g`, …) are accepted; AI-provided DB IDs are verified against live rows, with fallback to exact/alias name match, and unresolved foods/nutrients preserved as explicit custom rows. The prompt includes the full nutrient catalog + text-matched food candidates, **not** the whole food catalog (prompt-size trade-off).
-  - **Don't lose likely positives:** raw-positive but normalized-empty Gemma rows can still advance if Gemma returned candidate rows or a clear `has_data` decision — so parser/normalizer drift doesn't drop real papers.
+Downloading PDFs is slow and failure-prone, so filtering on cheap metadata first is the core efficiency decision. The run is **wall-clock bounded** (`_wallclock_reached()` against a `time.monotonic()` deadline, 2,400 s in scheduled ops); when the deadline hits it stops cleanly and still writes every accepted partial result + a manifest, so a GitHub Actions timeout never loses work.
 
-#### E3. Native-PDF mode + true page numbers — `bc93f8b`, `probe_model_file_input.py` *(2026-05-31)*
-- **What:** Gemini stages receive the native PDF part (inline < ~15 MB, else Files API) so the model reads pages/tables/scans directly and reports the **true 1-based PDF page index**; `===== PDF PAGE N =====` markers are injected at pdftotext form-feed boundaries before truncation so page numbers survive.
-- **The measured constraint:** Gemma **times out (>600 s on a 5-page PDF)** in PDF mode, so Gemma screening must stay text-mode — documented (`0011272`) so nobody re-flips it. Probe script verifies a model accepts file parts before switching a stage.
+### The two-gate additive filter (`ranking.py` + `_search_gate_decision` / `_metadata_decision`)
+The relevance logic is deliberately **additive with soft penalties — never a hard veto** (a design rule in AGENTS; `b895f8a` removed the old veto logic). A single negative phrase lowers a score; it never auto-rejects.
 
-#### E4. Retry-fairness and recovery — `b964fec`, `cb3b8c2`, `a8c01c8`, `29f2317`, `5bb2da1`, `8ae2d8e`, `5fe1bfd`, `recover_gemini_candidates.py`
-- **What made it hard:** one repeatedly-failing paper could monopolize the queue; quota errors looked like paper failures.
-- **How solved:** claim order = lower `attempt_count` → higher `priority` → older; non-quota errors fail after `AI_STAGE_MAX_TASK_ATTEMPTS=2`; **quota/rate-limit requeues undo the attempt count** so quota never looks like failure; stale `processing` rows are requeued before claiming; concurrent uploader duplicate-key races recover by reusing the row. `recover_gemini_candidates.py` (dry-run-first, capped at 200) rescues historical Gemma positives.
+- **Search gate** (cheap pre-filter): composition phrase +0.9, food term +0.35, nutrient term +0.35, a `mg/100g`-style **unit regex** +0.7, food+nutrient combo +0.45; penalties for a missing abstract, `STRONG_NEGATIVE_SIGNAL_TERMS` (cement, concrete, radionuclide, nanoparticle, genome, body-composition, essential-oil…), `SOFT_NEGATIVE_TERMS` (clinical trial, review, broiler, rat, feed…), and language-scoped health-outcome terms. Accept if the score clears a threshold.
+- **Metadata decision** (richer): the same lexical signals at higher weights **plus** three learned signals — a **per-source prior** (clamped), a **sentence-embedding similarity** to language-scoped anchor phrases (`embedding_scorer.score`, +1.45/+0.75 above threshold), and the **learned feedback n-gram score** (below). Acceptance is `score ≥ METADATA_ACCEPT_THRESHOLD`. Every contribution is logged as a `{code, text}` reason, so each accept/reject is fully explainable in the manifest.
 
----
+`ranking.py` then re-validates the **downloaded full text** with a much stricter gate (`validate_pdf_text`): it strips reference sections (EN+TR markers) so bibliographies don't inflate hits, counts AOAC/HPLC/GC/ICP method evidence and `mg/100g` units, and requires `score ≥ 18` **AND** a table signal **AND** a food signal **AND** an overlap of ≥4 with a strong proximate-nutrient panel (moisture/protein/fat/ash/fibre/carb/energy/minerals). The loose metadata gate maximizes recall into acquisition; the strict full-text gate guards precision out of it. Matching is `bounded_contains` — a `(?<!\w)…(?!\w)` Unicode word-boundary regex, so the Turkish word "et" (meat) matches as a word and not inside "diet".
 
-### F. Daily-ops orchestration + GitHub Actions infra *(Arciel)*
+### The learned feedback applied at crawl time (`_feedback_score`)
+This is where the L2 loop closes back into the crawler. For each candidate it extracts title-only and title+abstract n-grams, looks each up in the language's learned `weighted_terms` (`title_net` / `ta_net` evidence produced by `update_terms.py`), multiplies by `filter_title_weight` / `filter_ta_weight`, **clamps per-term and total** so no single n-gram dominates, and logs the strongest contributors. Feedback is a *soft score only* — consistent with the no-veto rule. Learned query generation also pairs a rotated food/nutrient term with a high-confidence phrase from the matching language (`_build_learned_query`, `_build_concept_pool`), while evergreen base queries preserve breadth.
 
-> `daily_ops_orchestrator.py` — **2,358 lines, 27 commits**; `.github/workflows/daily-ops.yml`.
+### Dedup — never crawl the same paper twice
+Before searching, `run()` builds `skip_keys = local terminal states ∪ live Supabase canonical_keys`:
+- `_live_paper_skip_keys()` pages **every `papers.canonical_key`** straight from the Supabase REST API (1,000-row pages), so anything already queued / provisional-skipped / human-ready / finalized is skipped at the source.
+- `_state_skip_keys()` reads local `paper_states` — terminal `accepted`/`rejected` decisions with the stage they were reached at. `_record_terminal_states()` writes these after each run, **including search-gate rejects** that never became candidates, so a metadata reject isn't re-fetched next run. (Per AGENTS, metadata-only `paper_search_hits` rejects are deliberately *not* used as global skip memory — only terminal `paper_states` and live `canonical_key` are, to keep the benchmark honest.)
+Accepted PDFs are named by **identity** (`pmcid_*` / `doi_*` / hashed `canonical_key`) via `build_storage_filename`, not title slugs, so the file name is a stable dedup key too.
 
-- **What:** unattended automation that crawls, refills, and drains the cascade. Runs as **resumable 5-minute ticks** keyed to per-stage quota-day counts (Gemma resets UTC; Gemini stages reset `America/Los_Angeles` to match provider RPD). One serialized **controller** (the only writer/crawler) under a concurrency group + a **5-worker drain matrix** in parallel; workers never crawl/upload/refill and atomically claim distinct tasks.
-- **Why this shape:** it has to run on **free GitHub-hosted runners** with a job time cap. So: the crawler has a 2,400 s wall-clock budget and writes partial accepted results before being killed; the controller tops Gemma up only to a 150-active target in bounded 30-paper chunks; each model call is capped at 300 s so one slow paper can't eat the job.
-- **Hard parts solved:** decoupling drain from the controller so draining continues even if the controller job fails (`e4bc421`); counting active work from executable `paper_stage_tasks` rows (not paper summaries) so stale rows don't block refill; bounding crawler runtime (`43d3d60`).
-- **Trade-off:** lower recall accepted in exchange for staying within free-tier compute, storage, and Gemini quota — an explicit research-ops decision.
+### PDF acquisition — the genuinely hard part
+Publisher PDFs fight back; `_download_candidate` → `_fetch_pdf_with_oa` → `_fetch_pdf` is a layered fallback ladder:
+1. **PMC Open-Access package** (`_fetch_pdf_from_oa_package`): query the PMC OA API, parse the XML for `format="pdf"` links and `tgz` links; try the PDFs, else download the **`.tar.gz` and extract the largest `.pdf` member** (`_download_tgz_pdf` with `tarfile`). `ftp://` NCBI URLs are rewritten to `https://`.
+2. **Direct fetch** (`_fetch_pdf`): urllib with a crawler User-Agent; verify the body starts with `%PDF`.
+3. **On HTTP/URL error → `curl` fallback** with a full **browser User-Agent** (Chrome UA string) — many publishers block non-browser agents.
+4. **If the response is HTML, solve a PMC proof-of-work**: `_solve_pmc_pow` parses `POW_CHALLENGE`/`POW_DIFFICULTY`/`POW_COOKIE_NAME` out of the page and brute-forces a **hashcash nonce** — incrementing `nonce` until `md5(challenge+nonce)` starts with `difficulty` zeros — then retries with the solution cookie. (A bot-wall defeated with an actual mining loop.)
+5. **Else** scrape a nested `.pdf` href from the HTML and fetch that, else final `curl`.
+A **size cap** (`max_paper_pdf_bytes`) rejects oversized PDFs; `_validate_downloaded_pdf` runs `pdftotext` and the strict `validate_pdf_text` gate; rejected files are deleted unless **audit sampling** (`_next_audit_flag`, every Nth reject) keeps them for manual QA.
 
----
+### Bilingual + sources
+`crawler_v2` can split its query budget across independent English and Turkish workflows with separate phrases, anchors, weighted n-grams, concept ordering, and **language-scoped embedding/metadata scoring** (`normalize_language_text` handles Turkish casing). DergiPark was rebuilt (`dergipark_source.py`, 687 lines) as a **locally refreshed journal/article index** instead of the old global OAI slice. Current ops run English-only (`tr=0`, DergiPark skipped), but the whole bilingual path is retained and tested (`test_bilingual_pipeline.py`, 1,120 lines).
 
-### G. PDF delivery — storage, proxy, cache *(Arciel backend + Ayşegül frontend)*
+### Output — a self-documenting manifest
+`_build_run_summary` emits per-language, per-source funnel counts (`hits → search_gate_pass → metadata_pass → pdf_fetch_fail → pdf_validation_fail → accepted`) plus rejection counts by stage, the embedding config, the feedback phrase/anchor/weighted-term samples, and the DergiPark index coverage — so every run is auditable end to end.
 
-- **Source-URL migration — `f8cad36`, `a6a7be7`, `68a4285`:** stop storing paper PDFs in Supabase Storage; serve from `papers.pdf_url`. **Why:** free-tier storage + egress caps. The shared queue only exposes human-ready papers with a non-empty `pdf_url`.
-- **Same-origin proxy — `52bcd12` (`api/pdf.js`, 102 lines):** many publisher PDFs lack CORS headers and can't be fetched by the browser; a Vercel serverless proxy fetches them same-origin with long-lived cache headers.
-- **Durable browser cache — `7733205`, `390c162`:** Cache Storage keeps PDFs across sessions and prefetches the next queue papers, cutting repeat egress to zero.
+### Trade-offs
+- **Recall-first metadata gate, precision-first PDF gate:** accept liberally into the (cheap) download decision, reject strictly after seeing the full text — costs some wasted downloads to avoid missing real papers.
+- **No hard-negative veto:** robust to one stray phrase, at the cost of needing the multi-signal score to do the discriminating.
+- **Brute-force PoW + curl fallback:** fragile to publisher changes and a bit slow, but recovers PDFs that plain urllib simply cannot get.
+- **Live `canonical_key` paging every run:** an extra Supabase scan, traded for never wasting a download on a known paper.
+## L2 feedback-learning loop *(Arciel)*
 
----
+**File read for this section:** `food_paper_crawler/feedback/update_terms.py` (1,219 lines), with `feedback_config.py`, `supabase_terms.py`, `feedback_terms.py`. This is the closed loop that makes the crawler *learn* from human labels rather than relying only on a fixed lexicon.
 
-### H. Reference-data ETL *(Arciel)*
+### The loop
+```
+human approvals (paper_review_outcomes) ──▶ log-odds n-gram scoring ──▶ latest.json
+        ▲                                                                     │
+        └──────────────── better-ranked next crawl ◀── crawler _feedback_score
+```
+Every run reads accepted human truth, recomputes which words/phrases predict a *useful* paper versus a *useless* one, and writes per-language weight pools that the crawler loads automatically on its next pass.
 
-- `etl_sr_legacy_to_opennutri.py` (343) and `etl_usda_to_opennutri.py` (227) load USDA SR-Legacy and Foundation-Foods CSVs into `entities`/`entity_aliases`/`master_nutrients`/`sources`/`claims` via Supabase REST with **deterministic UUIDs** (idempotent re-runs), preparation state derived from description text. Universal schema in `create_opennutri_schema.sql`.
+### Truth selection — only accepted human decisions count (`build_labels`)
+This is deliberately conservative:
+- Positives/negatives come from `paper_review_outcomes` **only when `truth_source_kind = 'human_review'`** — `ai_model` outcomes are stored for provenance but **excluded** from learning, so the model never trains on itself.
+- `decision_kind='has_data'` → **good**, `no_usable_data'` → **bad**.
+- **Open conflicts are removed** from both sets (ambiguous truth doesn't teach).
+- Legacy `paper_label_events` / `paper_global_labels` are used **only as a fallback** for older papers that have no resolved outcome (`row.paper_id not in resolved_paper_ids`).
+Pending/superseded submissions never feed learning — only finalized truth.
 
-### I. Tests *(Arciel)*
+### The scorer — smoothed log-odds over three buckets (`build_scored_terms` + `log_odds`)
+Papers split into **good**, **bad**, and **background** (everything labeled neither). For every n-gram, document-frequencies are counted in each bucket, **separately for title-only and title+abstract** (`count_bucket_terms`). Then four informative log-odds are computed with add-α smoothing:
 
-- **4,902 lines** of Python tests: `test_ai_routing.py` 2,469 · `test_bilingual_pipeline.py` 1,120 · `test_daily_ops.py` 983 · `test_pdf_page_markers.py`, plus frontend unit tests (`PdfTextScanner.test.js` 655, `EvidenceLocations.test.js` 225, `evidenceStatusCache.test.js`). The AI-routing and daily-ops logic — the parts most likely to silently corrupt data or burn quota — carry the heaviest coverage.
+```
+log_odds(left, right, left_total, right_total, α)
+  = log((left+α)/(left_missing+α)) − log((right+α)/(right_missing+α))
+```
 
-### J. Documentation, infra, project management *(Arciel)*
+- `title_good = log_odds(term in good titles vs background titles)`
+- `title_bad  = log_odds(term in bad  titles vs background titles)`
+- `ta_good`, `ta_bad` = the same for title+abstract.
+- **`title_net = title_good − title_bad`** and **`ta_net = ta_good − ta_bad`** — the net evidence that the term marks a *useful* paper, net of how much it also marks a *useless* one.
 
-- `README.md` (≈42 KB), `AGENTS.md` (≈28 KB agent guide with hot-files/task-routing), `INSTRUCTIONS.md`, `BACKLOG.md`, `docs/handoff_2026-03-20/STATE.md`, reviewer SOP + workflow map, the bilingual midterm reports (TR + EN) and AI-algorithm defense decks with their `export_*.py` pipelines. Security hygiene: removed hardcoded secrets (`9c18db9`), documented runtime-secret handling, `.gitignore` for generated artifacts.
+These two numbers are exactly what the crawler's `_feedback_score` multiplies by `filter_title_weight` / `filter_ta_weight`. **Why title and title+abstract are scored separately:** a concise high-signal phrase in a *title* (e.g. "proximate composition") is stronger evidence than the same phrase buried in an abstract, so the crawler can weight them independently instead of collapsing both into one number.
 
+Design details that matter:
+- **Background bucket** is the key to specificity: scoring good-vs-bad alone rewards common words; scoring each against the large *background* corpus (informative Dirichlet log-odds, the Monroe et al. method) surfaces terms that are genuinely *distinctive* of useful papers.
+- **Add-α smoothing** prevents `log(0)` and tames rare-term noise.
+- **Support threshold** (`min_total`) drops n-grams with too little evidence.
+- **Seed composition phrases** get a small `seed_good_prior` — a *soft* prior, explicitly "not permanently merged winners" (README), so learned evidence can override the seed list over time.
+- Ranking sorts by `|1.5·title_net + ta_net|` — title evidence weighted higher.
+
+### The derived pools (all per language, written to `latest.json`)
+`build_scored_terms` is the core; `main()` then derives and writes, for **each of `languages.en` / `languages.tr`**:
+- **`weighted_terms`** — `{title_net, ta_net, good, bad}` per term (the crawler's soft filter score).
+- **`query_phrases`** (`_query_rank`/`select_query_phrases`) — top terms to pair with food/nutrient terms into new search queries.
+- **`anchor_phrases`** (`_anchor_rank`) — phrases used as **embedding anchors** for the semantic similarity gate.
+- **`pair_scores`** (`build_search_pair_feedback`) — observed yield of `source × term` pairs.
+- **`batch_scores`** (`build_search_batch_feedback`) — yield of exact query batches, so good query batches are re-run and weak ones demoted.
+- **`source_priors`** — per-source positive/negative bias.
+- **`concept_scores`** (`build_concept_feedback`) — standalone concept-term yields.
+
+So three distinct learned signals reach the crawler from one labeled corpus: **soft n-gram scores** (filter), **anchor phrases** (embedding), and **pair/batch/source/concept scores** (query generation and ranking).
+
+### When it runs
+Daily ops refreshes feedback **only when it actually reaches the crawler/refill path** — `ensure_paper_stock.run_refill_cycle` runs `update_terms.py` immediately before search unless `--skip-feedback` is passed. Pure queued-AI draining does not refresh feedback (no new truth, no point). DergiPark refresh is gated behind an explicit Turkish deficit.
+
+### Trade-offs
+- **Soft scores only, never hard rejects** — consistent with the crawler's no-veto rule; a learned-negative term lowers rank but can't block a paper a human might still want.
+- **Needs label volume** — with few labeled papers the log-odds are noisy; the seed priors + background smoothing keep early behavior sane, and AGENTS lists "train the L2 classifier once label volume supports it" as a standing priority.
+- **Background-corpus assumption** — treats unlabeled papers as a neutral reference, which is approximately (not perfectly) true.
+## Daily-ops orchestration + GitHub Actions infrastructure *(Arciel)*
+
+**Files read for this section:** `scripts/daily_ops_orchestrator.py` (2,358 lines — its full method map + the controller and drain entrypoints), `.github/workflows/daily-ops.yml`, `apps/expert-annotator/api/pdf.js` (102), with `scripts/ensure_paper_stock.py` (573) and `scripts/upload_to_supabase.py` (774). **27 commits** on the orchestrator alone.
+
+### The problem
+Run a real, continuous data pipeline — crawl, upload, screen ~1500 papers/day, triage, extract — **for free**, on GitHub-hosted runners with a per-job time cap, against the Gemini free-tier daily quota, with no dedicated server. Every architectural choice here is downstream of that constraint.
+
+### Architecture — one serialized controller + a parallel drain matrix
+`.github/workflows/daily-ops.yml` runs on a **5-minute cron** and launches two jobs:
+- **`refill-controller`** — the *only* job allowed to crawl/upload/refill. It runs under a `concurrency: { group: daily-ops-refill-controller, cancel-in-progress: false }` so **at most one controller ever runs at a time** and a new tick never kills an in-flight crawl. It installs the *full* crawler stack (`requirements.txt` + `poppler-utils`) and keeps a stable HuggingFace cache.
+- **`drain-workers`** — a `matrix: worker:[1..5]` of five jobs that run **in parallel and are no longer gated on the controller** (comment in the yml: "draining must continue even if the controller job fails"). They install the *lightweight* `requirements-worker.txt` (no `sentence-transformers`) and only drain already-queued model tasks. `workflow_dispatch` exposes a `workers` input, and every worker step is guarded by `if: matrix.worker <= fromJSON(inputs.workers)` so a manual run can scale down.
+
+Five workers can run safely in parallel because claiming goes through `claim_paper_stage_tasks` with `FOR UPDATE SKIP LOCKED` (schema section) — each worker grabs a disjoint task set with zero coordination.
+
+### The controller logic (`run_daily_ops_controller`)
+A single tick, not a long-running loop:
+1. **Requeue stale tasks** for all three stages (returns `processing` rows older than 120 min to `queued`) — so a previous killed runner never strands papers.
+2. **Count completed-today per stage** since that stage's **quota-day start**.
+3. **Count active screening work** = queued + non-stale `processing` `paper_stage_tasks` (counted from executable rows, *not* paper routing summaries — stale `queued_for_ai` rows must not block refill).
+4. Compute `controller_target = min(remaining_today, screening_active_target=150)` and `deficit = controller_target − active_screening`.
+5. **Stop or refill** via an explicit decision tree: daily target reached → stop; deficit ≤ 0 (enough active work) → stop; controller deadline (75 min) reached → stop; paper-storage soft limit exceeded → stop; else **crawl `deficit` English papers in bounded 30-paper chunks** (`_run_screening_refill` → `ensure_paper_stock.run_refill_cycle`, which refreshes feedback terms then crawls+uploads), then re-measure active count and detect **source exhaustion** (refill didn't raise the active count).
+
+The point of the *active target* (150) rather than a daily flood is the README's "keep paper stock low on purpose and refill as labeling proceeds, so each crawl benefits from newer feedback."
+
+### The drain logic (`run_daily_ops_drain`) — a resumable quota-day tick
+Each worker tick:
+1. Count completed-today per stage (against quota-day starts).
+2. **If screening is below its 1500/day target and has queued tasks**, drain `min(screening_tick_tasks=20, remaining_today, queue_count)` Gemma tasks (`_tick_drain_stage`), then — with `--interleave-extraction` — also drain the downstream triage + final-Gemini slices (`_tick_drain_downstream`).
+3. **If screening's queue is empty, still interleave the downstream drain** — this is the "drain Gemini when Gemma source is empty" behavior: queued Flash-Lite/Gemini candidates keep flowing even when there's nothing left to screen.
+4. **If screening has hit its daily target**, drain a triage tick, then drain the final-Gemini stage up to its 20/day target, then run `_assign_new_human_ready_after_ai` — one final stock check so freshly human-ready papers appear in the labeling queue immediately.
+Quota-exhausted and `ai_stage_configuration_error` are distinguished as stop reasons; the run returns a machine-readable summary (`mode`, `daily_completed` per stage, `screened`, `routed_to_gemini`, `gemini_used`, `human_ready`, `quota_exhausted_stages`, `stopped_reason`, …) that the workflow parses into a one-line log.
+
+### Quota-day accounting across two timezones
+Each stage resets on its provider's schedule: **Gemma counts a UTC day**, both **Gemini stages count an `America/Los_Angeles` day** to match Google's RPD reset (`_stage_quota_day_starts` / `_quota_day_start_iso`). Completed-today counts come from `paper_stage_tasks` completion timestamps since that boundary, so the funnel spends exactly the daily budget and no more, regardless of when in the GitHub UTC schedule a tick fires.
+
+### Engineered for the free-tier ceiling
+- **Lazy module loading** (`_LazyScriptModule`): the orchestrator imports heavy crawler/upload modules only when the controller path actually needs them, so drain workers (which never crawl) don't pay the import or the dependency install.
+- **Three nested wall-clock budgets:** controller job 75 min, crawler 2,400 s (writes partial accepted results before being killed), each model call 300 s (`SIGALRM`) — so one slow paper or a long crawl can never blow the GitHub job cap.
+- **Paper PDFs are source-URL/on-demand** (`OPENNUTRI_STORE_PDFS_IN_SUPABASE=0`): the controller skips paper-storage cleanup and the bucket soft-limit, because storing PDFs would blow the Supabase free storage/egress caps.
+
+### Supporting jobs
+- `ensure_paper_stock.py` (573) — `run_refill_cycle`: refresh feedback terms, then crawl+upload until per-language targets are met; counts only `human_review_ready` papers with a normalized `has_data` payload and no outcome/submission as available stock.
+- `upload_to_supabase.py` (774) — registers accepted papers by **canonical identity** (upsert on `canonical_key`, preserving any closed AI route or human outcome — never requeues a finalized paper just because the active model changed), upserts discovery hits by deterministic `hit_key`, persists per-query batch history, and **recovers concurrent duplicate-key races** by reusing the existing row and preserving its search-hit audit links (so two workers racing on the same paper don't fail the refill slice).
+
+### Same-origin PDF proxy (`api/pdf.js`, Vercel serverless)
+Many publisher PDFs (and EuropePMC's `?pdf=render`) lack CORS headers, so PDF.js can't fetch them in-browser. This 102-line function fetches them server-side and re-serves same-origin, with real engineering around abuse and cost: **https-only**, **SSRF hardening** (rejects `localhost`/`.local`/`.internal`, IPv4 literals, IPv6), a 25 MB cap, a **`%PDF-` magic-byte check** (so it can't be used as a generic open proxy), a 25 s `AbortController` timeout, and a **1-year `immutable` Cache-Control** so each paper is fetched from the upstream host at most once and then served from the browser + Vercel edge.
+
+### Trade-offs
+- **Lower recall for zero cost:** ~20 Gemini extractions/day is a deliberate ceiling; the priority funnel + `recover_gemini_candidates.py` make it acceptable.
+- **A genuinely complex tick state machine** (controller vs drain vs combined tick, three stages, two quota timezones, interleaving) — the price of being resumable and idempotent inside a 5-minute window instead of a simple long-running daemon.
+- **Controller/drain split** adds moving parts but means draining survives a controller failure and parallel workers scale throughput without locks.
+## PDF highlighting engine — table detection + evidence overlays *(Ayşegül / frontend)*
+
+**Files read for this section:** `utils/PdfTextScanner.js` (2,323 lines — the geometry engine), `components/PdfViewer.jsx` (939), `utils/EvidenceLocations.js` (439). **27 commits** to the viewer + scanner. This is the single hardest piece of frontend code in the project: it does **document layout analysis in the browser** on top of the PDF.js text layer.
+
+### The core problem (restated precisely)
+A PDF has no concept of a "table," a "column," or a "paragraph." PDF.js hands you a flat list of positioned text items — `{str, x, y, width, height}` — and nothing else. To (a) highlight only nutrient names *inside tables* as click targets, and (b) paint an overlay over exactly the table/paragraph an AI value came from, the scanner has to **reconstruct page structure from glyph geometry**. `PdfTextScanner.js` is ~70 functions of computational geometry doing exactly that.
+
+### The pipeline (`buildPageEvidenceHighlightPlan`)
+For each page: `extractPositionedTextItems → buildPageMetrics → detectColumnGutters → groupItemsIntoRows(gutter-aware) → buildTableRegionsAndCaptionFallbacks → buildParagraphBlocks`, then a **priority cascade of matchers** per AI evidence location.
+
+### Hard problem 1 — adaptive metrics, not magic numbers (`buildPageMetrics`)
+Every threshold is derived from the page's own typography: `medianHeight` (glyph size) and `medianRowGap` drive `rowTolerance`, `fragmentGapThreshold`, `captionMergeGap`, `bodyGapThreshold`, `paragraphGapThreshold`, `bandMargin` — each `clamp()`-ed to a sane range. So the same code works on a 7pt dense table and a 12pt abstract without hardcoded pixel constants.
+
+### Hard problem 2 — column detection by projection profile (`detectColumnGutters`)
+Multi-column journal pages were the worst offender (adjacent columns merging into one "paragraph"). The fix is a classic **vertical projection profile**, hand-implemented:
+- Bin the x-axis at **2pt resolution**; for each bin record which **y-bands** (rows) have ink.
+- A **gutter** is a run of bins where almost no y-band has content (`≤ 8%` of bands), at least **6pt wide**.
+- Critically, keep only gutters with **substantial content on *both* sides** — this is what distinguishes a real inter-column gutter from the page's left/right margins.
+Rows are then grouped *within* gutters (`groupItemsIntoRows(items, metrics, gutters)`), so a left-column line and a right-column line at the same y never fuse.
+
+### Hard problem 3 — robust column clipping (`clipEntriesToDominantColumn`)
+Even with gutters, PDF.js sometimes fuses two columns into one wide fragment. The clipper computes the **median** left/right edge of a block's fragments and a **median absolute deviation (MAD)** spread, then fences outliers at `3×MAD` (with an asymmetric, looser lower-right fence because paragraph last-lines are legitimately short). The code comments explicitly justify MAD over IQR: "IQR would absorb the outlier into q3." This is textbook robust statistics applied to layout — a single fused-column fragment can't drag the region bounds across the gutter.
+
+### Hard problem 4 — the lying `page_hint` (in `buildPageEvidenceHighlightPlan`)
+The AI reports `page_hint` from extracted text, so on a journal offprint it gives the *printed* page (e.g. 1217 on a 5-page file). The matcher encodes the fix directly:
+```js
+const hintExceedsPages = location.pageHint && numPages && location.pageHint > numPages
+```
+When the hint exceeds the PDF's page count it **cannot** be a page index, so it is made **non-gating** — the table-caption and source-quote fallbacks are allowed to locate the evidence by *text on any page* instead of staying locked to a page that doesn't exist. When the hint is valid it's used as a navigation tiebreaker, and printed page numbers detected in headers/footers (`detectPrintedPageNumber`) produce a `mapped_page_hint` so "Page 95" scrolls to the right PDF page.
+
+### Hard problem 5 — the matcher cascade + not letting the abstract win
+Each evidence location runs through ordered matchers: **table-region** (if it cites "Table N") → **caption-only fallback** (table cited but body not confidently detected) → **source-quote text match** (verbatim quote located in a paragraph/table block) → **page-hint-only** (HINTED, no overlay). Two subtle guards live here:
+- `allowParagraphFallback`: when a source cites "Table 3", the paragraph-quote fallback is **blocked on pages that aren't the hint page**, so the introduction on page 1 (which often paraphrases Table 3's numbers) can't steal the MATCHED slot and drag the chip to the wrong page.
+- The caption fallback is likewise gated to the hint page (or `hintExceedsPages`) so a stray "Table 3" in a reference list doesn't win.
+
+### Hard problem 6 — verbatim quote matching through PDF spacing noise (`normalizeSearchText`)
+The AI's `source_quote` must be matched against PDF text that often lacks spaces ("10.80g/100 g"). The normalizer inserts whitespace at **digit↔letter boundaries** (Unicode-aware `\p{L}`/`\p{N}`) on *both* the quote and the page text, so they align regardless of the PDF's spacing quirks, then strips punctuation to single spaces.
+
+### Hard problem 7 — stable overlays + no duplicate chips
+- **Anti-flicker:** `buildStableRegionKey` keys a region by a stable `regionId` when available, else by rounded bounds (`buildRegionBoundsKey`, 0.1pt precision) — so an overlay doesn't get a new identity (and visibly jump) between re-renders.
+- **De-duplication:** `unifyOverlappingParagraphMatches` runs **union-find** over a page's paragraph matches — any two with significant horizontal overlap and a small vertical gap collapse to one `regionKey` and a unioned bounds, so three AI quotes that land in the same paragraph render as **one** overlay and **one** sidebar chip instead of three.
+
+### Table-scoped nutrient highlighting (`buildPageTableHighlightPlan`)
+The other consumer of the same geometry: it builds a **page-local allowlist** of item indexes belonging to detected table body/header cells and caption lines, and only there does `renderTextItemWithNutrientHighlights` inject clickable nutrient marks (through react-pdf's `customTextRenderer`). If a page has no confident table anchor, highlighting is **suppressed** rather than falling back to page-wide prose matching — precision over recall, so a nutrient word in a paragraph never becomes a stray click target.
+
+### `PdfViewer.jsx` (939 lines)
+Owns react-pdf rendering, continuous scroll, zoom, the **self-hosted PDF.js worker**, scaling the scanner's PDF-coordinate bounds onto the rendered page stage, painting every matched overlay (clicked or not), and the evidence-page-first behavior (render evidence pages first, auto-open/highlight the first one). `EvidenceLocations.js` (439) builds the deduplicated source list and coordinate utilities feeding the scanner.
+
+### Trade-offs
+- **Precision over recall:** suppress rather than guess; multi-item-fused table cells are a known follow-up.
+- **All geometry client-side:** no server round-trip and works on any open-access PDF, at the cost of ~2,300 lines of layout code running in the browser.
+- **Heuristic thresholds:** adaptive and clamped, but still heuristics — tuned against real journal PDFs across 27 commits of refinement.
+## Annotator app — workflow orchestration, autocomplete, cockpit *(Ayşegül / frontend)*
+
+**Files read for this section:** `pages/Annotate.jsx` (1,163 lines), `utils/annotateHelpers.js` (574), `components/FoodAutocomplete.jsx` (664), `components/NutrientAutocomplete.jsx` (334), and the eight `src/views/*.jsx`.
+
+### `Annotate.jsx` — the 1,163-line orchestrator
+Owns all data fetching, the top bar, view routing, and the labeling actions. Its design reflects the free-tier egress constraint as much as the backend does:
+- **Lazy cockpit loading:** `refreshQueue`, `refreshCockpit`, `refreshPipeline`, `refreshMySuggestions` are separate `useCallback`s; the heavy cockpit/pipeline data is fetched **only when that tab is opened**, not on load.
+- **One-RPC queue:** the queue loads through a single `get_general_queue_cards` call (lean card fields + the latest AI payload + this user's annotation status in one round-trip) instead of three separate fetches.
+- **AI-prefill verification (`loadAnnotation`):** a queue paper with no saved draft is opened by loading its latest `normalized_payload_json` and converting it into **editable food/nutrient rows** via `buildFoodItemsFromPayload`. The guard logic is the careful part — an existing draft or submission is **never** overwritten, and the prefill is silent (no AI-reasoning, no banner), per the product rule.
+- **Labeling actions:** `saveAnnotationRows`/`saveAnnotation` (draft/submit/no-data), `submitHelpRequest` (builds a cockpit help item via `buildGeneralHelpContext`), `saveReviewerDraft`, `saveSuggestionReview`, `handlePdfNutrientAdd` (the bridge from a PDF click to a new nutrient row), and a **test-mode toggle** that routes writes to local storage instead of the DB.
+
+### `annotateHelpers.js` — the frontend mirror of backend logic
+574 lines of pure helpers extracted so the orchestrator stays thin. Two pieces matter most:
+- **Payload normalization** (`normalizeFoodItem`, `normalizeMetadata`, `normalizeOptionalNumber/Integer`, `buildFoodItemsFromPayload`, `isValidFoodItem`) — the client-side counterpart of the SQL `build_annotation_submission_payload` and the Python normalizer. The same shape on all three sides is what makes AI output, human drafts, and stored truth interchangeable.
+- **The pipeline funnel** (`MODEL_STAGE_DEFINITIONS`, `formatModelSpecification`, `getModelStageRoleLabel`, `buildPipelineSteps`) — renders the cockpit funnel with **role-stable labels** (`Small model (Gemma 31B)`, `Medium model`, `Strong model`) so a future model swap changes only the spec in parentheses, plus the Medium-stage backfill so historical Small→Strong papers don't make the middle stage start at zero. Also `getAiPrefillStats`, `getNormalizationSummary`, and `countCorrectionItems` (renders `correction_diff_json` into a human count).
+
+### `FoodAutocomplete.jsx` — a domain-tuned food search ranker
+664 lines of real information-retrieval, because food names are messy ("apple" must surface *Apple, raw, with skin*, not *Apple juice, canned*). `scoreFoodMatch` is a weighted scorer over canonical name, an extracted base name, and aliases:
+- **Exact** canonical/base/alias = +2000 / +1700 / +1600; **prefix** = +900 / +1200 / +800; first-token = +180 / +260 / +180.
+- **Per-token relation scoring** with three relations — `exact` / `derived` (inflection/stem) / `fuzzy` (edit-distance via `buildDeletionVariants`) — each weighted differently, and **boosted for single-word "generic" queries**.
+- **Coverage + position:** +260 if every query token matches, −180 per unmatched token, −35 × earliest-match position (earlier is better), length penalties to prefer concise base names.
+- **Whole-food disambiguation:** for generic queries it penalizes extra `PROCESSING_WORDS` (canned/dried/…, −55 each) and `derivedPrefix` false friends (−140), and rewards `WHOLE_FOOD_HINTS` and base-name matches (+220) — so the raw whole food ranks above processed variants.
+- Supporting NLP: `normalizeToken` with an `IRREGULAR_TOKEN_MAP` (irregular plurals), `STOPWORDS`, `NOISY_PREFIXES`, inflectional/derived/prefix token relations, and a hard reject (−9999) when a generic query has no useful token overlap.
+Results are deduped, filtered, sorted, and capped at 15. `NutrientAutocomplete.jsx` (334) applies the same approach to nutrients, and both log resolution to `search_sessions` for analytics. Huan's `fuzzyMatch.js` plugs into the fuzzy-term layer here.
+
+### The eight views (`src/views/*.jsx`)
+Extracted from the old monolithic `Annotate.jsx`: `QueueView` (the labeler surface), `ApprovalView` (approver edit-and-accept with the correction diff), `DashboardView`, `AllPapersView` (Useful Papers, AI details), `PipelineOpsView` (the funnel), `SuggestionsReviewView` + `MySuggestionsView` (Huan's suggestion triage/tracking), `ReviewerAdminView` (reviewer config). Each is a focused presentational component fed by the orchestrator.
+
+### Trade-offs
+- **Heuristic, weight-tuned ranking:** the food scorer is a pile of tuned constants rather than a learned model — fast, debuggable, and good enough at this catalog size, but hand-maintained.
+- **Egress-driven UI architecture:** lazy tabs + one-RPC queue + slim cockpit projections add coordination complexity in exchange for staying inside the Supabase free tier.
+- **Triple-encoded payload shape** (JS + SQL + Python): duplicated normalization, kept in lockstep so the three producers of truth remain comparable.
+## Huan's features — read at the source *(Duc Huan Ngo)*
+
+**Files read for this section:** `utils/fuzzyMatch.js` (162), `components/SuggestionModal.jsx` (279), `pages/ResetPassword.jsx` (145), plus his SQL in `migration.sql` (`backlog_review_items`, the `suggestion-attachments` bucket policies, `paper_conflict_resolutions` + `paper_conflict_candidates`). **23 `landeryt` commits.** Reading the actual code raises the assessment of his work above what the raw line count (~1,600 net) suggests — two of his files are *infrastructure that other features depend on*.
+
+### 1. `fuzzyMatch.js` — a real fuzzy-match library that powers both autocompletes
+This is the most undervalued Huan file. It is the shared tokenization + approximate-matching engine that **`FoodAutocomplete` and `NutrientAutocomplete` both import** — the ranking described in the frontend app section sits on top of it. It contains genuine algorithm work:
+- **Banded Levenshtein** (`levenshteinDistance`) — two-row rolling arrays, an early-exit `Math.abs(aLen-bLen) > maxDistance` guard, and a per-row `minInRow > maxDistance` bail-out so it stops as soon as the edit distance provably exceeds the allowed band. O(n·band) instead of O(n·m).
+- **Damerau adjacent transposition** (`isSingleAdjacentTransposition`) — catches "abc"↔"acb" typos that plain Levenshtein scores as distance 2.
+- **Length-scaled tolerance** (`getAllowedFuzzyDistance`) — 0 edits under 4 chars, 1 under 8, 2 at 8+, so short words aren't over-matched.
+- **Inflection/stemming** (`normalizeToken`) — `ies→y`, `oes→o`, trailing-`s` removal with `ss`/`us`/`is` guards, plus an `IRREGULAR_TOKEN_MAP` (mice→mouse, feet→foot…).
+- **A relation cascade** (`findTokenRelationIndex`) returning `exact → derived → fuzzy`, which is exactly the relation tiering the food/nutrient scorers weight differently.
+This closed BACKLOG §8 and the dependent §9 (fuzzy in PDF highlight). It is small in lines because it is dense, reusable algorithm code.
+
+### 2. Suggestions system — a careful full-stack feature
+`SuggestionModal.jsx` plus his SQL is a complete vertical slice with real engineering judgment:
+- **Client-side validation:** a 7-type image MIME allowlist, max 5 images, 10 MB each, dedup by `name+size+lastModified`, filename sanitization.
+- **RLS-aligned storage paths:** files upload to `${user.id}/${timestamp}-${i}-${name}` — a **per-user folder**, which is precisely what his four `storage.objects` policies enforce via `storage.foldername(name)`. The UI and the security policy were designed together.
+- **Transactional upload-then-insert with rollback:** uploaded storage objects are tracked in `uploadedStorageObjects`; if the subsequent `backlog_review_items` insert throws, the modal **deletes the already-uploaded files** so a failed submission never leaves orphaned objects in the bucket. That is the kind of cleanup most student code skips.
+- **Test-mode aware:** in local-only mode it records the suggestion to `appendTestEvent` instead of touching Supabase.
+- **His backend:** the `backlog_review_items` table (role-based RLS via `current_user_has_cockpit_access()`), the **private `suggestion-attachments` bucket** (10 MiB limit, image-MIME allowlist, four view/upload/update/delete policies with per-user containment), and the role-split (labelers submit + track in `My Suggestions`; cockpit triages in `Suggestions`, opening images from **signed URLs at view time**).
+
+### 3. Reset-password page — a real auth-bug fix
+`ResetPassword.jsx` fixes a genuine defect: Supabase recovery links used to silently log the user in. His version parses `access_token`/`refresh_token` **out of the URL hash**, calls `supabase.auth.setSession`, validates the recovery session (clear error if expired), enforces password rules (match + ≥8 chars), calls `updateUser`, and **cleans the tokens out of the URL** with `history.replaceState` before returning to login. Correct session handling, not a toy form.
+
+### 4. Conflicts system (legacy) — table + SQL view + UI
+He built `paper_conflict_resolutions` and the `paper_conflict_candidates` **view** (a CTE that aggregates the latest submission per assignment and flags `decision_mismatch` / `payload_mismatch` / `decision_and_payload_mismatch`), wired into `Annotate.jsx` with a "Choose This" picker. Fully delivered; later superseded by Arciel's general approval queue — normal architecture evolution, the feature shipped and worked for the model that existed then.
+
+### 5. Theme system, infinite scroll, dev/tester read-only
+- **Theme centralization** (`cbf61ad`, `341b40e`): lifted theme into `App.jsx`, follows OS/browser preference when no override, fixed PDF dark mode.
+- **Infinite PDF scrolling** (`4ade833`): replaced prev/next paging with continuous scroll, touching `PdfTextScanner.js` so highlight matching stayed correct across streamed pages.
+- **Dev/Tester read-only access** (`9f18a56`): a small (+13/−6) but correctness-critical predicate change so `tester_access=TRUE` accounts can read admin/cockpit tabs (except Pipeline) while every mutation stays blocked.
+
+### Honest assessment
+Huan's ~1,600 net lines under-represent the contribution because two of his files are **load-bearing infrastructure** (the fuzzy-match engine powering both autocompletes; the suggestion vertical with its own table, bucket, and four security policies) and one is a real **auth-bug fix**. Full-stack features where a wrong RLS predicate leaks private data — and where the code actually rolls back partial failures — are a harder category than the line count shows.
+## Reference-data ETL + test suite *(Arciel)*
+
+### USDA → Supabase ETL
+**Files read:** `etl_usda_to_opennutri.py` (227), `etl_sr_legacy_to_opennutri.py` (343). Two loaders seed the canonical reference layer from USDA FoodData Central CSVs into `entities` / `entity_aliases` / `master_nutrients` / `sources` / `claims` over the Supabase REST API:
+- `read_csv` streams the FoodData Central dumps; `parse_preparation_state` **derives the preparation state from the food description text** (raw/cooked/dried…) so claims carry a usable `preparation_state` instead of an opaque label.
+- `rest_insert(table, data, conflict_col)` does an **upsert keyed on a conflict column**, so re-running the ETL is **idempotent** — a second load updates rather than duplicating, and the reference IDs stay stable for the foreign keys in `claims`/`food_items` to point at. (README documents deterministic UUIDs for the SR-Legacy seed so the same source row always maps to the same `entities.id`.)
+- The seed run is logged to `migration.log` / `migration_run.log`.
+
+This is the layer that turns a public nutrition dataset into OpenNutri's canonical foods/nutrients, which the AI normalizer and the autocomplete then resolve against.
+
+### Test suite — coverage concentrated on the dangerous code
+**128 test functions, ~4,900 lines** of Python tests, deliberately weighted toward the logic that can silently corrupt data or burn quota:
+
+| File | Tests | Lines | Focus |
+| --- | --- | --- | --- |
+| `tests/test_ai_routing.py` | 60 | 2,469 | normalization, routing, thresholds, priority, retry classification |
+| `tests/test_bilingual_pipeline.py` | 32 | 1,120 | EN/TR crawler gates, language scoping |
+| `tests/test_daily_ops.py` | 30 | 983 | queue counting, refill, quota-day ticks |
+| `tests/test_pdf_page_markers.py` | 6 | 73 | `===== PDF PAGE N =====` injection |
+
+The `test_ai_routing.py` names read like a specification of the invariants documented in the AI-cascade section, each pinned by a test:
+- **Normalizer determinism:** `normalize_ai_payload_matches_human_shape`, `orders_and_rounds_like_submission_contract` — proves AI output is byte-comparable to a human submission.
+- **Unit policy:** `standardizes_supported_units_and_drops_unsupported_rows`, `accepts_explicit_fresh_wet_as_is`, `turns_empty_standardized_rows_into_no_usable_data`.
+- **ID resolution safety:** `accepts_exact_db_ids_when_names_match`, `rejects_stale_or_mismatched_db_ids`, `preserves_custom_foods_and_nutrients_without_matches`.
+- **Routing:** `bucket_classification_uses_separate_positive_and_negative_thresholds`, `threshold_one_disables_ai_auto_finalization`, **`audit_sampling_is_deterministic`**.
+- **JSON-shape salvaging:** `unwraps_single_result_object_array`, `top_level_array_response_is_treated_as_candidate_rows`.
+- **Priority funnel:** `followup_priority_rewards_composition_evidence_and_soft_penalizes_outcomes`, `uses_unsupported_raw_rows_as_screening_signal`.
+- **Retry classification:** `blank_exception_text_preserves_type_repr_and_retry_classification` — even an empty SDK exception is correctly classified.
+- **Queue predicates:** `fetch_available_counts_only_counts_human_review_ready`, `excludes_pending_general_submissions`, `general_queue_stock_does_not_create_reviewer_assignments`.
+- **Feedback truth:** `build_labels_excludes_ai_model_outcomes` — the model never trains on itself.
+
+Frontend unit tests cover the geometry engine too: `PdfTextScanner.test.js` (655), `EvidenceLocations.test.js` (225), `evidenceStatusCache.test.js` (92).
+
+### Trade-off
+These are behavior/unit tests against pure logic (normalization, routing, scoring, gates) rather than full live-API integration tests — fast and deterministic in CI, but they mock the model/DB boundary, so the live Gemini/Supabase contract is validated by the offline harnesses (`flash_lite_triage_experiment.py`, `probe_model_file_input.py`) instead.
 ---
 
 ## 5. The five hardest problems (cross-cutting)
 
-1. **Highlighting evidence on real journal PDFs.** No table primitive, multi-column layouts, document chrome, and an AI `page_hint` that reports the *printed* page, not the PDF index. Solved with geometry-based table detection, column-clip bounds, chrome filtering, content-driven (caption + verbatim-quote) matching, and non-gating page hints. *(Frontend + the evidence contract.)*
-2. **A reliable AI cascade on a free quota.** Three models, four JSON shapes, deterministic normalization to a human-equivalent contract, and a funnel that spends ~20 expensive Gemini calls/day on the best of ~1500 screened papers. Native-PDF mode for page accuracy, with the measured "Gemma times out on PDF" constraint baked into the design.
-3. **Running real automation on free infrastructure.** Controller/drain split, per-stage quota-day accounting across two timezones, wall-clock budgets, partial-result writes, and retry-fairness so one bad paper can't monopolize the queue — all inside a 5-minute GitHub Actions tick.
-4. **A correct multi-principal security model.** 75 RLS policies and `SECURITY DEFINER` RPCs giving labelers, cockpit, testers, and the service role exactly the right read/write surface across 31 tables.
-5. **A learning crawler.** Closing the loop from accepted human truth → log-odds n-gram feedback → re-ranked next crawl, with soft scoring only and no hard-negative vetoes.
-
----
+1. **Reconstructing document structure from PDF glyphs (frontend).** No table/column/paragraph primitive exists; `PdfTextScanner.js` does projection-profile column detection, adaptive metrics, MAD-robust column clipping, caption-anchored table regions, union-find chip de-duplication, and content-driven matching that survives a lying `page_hint`.
+2. **A reliable 3-model AI cascade on a fixed free quota (backend).** One shared contract across three models, four salvaged JSON shapes, a deterministic normalizer whose output is hash-comparable to human submissions, native-PDF page accuracy with the measured "Gemma times out on PDF" constraint encoded, and a priority funnel that spends ~20 Gemini calls/day on the best of ~1500 screened papers.
+3. **Running real automation on free infrastructure (backend).** A serialized controller + 5 parallel drain workers on a 5-minute GitHub Actions cron, `FOR UPDATE SKIP LOCKED` atomic claiming, per-stage quota-day accounting across two timezones, nested wall-clock budgets, partial-result writes, and retry-fairness so one bad paper can't monopolize the queue.
+4. **A correct multi-principal security model (backend).** 75 RLS policies and 22 `SECURITY DEFINER` RPCs giving labelers, cockpit, testers, and the service role exactly the right surface across 31 tables, with read-only-tester falling out of a single `NOT is_tester()` negation and a guard that the team can never be locked out.
+5. **A learning crawler + a learning library (backend + Huan).** Smoothed log-odds n-gram scoring over good/bad/background buckets closes the loop from human truth to the next crawl; Huan's banded-Levenshtein + inflection engine powers both autocompletes; and the crawler defeats publisher bot-walls with an actual MD5 proof-of-work solver.
 
 ## 6. Summary metrics
 
 - **5.5 months**, 2025-12-19 → 2026-06-05; **240 commits**; **47,198 lines** of tracked source.
-- **Frontend:** ~13,500 lines, React 19 + Vite on Vercel; PDF viewer/scanner alone 27 commits.
-- **Backend:** ~25,500 lines Python + a 5,396-line schema (31 tables / 75 RLS policies / 26 RPCs) + 4,902 lines of tests.
-- **Automation:** a 3-stage LLM cascade driven unattended by GitHub Actions every 5 minutes.
+- **Frontend:** ~13,500 lines React 19 + Vite on Vercel; the PDF scanner alone is 2,323 lines of browser-side document layout analysis across 27 viewer/scanner commits.
+- **Backend:** ~25,500 lines Python + a 5,396-line schema (31 tables / 75 RLS policies / 26 RPCs) + ~4,900 lines of tests (128 test functions).
+- **Automation:** a 3-stage LLM cascade driven unattended by GitHub Actions every 5 minutes, entirely on free tiers.
 - **Split:** Arciel ~66% · Ayşegül ~31% · Huan ~3% of net new code, by the team's frontend/backend division.
 
-*Per-person detail is in the three companion reports: `OpenNutri_Work_Report_Huan.md`, `OpenNutri_Work_Report_Aysegul.md`, `OpenNutri_Work_Report_Arciel.md`.*
+*Per-person detail is in the three companion reports: `OpenNutri_Work_Report_Huan.md` (EN), `OpenNutri_Work_Report_Arciel.md` (EN), `OpenNutri_Work_Report_Aysegul.md` (TR).*

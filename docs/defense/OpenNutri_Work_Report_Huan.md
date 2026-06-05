@@ -1,87 +1,45 @@
 # OpenNutri — Work Report: Duc Huan Ngo (221229075)
 
-*Self-contained account of Huan's contributions to OpenNutri. Companion to the master report; numbers re-derived from git on 2026-06-05, HEAD `ac8bf72`.*
+*Self-contained, code-grounded account of Huan's contributions, written after reading his actual source files. Companion to the master report; numbers re-derived from git on 2026-06-05, HEAD `ac8bf72`.*
 
 ## At a glance
 
-- **23 commits** under the `landeryt` identity, **2026-03-16 → 2026-05-20**.
-- **+2,188 / −582 lines** (net **+1,606**), excluding generated artifacts.
-- **Attribution rule:** every `landeryt` commit is credited to Huan in full, whether it touched React, SQL, RLS, or Storage. Huan's hallmark is **full-stack features** — most of his work spans the UI, a database table, its RLS policies, and (for suggestions) a Storage bucket. Line counts undersell this: a correct private-bucket RLS policy is a handful of lines but a security-sensitive design decision.
-
-Huan owns four user-facing features plus several UX/auth refinements. Each is described below with what it is, why it was needed, how it works, what made it non-trivial, and when it landed.
+- **23 commits** under the `landeryt` identity, 2026-03-16 → 2026-05-20; **+2,188 / −582 lines** (net **+1,606**).
+- **Attribution rule:** every `landeryt` commit is credited to Huan in full, whether it touched React, SQL, RLS, or Storage.
+- **Headline:** Huan's hallmark is **full-stack vertical features** and **reusable algorithm code**. Reading his files (rather than counting lines) shows two of them are infrastructure other features depend on — the fuzzy-match engine behind both autocompletes, and a suggestion feature with its own table, Storage bucket, and four security policies — plus a real auth-bug fix.
 
 ---
+## Huan's features — read at the source *(Duc Huan Ngo)*
 
-## 1. Suggestions system — Huan's flagship feature
-**Commits:** `2fcdc55`, `81d96af`, `4db6334`, `bd29ab5`, `0a5fdd6`, `967c927`, `8dc6771`, `528848c`, `ebe2a3d` — 2026-04-21 → 04-25. Largest single commit: image attachments `0a5fdd6` (+445/−4).
+**Files read for this section:** `utils/fuzzyMatch.js` (162), `components/SuggestionModal.jsx` (279), `pages/ResetPassword.jsx` (145), plus his SQL in `migration.sql` (`backlog_review_items`, the `suggestion-attachments` bucket policies, `paper_conflict_resolutions` + `paper_conflict_candidates`). **23 `landeryt` commits.** Reading the actual code raises the assessment of his work above what the raw line count (~1,600 net) suggests — two of his files are *infrastructure that other features depend on*.
 
-- **What:** an end-to-end feedback channel inside the annotator. Regular labelers submit suggestions from a `Suggest` button and follow their status in a `My Suggestions` view; cockpit/admin users triage every incoming suggestion (and help request) in a cockpit `Suggestions` tab. Suggestions can carry **image attachments**.
-- **Why:** labelers kept hitting confusing papers and edge cases with no structured way to report them; the supervisor explicitly asked for this. It turns ad-hoc complaints into a reviewable queue.
-- **How it works (full stack):**
-  - **Frontend:** `SuggestionModal.jsx` for submission, `SuggestionsReviewView.jsx` (cockpit triage), `MySuggestionsView.jsx` (labeler tracking), `SuggestionAttachmentsCell.jsx` (83 lines) for image preview. Images open from **signed Storage URLs at view time**, so private files are never exposed by a public link.
-  - **Backend (Huan's SQL):** the **`backlog_review_items`** table for the review queue, with role-based read/write RLS keyed on `current_user_has_cockpit_access()`; attachment metadata stored in `backlog_review_items.attachments`.
-  - **Storage (Huan's SQL):** a **private `suggestion-attachments` bucket** with a 10 MiB size cap, an image-MIME allowlist, and **four `storage.objects` policies** (view/upload/update/delete) that use `storage.foldername(name)` to enforce **per-user folder containment**.
-- **What made it hard:** the security boundary. Getting private-bucket RLS right — so a labeler can upload and see *their own* images, cockpit can see all, and nobody can read someone else's files — is exact, security-sensitive work where a wrong predicate silently leaks data. The role-split (`967c927`) also had to hide the `Suggest` button from admins while giving them the triage list, without breaking either path.
-- **Closure:** Huan closed the whole feature in `ebe2a3d` ("suggestion section fully finished").
+### 1. `fuzzyMatch.js` — a real fuzzy-match library that powers both autocompletes
+This is the most undervalued Huan file. It is the shared tokenization + approximate-matching engine that **`FoodAutocomplete` and `NutrientAutocomplete` both import** — the ranking described in the frontend app section sits on top of it. It contains genuine algorithm work:
+- **Banded Levenshtein** (`levenshteinDistance`) — two-row rolling arrays, an early-exit `Math.abs(aLen-bLen) > maxDistance` guard, and a per-row `minInRow > maxDistance` bail-out so it stops as soon as the edit distance provably exceeds the allowed band. O(n·band) instead of O(n·m).
+- **Damerau adjacent transposition** (`isSingleAdjacentTransposition`) — catches "abc"↔"acb" typos that plain Levenshtein scores as distance 2.
+- **Length-scaled tolerance** (`getAllowedFuzzyDistance`) — 0 edits under 4 chars, 1 under 8, 2 at 8+, so short words aren't over-matched.
+- **Inflection/stemming** (`normalizeToken`) — `ies→y`, `oes→o`, trailing-`s` removal with `ss`/`us`/`is` guards, plus an `IRREGULAR_TOKEN_MAP` (mice→mouse, feet→foot…).
+- **A relation cascade** (`findTokenRelationIndex`) returning `exact → derived → fuzzy`, which is exactly the relation tiering the food/nutrient scorers weight differently.
+This closed BACKLOG §8 and the dependent §9 (fuzzy in PDF highlight). It is small in lines because it is dense, reusable algorithm code.
 
----
+### 2. Suggestions system — a careful full-stack feature
+`SuggestionModal.jsx` plus his SQL is a complete vertical slice with real engineering judgment:
+- **Client-side validation:** a 7-type image MIME allowlist, max 5 images, 10 MB each, dedup by `name+size+lastModified`, filename sanitization.
+- **RLS-aligned storage paths:** files upload to `${user.id}/${timestamp}-${i}-${name}` — a **per-user folder**, which is precisely what his four `storage.objects` policies enforce via `storage.foldername(name)`. The UI and the security policy were designed together.
+- **Transactional upload-then-insert with rollback:** uploaded storage objects are tracked in `uploadedStorageObjects`; if the subsequent `backlog_review_items` insert throws, the modal **deletes the already-uploaded files** so a failed submission never leaves orphaned objects in the bucket. That is the kind of cleanup most student code skips.
+- **Test-mode aware:** in local-only mode it records the suggestion to `appendTestEvent` instead of touching Supabase.
+- **His backend:** the `backlog_review_items` table (role-based RLS via `current_user_has_cockpit_access()`), the **private `suggestion-attachments` bucket** (10 MiB limit, image-MIME allowlist, four view/upload/update/delete policies with per-user containment), and the role-split (labelers submit + track in `My Suggestions`; cockpit triages in `Suggestions`, opening images from **signed URLs at view time**).
 
-## 2. Conflicts system — table, view, and UI
-**Commits:** `a979d3f` (schema), `f54f2fb`, `2121663` (UI + CSS) — 2026-04-27.
+### 3. Reset-password page — a real auth-bug fix
+`ResetPassword.jsx` fixes a genuine defect: Supabase recovery links used to silently log the user in. His version parses `access_token`/`refresh_token` **out of the URL hash**, calls `supabase.auth.setSession`, validates the recovery session (clear error if expired), enforces password rules (match + ≥8 chars), calls `updateUser`, and **cleans the tokens out of the URL** with `history.replaceState` before returning to login. Correct session handling, not a toy form.
 
-- **What:** a way to resolve disagreements when two labelers produced different labels for the same paper — a `paper_conflict_resolutions` table plus a `paper_conflict_candidates` SQL **view** (joining the assignment/submission tables), surfaced in `Annotate.jsx` with a "Choose This" picker.
-- **Why:** under the original slot-assignment model, two reviewers could disagree and there was no resolution path.
-- **How:** the view computed candidate conflicts from existing assignment data; the UI let an admin pick the correct version; CSS fixes (`2121663`) kept names readable without obscuring the "Choose This" button.
-- **Honest note (shows maturity, not a defect):** this feature was later **superseded** by Arciel's general approval queue (`fc67b30`, 2026-05-02), which replaced slot assignments wholesale. Huan's conflict tables remain in the schema as legacy audit history. Being replaced by a later architecture is normal evolution — the feature shipped and worked for the model that existed at the time.
+### 4. Conflicts system (legacy) — table + SQL view + UI
+He built `paper_conflict_resolutions` and the `paper_conflict_candidates` **view** (a CTE that aggregates the latest submission per assignment and flags `decision_mismatch` / `payload_mismatch` / `decision_and_payload_mismatch`), wired into `Annotate.jsx` with a "Choose This" picker. Fully delivered; later superseded by Arciel's general approval queue — normal architecture evolution, the feature shipped and worked for the model that existed then.
 
----
+### 5. Theme system, infinite scroll, dev/tester read-only
+- **Theme centralization** (`cbf61ad`, `341b40e`): lifted theme into `App.jsx`, follows OS/browser preference when no override, fixed PDF dark mode.
+- **Infinite PDF scrolling** (`4ade833`): replaced prev/next paging with continuous scroll, touching `PdfTextScanner.js` so highlight matching stayed correct across streamed pages.
+- **Dev/Tester read-only access** (`9f18a56`): a small (+13/−6) but correctness-critical predicate change so `tester_access=TRUE` accounts can read admin/cockpit tabs (except Pipeline) while every mutation stays blocked.
 
-## 3. Reset-password page
-**Commit:** `4e208a5` — 2026-03-19 (+175/−1).
-
-- **What:** `src/pages/ResetPassword.jsx` (145 lines today) + routing in `App.jsx`.
-- **Why / the bug it fixed:** Supabase's recovery email link previously **silently logged the user straight in** instead of letting them set a new password — a real auth-UX defect. Huan routed the recovery link to a dedicated "set a new password" page.
-- **How:** detects the recovery session on landing and renders the password-set form instead of the normal authenticated app.
-
----
-
-## 4. Fuzzy match utility
-**Commit:** `e3971b2` — 2026-05-09 (+203/−100). Closed backlog §8 (and the dependent §9).
-
-- **What:** `src/utils/fuzzyMatch.js` (162 lines), integrated into `FoodAutocomplete` and `NutrientAutocomplete`.
-- **Why:** exact-string autocomplete misses near-matches (typos, spacing, accents), which slows labeling.
-- **How:** approximate string scoring so the autocomplete ranks close matches, not just prefix hits.
-
----
-
-## 5. Infinite PDF scrolling
-**Commit:** `4ade833` — 2026-04-26 (+108/−74). Closed the old backlog §10.
-
-- **What:** replaced the previous/next page buttons in `PdfViewer.jsx` with **continuous scrolling**.
-- **Why:** paging through a multi-page paper one click at a time is slow and loses context.
-- **What made it non-trivial:** the change had to reach into `PdfTextScanner.js` so that **highlight matching stayed correct across scrolled pages** — the highlight layer assumed discrete pages, so continuous scroll required keeping page-local matching consistent as pages stream in.
-
----
-
-## 6. Theme system + auth/UX refinements
-- **Theme centralization** — `cbf61ad`, `341b40e` (2026-03-16): lifted theme state into `App.jsx` so the login screen and the app share one source; theme **follows the OS/browser preference when no explicit override exists**; fixed the PDF viewer's dark-mode chrome.
-- **Dev/Tester read-only access** — `9f18a56` (2026-05-19, 4 files, +13/−6): Developer/Tester accounts can **read** admin/cockpit tabs (all except Pipeline) while every DB mutation stays blocked, so they can safely click through the whole workflow without being able to break live data. Tiny in lines, but it required getting the read predicate right across multiple policies so `tester_access=TRUE` rows show up alongside `cockpit_access=TRUE`.
-- **Dual admin/labeler login** — `de13677` (2026-05-19): a separate admin vs. regular login with redirection. Implemented, then **reverted the same day** (`d671914`) on the supervisor's instruction — included here because the work was done.
-- **Suggestion photo-view hotfix** (`8dc6771`) and **dropdown CSS polish** (`528848c`).
-
----
-
-## Backlog items Huan closed end-to-end
-
-| # | Item | Huan's commits |
-| --- | --- | --- |
-| 1 | Reset-password proper page | `4e208a5` |
-| 2 | Theme system + PDF dark-mode | `cbf61ad`, `341b40e` |
-| 3 | Infinite scrolling (old §10) | `4ade833` |
-| 4 | Conflict resolution (UI + schema + view) | `a979d3f`, `f54f2fb`, `2121663` |
-| 5 | Suggestions (modal + role-split + cockpit review + image attachments + private bucket + RLS) | `2fcdc55`, `4db6334`, `81d96af`, `0a5fdd6`, `bd29ab5`, `967c927`, `8dc6771`, `528848c`, `ebe2a3d` |
-| 6 | Fuzzy matching (§8) + PDF-highlight fuzzy (§9) | `e3971b2`, `0c1d334` |
-
-## Why the line count understates the contribution
-
-Huan's 1,606 net lines are concentrated in **complete vertical features** rather than spread across large files. Three of his deliverables — suggestions, conflicts, and tester access — required **database tables, SQL views, RLS policies, and (for suggestions) a private Storage bucket with four security policies**, in addition to the React UI. That kind of full-stack feature, where a single wrong RLS predicate leaks private data, is a different and in places harder category of work than adding lines to an existing component. He also fixed two genuine auth-UX defects (silent reset-password login; dark-mode) that affected every user.
+### Honest assessment
+Huan's ~1,600 net lines under-represent the contribution because two of his files are **load-bearing infrastructure** (the fuzzy-match engine powering both autocompletes; the suggestion vertical with its own table, bucket, and four security policies) and one is a real **auth-bug fix**. Full-stack features where a wrong RLS predicate leaks private data — and where the code actually rolls back partial failures — are a harder category than the line count shows.
