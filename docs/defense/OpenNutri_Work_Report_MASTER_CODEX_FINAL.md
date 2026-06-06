@@ -1,124 +1,145 @@
-# OpenNutri Work Report - MASTER CODEX FINAL
+# OpenNutri — Master Work Report
 
-Prepared: 2026-06-05
-Corrected: 2026-06-05
-Current source snapshot used for code evidence: `0713a03b1766075f62f5093ab75a933942d99a60`
-Corrected after docs-only commit: `ef213e7454d7dc61d1cd91506448707e59d18910`
-Historical base preserved from: `docs/defense/OpenNutri_Work_Report_MASTER_FINAL.md`
-Current implementation evidence preserved from: `docs/defense/OpenNutri_Current_Code_Work_Report.md`
-Rule for conflicts: current implementation evidence from the `0713a03b1766075f62f5093ab75a933942d99a60` source snapshot wins over older historical prose.
+**Prepared:** 2026-06-05 · **Reconciled and restructured:** 2026-06-05
+**Source snapshot used for code evidence:** current `main` at `cc035c3` (even with `origin/main`; metrics re-verified file-by-file against this working tree).
+**Lineage:** this single report consolidates three earlier artifacts so nothing is lost and nothing is said three times — the current-code evidence report (`OpenNutri_Current_Code_Work_Report.md`), the historical master-final ledger (`OpenNutri_Work_Report_MASTER_FINAL.md`, itself a merge of the Claude master and the Codex v2 master), and the deep per-subsystem technical work log. The earlier files are preserved unchanged on disk and in git history.
 
-## Correction Note
+This is a documentation-only artifact. Producing it did not change application code, the schema, the workflow YAML, the live database, Vercel, or any runtime behavior.
 
-The first Codex-final draft was too short because it summarized the historical master report instead of preserving it. This corrected artifact is intentionally full-length. It carries forward the current-code work report and the existing master-final historical ledger in one file so assessment readers can see both the implementation evidence and the contributor/timeline record without losing the original detail.
+## How to read this report
 
-This document is therefore organized as follows:
+| Section | What it gives an evaluator |
+| --- | --- |
+| 1. Executive summary & what OpenNutri is | The one-paragraph claim, the end-to-end workflow, and the precise scope. |
+| 2. Methodology & attribution rules | How the evidence was gathered and how work is credited (git-author vs. subsystem ownership). |
+| 3. Reproducible metrics | Line counts, schema/RPC/RLS counts, test counts, and contributor churn — each re-verifiable. |
+| 4. Repository structure | Where every subsystem lives. |
+| 5. Timeline | The project phases by date. |
+| 6. Deep technical work log | The core. Each subsystem: what it is, why it exists, how it works internally, the hard parts, the trade-offs. |
+| 7. The five hardest problems | The cross-cutting engineering crux of the project. |
+| 8. Contributor assessment summary | Per-person achievements and most-defensible metrics. |
+| 9. Assessment ledger | Per-workstream credit / dates / evidence pointers, for line-item evaluation. |
+| 10. Chronological milestone ledger | The dated commit history that defines the project. |
+| 11. Validation state & evidence commands | How the numbers and the document were checked. |
 
-- Part I includes the current-code report in full. It is the canonical technical evidence for the current source tree, metrics, schema/RPC/RLS counts, pipeline behavior, crawler behavior, frontend behavior, tests, limitations, and validation state.
-- Part II includes the historical `MASTER_FINAL` report in full. It preserves the long-form timeline, contributor framing, defense ledger, and prior attribution context.
-- Where Part II describes older behavior or older metrics, Part I and current `HEAD` source are authoritative.
+Sections 1–5 orient; section 6 is the technical heart; sections 7–11 are the assessment and evidence apparatus. Where a current-implementation fact and an older description ever conflict, the current `cc035c3` source tree is authoritative.
 
-## Canonical Current Limitations / What Not To Claim
+## Scope and honest caveats — what this report does *not* claim
 
-These caveats apply to the whole merged report:
+These bound the whole report:
 
-- Do not claim every nutrition paper is in scope. OpenNutri targets direct real-food or stable-food-product composition data.
-- Do not claim AI output is final human truth by default. Final active truth is reviewer-led through `paper_review_outcomes`.
-- Do not claim AI-model outcomes train feedback. Feedback learning uses final human-review truth and excludes AI-model outcomes.
-- Do not claim Turkish/DergiPark is active in normal daily ops. The code path remains, but current daily/refill defaults are English-only.
-- Do not claim paper PDFs are stored in Supabase by default. Current ops use source-URL/on-demand PDFs unless explicitly overridden.
-- Do not claim the PDF highlighter perfectly reconstructs every table, OCR case, or continuation page.
-- Do not claim the L2 classifier is trained and integrated. Feedback terms exist; classifier training is deferred until enough human labels exist.
-- Do not claim raw model reasoning is loaded in default cockpit lists. The current slim RPCs intentionally avoid that egress-heavy behavior.
-- Do not claim this report changed app code, schema, workflow YAML, the live database, Vercel, or runtime behavior. This is a documentation-only evidence package.
+- **Not every nutrition paper is in scope.** OpenNutri targets *direct* real-food or stable food-product composition data. Papers about health effects, supplements, diets, extracts, processing treatments, microbes, biomarkers, animals, sensory scores, or one-off experimental formulations are treated as empty unless they also carry direct composition tables.
+- **AI output is not final human truth by default.** Final active truth is reviewer-led through `paper_review_outcomes`. AI-model outcomes are stored as provenance and are *excluded* from the human-truth feedback that trains the crawler — the model never trains on itself.
+- **Turkish / DergiPark is not active in normal daily ops.** The bilingual code path and its tests remain, but current daily/refill defaults are English-only.
+- **Paper PDFs are not stored in Supabase by default.** Current ops use source-URL / on-demand PDFs unless a legacy override is explicitly set; only suggestion attachments use a private bucket.
+- **The PDF highlighter does not perfectly reconstruct every table, OCR case, or continuation page.** It reconstructs table/paragraph regions from the PDF.js text layer and has known limits.
+- **The L2 classifier is not trained or integrated.** The feedback *terms* exist and are applied as soft scores; classifier training is deferred until enough human labels exist.
+- **Raw model reasoning is not loaded in default cockpit lists.** The slim RPCs deliberately omit it to protect egress.
 
-## Part I. Current Code Work Report Included In Full
+## 1. Executive summary & what OpenNutri is
 
-The following section is the full current-code report generated from the refreshed `origin/main` source snapshot. It is the canonical current technical evidence.
+OpenNutri is an end-to-end food-composition **paper-discovery and human-verification** system. It is not a generic nutrition chatbot and not a general literature-search tool. Its target is narrow and deliberate: direct, real-food or food-product composition values that can become useful nutrition facts for datasets, diet tracking, food exporters, inspection, or related real-world use.
 
-Prepared: 2026-06-05
-Source snapshot used for evidence: `0713a03b1766075f62f5093ab75a933942d99a60`
-Branch state before report creation: `HEAD...origin/main = 0 0` after `git fetch origin`
-Scope: current tracked active source, schema, tests, workflow, and maintained documentation. USDA data dumps, generated binaries, `node_modules`, `dist`, legacy archive, pipeline data caches, generated feedback JSON, local untracked files, and prior work-report files are excluded from source metrics.
+The current codebase is a complete loop: it starts from reference food/nutrient data, searches the scientific literature, filters and downloads papers, runs a three-stage AI cascade, turns model output into a deterministic database-compatible payload, presents the evidence to human labelers, stores immutable submissions, lets an approver correct and finalize truth, and feeds accepted human truth back into the crawler.
 
-## 1. Executive Summary
+It has three deployable surfaces over one Supabase Postgres database:
 
-OpenNutri is an end-to-end food-composition paper discovery and human verification system. The current codebase is not just a React labeler and not just a crawler. It is a complete workflow that starts from reference food/nutrient data, searches scientific literature, filters and downloads papers, runs a three-stage AI cascade, turns model output into a deterministic database-compatible payload, presents the evidence to human labelers, stores immutable submissions, lets an approver correct and finalize truth, and feeds accepted human truth back into the crawler.
+- A **React 19 + Vite expert annotator** in `apps/expert-annotator/`, deployed on Vercel.
+- A **Supabase Postgres schema / RLS / RPC contract** in `apps/expert-annotator/migration.sql`.
+- A **Python data pipeline** in `services/data-pipeline/`, scheduled by `.github/workflows/daily-ops.yml`.
 
-The active system has three major deployable surfaces:
-
-- A React 19 + Vite expert annotator in `apps/expert-annotator/`.
-- A Supabase Postgres schema/RLS/RPC contract in `apps/expert-annotator/migration.sql`.
-- A Python data pipeline in `services/data-pipeline/`, scheduled by `.github/workflows/daily-ops.yml`.
-
-The most important current workflow is:
+The end-to-end workflow:
 
 ```text
-Reference foods/nutrients
-  -> literature search and metadata filter
-  -> PDF acquisition and validation
-  -> Small model screening: Gemma 31B with 26B fallback
-  -> Medium model triage: Gemini 3.1 Flash-Lite
-  -> Strong model extraction: Gemini 3.5 Flash
+USDA reference data
+  -> entities / aliases / master_nutrients / sources / claims
+
+Europe PMC / OpenAlex / Semantic Scholar crawler
+  -> metadata search
+  -> additive relevance filter (no hard veto)
+  -> PDF acquisition + full-text validation
+  -> Supabase paper + search-hit registration
+  -> Small model screening:  Gemma 31B  (26B fallback, text mode)   ~1,500/day
+  -> Medium model triage:    Gemini 3.1 Flash-Lite                   ~500/day
+  -> Strong model extraction: Gemini 3.5 Flash (native PDF)          ~20/day
   -> normalized has_data payload
-  -> shared human labeling queue
+  -> human_review_ready general queue
   -> immutable labeler submission
-  -> approver correction/finalization
-  -> paper_review_outcomes
-  -> feedback terms for future crawler ranking
+  -> Arciel approval / correction
+  -> paper_review_outcomes  (final truth)
+  -> feedback-learning export -> better-ranked next crawl
 ```
 
-The current implementation optimizes for high-precision discovery of direct food/product composition data: real foods or food products mapped to composition values that could support a food composition database, diet tracking, inspection, food exports, or similar data uses. Papers about the health effects of nutrients, supplements, diets, extracts, processing treatments, microbes, biomarkers, animals, sensory scores, or one-off experimental formulations are treated as empty unless they also contain direct food/product composition tables useful to OpenNutri.
+The system optimizes for **high-precision discovery** of direct food/product composition data. The scarce resource is the final extraction model (~20 calls/day on the free quota); the cascade exists so those calls are spent on the strongest candidates out of ~1,500 screened, not on whatever arrived first.
 
-## 2. Reproducible Evidence Snapshot
+## 2. Methodology & attribution rules
 
-### 2.1 Current Tracked Active Source Lines
+This report was built from current source evidence after `git fetch origin`, an ahead/behind check, and a working-tree status check; `main...origin/main` was even. Untracked local artifacts (older work-breakdown exports, files under `docs/defense/read_this/`, unrelated coursework) were left untouched.
 
-Line counts were recomputed from tracked files only. Exclusions: `FoodData_Central_*`, `legacy/`, generated DOCX/PDF/PPTX/image/ODT/XLSX/SVG artifacts, `node_modules`, `dist`, local pipeline data, generated `feedback/latest.json`, `package-lock.json`, logs, and prior work-report files.
+Evidence sources:
+
+- **Git history across all refs** — because Ayşegül's original MVP/frontend commits live on `origin/master` while the current `main` branch later imported and reorganized that work.
+- **Current tracked source inventory**, excluding USDA data dumps, generated binaries (DOCX/PDF/PPTX/image/ODT/XLSX/SVG), the `legacy/` archive, `node_modules`, build output, local pipeline data caches, generated `feedback/latest.json`, lockfiles, and the work-report files themselves (which would inflate the metric).
+- **Direct file reads and counts** of every principal implementation file: `migration.sql`, `PdfViewer.jsx`, `PdfTextScanner.js`, `EvidenceLocations.js`, `Annotate.jsx`, `annotateHelpers.js`, `FoodAutocomplete.jsx`, `NutrientAutocomplete.jsx`, `SuggestionModal.jsx`, `fuzzyMatch.js`, `ResetPassword.jsx`, `ai_routing.py`, `unified_evaluator.py`, `process_stage_queue.py`, `crawler_v2.py`, `ranking.py`, `models.py`, `update_terms.py`, `daily_ops_orchestrator.py`, `daily-ops.yml`, and the test suite.
+- **Project docs**: `README.md`, `AGENTS.md`, `docs/handoff_2026-03-20/STATE.md`, `docs/reviewer_workflow_map.md`.
+
+The report separates two kinds of attribution and labels every claim by which one it uses:
+
+- **Git-author attribution** — what git directly proves. Every `landeryt` commit is credited to Huan. `baezarciel` plus the initial `ArcielB` commit are credited to Arciel. The `ayseguldogan2706-cpu` identity has seven all-ref commits, five of them the original MVP/frontend commits on `origin/master`.
+- **Subsystem attribution** — the team's stated ownership split for assessment. **Ayşegül** owns the core user-facing annotator frontend (annotation UI, PDF viewing/highlighting UX, autocomplete surfaces, workflow views). **Arciel** owns the database/schema/RLS/RPCs, crawler, AI pipeline, daily ops, deployment infrastructure, backend-driven cockpit integrations, documentation, and project management. **Huan** owns his `landeryt` commits in full, whatever layer they touched.
+
+This distinction is essential: a report based only on current-mainline git authorship would under-credit Ayşegül, because her early frontend work was imported through later integration commits; a report based only on subsystem claims would hide what git directly proves. This report carries both and never conflates them.
+
+## 3. Reproducible metrics & evidence snapshot
+
+All counts below were re-verified against the `cc035c3` working tree with `wc -l`, `git ls-files`, `git shortlog`, and `grep` over `migration.sql`. The per-file line counts, schema-object counts, and test counts are exact; the bucketed source totals and the all-ref churn are snapshot/filter-dependent and are labeled as such.
+
+### 3.1 Tracked active source by bucket
+
+Exclusions as in §2 (USDA dumps, generated binaries, `legacy/`, `node_modules`, `dist`, local pipeline data, generated feedback JSON, lockfiles, work-report files).
 
 | Bucket | Lines | Files | Main evidence |
 | --- | ---: | ---: | --- |
-| Backend, ops, schema | 31,511 | 88 | Python pipeline, SQL schema/RPC/RLS files, GitHub Actions workflow. |
-| Frontend | 14,061 | 53 | React app source, Vite/API/config files, UI helpers. |
-| Active docs | 5,191 | 23 | README, AGENTS, handoff/state, reviewer SOP/map, maintained docs excluding work reports. |
-| Proposal appendix docs | 971 | 9 | Proposal-section deliverables, counted separately from active implementation docs. |
-| Other active | 24 | 1 | Small repo metadata file outside the buckets. |
-| Total | 51,758 | 174 | Current active tracked text/source under the exclusions above. |
+| Backend, ops, schema | ~31,500 | 88 | Python pipeline, SQL schema/RPC/RLS, GitHub Actions workflow. |
+| Frontend | ~14,100 | 53 | React app source, Vite/API/config, UI helpers. |
+| Active docs | ~5,150 | 23 | README, AGENTS, handoff/state, reviewer SOP/map (work reports excluded). |
+| Proposal appendix docs | 971 | 9 | Proposal-section deliverables, counted separately. |
+| **Total active tracked source** | **~51,800** | **~174** | Current active tracked text/source under the exclusions above. |
 
-### 2.2 Key File Line Counts
+### 3.2 Key implementation file sizes (exact, current)
 
 | File | Lines | Why it matters |
 | --- | ---: | --- |
-| `apps/expert-annotator/migration.sql` | 5,396 | Current schema, RLS, RPCs, reviewer workflow, routing tables. |
-| `services/data-pipeline/scripts/daily_ops_orchestrator.py` | 2,358 | Controller/drain worker tick orchestration and quota accounting. |
+| `apps/expert-annotator/migration.sql` | 5,396 | Schema, RLS, RPCs, reviewer workflow, routing tables. |
+| `services/data-pipeline/scripts/daily_ops_orchestrator.py` | 2,358 | Controller/drain orchestration and quota accounting. |
 | `apps/expert-annotator/src/utils/PdfTextScanner.js` | 2,323 | Browser-side PDF text/table/evidence geometry engine. |
-| `services/data-pipeline/food_paper_crawler/crawler_v2.py` | 2,215 | Multi-source Search -> Filter -> Acquisition crawler. |
-| `services/data-pipeline/scripts/process_stage_queue.py` | 1,560 | AI task worker, retry/fallback/quota behavior, routing writes. |
-| `services/data-pipeline/food_paper_crawler/feedback/update_terms.py` | 1,219 | Human-truth feedback export and query/scoring updates. |
-| `apps/expert-annotator/src/pages/Annotate.jsx` | 1,163 | Main UI orchestration, queue, cockpit, approval, suggestions. |
+| `services/data-pipeline/food_paper_crawler/crawler_v2.py` | 2,215 | Multi-source Search → Filter → Acquisition crawler. |
+| `services/data-pipeline/scripts/process_stage_queue.py` | 1,560 | AI task worker: retry/fallback/quota, routing writes. |
+| `services/data-pipeline/food_paper_crawler/feedback/update_terms.py` | 1,219 | Human-truth feedback export and term scoring. |
+| `apps/expert-annotator/src/pages/Annotate.jsx` | 1,163 | Main UI orchestration: queue, cockpit, approval, suggestions. |
 | `apps/expert-annotator/src/components/PdfViewer.jsx` | 939 | PDF rendering, caching, headless scan, overlays, navigation. |
 | `services/data-pipeline/ai_routing.py` | 842 | Routing constants, bucket logic, deterministic payload normalization. |
 | `services/data-pipeline/scripts/upload_to_supabase.py` | 774 | Paper/search-hit/batch registration and AI task enqueue. |
 | `services/data-pipeline/evaluator/unified_evaluator.py` | 687 | Shared model prompt, native PDF input, JSON parser, record extraction. |
 | `services/data-pipeline/food_paper_crawler/dergipark_source.py` | 687 | Retained Turkish/DergiPark source adapter. |
 | `apps/expert-annotator/src/components/FoodAutocomplete.jsx` | 664 | Food catalog search/ranking UX. |
-| `services/data-pipeline/scripts/ensure_paper_stock.py` | 573 | Queue stock/refill wrapper and English-default behavior. |
 | `apps/expert-annotator/src/utils/annotateHelpers.js` | 574 | Shared UI payload, formatting, pipeline, AI-summary helpers. |
+| `services/data-pipeline/scripts/ensure_paper_stock.py` | 573 | Queue stock/refill wrapper, English-default behavior. |
 | `services/data-pipeline/food_paper_crawler/ranking.py` | 485 | Metadata/PDF relevance and validation scoring. |
-| `services/data-pipeline/scripts/recover_gemini_candidates.py` | 446 | Historical candidate recovery dry-run/apply tool. |
-| `services/data-pipeline/scripts/refill_assignment_queue.py` | 408 | Compatibility stock job for the general queue. |
+| `apps/expert-annotator/src/utils/EvidenceLocations.js` | 439 | Source grouping and evidence dedup. |
+| `services/data-pipeline/food_paper_crawler/models.py` | 374 | Candidate/query dataclasses + deterministic identity/dedup keys. |
 | `apps/expert-annotator/src/components/NutrientAutocomplete.jsx` | 334 | Nutrient catalog search/ranking UX. |
-| `apps/expert-annotator/src/components/SuggestionModal.jsx` | 279 | User suggestions with attachments and rollback behavior. |
-| `.github/workflows/daily-ops.yml` | 148 | Scheduled controller plus 5 drain-worker matrix. |
+| `apps/expert-annotator/src/components/SuggestionModal.jsx` | 279 | User suggestions with attachments and rollback. |
+| `apps/expert-annotator/src/utils/fuzzyMatch.js` | 162 | Banded-Levenshtein fuzzy-match engine (both autocompletes). |
+| `apps/expert-annotator/api/pdf.js` | 102 | Same-origin PDF proxy with SSRF hardening. |
+| `.github/workflows/daily-ops.yml` | 148 | Scheduled controller + 5 drain-worker matrix. |
 
-### 2.3 Schema/RPC/RLS Counts
+### 3.3 Schema / RPC / RLS counts (from `migration.sql`)
 
-From `apps/expert-annotator/migration.sql`:
-
-| SQL object type | Count |
+| SQL object | Count |
 | --- | ---: |
 | Tables | 31 |
-| Functions/RPCs | 26 |
+| Functions / RPCs | 26 |
 | RLS policies | 75 |
 | RLS-enabled tables | 32 |
 | Indexes | 69 |
@@ -127,785 +148,94 @@ From `apps/expert-annotator/migration.sql`:
 | `SECURITY DEFINER` functions | 22 |
 | Storage policies | 4 |
 
-Important functions/RPCs include `hook_restrict_signup_by_email_allowlist`, `claim_paper_stage_tasks`, `sync_reviewer_profile`, `get_general_queue_papers`, `get_general_queue_cards`, `submit_general_label`, `approve_label_submission`, `get_cockpit_ai_extractions`, `get_pipeline_ops_snapshot`, `build_annotation_submission_payload`, and `build_label_payload_diff`.
+Principal RPCs: `hook_restrict_signup_by_email_allowlist`, `claim_paper_stage_tasks`, `sync_reviewer_profile`, `get_general_queue_papers`, `get_general_queue_cards`, `submit_general_label`, `approve_label_submission`, `get_cockpit_ai_extractions`, `get_pipeline_ops_snapshot`, `build_annotation_submission_payload`, `build_label_payload_diff`.
 
-### 2.4 Test Coverage Evidence
+### 3.4 Test coverage (exact, current)
 
-Tracked test files total 5,898 lines across 10 files. The core regression suite most relevant to current risk is 5,617 lines; the remaining tracked test scripts are older/live connectivity helpers.
+Tracked test files total **5,898 lines across 10 files**; the focused high-risk regression suite is **5,617 lines**. The suite holds **128 Python `test_` functions** and **35 frontend `it()`/`test()` blocks**.
 
-| Test file | Lines | Evidence focus |
+| Test file | Lines | Focus |
 | --- | ---: | --- |
-| `services/data-pipeline/tests/test_ai_routing.py` | 2,469 | AI normalization, routing, retry/fallback/quota, upload edge cases. |
-| `services/data-pipeline/tests/test_bilingual_pipeline.py` | 1,120 | Crawler language/source/filter behavior, terminal state, batch feedback, PDF limits. |
-| `services/data-pipeline/tests/test_daily_ops.py` | 983 | Controller/drain ticks, daily quota windows, worker requirements, stage counts. |
-| `apps/expert-annotator/src/utils/PdfTextScanner.test.js` | 655 | Table/paragraph/evidence matching and page-hint behavior. |
-| `apps/expert-annotator/src/utils/EvidenceLocations.test.js` | 225 | Source grouping and evidence dedup behavior. |
-| `apps/expert-annotator/src/utils/evidenceStatusCache.test.js` | 92 | Evidence status cache behavior. |
-| `services/data-pipeline/tests/test_pdf_page_markers.py` | 73 | Page-marker injection and text cap behavior. |
-| `services/data-pipeline/test_harvest.py` | 243 | Older/live harvester checks. |
-| `services/data-pipeline/scripts/test_frontend_fetch.js` | 24 | Frontend connectivity helper. |
-| `services/data-pipeline/test_pg.py` | 14 | Database connectivity helper. |
+| `tests/test_ai_routing.py` | 2,469 | AI normalization, routing, retry/fallback/quota, upload edge cases. |
+| `tests/test_bilingual_pipeline.py` | 1,120 | Crawler language/source/filter behavior, terminal state, batch feedback, PDF limits. |
+| `tests/test_daily_ops.py` | 983 | Controller/drain ticks, quota-day windows, worker requirements, stage counts. |
+| `src/utils/PdfTextScanner.test.js` | 655 | Table/paragraph/evidence matching, page-hint behavior. |
+| `src/utils/EvidenceLocations.test.js` | 225 | Source grouping and evidence dedup. |
+| `src/utils/evidenceStatusCache.test.js` | 92 | Evidence status cache behavior. |
+| `tests/test_pdf_page_markers.py` | 73 | Page-marker injection and text cap. |
+| `test_harvest.py` | 243 | Older/live harvester checks. |
+| `scripts/test_frontend_fetch.js` | 24 | Frontend connectivity helper. |
+| `test_pg.py` | 14 | Database connectivity helper. |
 
-The current tests include about 130 Python `test_` methods/functions and 35 frontend `it()`/`test()` blocks.
+### 3.5 Contributor evidence
 
-### 2.5 Contributor Evidence
+Git history must be read **across all refs** because the original MVP/frontend commits from Ayşegül are preserved on `origin/master` while the current `main` later imported and reorganized that work.
 
-Git history must be read across all refs because the original MVP/frontend commits from Aysegul are preserved on `origin/master`, while the current `main` branch later imported and reorganized that work.
-
-`git shortlog -sne --all` at the snapshot:
+`git shortlog -sne --all` at `cc035c3`:
 
 | Git author | Commits |
 | --- | ---: |
-| `baezarciel <baezarciel@gmail.com>` | 214 |
+| `baezarciel <baezarciel@gmail.com>` | 216 |
 | `landeryt <mcraft160105@gmail.com>` | 24 |
 | `ayseguldogan2706-cpu <ayseguldogan2706@example.com>` | 7 |
-| `ArcielB <106127166+ArcielB@users.noreply.github.com>` | 1 |
+| `ArcielB <…@users.noreply.github.com>` | 1 |
 
-All-ref churn under the active-source filter used for this report:
+*(The three most recent `baezarciel` commits are these defense documents; the project-code attribution below excludes work-report files.)*
+
+All-ref churn under the active-source filter:
 
 | Git author | Added | Deleted | Caveat |
 | --- | ---: | ---: | --- |
-| `baezarciel` | 65,478 | 15,904 | Backend, schema, ops, docs, integration, and much later frontend integration. |
-| `ayseguldogan2706@example.com` | 3,185 | 88 | Active-source-filtered frontend MVP lines; raw all-ref additions are 6,624 because `origin/master` includes `package-lock.json`. |
+| `baezarciel` | ~66,000 | ~17,000 | Backend, schema, ops, docs, integration, and later frontend integration. |
+| `ayseguldogan2706@example.com` | 6,624 | 88 | Original MVP/frontend on `origin/master`; raw all-ref additions include `package-lock.json` (active-source-filtered additions are ~3,200). |
 | `mcraft160105@gmail.com` | 2,188 | 582 | Huan's directly authored commits and full-stack features. |
-| `ArcielB` | 1 | 0 | Initial repository README commit; treated as Arciel for attribution. |
+| `ArcielB` | 1 | 0 | Initial README commit; credited to Arciel. |
 
-Aysegul's seven all-ref commits are `7c2d372`, `614a82c`, `6245a17`, `00fd645`, `8a29dcb`, `969c902`, and `fb33626`; the first five are the original MVP/frontend commits on `origin/master`.
+Ayşegül's seven all-ref commits: `7c2d372`, `614a82c`, `6245a17`, `00fd645`, `8a29dcb`, `969c902`, `fb33626`; the first five are the original MVP/frontend commits on `origin/master`.
 
-## 3. Frontend Annotator
+## 4. Repository structure
 
-### 3.1 What Was Built
+### Frontend — `apps/expert-annotator/src/`
 
-The frontend is a production-oriented expert annotation tool in `apps/expert-annotator/`. It includes:
+- `pages/Annotate.jsx` — state orchestration, queue refresh, cockpit lazy-loading, save/submit, approval, help/suggestion routing.
+- `views/*.jsx` — extracted queue, approval, dashboard, paper-overview, pipeline, suggestion, reviewer-admin views.
+- `components/PdfViewer.jsx` + `utils/PdfTextScanner.js` + `utils/EvidenceLocations.js` — PDF rendering and evidence layout analysis.
+- `components/FoodAutocomplete.jsx`, `components/NutrientAutocomplete.jsx`, `utils/fuzzyMatch.js` — catalog search and approximate matching.
+- `components/SuggestionModal.jsx`, `views/SuggestionsReviewView.jsx`, `views/MySuggestionsView.jsx` — suggestion flow.
+- `utils/annotateHelpers.js` — payload normalization, model-stage labels, cockpit funnel helpers, AI-extraction summaries.
 
-- Supabase login and reviewer-profile sync.
-- A shared general queue of `human_review_ready` papers.
-- Quiet AI prefill from the latest normalized Gemini `has_data` payload.
-- Editable food/nutrient rows with custom-food/custom-nutrient support.
-- A PDF viewer with table-scoped nutrient highlighting, source chips, coordinate overlays, printed-page handling, and durable PDF caching.
-- Draft save, final useful-data submission, no-usable-data submission, and help requests.
-- An approver workflow where Arciel can edit and accept final truth.
-- Cockpit views for dashboard, pipeline, useful papers, reviewer admin, suggestions, and labeler-submitted suggestions.
-- Test mode/read-only tester behavior that disables writes and stores actions locally.
+### Backend & data pipeline — `services/data-pipeline/`
 
-### 3.2 Why It Was Needed
+- `food_paper_crawler/crawler_v2.py`, `ranking.py`, `models.py`, `embeddings.py`, source adapters (`europe_pmc.py`, `dergipark_source.py`, `search_sources.py`) — paper discovery, relevance scoring, deterministic identity keys.
+- `food_paper_crawler/feedback/update_terms.py` (+ `feedback_*.py`, `supabase_terms.py`) — human-truth feedback learning.
+- `ai_routing.py`, `evaluator/unified_evaluator.py`, `scripts/process_stage_queue.py` — AI decision contract, deterministic normalization, queue processing, retry/fallback.
+- `scripts/daily_ops_orchestrator.py`, `scripts/ensure_paper_stock.py`, `scripts/upload_to_supabase.py` — unattended ops, queue refill, upload/routing.
+- `etl/` USDA loaders, plus operational/backfill scripts and a retained earlier-architecture pipeline (`pipeline.py`, `harvester/`, `core/`, `extraction/`) — see §6.10.
 
-The project needed human experts to verify AI-extracted food composition rows against source PDFs. A normal data-entry UI would not be enough because the hard part is evidence inspection: reviewers need to jump from a normalized row to the table or paragraph in the PDF, correct foods/nutrients, and submit a DB-compliant payload that can be compared against AI output and later used as truth.
+### Database & security
 
-### 3.3 Technologies and Why They Fit
+`apps/expert-annotator/migration.sql` is the single schema/RLS/RPC source of truth: canonical food/nutrient reference layer, paper-discovery tables, annotation tables, general queue + approval tables, AI extraction/routing tables, reviewer profiles, suggestion-review tables, 75 RLS policies, and 22 `SECURITY DEFINER` RPCs.
 
-The annotator uses:
+### Deployment & operations
 
-- React 19 and React DOM 19 for stateful, componentized UI.
-- Vite 7 for fast local development and Vercel-compatible bundling.
-- `@supabase/supabase-js` 2.x for auth, table reads/writes, RPC calls, and signed storage URLs.
-- `react-pdf` 10.x and `pdfjs-dist` for browser PDF rendering and text-layer access.
-- Plain CSS in `src/index.css` for a compact operational UI.
-- ESLint 9 with React Hooks and React Refresh plugins for frontend validation.
-
-These choices fit the problem because the app is mostly a dense workflow surface over Supabase data. React makes the multi-tab state and editable nested rows manageable; Supabase gives auth and row-level access control; PDF.js exposes text geometry needed for evidence matching.
-
-### 3.4 How It Works
-
-`src/pages/Annotate.jsx` is the orchestrator. On mount it calls `sync_reviewer_profile`, loads the queue immediately, and fetches reference nutrients and foods. The queue fast path calls `get_general_queue_cards`, a lean security-definer RPC that returns queue card fields, latest AI payload, and the current user's annotation status in one round trip. A legacy fallback calls `get_general_queue_papers`, `ai_extractions`, and `annotations` separately if the card RPC is not deployed.
-
-When a queue paper has no saved annotation, `buildFoodItemsFromPayload(currentItem.latest_ai_extraction.normalized_payload_json)` initializes editable rows directly from AI output. There is no AI-reasoning banner in the queue; the rows simply become the draft that the labeler corrects.
-
-Final submission is guarded in the UI:
-
-- Useful-data save requires at least one valid food item.
-- Final useful-data submission requires at least one nutrient row.
-- `paper_label_events` records the action.
-- `submit_general_label` freezes the canonical payload into `paper_label_submissions`.
-
-Approvals use the same editable food/nutrient form and call `approve_label_submission`. The original labeler submission is not overwritten. The accepted reviewer payload and correction diff are stored separately.
-
-Cockpit-heavy payloads are lazy-loaded only when a cockpit tab opens. The Useful Papers cockpit uses `get_cockpit_ai_extractions` rather than `ai_extractions.select('*')`, keeping raw model responses out of default browser payloads.
-
-### 3.5 Frontend Views
-
-The current app is split into focused views:
-
-- `QueueView.jsx` handles labeler queue navigation, PDF viewer, food forms, source strip, idle PDF prefetch, and action buttons.
-- `ApprovalView.jsx` shows the original submission beside the editable final reviewer payload.
-- `DashboardView.jsx` computes labeler performance from submissions and approval diffs.
-- `AllPapersView.jsx` shows useful-paper routing state and AI Details.
-- `PipelineOpsView.jsx` renders stage queues and funnel counters from `get_pipeline_ops_snapshot`.
-- `SuggestionsReviewView.jsx` and `MySuggestionsView.jsx` split suggestion handling by role.
-- `ReviewerAdminView.jsx` exposes reviewer flags, tester access, cockpit access, and approval rights.
-
-### 3.6 Hard Parts Solved
-
-The frontend solves several failure modes that would otherwise make labeling slow or unsafe:
-
-- Queue load egress was reduced by moving to one lean queue-card RPC.
-- AI prefill no longer overwrites saved drafts or submissions.
-- Tester accounts remain read-only even when they can see cockpit views.
-- Help requests capture paper, reviewer, draft, and AI context instead of leaving confusion in chat.
-- Suggestions with image attachments upload into a private bucket and roll back uploaded files if the DB insert fails.
-- The app avoids pulling raw model responses into cockpit lists by default.
-- Durable Cache Storage and idle prefetch reduce repeat PDF loads.
-
-### 3.7 Current Limitations
-
-- Food/nutrient autocomplete ranking is heuristic, not learned.
-- The frontend unit tests focus on evidence matching/caching, not every UI action.
-- Live Supabase behavior is protected by RPC/RLS design but not fully covered by browser end-to-end tests in this repo.
-- The PDF text-layer nutrient highlighting still cannot match nutrient names split across multiple PDF.js text items; source overlays cover broad evidence navigation separately.
-
-## 4. PDF Evidence Scanner and Viewer
-
-### 4.1 What Was Built
-
-OpenNutri includes a browser-side PDF evidence engine built from `PdfViewer.jsx`, `PdfTextScanner.js`, `EvidenceLocations.js`, `EvidenceStrip.jsx`, `useEvidenceStatusCache.js`, `evidenceStatusCache.js`, `evidenceDedupStorage.js`, and `pdfCache.js`.
-
-It provides:
-
-- Self-hosted PDF.js worker bundled by Vite.
-- Durable PDF byte caching through Cache Storage.
-- Headless per-page text scanning before canvas render.
-- Table-scoped nutrient-name click highlights.
-- Evidence source chips built from AI/human row metadata.
-- Matching to table captions, detected table blocks, paragraph quotes, and page hints.
-- Printed-page-number mapping when journal/offprint PDFs show printed page labels.
-- Always-on coordinate overlays for matched table/paragraph regions.
-- Local and remote dedup cache so repeated source rows that resolve to one region share one chip and one overlay.
-
-### 4.2 Why It Was Needed
-
-AI and human payloads store broad evidence hints, not hand-drawn coordinates. Reviewers need to verify rows quickly in arbitrary publisher PDFs. PDF.js gives glyphs and text items, not tables, paragraphs, columns, or true evidence regions. The code therefore reconstructs enough document structure to turn row metadata into useful navigation.
-
-### 4.3 How It Works
-
-`PdfViewer.jsx` loads PDF bytes via `getPdfBytes`, passes `{ data }` to `react-pdf`, renders page 1 immediately, then runs a headless scan over each page's text content and intrinsic size. Evidence pages render early, and after scan completion all remaining pages render. The viewer builds a per-page highlight plan from:
-
-- `buildPageTableHighlightPlan(textContent)`;
-- `detectPrintedPageNumber(textContent, pageNumber, numPages)`;
-- `buildPageEvidenceHighlightPlan(textContent, evidenceLocations, pageNumber, { printedPageNumber, numPages })`.
-
-`PdfTextScanner.js` extracts positioned PDF text items, builds page metrics, detects column gutters, groups glyphs into rows/fragments, finds table captions, builds confident table regions, builds paragraph blocks outside tables, and matches evidence metadata. It treats `page_hint` as a navigation hint, not proof. If a page hint exceeds total PDF page count, it cannot be a true PDF page index, so content matching can search by table label or source quote instead of staying locked to an impossible page.
-
-`EvidenceLocations.js` groups multiple nutrient rows into source locations using table labels, page hints, source citations, and quote overlap. `EvidenceStrip.jsx` renders the source chips with statuses: matched, hinted, or unverified. `useEvidenceStatusCache` persists dedup clusters locally and remotely through `paper_evidence_dedup`/`merge_paper_evidence_dedup`.
-
-### 4.4 Technologies and Why They Fit
-
-- `react-pdf` and PDF.js are the right choice because they expose both rendered canvases and text-layer content in the browser.
-- Cache Storage is appropriate for PDF byte caching because it survives page navigation and avoids repeated source fetches.
-- Supabase RPC/table storage is used only for dedup clusters, not raw PDF text, keeping storage low.
-- Plain JS geometry is used because the input is the PDF.js text item stream, not semantic HTML.
-
-### 4.5 Hard Parts and Failure Modes Solved
-
-- Table regions are inferred from captions, row structure, numeric/data-like fragments, and column gutters.
-- Paragraph matching avoids document chrome such as affiliations, article history, keywords, and copyright rows.
-- Source quotes are matched as contiguous excerpts; ellipsis-joined distant fragments are not trusted.
-- Table-caption fallback still gives a visible target when a table body is too messy to detect.
-- Printed page labels map journal page numbers to PDF page indexes when possible.
-- Multiple sources in one resolved block are deduplicated to one chip/overlay.
-- Evidence pages render before non-evidence pages, reducing blank waits after auto-jump.
-
-### 4.6 Validation and Known Gaps
-
-Frontend evidence tests cover `PdfTextScanner`, `EvidenceLocations`, and evidence status cache behavior. Known limitations remain:
-
-- Nutrient-name click highlights operate on individual PDF.js text items.
-- OCR/image-only PDFs have weak text-layer support in the frontend; final Gemini PDF mode can read native PDFs, but the UI still depends on PDF.js text content for source matching.
-- Complex multi-page table continuations can still require manual reviewer judgment.
-
-## 5. Supabase Schema, RLS, and Workflow Engine
-
-### 5.1 What Was Built
-
-`apps/expert-annotator/migration.sql` is the current schema source of truth. It defines:
-
-- Reference food/nutrient/source/claim tables.
-- Paper discovery and search-hit/search-batch ledgers.
-- Human annotations, food items, nutrient values, label events, and legacy global labels.
-- Reviewer profiles and access flags.
-- Current general-queue workflow tables: `paper_label_submissions`, `paper_label_approvals`, `paper_review_outcomes`.
-- Legacy slot/conflict tables preserved for audit.
-- AI routing tables: `routing_stage_configs`, `paper_stage_tasks`, `ai_extractions`.
-- Suggestion/help-review table and storage policies.
-- 75 RLS policies and 22 `SECURITY DEFINER` functions.
-
-### 5.2 Why It Was Needed
-
-OpenNutri has multiple principals: ordinary labelers, approvers, cockpit viewers, read-only testers, service-role workers, and Supabase auth hooks. Direct table access would either leak sensitive data or block legitimate workflows. The schema uses RLS and security-definer RPCs to expose exactly the slices needed by each role.
-
-### 5.3 Main Data Model
-
-The reference layer:
-
-- `entities`: canonical foods.
-- `entity_aliases`: food aliases.
-- `master_nutrients`: canonical nutrients.
-- `sources`: provenance.
-- `claims`: normalized entity-nutrient-source facts.
-
-The discovery layer:
-
-- `papers`: paper identity, source metadata, `pdf_url`, workflow language, routing status, current stage, latest AI extraction.
-- `paper_search_hits`: idempotent source/query hit ledger keyed by `hit_key`.
-- `paper_search_batches` and `paper_search_batch_hits`: bounded query-batch history used for feedback.
-
-The active review layer:
-
-- `annotations`, `food_items`, `annotation_nutrient_values`: editable per-user workspace.
-- `paper_label_submissions`: immutable labeler payload snapshots with canonical text/hash.
-- `paper_label_approvals`: one accepted approval per paper, with correction diff.
-- `paper_review_outcomes`: final paper truth.
-
-The AI layer:
-
-- `routing_stage_configs`: stage order, model names, thresholds, fallback models, input mode, no-data destination.
-- `paper_stage_tasks`: queued/processing/completed/failed model tasks with priority and attempt count.
-- `ai_extractions`: model response, normalized payload, normalization summary, bucket, destination, thresholds, audit flags.
-
-### 5.4 RPCs and Security Design
-
-Important security-definer functions:
-
-- `current_auth_email`, `current_user_has_cockpit_access`, `current_user_is_tester`, `current_user_can_write`, `current_user_has_cockpit_write_access`, and `current_user_can_approve_labels` centralize role checks.
-- `hook_restrict_signup_by_email_allowlist(event jsonb)` protects signup through `allowed_auth_emails`, with direct client-role table privileges revoked.
-- `claim_paper_stage_tasks` uses `FOR UPDATE SKIP LOCKED` and retry-fair ordering to let parallel workers claim distinct rows.
-- `get_general_queue_cards` returns the lean queue payload in one RPC.
-- `submit_general_label` writes an immutable labeler submission and auto-accepts approver submissions.
-- `approve_label_submission` stores corrected final truth and supersedes other pending submissions.
-- `get_cockpit_ai_extractions` returns a slim AI projection without raw model reasoning.
-- `get_pipeline_ops_snapshot` aggregates protected task/routing/funnel data for cockpit users.
-
-### 5.5 Hard Parts Solved
-
-- The migration is convergent/idempotent: many columns and constraints use `IF NOT EXISTS` or defensive `DO` blocks.
-- Legacy workflow tables remain available for audit without driving the current queue.
-- Tester read-only behavior is enforced at SQL predicate level, not only in React.
-- Direct client access to the signup allowlist is revoked.
-- `paper_label_submissions` and `paper_label_approvals` preserve original versus corrected payloads.
-- SQL and Python both build canonical payload hashes, enabling exact comparison between AI and human outputs.
-- `claim_paper_stage_tasks` is the concurrency primitive that makes five GitHub drain workers safe.
-
-### 5.6 Known Limitations
-
-- One 5,396-line convergent migration is easy to re-apply but large to audit.
-- Legacy audit tables add schema complexity.
-- RLS is robust but must be validated against live Supabase after schema changes; this task does not alter or apply migrations.
-
-## 6. AI Routing, Unified Evaluator, and Normalization
-
-### 6.1 What Was Built
-
-The AI subsystem spans `ai_routing.py`, `evaluator/unified_evaluator.py`, `scripts/process_stage_queue.py`, `scripts/recover_gemini_candidates.py`, and `scripts/flash_lite_triage_experiment.py`.
-
-The production cascade is:
-
-| Role | Stage key | Model | Input mode | Daily target |
-| --- | --- | --- | --- | ---: |
-| Small model | `gemma_proof_extraction_v1` | `gemma-4-31b-it`, fallback `gemma-4-26b-a4b-it` | Text with page markers | ~1,500 |
-| Medium model | `gemini_flash_lite_triage_v1` | `gemini-3.1-flash-lite` | Configured by stage | ~500 |
-| Strong model | `gemini_flash_db_payload_v2` | `gemini-3.5-flash` | Native PDF | ~20 |
-
-Each stage runs the shared `UnifiedEvaluator` prompt/contract, then deterministic normalization and routing decide whether to enqueue the next stage, provisional-skip the paper, finalize it, or send it to humans.
-
-### 6.2 Why It Was Needed
-
-The final extraction model is the scarce resource. A one-stage design would spend expensive calls on low-value papers. The cascade lets OpenNutri screen a much larger literature pool, re-rank likely positives, and spend the final extraction budget on the strongest candidates.
-
-### 6.3 UnifiedEvaluator
-
-`UnifiedEvaluator.EXTRACTION_PROMPT` defines what "useful OpenNutri data" means. It requires strict JSON, broad evidence metadata, per-row food/nutrient values, DB IDs when confidently matched, and true 1-based PDF page index hints. It explicitly rejects intervention/effect/outcome papers unless they contain direct food/product composition tables.
-
-The evaluator:
-
-- Sends the full nutrient catalog.
-- Sends high-signal food candidates selected from paper text, not the full food catalog.
-- Can attach native PDF bytes inline under about 15 MB, otherwise through the Gemini Files API with cleanup.
-- Handles text-mode stages by passing marked text with `===== PDF PAGE N =====` markers.
-- Accepts multiple model output shapes: requested object, top-level array of rows, one result object wrapped in an array, and nested `food -> nutrients[]` rows.
-- Strips Markdown JSON fences and scans for balanced JSON objects/arrays inside noisy model text.
-
-### 6.4 Deterministic Normalization
-
-`normalize_ai_payload_with_summary` converts free-form model rows into the same canonical payload shape as a human submission:
-
-- Drops rows missing food, nutrient, or amount.
-- Standardizes only DB-compatible units: `g/100g`, `mg/100g`, `μg/100g`, `kcal/100g`, `kJ/100g`, `IU/100g`, and `%`.
-- Rejects dry-matter and unsupported bases for final payload rows.
-- Verifies model-provided food/nutrient IDs against current DB rows and matching names.
-- Falls back to exact/alias matching.
-- Preserves unresolved foods/nutrients as explicit custom rows.
-- Preserves evidence metadata such as table label, page hint, source quote, section heading, paragraph hint, and source location type.
-- Sorts foods/nutrients deterministically and rounds values to six decimals.
-- Emits a normalization summary with accepted/rejected/unmapped counts and rejection reasons.
-
-This is necessary because AI output and human submissions are later compared by canonical JSON and SHA-256 hash.
-
-### 6.5 Routing and Priority
-
-`classify_routing_bucket`, `stable_audit_sample`, and `route_bucket` map model decisions into routing destinations. Low-confidence outputs go to humans; high-confidence outputs can finalize unless sampled for audit; no-data stages can provisional-skip.
-
-`score_followup_priority` makes the cascade top-N rather than FIFO. It rewards:
-
-- model confidence;
-- accepted normalized rows;
-- evidence rows;
-- per-100g rows;
-- table rows;
-- complete raw rows;
-- direct composition language;
-- high database-value signals.
-
-It applies soft penalties for review/meta-analysis/database aggregates, feed/digestibility, sensory/outcome/biomarker/cell/animal, one-off formulation, treatment, supplement, and extract language. Unsupported-unit raw rows can increase screening priority but still cannot enter the final normalized payload.
-
-### 6.6 Worker Failure-Mode Handling
-
-`process_stage_queue.py` implements:
-
-- `claim_paper_stage_tasks` RPC claiming.
-- Stale `processing` requeue.
-- Model runtime validation before claiming rows.
-- `pdftotext` dependency failure fast.
-- Source-URL PDF fetch through `papers.pdf_url`.
-- Native PDF bytes for PDF-mode stages.
-- Gemma-specific text cap via `GEMMA_STAGE_TEXT_LIMIT_CHARS`.
-- Per-task timeout through `AI_MODEL_TASK_TIMEOUT_SECONDS`.
-- Same-attempt fallback from Gemma 31B to configured 26B on retryable failures.
-- Non-retryable model configuration failure as permanent task failure.
-- Quota/rate-limit requeue that decrements attempt count so quota does not burn retry budget.
-- Non-quota retry ceiling through `AI_STAGE_MAX_TASK_ATTEMPTS`.
-- Raw-positive rescue for useful-looking Gemma output that normalized to empty rows.
-
-### 6.7 Validation and Limitations
-
-`test_ai_routing.py` covers normalization, unit policy, ID safety, JSON-shape salvage, priority scoring, stale requeue, fallback, quota behavior, upload races, and route preservation. Limitations:
-
-- The model contract still depends on live Gemini/Gemma behavior and can drift.
-- Strict unit policy rejects some scientifically valid rows that are not DB-ready.
-- Text-mode Gemma cannot interpret scanned/image-only PDFs; routing such papers to a PDF-capable first stage is a separate follow-up.
-
-## 7. Crawler v2, Ranking, and PDF Acquisition
-
-### 7.1 What Was Built
-
-`FoodCompositionCrawlerV2` implements a staged literature crawler:
-
-```text
-Search -> metadata filter -> PDF acquisition -> PDF validation -> manifest/search ledger
-```
-
-Current default sources are Europe PMC, OpenAlex, and Semantic Scholar. A DergiPark/Turkish path remains in the code but current daily ops defaults are English-only.
-
-### 7.2 Why It Was Needed
-
-Downloading and validating PDFs is expensive and unreliable. The crawler therefore retrieves metadata first, applies additive relevance scoring, and downloads only candidates that pass. The target is high-precision direct food composition papers, not every nutrition paper.
-
-### 7.3 Technologies and Why They Fit
-
-- Python standard library HTTP/XML/JSON tools for source adapters.
-- Europe PMC APIs, OpenAlex, Semantic Scholar, and retained DergiPark adapter for literature search.
-- `pdftotext` from Poppler for PDF text validation.
-- `sentence-transformers` via `DualEmbeddingScorer` for embedding similarity in crawler ranking.
-- Supabase REST/service-role access through upload/refill scripts.
-- Local manifest JSON for resumable crawler artifacts and batch audit.
-
-### 7.4 How It Works
-
-The crawler builds language-scoped query tasks. With current defaults, total targets go to English and Turkish target is zero. Query execution is batch-aware: every source/query task carries a batch id/key and stores search-gate/filter/acquisition counters for later feedback.
-
-The search gate scores title/abstract with:
-
-- composition phrase hits;
-- food-term hits;
-- nutrient-term hits;
-- unit patterns such as `mg/100g`;
-- food + nutrient combo;
-- penalties for missing abstract, strong negative signals, soft negative terms, and health-outcome terms.
-
-The metadata filter adds:
-
-- stronger lexical weights;
-- source priors;
-- embedding similarity;
-- soft feedback n-gram score.
-
-PDF acquisition then fetches source PDFs or Europe PMC OA packages, checks size limits, writes local files, extracts text, strips reference sections in validation, and requires table/food/nutrient/unit evidence through `ranking.validate_pdf_text`.
-
-### 7.5 Failure Modes Solved
-
-- Wall-clock bounded crawler runs write partial accepted results instead of losing work at the GitHub job limit.
-- Oversized PDFs are rejected before becoming storage/egress problems.
-- Publisher HTML/redirect pages are handled with nested PDF discovery, curl fallback, and an MD5 proof-of-work solver for PMC pages that require it.
-- Accepted filenames are identity-based, not title slug-based.
-- Crawler terminal state and live Supabase `papers.canonical_key` rows are used to avoid re-downloading already queued/skipped/finalized papers.
-- Metadata-only search-hit rejects are not used as global skip memory, preserving audit/benchmark flexibility.
-- Negative evidence is penalty-based, not a hard veto.
-
-### 7.6 Limitations
-
-- Current ops are intentionally English-only, even though Turkish code remains.
-- The crawler prioritizes precision and may miss useful papers that lack abstracts, explicit units, or clear composition terminology.
-- `sentence-transformers` is required for embedding scoring; missing dependencies should fail fast.
-
-## 8. Feedback Learning
-
-### 8.1 What Was Built
-
-`food_paper_crawler/feedback/update_terms.py` exports feedback data from labeled papers. It produces language-scoped query phrases, anchor phrases, weighted n-grams, source priors, source/template/term pair scores, batch scores, and concept scores into `feedback/latest.json`.
-
-### 8.2 Why It Was Needed
-
-The crawler should improve as humans approve or reject papers. Static search terms are not enough because source yield, useful food/nutrient terms, and false-positive topics shift over time.
-
-### 8.3 How It Works
-
-The feedback script:
-
-- Reads `paper_review_outcomes` first.
-- Includes only `truth_source_kind = human_review`.
-- Excludes AI-model outcomes from feedback.
-- Uses legacy label events/global labels only for older unresolved papers.
-- Excludes open conflicts.
-- Splits papers by `workflow_language`, falling back to language detection when needed.
-- Counts title-only and title+abstract n-grams separately.
-- Uses smoothed log-odds against background and bad buckets.
-- Adds seed-good priors.
-- Builds query phrases, anchor phrases, discovery candidates, pair scores, batch scores, source priors, and concept scores.
-
-### 8.4 Failure Modes Solved
-
-- Pending/superseded submissions do not become benchmark truth.
-- The model does not train the crawler on its own AI-finalized outcomes.
-- Duplicate search hits are deduped before feedback counts.
-- Batch feedback is based on bounded query batches, not raw source-result volume.
-
-### 8.5 Limitations
-
-- L2 classifier training is deferred until enough accepted human outcomes exist.
-- The generated `feedback/latest.json` is local generated output and should not be hand-edited.
-- Feedback refresh occurs only when crawler/refill runs, not during pure queued-AI draining.
-
-## 9. Daily Ops and Deployment Workflow
-
-### 9.1 What Was Built
-
-`.github/workflows/daily-ops.yml` schedules OpenNutri ops every five minutes with:
-
-- One serialized `refill-controller` job under `daily-ops-refill-controller`.
-- A parallel five-worker `drain-workers` matrix.
-- Manual `workflow_dispatch` worker count control.
-
-The controller installs full crawler requirements and may crawl/upload/refill. Workers install `requirements-worker.txt`, never crawl/upload/refill, and only drain already-created model tasks.
-
-### 9.2 Why It Was Needed
-
-The project runs on free/limited infrastructure and model quotas. A single long daily job is fragile; recurring ticks make progress resumable from database state. Splitting controller and workers lets paper discovery continue safely while model tasks drain in parallel.
-
-### 9.3 How It Works
-
-The controller:
-
-- Requeues stale processing tasks.
-- Counts per-stage completions since each stage's quota-day start.
-- Counts active Gemma work from queued plus non-stale processing tasks.
-- Tops up to a bounded active target, currently 150 Gemma tasks.
-- Crawls English papers in bounded chunks of 30 accepted PDFs.
-- Sets `OPENNUTRI_STORE_PDFS_IN_SUPABASE=0`.
-- Skips storage cleanup and soft-limit measurement in scheduled source-URL mode.
-
-The workers:
-
-- Run drain-only tick mode.
-- Process up to 20 Gemma tasks per worker tick.
-- Interleave up to 10 Flash-Lite triage tasks and 2 final Gemini extraction tasks.
-- Use `AI_MODEL_TASK_TIMEOUT_SECONDS=300`, `GEMINI_REQUEST_TIMEOUT_SECONDS=300`, `AI_STAGE_MAX_TASK_ATTEMPTS=2`, and `GEMMA_STAGE_TEXT_LIMIT_CHARS=24000`.
-- Claim distinct rows through the DB RPC, so overlapping matrices are safe.
-
-### 9.4 Technologies and Why They Fit
-
-- GitHub Actions cron is enough for low-cost scheduled workers.
-- Supabase Postgres is the durable queue and coordination layer.
-- `FOR UPDATE SKIP LOCKED` removes the need for an external queue service.
-- Environment variables and GitHub secrets provide runtime credentials.
-- Poppler `pdftotext` is installed by the workflow because both crawler and workers need it.
-
-### 9.5 Limitations
-
-- GitHub Actions job timeouts still constrain crawler throughput.
-- Provider quota and API behavior can stop a tick early.
-- Source-URL PDFs depend on publisher availability; this is intentional to avoid Supabase Storage/egress pressure.
-
-## 10. Source-URL PDF and Egress/Storage Strategy
-
-Current paper PDFs are source-URL/on-demand by default:
-
-- `upload_to_supabase.py` records `papers.pdf_url`.
-- Supabase paper PDF Storage upload only occurs if `OPENNUTRI_STORE_PDFS_IN_SUPABASE=1`.
-- Scheduled ops set `OPENNUTRI_STORE_PDFS_IN_SUPABASE=0`.
-- The annotator proxies external PDFs through `apps/expert-annotator/api/pdf.js` for CORS and caching.
-- `pdfCache.js` stores up to 40 PDFs in browser Cache Storage.
-- Suggestion attachments still use the private `suggestion-attachments` bucket.
-
-This design was needed because paper Storage and default AI list payloads could consume free-tier storage/egress quickly. It trades some reliance on publisher URLs for lower Supabase storage pressure.
-
-## 11. ETL and Reference Data Utilities
-
-### 11.1 What Was Built
-
-OpenNutri includes USDA reference-data loaders:
-
-- `etl_usda_to_opennutri.py` loads Foundation Foods into the OpenNutri schema.
-- `etl_sr_legacy_to_opennutri.py` loads SR Legacy with stable UUIDs and alias support.
-- `create_opennutri_schema.sql` and `query.json` support the broader universal schema.
-
-### 11.2 Why It Was Needed
-
-AI normalization and UI autocomplete need known foods and nutrients. The project also needs a baseline reference layer to compare paper-derived facts against.
-
-### 11.3 How It Works
-
-The ETL scripts read USDA CSVs, transform foods into `entities`, aliases into `entity_aliases`, nutrients into `master_nutrients`, provenance into `sources`, and values into `claims`. They upload through Supabase REST in batches and use conflict/upsert behavior for idempotence. The SR Legacy loader uses deterministic UUIDv5 IDs so repeated runs produce stable IDs.
-
-### 11.4 Limitations
-
-- Some older ETL code reads `.env` locally and is not a polished production importer.
-- USDA data dumps are tracked but excluded from active source metrics.
-- Reference data is a seed layer; paper extraction still requires human validation before becoming truth.
-
-## 12. Documentation and Project-Management Artifacts
-
-Maintained docs include:
-
-- `README.md`: architecture, app behavior, commands, env vars, ops notes.
-- `AGENTS.md`: standing project truths and coding-agent instructions.
-- `docs/handoff_2026-03-20/STATE.md`: current high-signal project state.
-- `docs/reviewer_workflow_map.md`: reviewer workflow/RPC/table map.
-- `docs/reviewer_sop_en.md`: reviewer-facing SOP.
-- `docs/defense/*`: defense/work-report artifacts.
-
-These are not just prose. The workflow map and AGENTS file encode critical product truths: general queue, approver-led final truth, no AI no-data in labeler queue, slim cockpit AI projections, source-URL PDF strategy, and current English-only ops defaults.
-
-## 13. Current Limitations / What Not To Claim
-
-Do not claim:
-
-- That every nutrition paper is in scope. OpenNutri targets direct food/product composition data only.
-- That AI output is final human truth by default. Final active truth is reviewer-led through `paper_review_outcomes`; AI-model outcomes are provenance and are excluded from human-truth feedback.
-- That Turkish/DergiPark is active in normal ops. Code remains, but current daily/refill defaults are English-only.
-- That paper PDFs are stored in Supabase by default. They are source-URL/on-demand unless a legacy override is explicitly set.
-- That the PDF highlighter perfectly understands every table. It reconstructs table/paragraph regions from PDF.js text and still has known limitations.
-- That the L2 classifier is trained and integrated. Feedback terms exist; classifier training is deferred.
-- That the generated `feedback/latest.json` should be edited manually. It is generated output.
-- That raw model reasoning is shown in the default cockpit. The current slim RPC intentionally excludes raw responses/reasoning from default lists.
-- That this report applied a schema migration, deployed Vercel, or touched the live database. It is a documentation-only current-code report.
-
-## 14. Validation State for This Report
-
-This report was created from current tracked source after remote refresh and status check. It is intended to be exported to DOCX with Pandoc and validated through:
-
-- `pandoc docs/defense/OpenNutri_Current_Code_Work_Report.md -o docs/defense/docx/OpenNutri_Current_Code_Work_Report.docx`
-- `pandoc docs/defense/OpenNutri_Current_Code_Work_Report.md -t plain | wc -w`
-- `unzip -p docs/defense/docx/OpenNutri_Current_Code_Work_Report.docx word/document.xml`
-- `git diff --check`
-- `git diff --cached --check`
-
-## Part II. Historical Master Final Included In Full
-
-The following section preserves the existing master-final report in full for history, contributor attribution, timeline, and assessment framing. It was written against an older source snapshot; use Part I when current implementation details conflict.
-
-Prepared: 2026-06-05
-Source snapshot used for evidence: `4a8ec8af18eed030d9ccfdebd6fd979648218374` (`main`, even with `origin/main` before this final documentation file was created)
-Activity span in git: 2025-12-19 to 2026-06-05
-Purpose: combine the strongest parts of the Claude master report and the Codex v2 master ledger into one assessment-ready master report.
-
-Source reports merged:
-
-- Claude master: `docs/defense/OpenNutri_Work_Report_MASTER.md`.
-- Codex v2 master: `docs/defense/OpenNutri_Work_Report_MASTER_v2.md`.
-
-This final version keeps the v2 report's stricter methodology, refreshed metrics, attribution caveats, repository structure, assessment ledger, and chronological evidence. It also restores the older master report's deeper subsystem explanations: the AI cascade, database/RLS/RPC design, crawler v2, feedback loop, daily-ops infrastructure, PDF evidence engine, annotator frontend, Huan's full-stack features, ETL, and tests. The intent is not to be short. The intent is to give evaluators a defensible record of what was built, why it was built, how it works, what technology was used, when it changed, and where the source evidence lives.
-
-## 1. Methodology and Attribution Rules
-
-This report was built from current source evidence after `git fetch origin`, an ahead/behind check, and a working-tree status check. At the start of the final merge, `main...origin/main` was `0 0`. The working tree contained unrelated untracked artifacts such as older work-breakdown exports and files under `docs/defense/read_this/`; those were intentionally left untouched.
-
-Evidence sources used across the master reports:
-
-- Git history across all refs, because Aysegul's original MVP/frontend commits live on `origin/master` while the current `main` branch later imported and reorganized that work.
-- Current tracked source inventory, excluding USDA data dumps, generated binaries, legacy archive files, `node_modules`, build output, local data caches, generated feedback JSON, lockfiles, and work-report files that would inflate the metric.
-- Current source files in `apps/expert-annotator/`, `services/data-pipeline/`, `apps/expert-annotator/migration.sql`, and `.github/workflows/daily-ops.yml`.
-- Existing project docs: `README.md`, `AGENTS.md`, `docs/handoff_2026-03-20/STATE.md`, and `docs/reviewer_workflow_map.md`.
-- Implementation file reads and counts: `migration.sql`, `PdfViewer.jsx`, `PdfTextScanner.js`, `Annotate.jsx`, `FoodAutocomplete.jsx`, `NutrientAutocomplete.jsx`, `SuggestionModal.jsx`, `fuzzyMatch.js`, `ResetPassword.jsx`, `ai_routing.py`, `unified_evaluator.py`, `process_stage_queue.py`, `crawler_v2.py`, `ranking.py`, `update_terms.py`, and `daily-ops.yml`.
-
-The report separates two kinds of attribution:
-
-- **Git-author attribution:** what git directly proves. Every `landeryt` commit is credited to Huan. `baezarciel` plus the initial `ArcielB` commit are credited to Arciel. The `ayseguldogan2706-cpu` identity has seven all-ref commits, including five original MVP/frontend commits on `origin/master` and two push-test commits on the current mainline.
-- **Subsystem attribution:** the team's stated ownership split for assessment. Aysegul owns the core user-facing annotator frontend: annotation UI, PDF viewing/highlighting UX, autocomplete surfaces, and workflow views. Arciel owns database/schema/RLS/RPCs, crawler, AI pipeline, daily ops, deployment infrastructure, backend-driven cockpit integrations, documentation, and project management.
-
-That distinction is essential. A report based only on current-mainline git authorship would under-credit Aysegul because early frontend work was imported through later integration commits. A report based only on subsystem claims would hide what git directly proves. This final report uses both and labels the difference.
-
-## 2. Reproducible Metrics
-
-### Repository activity
-
-`git shortlog -sne --all` at the final source snapshot:
-
-| Git author | Commits |
-| --- | ---: |
-| `baezarciel <baezarciel@gmail.com>` | 213 |
-| `landeryt <mcraft160105@gmail.com>` | 24 |
-| `ayseguldogan2706-cpu <ayseguldogan2706@example.com>` | 7 |
-| `ArcielB <106127166+ArcielB@users.noreply.github.com>` | 1 |
-
-Filtered all-ref git-author churn, excluding USDA dumps, legacy files, lockfiles, proposal appendix drafts, and work-report files:
-
-| Git author | Added | Deleted | Notes |
-| --- | ---: | ---: | --- |
-| `baezarciel` | 66,207 | 16,985 | Current integration, backend, ops, schema, docs, and many frontend integration commits, with work-report files removed from the code/project metric. |
-| `landeryt` | 2,188 | 582 | Huan's directly authored commits. |
-| `ayseguldogan2706-cpu` | 6,624 | 88 | Original MVP/frontend commits on `origin/master` plus push-access test commits. |
-| `ArcielB` | 1 | 0 | Initial repository README commit; treated as Arciel. |
-
-Current filtered tracked text/source total: **51,874 lines**. This excludes USDA CSV/XLSX dumps, generated DOCX/PDF/PPTX/image artifacts, legacy archive files, `node_modules`, `dist`, local pipeline data, generated `feedback/latest.json`, `package-lock.json`, and work-report files.
-
-Active bucket split under the same exclusions:
-
-| Bucket | Current tracked lines | Main evidence |
-| --- | ---: | --- |
-| Backend, ops, schema | 31,302 | `services/data-pipeline/**`, SQL schema/RPCs, GitHub Actions workflow. |
-| Frontend | 14,310 | `apps/expert-annotator/**` excluding `migration.sql`, build output, and lockfile. |
-| Active docs | 5,092 | README, AGENTS, reviewer workflow, handoff/state, defense notes excluding work reports and generated media. |
-| Proposal appendix docs | 971 | `docs/proposal-sections/**`, counted separately because they are project deliverables rather than active implementation/docs. |
-
-Key implementation file sizes at this snapshot:
-
-| File | Lines | Role |
-| --- | ---: | --- |
-| `apps/expert-annotator/migration.sql` | 5,396 | Database schema, RLS, RPCs, workflow engine. |
-| `services/data-pipeline/food_paper_crawler/crawler_v2.py` | 2,215 | Multi-source paper crawler. |
-| `apps/expert-annotator/src/utils/PdfTextScanner.js` | 2,323 | Browser PDF text/layout/evidence scanner. |
-| `services/data-pipeline/scripts/process_stage_queue.py` | 1,560 | AI-stage queue worker, retry/fallback/routing. |
-| `services/data-pipeline/food_paper_crawler/feedback/update_terms.py` | 1,219 | Label-feedback learning export. |
-| `apps/expert-annotator/src/pages/Annotate.jsx` | 1,163 | Main annotator orchestration. |
-| `apps/expert-annotator/src/components/PdfViewer.jsx` | 939 | PDF rendering, overlay, page navigation. |
-| `services/data-pipeline/ai_routing.py` | 842 | Routing buckets and deterministic AI payload normalization. |
-| `services/data-pipeline/evaluator/unified_evaluator.py` | 687 | Shared model prompt/contract and JSON parser. |
-| `.github/workflows/daily-ops.yml` | 148 | Scheduled controller plus 5 drain-worker matrix. |
-
-Schema object counts from `migration.sql`:
-
-| Object type | Count |
-| --- | ---: |
-| Tables | 31 |
-| Functions/RPCs | 26 |
-| RLS policies | 75 |
-| RLS-enabled tables | 32 |
-| Indexes | 69 |
-| Triggers | 2 |
-| `SECURITY DEFINER` functions | 22 |
-
-Focused test coverage by line count:
-
-| Test file | Lines | What it validates |
-| --- | ---: | --- |
-| `apps/expert-annotator/src/utils/PdfTextScanner.test.js` | 655 | PDF table/paragraph/evidence scanner behavior. |
-| `apps/expert-annotator/src/utils/EvidenceLocations.test.js` | 225 | Evidence source merge/dedup behavior. |
-| `apps/expert-annotator/src/utils/evidenceStatusCache.test.js` | 92 | Evidence cache behavior. |
-| `services/data-pipeline/tests/test_ai_routing.py` | 2,469 | AI normalization, routing, units, thresholds, priority, retry behavior. |
-| `services/data-pipeline/tests/test_bilingual_pipeline.py` | 1,120 | Crawler language/source/filter behavior. |
-| `services/data-pipeline/tests/test_daily_ops.py` | 983 | Daily ops orchestration and quota/drain logic. |
-| `services/data-pipeline/tests/test_pdf_page_markers.py` | 73 | PDF page marker injection. |
-| Total | 5,617 | Regression suite focused on high-risk behavior. |
-
-## 3. What OpenNutri Is
-
-OpenNutri is a food-composition paper discovery and human-verification system. It is not a generic nutrition chatbot and not a general literature search tool. Its target is narrow: direct, real-food or food-product composition values that can become useful nutrition facts for datasets, diet tracking, food exporters, inspection, or related real-world use.
-
-The current system has two production surfaces over one Supabase Postgres database:
-
-- **Expert annotator frontend:** `apps/expert-annotator/`, React 19 + Vite, deployed on Vercel. It provides login, the general labeling queue, AI-prefilled editable food/nutrient rows, a PDF viewer with evidence overlays, approval workflow, dashboard, reviewer admin, useful-paper cockpit, pipeline cockpit, and suggestion review surfaces.
-- **Data pipeline:** `services/data-pipeline/`, Python. It handles USDA ETL, multi-source scientific-paper crawling, feedback term learning, staged AI screening/extraction, paper upload/routing, and daily unattended operations.
-
-The current end-to-end workflow is:
-
-```text
-USDA reference data
-  -> entities / aliases / master_nutrients / sources / claims
-
-Europe PMC / OpenAlex / Semantic Scholar crawler
-  -> metadata search
-  -> additive relevance filter
-  -> PDF acquisition and full-text validation
-  -> Supabase paper + search-hit registration
-  -> Small model screening: Gemma 31B, 26B fallback, text mode
-  -> Medium model triage: Gemini 3.1 Flash-Lite
-  -> Strong model extraction: Gemini 3.5 Flash, PDF mode
-  -> human_review_ready general queue
-  -> labeler submission
-  -> Arciel approval / correction
-  -> paper_review_outcomes
-  -> feedback-learning export for later crawler scoring
-```
-
-## 4. Repository Structure
-
-### Frontend
-
-`apps/expert-annotator/src/` is the user-facing annotator. Important files:
-
-- `pages/Annotate.jsx`: state orchestration, queue refresh, cockpit lazy loading, annotation save/submit, approval actions, help/suggestion routing.
-- `views/*.jsx`: extracted queue, approval, dashboard, paper overview, pipeline, suggestion, reviewer-admin views.
-- `components/PdfViewer.jsx` and `utils/PdfTextScanner.js`: PDF rendering and evidence layout analysis.
-- `components/FoodAutocomplete.jsx`, `components/NutrientAutocomplete.jsx`, `utils/fuzzyMatch.js`: catalog search and approximate matching.
-- `components/SuggestionModal.jsx`, `views/SuggestionsReviewView.jsx`, `views/MySuggestionsView.jsx`: user/cockpit suggestion flow.
-- `utils/annotateHelpers.js`: payload normalization, model-stage labels, cockpit funnel helpers, AI extraction summaries.
-
-### Backend and Data Pipeline
-
-`services/data-pipeline/` includes:
-
-- `food_paper_crawler/crawler_v2.py`, `ranking.py`, source adapters: paper discovery and relevance scoring.
-- `food_paper_crawler/feedback/update_terms.py`: human-truth feedback learning.
-- `ai_routing.py`, `evaluator/unified_evaluator.py`, `scripts/process_stage_queue.py`: AI decision contract, deterministic normalization, queue processing, retry/fallback logic.
-- `scripts/daily_ops_orchestrator.py`, `scripts/ensure_paper_stock.py`, `scripts/upload_to_supabase.py`: unattended ops, queue refill, upload/routing.
-- USDA ETL scripts and harvester utilities retained as reference/data-ingest support.
-
-### Database and Security
-
-`apps/expert-annotator/migration.sql` is the current schema/RLS/RPC source of truth. It defines the canonical food/nutrient/reference layer, paper discovery tables, annotation tables, general queue and approval tables, AI extraction/routing tables, reviewer profiles, suggestion review tables, RLS policies, and service-role RPCs.
-
-Important RPCs:
-
-- `claim_paper_stage_tasks`: atomic `FOR UPDATE SKIP LOCKED` claim primitive for parallel workers.
-- `get_general_queue_cards`: lean queue card projection with latest AI prefill and this user's annotation status.
-- `submit_general_label`: freezes a labeler payload into `paper_label_submissions`.
-- `approve_label_submission`: writes reviewer truth, correction diffs, and final `paper_review_outcomes`.
-- `get_cockpit_ai_extractions`: egress-slim AI details for Useful Papers.
-- `get_pipeline_ops_snapshot`: cockpit aggregate endpoint for crawler/model/human funnel state.
-
-### Deployment and Operations
-
-`.github/workflows/daily-ops.yml` schedules daily ops every 5 minutes. Each scheduled run starts:
-
-- One serialized `refill-controller` job under `daily-ops-refill-controller`, allowed to crawl/upload/refill.
-- A 5-worker `drain-workers` matrix, running in parallel with the controller and allowed only to drain already-created AI tasks.
-
-The frontend deployable app is Vercel-hosted. Supabase stores auth/application data. Paper PDFs are source-URL/on-demand by default; suggestion attachments remain in the private `suggestion-attachments` bucket.
+`.github/workflows/daily-ops.yml` schedules ops every 5 minutes: one serialized `refill-controller` (may crawl/upload/refill) plus a 5-worker `drain-workers` matrix (drain-only, in parallel). The frontend is Vercel-hosted; Supabase stores auth/application data; paper PDFs are source-URL/on-demand by default.
 
 ## 5. Timeline
 
 | Phase | Dates | Main work |
 | --- | --- | --- |
 | Bootstrap | 2025-12-19 | Repository created, access verified. |
-| MVP and snapshot | 2026-03-09 to 2026-03-16 | Earlier codebase imported, README/reorganization, baseline frontend and crawler brought into `apps/` and `services/`. Huan centralized theme state. |
-| Feedback and crawler hardening | 2026-03-19 to 2026-03-30 | Reset password, label events/test mode, feedback terms, auto-crawl, bilingual crawler split, DergiPark index, no-hard-veto crawler scoring. |
-| Reviewer workflow and AI routing | 2026-04-13 to 2026-04-29 | Assignment workflow, reviewer admin, Gemini triage/extraction, read-only queues, suggestion review, image attachments, conflict system, AI prefill. |
-| General approval queue | 2026-05-02 to 2026-05-09 | Slot workflow replaced by general queue plus approval, useful AI details restored, queue limited to normalized AI `has_data`, Gemma cascade added, suggestion status changes, fuzzy matching. |
-| Daily ops and cockpit | 2026-05-11 to 2026-05-20 | Retry-fair AI queue, daily quota draining, pipeline cockpit, reviewer UI polish, evidence highlighting, Annotate refactor to helpers/views, tester/developer access. |
-| Three-stage cascade and PDF storage hardening | 2026-05-27 to 2026-05-31 | Auth allowlist hardening, controller/drain worker fan-out, Flash-Lite middle stage, source-URL PDFs, CORS proxy, browser cache, true PDF page numbers for Gemini. |
-| Performance and report package | 2026-06-04 to 2026-06-05 | Lean queue RPC, lazy cockpit, self-hosted PDF worker, durable Cache Storage PDFs, evidence-first PDF rendering, v1/v2 work reports, and this combined Master Final. |
+| MVP & snapshot | 2026-03-09 → 03-16 | Earlier codebase imported, README/reorganization, baseline frontend + crawler into `apps/`/`services/`. Huan centralized theme state. |
+| Feedback & crawler hardening | 2026-03-19 → 03-30 | Reset password, label events/test mode, feedback terms, auto-crawl, bilingual crawler split, DergiPark index, no-hard-veto scoring. |
+| Reviewer workflow & AI routing | 2026-04-13 → 04-29 | Assignment workflow, reviewer admin, Gemini triage/extraction, read-only queues, suggestion review, image attachments, conflict system, AI prefill. |
+| General approval queue | 2026-05-02 → 05-09 | Slot workflow replaced by general queue + approval, useful AI details restored, queue limited to normalized AI `has_data`, Gemma cascade, fuzzy matching. |
+| Daily ops & cockpit | 2026-05-11 → 05-20 | Retry-fair AI queue, daily quota draining, pipeline cockpit, evidence highlighting, Annotate refactor to helpers/views, tester/developer access. |
+| Three-stage cascade & PDF hardening | 2026-05-27 → 05-31 | Auth allowlist hardening, controller/drain fan-out, Flash-Lite middle stage, source-URL PDFs, CORS proxy, browser cache, true PDF page numbers. |
+| Performance & report package | 2026-06-04 → 06-05 | Lean queue RPC, lazy cockpit, self-hosted PDF worker, durable Cache Storage PDFs, evidence-first rendering, bounded crawler runtime, this consolidated report. |
 
-## 6. Deep Technical Work Log
+## 6. Deep technical work log (by subsystem)
 
-This section is brought forward from the older master report because it contains the most detailed technical explanation. It is organized by subsystem and describes what each subsystem is, why it exists, how it works internally, where the hard parts are, which technologies are involved, and what trade-offs were made.
+This is the technical heart of the report. Each subsystem is described once, in depth: what it is, why it exists, how it works internally, where the hard parts are, which technologies are involved, and what trade-offs were made. The attribution and dated evidence for each subsystem are in §9 (Assessment ledger) and §10 (Milestone ledger); they are not repeated here. Owner tags in each heading follow the subsystem-attribution rule from §2.
 
 ### AI extraction cascade — Gemma → Gemini Flash-Lite → Gemini Flash *(Arciel)*
 
@@ -1065,7 +395,10 @@ then flips them to `processing` and bumps `attempt_count`. **`FOR UPDATE SKIP LO
 - **General queue tolerates duplicate submissions** (no row-level claim/lock on papers): simpler concurrency, redundant labeling resolved at approval instead of prevented.
 ### Paper-discovery crawler v2 — Search → Filter → Acquisition *(Arciel)*
 
-**Files read for this section:** `food_paper_crawler/crawler_v2.py` (2,215 lines), `ranking.py` (485), with the source adapters `europe_pmc.py`, `dergipark_source.py` (687), `search_sources.py`. **30 commits.** `FoodCompositionCrawlerV2` is a ~2,200-line orchestrator class with ~70 methods.
+**Files read for this section:** `food_paper_crawler/crawler_v2.py` (2,215 lines), `ranking.py` (485), `models.py` (374), `embeddings.py` (138), with the source adapters `europe_pmc.py`, `dergipark_source.py` (687), `search_sources.py`. **30 commits.** `FoodCompositionCrawlerV2` is a ~2,200-line orchestrator class with ~70 methods, sitting on a shared data-model module (`models.py`) that the adapters, ranking, upload, and feedback all import.
+
+#### The shared data model + deterministic identity keys (`models.py`)
+`models.py` is the small but load-bearing module the whole discovery layer agrees on. It defines the candidate/query dataclasses — `CandidatePaper`, `QuerySpec`, `SearchTask`, `DownloadRecord`, `DiscoveryHit` — and, more importantly, the **three deterministic key builders** that make idempotence and dedup possible across processes: `build_canonical_key` (the cross-provider paper identity used when a reliable DOI is missing), `build_search_hit_key` (the md5 over `canonical_key|source|language|template|term|phrase|query` that keys the idempotent search-hit ledger), and `build_search_batch_key` (the per-query-batch identity behind batch feedback), plus `build_storage_filename` (identity-based PDF naming). Because the crawler, every source adapter, `ranking.py`, `upload_to_supabase.py`, and the feedback exporter all import the *same* functions, a paper computes the *same* identity everywhere — which is what lets the SQL `UNIQUE(hit_key)` index, the live-`canonical_key` skip set, and batch-yield feedback all line up without a central coordinator. `DualEmbeddingScorer` lives alongside in `embeddings.py` as the sentence-transformers wrapper the metadata gate calls for anchor-phrase similarity.
 
 #### Architecture and why it's staged
 `run()` executes **Search → Filter → Acquisition** so the expensive step happens last:
@@ -1395,6 +728,37 @@ Frontend unit tests cover the geometry engine too: `PdfTextScanner.test.js` (655
 #### Trade-off
 These are behavior/unit tests against pure logic (normalization, routing, scoring, gates) rather than full live-API integration tests — fast and deterministic in CI, but they mock the model/DB boundary, so the live Gemini/Supabase contract is validated by the offline harnesses (`flash_lite_triage_experiment.py`, `probe_model_file_input.py`) instead.
 
+### Earlier pipeline architecture, shared utilities & operational tooling *(Arciel)*
+
+The current crawler-v2 + AI-cascade path is the *second* full pipeline architecture in the repo. The earlier one was not deleted — it is retained, and it is real prior work that the line counts above do not surface. This subsection accounts for it honestly so the record is complete.
+
+#### Shared utilities still on the active path
+- **`processing/content.py` (153)** — `extract_full_text` / `extract_metadata` parse Europe PMC JATS-XML into plain text and metadata; `unified_evaluator.py` calls `extract_full_text` when a paper arrives as PMC XML rather than a PDF, so this module is still live under the current cascade.
+- **`processing/validator.py` (99), `processing/extractors.py` (66)** — text-validation and field-extraction helpers shared between the old harvester and current ingest utilities.
+
+#### The earlier ("v1") harvester pipeline — superseded, retained
+Before `crawler_v2`, discovery ran through a layered harvester:
+- **`food_paper_crawler/pipeline.py` (600)** — the v1 `FoodCompositionCrawler` orchestrator, still launchable through `cli.py` (the v2 entrypoint is `cli_v2.py`).
+- **`harvester/` package (~1,360 lines)** — `foodcomp_crawler.py` (336), `relevance_filter.py` (205), `query_builder.py` (202), `client.py` (195), `pmc_harvester.py` (170), `foodcomp_filter.py` (143), `pdf_downloader.py` (107): the original search/filter/download stack.
+- **`core/` package (~530 lines)** — `orchestrator.py` (162), `knowledge.py` (187), `data_source.py` (124), `types.py` (57), driven by `orchestrator_cli.py` ("OpenNutri Harvester CLI").
+- **`extraction/` package (~340 lines)** — `nutrient_extractor.py` (192), `table_extractor.py` (149): the earlier rule-based table/nutrient extraction, before the model cascade took over extraction.
+
+This generation was superseded by the additive-scoring crawler v2 and the three-stage AI cascade, but it shipped and worked, and its better ideas (staged search→filter→download, relevance scoring, PMC harvesting) carried forward. Keeping it costs some repo size; the trade-off is an auditable lineage of how discovery evolved.
+
+#### Operational, backfill & migration tooling (`scripts/`)
+A layer of one-purpose operational scripts keeps the live system maintainable — most are small, a few are substantial:
+- **`backfill_ai_routing.py` (299)** — backfills routing-status/bucket/extraction columns onto historical papers when the routing model changed, so old rows participate in the current funnel.
+- **`seed_training_stock.py` (213)** — seeds a controlled stock of papers for labeler training/onboarding without running a full crawl.
+- **`cleanup_paper_storage.py` (188)** — the legacy paper-Storage janitor (only relevant when `OPENNUTRI_STORE_PDFS_IN_SUPABASE=1`; skipped in current source-URL ops).
+- **`backfill_paper_workflow_language.py` (122)** — backfills `workflow_language` for papers predating the bilingual split.
+- **`refill_assignment_queue.py` (408)** — the legacy slot-workflow stock job, retained for compatibility with the superseded assignment model.
+- **`upload_ai_extractions.py` (83), `refresh_dergipark_index.py` (43)** — extraction upload helper and the DergiPark journal-index refresher.
+- **Ingestors — `ingestor_pdf.py` (448), `ingestor.py` (387), `ingestor_structured.py` (226)** — earlier-generation PDF/structured ingest utilities feeding the harvester era.
+- **Diagnostics — `check_rls.py` (24), `check_db.py` (20), `config_targets.py` (22), `test_pg.py` (14), `test_frontend_fetch.js` (24)** — quick live-connectivity/RLS/target probes used during ops hardening.
+
+None of this is glamorous, but it is the difference between a demo and a system that has actually been operated, migrated, and recovered in production over six months.
+
+
 ## 7. The five hardest problems (cross-cutting)
 
 1. **Reconstructing document structure from PDF glyphs (frontend).** No table/column/paragraph primitive exists; `PdfTextScanner.js` does projection-profile column detection, adaptive metrics, MAD-robust column clipping, caption-anchored table regions, union-find chip de-duplication, and content-driven matching that survives a lying `page_hint`.
@@ -1430,7 +794,7 @@ Assessment-facing achievements:
 - Owned catalog-entry UX: food/nutrient forms, autocomplete interactions, custom rows, and reviewer-facing editing.
 - Helped make the frontend production-suitable through responsive state management, read-only/test behavior, and user-facing cockpit surfaces.
 
-Most defensible metrics: 7 all-ref commits; all-ref filtered git-author churn `+6,624/-88`; 14,310 current frontend lines under the final exclusion rules; 10,334 lines in the principal queue/PDF/autocomplete/view files listed above. Current-mainline path churn is larger because later frontend evolution and integration were committed through shared/integration commits.
+Most defensible metrics: 7 all-ref commits; all-ref git-author churn `+6,624/-88` (raw additions include `package-lock.json`); ~14,100 current frontend lines under the exclusion rules; 10,334 lines in the principal queue/PDF/autocomplete/view files listed above. Current-mainline path churn is larger because later frontend evolution and integration were committed through shared/integration commits (see §2 on why git-author counts under-credit her).
 
 ### Arciel Aliognis Baez Zamora
 
@@ -1444,564 +808,87 @@ Assessment-facing achievements:
 - Built unattended daily ops on GitHub Actions with controller/drain worker split and source-URL PDF strategy.
 - Performed integration, documentation, project management, and live ops hardening.
 
-Most defensible metrics: 213 `baezarciel` commits plus the initial `ArcielB` commit; filtered `baezarciel` churn `+66,207/-16,985` with work-report files excluded from the project-code metric; backend/ops/schema bucket 31,302 lines.
-
-## 9. Expanded Assessment Ledger
-
-This section carries forward the detailed v2 assessment ledger requested for defense/evaluation. It is organized by workstream rather than by raw commit order because the project repeatedly replaced earlier architecture with better production versions. For each item, the ledger records:
-
-- What was done.
-- Why it was needed.
-- How it was implemented.
-- Which technologies were used.
-- Who should be credited under the stated attribution rules.
-- When the work occurred.
-- Where the source evidence lives.
-
-### 9.1 Project Bootstrap and MVP Annotator
-
-**When:** 2025-12-19, then 2026-03-02 to 2026-03-09.
-**Credit:** Ayşegül for the original annotator MVP commits on `origin/master`; Arciel for importing/reorganizing the codebase into the current repository structure; Huan for later theme refinement.
-**Technology:** React, Vite, Supabase Auth, Supabase Storage, plain CSS, PDF.js/react-pdf.
-
-What was built:
-
-- Initial React annotator application.
-- Login screen and session-aware app shell.
-- Google OAuth login.
-- Light/dark theme toggle.
-- Forgot-password/reset affordance at the frontend level.
-- First paper/PDF annotation workspace.
-- Basic food item form.
-- First PDF viewer and nutrient highlight behavior.
-- Initial SQL schema fragments for annotator data.
-
-Why it was needed:
-
-The project needed a human labeling tool before any advanced crawler or AI cascade mattered. OpenNutri's final truth is human-reviewed food composition data; therefore the earliest useful deliverable was a working interface where a labeler could open a paper, inspect its PDF, and enter food/nutrient rows.
-
-How it was implemented:
-
-- Ayşegül's `origin/master` commits introduced the initial Vite app, components, CSS, Supabase client, auth pages, and PDF viewer.
-- Commit `00fd645` specifically added a flexible nutrients model, food autocomplete, and PDF highlight redesign.
-- The March `main` snapshot/reorganization imported this application into the current `apps/expert-annotator/` tree.
-- Later work split the app into smaller view/components but retained the same core role: a browser-based expert labeling interface.
-
-Evidence:
-
-- Direct all-ref Ayşegül commits: `7c2d372`, `614a82c`, `6245a17`, `00fd645`, `8a29dcb`.
-- Current frontend tracked lines under the refreshed final metric: 14,310.
-- Principal frontend files listed in the Ayşegül report: 10,334 current lines.
-
-### 9.2 Authentication, Roles, Theme, and Read-Only Training Access
-
-**When:** March to May 2026.
-**Credit:** Ayşegül for initial auth/frontend shell, Huan for theme centralization/reset-password/tester visibility changes, Arciel for role/RLS/RPC backing and reviewer profile workflow.
-**Technology:** Supabase Auth, React state, browser `matchMedia`, session storage, Postgres RLS, `SECURITY DEFINER` role predicates.
-
-What was built:
-
-- Email/password login.
-- Google OAuth login.
-- Password recovery route that handles Supabase recovery sessions.
-- Theme state shared between login and app chrome.
-- System-theme preference support.
-- Reviewer profile sync (`sync_reviewer_profile`).
-- Role model: labeler, cockpit, tester, approver, service role.
-- Tester/developer read-only visibility for training/review.
-- Signup allowlist controlled through a private Supabase auth hook.
-
-Why it was needed:
-
-The project had multiple user types. Labelers needed normal queue access; Arciel needed approval permissions; testers needed to inspect the workflow without accidentally writing data; cockpit users needed dashboards; service-role automation needed privileged task/crawler operations. A simple "authenticated user can do everything" model would have leaked private rows and allowed unsafe writes.
-
-How it was implemented:
-
-- `App.jsx` routes normal users to `Annotate`, recovery URLs to `ResetPassword`, and unauthenticated users to `Login`.
-- Huan's reset page parses recovery tokens, establishes the recovery session, validates passwords, updates the user, and cleans tokens from the URL.
-- `useTheme.js` follows system theme when no override exists and persists an explicit override only when needed.
-- `migration.sql` defines `reviewer_profiles` flags and the predicate functions `current_user_has_cockpit_access`, `current_user_is_tester`, `current_user_can_write`, `current_user_can_approve_labels`, and cockpit write predicates.
-- RLS policies and mutation RPCs use those predicates rather than trusting frontend-only checks.
-- `allowed_auth_emails` is private; the signup allowlist uses a `SECURITY DEFINER` auth hook with direct client table privileges revoked.
-
-Evidence:
-
-- Huan commits: `cbf61ad`, `341b40e`, `4e208a5`, `9f18a56`.
-- Arciel schema evidence: 75 RLS policies, 32 RLS-enabled tables, 22 `SECURITY DEFINER` functions.
-- Current files: `App.jsx`, `Login.jsx`, `ResetPassword.jsx`, `useTheme.js`, `migration.sql`.
-
-### 9.3 Annotation Editor, AI Prefill, and Payload Contract
-
-**When:** March to June 2026, with major workflow changes on 2026-04-13, 2026-05-02, and 2026-06-04.
-**Credit:** Ayşegül for the core editor/workflow frontend; Arciel for backend contract/RPCs, AI prefill integration, general queue redesign, and performance hardening.
-**Technology:** React 19, Supabase JS client, Postgres RPCs, JSONB payloads, deterministic hashing, Vite.
-
-What was built:
-
-- Queue paper selection and editable food/nutrient form.
-- Draft saving.
-- Final submission with validation.
-- No usable data action.
-- AI prefill from latest normalized Gemini output.
-- Approval editor with original labeler payload and final reviewer payload.
-- Exact payload snapshots in `paper_label_submissions`.
-- Correction diffs in `paper_label_approvals.correction_diff_json`.
-- Final truth rows in `paper_review_outcomes`.
-
-Why it was needed:
-
-The AI cascade is intentionally not final human truth for most useful papers. Human reviewers must correct the DB-compliant AI extraction into trustworthy food-composition data. That requires the frontend editor, SQL payload builders, and Python AI normalizer to speak the same payload language. Without one stable payload contract, the project could not compare AI rows to human rows or track reviewer corrections.
-
-How it was implemented:
-
-- `Annotate.jsx` owns queue/profile/cockpit state, loads the selected paper, initializes rows from `normalized_payload_json` only when no saved annotation exists, saves annotation rows, and calls `submit_general_label`.
-- `annotateHelpers.js` converts normalized payload food/nutrient entries into editable UI rows and formats summaries.
-- `build_annotation_submission_payload` in SQL creates canonical JSON from saved annotation rows.
-- `normalize_ai_payload_with_summary` in Python creates the same logical JSON structure from model output.
-- `payload_text_and_hash` creates deterministic hashes so identical AI/human payloads can be compared.
-- `approve_label_submission` stores both the original labeler submission and the accepted reviewer payload.
-
-Evidence:
-
-- `Annotate.jsx`: 1,163 lines.
-- `annotateHelpers.js`: 574 lines.
-- SQL RPCs: `submit_general_label`, `approve_label_submission`, `build_annotation_submission_payload`, `build_label_payload_diff`.
-- Python normalizer: `ai_routing.py`, 842 lines.
-
-### 9.4 General Queue and Approval Workflow
-
-**When:** Slot workflow in April 2026; general queue replacement on 2026-05-02; refinements through June.
-**Credit:** Arciel for schema/RPC/workflow redesign and final approval model; Ayşegül for frontend queue/approval surfaces; Huan for the earlier conflict system that was later superseded.
-**Technology:** Supabase Postgres, RLS, RPCs, React views, immutable JSON payloads.
-
-What was built:
-
-- Earlier assignment/slot workflow with official and shadow reviewers.
-- Huan's conflict-detection workflow for multiple disagreeing submissions.
-- Current general queue where active labelers see the same `human_review_ready` papers.
-- Immutable `paper_label_submissions`.
-- Reviewer approval into `paper_label_approvals`.
-- Final truth in `paper_review_outcomes`.
-- Dashboard metrics based on submissions/approvals/outcomes.
-
-Why it changed:
-
-The slot workflow was too heavy for the team's operational reality. The project needed faster throughput: every active labeler should see available useful papers, and a paper should leave the visible queue as soon as a real submission exists. However, final truth still needed reviewer control, so Arciel approval remained the final gate.
-
-How it was implemented:
-
-- Legacy slot tables are preserved for audit: `reviewer_slots`, `paper_slot_assignments`, `paper_user_assignments`, `paper_assignment_submissions`.
-- Conflict tables/view are preserved for the old model: `paper_conflicts`, `paper_conflict_resolutions`, `paper_conflict_candidates`.
-- Current workflow uses `paper_label_submissions`, `paper_label_approvals`, and `paper_review_outcomes`.
-- `get_general_queue_cards` excludes papers with final outcomes, pending/accepted submissions, open legacy assignments, or global no-data labels.
-- Arciel's own submissions can auto-accept because Arciel has approver rights; non-Arciel submissions stay `pending_approval`.
-- Approval view allows editing the final reviewer payload before approval while preserving the original submission.
-
-Evidence:
-
-- Reviewer workflow map: `crawl -> upload -> Small model -> Medium model -> Strong model -> human_review_ready -> paper_label_submissions -> Arciel approval -> paper_label_approvals -> paper_review_outcomes -> feedback learning`.
-- Current schema/RPC file: `migration.sql`.
-- Current views: `QueueView.jsx`, `ApprovalView.jsx`, `DashboardView.jsx`.
-
-### 9.5 PDF Evidence Viewer, Highlighting, and Source Navigation
-
-**When:** Initial PDF viewer in March; intensive highlighting work from 2026-04-22 through 2026-06-05.
-**Credit:** Ayşegül for frontend PDF/highlight UX ownership; Arciel for later evidence-source integration, caching, page-hint fixes, and source-URL delivery; Huan for continuous scroll contribution.
-**Technology:** PDF.js/react-pdf, browser text-layer rendering, geometry heuristics, Cache Storage API, localStorage LRU, Supabase dedup cache, Vercel serverless PDF proxy.
-
-What was built:
-
-- Browser PDF viewer.
-- Continuous scrolling.
-- Clickable nutrient marks.
-- Nutrient popover insertion into food item rows.
-- Evidence strip showing AI/source locations.
-- Whole-table and whole-paragraph overlays.
-- Deduped source chips for sources resolving to the same block.
-- Coordinate-based overlay rendering.
-- Printed-page to PDF-page mapping.
-- Handling for over-range `page_hint`.
-- Headless evidence scan and evidence-page-first rendering.
-- Durable PDF byte cache and next-paper prefetch.
-
-Why it was needed:
-
-Reviewers cannot trust an AI-extracted nutrient value unless they can inspect the exact source evidence in the paper. Scientific PDFs do not expose semantic tables to the browser. The UI had to turn AI metadata like `table_label`, `page_hint`, and `source_quote` into visible, inspectable evidence.
-
-How it was implemented:
-
-- `PdfTextScanner.js` reconstructs document structure from positioned PDF.js text items. It groups rows, detects column gutters, classifies fragments, grows caption-anchored table regions, builds paragraph blocks, clips to dominant columns, and matches source quotes.
-- `PdfViewer.jsx` renders pages, collects text contents, builds page highlight plans, transforms PDF coordinates into screen coordinates, and scrolls evidence into view.
-- `EvidenceLocations.js` merges overlapping/duplicate source locations.
-- Cached evidence status can be stored locally/remotely to avoid rescanning the same paper every time.
-- `pdfCache.js` stores PDF bytes in browser Cache Storage and keeps an LRU index in localStorage.
-- `/api/pdf` proxies source PDFs through same-origin Vercel when publisher CORS would block browser loading.
-
-Why these technologies:
-
-- PDF.js/react-pdf was already the practical browser standard for rendering PDFs.
-- Client-side geometry avoided building a separate server-side layout extraction service.
-- Cache Storage was chosen over normal HTTP cache because large PDFs and no-cache headers are unreliable for repeated reviewer loads.
-- Source-URL PDFs were chosen over Supabase Storage to avoid free-tier storage and egress pressure.
-
-Evidence:
-
-- `PdfTextScanner.js`: 2,323 lines.
-- `PdfViewer.jsx`: 939 lines.
-- `EvidenceLocations.js`: 439 lines.
-- PDF/evidence tests: `EvidenceLocations.test.js` (225), `PdfTextScanner.test.js` (655), `evidenceStatusCache.test.js` (92).
-- Related commits: `6aba2f2`, `f383732`, `cce6945`, `63ac650`, `a683c49`, `8fb77f5`, `ad1b38b`, `398cc46`, `b1ab87b`, `662a5f8`, `faf5341`, `82b09b0`, `c875853`, `5a23ac3`, `3564c57`, `8e89198`, `dc855e4`, `7733205`, `27c44ae`, `ac8bf72`.
-
-### 9.6 Autocomplete, Fuzzy Matching, and Search Telemetry
-
-**When:** Initial autocomplete on 2026-03-03; fuzzy-match upgrade on 2026-05-09; telemetry and refinements through May.
-**Credit:** Ayşegül for autocomplete UX/components; Huan for the reusable fuzzy-match engine; Arciel for catalog loading and telemetry integration.
-**Technology:** React components, Supabase catalog queries, local in-memory ranking, debouncing, fuzzy token matching, search session logging.
-
-What was built:
-
-- Food autocomplete over canonical foods, aliases, base names, and custom input.
-- Nutrient autocomplete with aliases, category filtering, units, and custom nutrient input.
-- Fuzzy token utility for exact/derived/fuzzy/prefix matches.
-- Whole-food preference heuristics.
-- Local ranking when full catalog is loaded.
-- Supabase fallback queries before catalog load completes.
-- Search session logging for query/result/resolution telemetry.
-
-Why it was needed:
-
-Food and nutrient names are not simple strings. Reviewers must resolve "apple", "ash", "protein", "vitamin c", or paper-specific food names quickly without accidentally selecting a processed variant or wrong nutrient. The UI needed forgiving search but not unsafe overmatching.
-
-How it was implemented:
-
-- Huan's `fuzzyMatch.js` normalizes tokens, handles inflections, allows bounded edit distance, detects adjacent transpositions, and returns relation tiers.
-- `FoodAutocomplete.jsx` layers domain scoring on top: exact/prefix/base/alias matches, penalties for processed variants, whole-food boosts, and custom entry fallback.
-- `NutrientAutocomplete.jsx` mirrors nutrient-specific matching and unit display.
-- `searchSessionLogger.js` records interaction telemetry and disables itself if the optional table is missing.
-
-Evidence:
-
-- `FoodAutocomplete.jsx`: 664 lines.
-- `NutrientAutocomplete.jsx`: 334 lines.
-- `fuzzyMatch.js`: 162 lines.
-- `searchSessionLogger.js`: 110 lines.
-- Huan commit: `e3971b2`.
-
-### 9.7 Suggestions, Help Requests, Attachments, and Cockpit Review
-
-**When:** Initial suggestion modal on 2026-03-02; Huan's full suggestion system 2026-04-21 to 2026-05-12; help/context integration later.
-**Credit:** Huan for suggestion/review/attachment vertical; Ayşegül for frontend suggestion surface continuity; Arciel for integration with current workflow/help context.
-**Technology:** React modal/view components, Supabase table, Supabase Storage, RLS/storage policies, signed URLs.
-
-What was built:
-
-- Suggestion modal for regular users.
-- Suggestion review list for cockpit users.
-- "My Suggestions" list for users to track status.
-- `backlog_review_items` table.
-- Private `suggestion-attachments` Storage bucket.
-- Image attachment validation and upload.
-- Signed URL retrieval for viewing private images.
-- Help request path that stores paper/reviewer/AI/draft context for later review.
-
-Why it was needed:
-
-Labelers and stakeholders needed a way to report UI problems, suggest feature changes, or ask for help without interrupting the annotation workflow. Image attachments were needed because many issues are visual: PDF display, evidence highlighting, UI state, or confusing paper content.
-
-How it was implemented:
-
-- `SuggestionModal.jsx` validates files by MIME/type/size/count, sanitizes names, uploads to a user-scoped path, records metadata in `backlog_review_items.attachments`, and rolls back uploaded objects if the DB insert fails.
-- RLS policies allow users to insert/read their own items while cockpit users can review/update.
-- Storage policies constrain user access to their folder and keep the bucket private.
-- Review views show status and image links through signed URLs rather than public bucket exposure.
-
-Evidence:
-
-- Huan commits: `2fcdc55`, `4db6334`, `ebe2a3d`, `bd29ab5`, `0a5fdd6`, `967c927`, `8dc6771`, `528848c`.
-- `SuggestionModal.jsx`: 279 lines.
-- `migration.sql`: `backlog_review_items`, `suggestion-attachments`, attachment RLS/storage policies.
-
-### 9.8 Database Schema, RPCs, and Security
-
-**When:** March to June 2026, with major workflow migrations in April/May.
-**Credit:** Arciel.
-**Technology:** Supabase Postgres, SQL, PL/pgSQL, JSONB, Row Level Security, `SECURITY DEFINER` functions, triggers, indexes.
-
-What was built:
-
-- Food/nutrient reference schema.
-- Paper discovery and search audit schema.
-- Human annotation schema.
-- Reviewer/admin/profile schema.
-- Legacy slot and conflict schemas.
-- Current general submission/approval/outcome schema.
-- AI extraction and stage-task schema.
-- Pipeline/cockpit aggregate RPCs.
-- Queue/card RPCs.
-- RLS model for client roles and service role.
-
-Why it was needed:
-
-Every surface depends on a shared truth store. The database needed to protect private operational tables while exposing just enough data to labelers and cockpit users. It also needed to store immutable evidence: who submitted what, who approved/corrected it, how the AI routed the paper, and what crawler/search path found it.
-
-How it was implemented:
-
-- Idempotent migration style: `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, constraint drop/recreate guards, backfills, and `DO $$` blocks.
-- RLS on 32 tables with policies for authenticated users, cockpit users, testers, approvers, and service role.
-- `SECURITY DEFINER` RPCs expose safe queue/cockpit aggregates without direct client access to task internals.
-- `claim_paper_stage_tasks` uses `FOR UPDATE SKIP LOCKED`, enabling concurrent workers to claim disjoint AI tasks.
-- Payload builders normalize text, round numeric values, sort deterministically, and compute structural diffs.
-
-Evidence:
-
-- `migration.sql`: 5,396 lines.
-- Object counts: 31 tables, 26 functions/RPCs, 75 policies, 69 indexes, 2 triggers.
-- Core RPCs: `claim_paper_stage_tasks`, `get_general_queue_cards`, `get_cockpit_ai_extractions`, `get_pipeline_ops_snapshot`, `submit_general_label`, `approve_label_submission`.
-
-### 9.9 AI Cascade and Model Worker
-
-**When:** Gemini integration in April 2026; Gemma cascade in May; Flash-Lite middle stage on 2026-05-29; PDF-mode Gemini on 2026-05-31.
-**Credit:** Arciel.
-**Technology:** Python, Supabase client, Gemini/Gemma model APIs through the Google generative SDK path, `pdftotext`, JSON parsing, SHA-256, Postgres RPC task claiming.
-
-What was built:
-
-- Unified model prompt/contract for food-composition extraction.
-- Three-stage cascade: Small model (Gemma), Medium model (Gemini Flash-Lite), Strong model (Gemini Flash).
-- Data-driven stage configs in database.
-- Text-mode and PDF-mode model input support.
-- Deterministic payload normalization.
-- Routing buckets and destinations.
-- Follow-up priority scoring.
-- Quota/rate-limit handling.
-- Retry ceiling and failure taxonomy.
-- Same-attempt fallback from Gemma 31B to 26B.
-- Historical recovery and Flash-Lite experiment scripts.
-
-Why it was needed:
-
-Final extraction calls are scarce. A single expensive model over every candidate would be too slow and too costly. The cascade lets cheap/high-volume stages narrow the candidate pool before final extraction. It also creates a ranking mechanism: the system spends strong-model calls on the most promising papers, not the oldest paper in the queue.
-
-How it was implemented:
-
-- `UnifiedEvaluator` prompts the model for a strict JSON shape and evidence metadata.
-- The parser accepts multiple JSON shapes to avoid infinite retries from harmless model formatting drift.
-- `process_stage_queue.py` claims tasks atomically, fetches source PDFs, extracts text/page markers, builds model inputs, runs the evaluator, normalizes the result, stores `ai_extractions`, and enqueues follow-up stages or routes to human/provisional skip.
-- `ai_routing.py` resolves IDs/names/aliases, standardizes units, rejects unsupported bases, groups/sorts rows, and stores rejection summaries.
-- Stage configs specify thresholds, fallback models, next stages, no-data destination, and input mode.
-- Worker errors are classified as quota, retryable, or non-retryable; quota requeues do not burn meaningful attempts.
-
-Evidence:
-
-- `unified_evaluator.py`: 687 lines.
-- `ai_routing.py`: 842 lines.
-- `process_stage_queue.py`: 1,560 lines.
-- `test_ai_routing.py`: 2,469 lines.
-- `test_pdf_page_markers.py`: 73 lines.
-- README/AGENTS record production model roles and quotas.
-
-### 9.10 Paper Discovery Crawler and Relevance Scoring
-
-**When:** March crawler reorganization, late-March crawler v2/feedback hardening, May/June daily ops refinements.
-**Credit:** Arciel.
-**Technology:** Python, Europe PMC/OpenAlex/Semantic Scholar APIs, DergiPark local index support, urllib/curl, `pdftotext`, sentence-transformers embeddings, JSON manifests.
-
-What was built:
-
-- Multi-source paper discovery pipeline.
-- Search task/query generation.
-- Metadata search gate.
-- Rich metadata relevance decision.
-- Learned feedback score application.
-- PDF acquisition and full-text validation.
-- Canonical dedup and local state tracking.
-- Per-run manifests with funnel counts and reasons.
-- English and Turkish support, with current ops English-only.
-
-Why it was needed:
-
-The hardest upstream problem is not extracting data from a paper; it is finding papers likely to contain direct food-composition tables. The web is full of nutrition/food papers that are not useful for OpenNutri: intervention studies, biomarkers, animal feed, extracts, treatments, review articles, and one-off experimental formulations. The crawler had to use multiple signals and stay explainable.
-
-How it was implemented:
-
-- Search sources return metadata candidates.
-- The first gate uses cheap lexical composition/food/nutrient/unit signals and soft penalties.
-- The metadata decision adds embedding similarity, source priors, learned feedback n-grams, and concept/batch scores.
-- The full-text validation gate checks the actual downloaded PDF text for table/composition/method/unit evidence.
-- Negative phrases are penalties, not hard vetoes.
-- The crawler pages live Supabase canonical keys to avoid refetching known papers.
-- It records terminal states locally and writes accepted partial results when the wall-clock budget is reached.
-
-Evidence:
-
-- `crawler_v2.py`: 2,215 lines.
-- `ranking.py`: 486 lines.
-- `test_bilingual_pipeline.py`: 1,120 lines.
-- Source adapters: `europe_pmc.py`, `search_sources.py`, `dergipark_source.py`.
-- Docs record English-only current ops and DergiPark retained only when Turkish is explicitly re-enabled.
-
-### 9.11 Feedback Learning
-
-**When:** 2026-03-20 onward, refined after reviewer-truth workflow changes.
-**Credit:** Arciel.
-**Technology:** Python, Supabase REST, log-odds n-gram scoring, JSON config output.
-
-What was built:
-
-- Human-truth export from accepted `paper_review_outcomes`.
-- Legacy fallback for older label events/global labels.
-- Exclusion of pending/superseded submissions.
-- Exclusion of AI-only truth from current learning.
-- Good/bad/background document buckets.
-- Title-only and title+abstract n-gram scoring.
-- Query phrase and anchor phrase selection.
-- Source priors, pair scores, batch scores, and concept scores.
-- Generated feedback config loaded by crawler v2.
-
-Why it was needed:
-
-The crawler should learn from the labels. If reviewers consistently accept papers with certain phrases and reject papers with other phrases, that evidence should guide the next search/refill cycle. But it must learn only from resolved human truth, otherwise the AI would train on its own provisional choices.
-
-How it was implemented:
-
-- `update_terms.py` fetches papers, outcomes, search hits, batches, conflicts, and labels.
-- It builds good/bad sets from `paper_review_outcomes.truth_source_kind='human_review'`.
-- It computes smoothed log-odds for terms in good vs background and bad vs background.
-- It stores net scores separately for title and title+abstract.
-- It merges seed terms as soft priors, not permanent winners.
-- The crawler reads weighted terms and applies them as additive scores only.
-
-Evidence:
-
-- `update_terms.py`: 1,219 lines.
-- `feedback_terms.py`, `feedback_config.py`, `supabase_terms.py`.
-- README documents that pending/superseded and AI-only outcomes do not feed learning.
-
-### 9.12 Daily Ops Automation
-
-**When:** April recursive daily ops loop; major hardening through May 2026; controller/worker split on 2026-05-29; bounded crawler runtime on 2026-06-04.
-**Credit:** Arciel.
-**Technology:** GitHub Actions, Python orchestrator, Supabase service role, Gemini API secrets, `poppler-utils`, pip dependency caching, GitHub concurrency groups.
-
-What was built:
-
-- Scheduled GitHub Actions tick every 5 minutes.
-- Serialized refill controller.
-- Five drain-only workers running in parallel.
-- Manual dispatch worker count.
-- Stage quota-day accounting.
-- Interleaved Gemma/Flash-Lite/final Gemini draining.
-- Stale task requeue.
-- Active Gemma target counting from executable tasks.
-- Bounded crawler chunks.
-- JSON summaries in job logs.
-
-Why it was needed:
-
-The pipeline had to run without someone manually sitting at a laptop. GitHub Actions free runners can overlap, time out, or be cancelled. The architecture therefore separates the single writer/refill role from many safe drain workers, with the database claim RPC providing concurrency control.
-
-How it was implemented:
-
-- `.github/workflows/daily-ops.yml` runs `refill-controller` under `daily-ops-refill-controller` concurrency.
-- A matrix of five workers runs in parallel and skips setup for inactive manual-dispatch worker numbers.
-- Controller installs full crawler dependencies and may crawl/upload/refill.
-- Workers install lighter requirements and never crawl/upload/refill.
-- Both use env vars for credentials and model runtime controls.
-- Workers claim tasks through `claim_paper_stage_tasks`, so overlapping matrices do not double-process rows.
-
-Evidence:
-
-- `.github/workflows/daily-ops.yml`: 148 lines.
-- README daily ops section and AGENTS ops notes.
-- `test_daily_ops.py`: 983 lines.
-
-### 9.13 Storage, Egress, and Frontend Performance
-
-**When:** May 30 to June 5, 2026, with earlier storage/upload decisions in April/May.
-**Credit:** Arciel for storage/egress architecture and backend projection; Ayşegül for frontend performance UX ownership.
-**Technology:** Supabase Postgres/Storage, Vercel serverless function, Cache Storage API, localStorage LRU, Vite-bundled PDF worker, lean Postgres RPCs.
-
-What was built:
-
-- Paper PDFs no longer stored in Supabase by default.
-- `papers.pdf_url` is durable source URL for workers and browser.
-- Same-origin PDF proxy for browser CORS issues.
-- Durable browser PDF cache and prefetch.
-- Self-hosted PDF.js worker instead of CDN dependency.
-- Queue loaded via lean `get_general_queue_cards`.
-- Cockpit data lazy-loaded only when cockpit tab opens.
-- Useful Papers AI list uses `get_cockpit_ai_extractions`, not raw `ai_extractions.select('*')`.
-
-Why it was needed:
-
-Supabase free-tier storage and egress were real constraints. Raw AI responses are large, and PDFs are large. The app needed to avoid downloading unnecessary rows and avoid storing paper PDFs in Supabase unless explicitly required.
-
-How it was implemented:
-
-- `upload_to_supabase.py` uses `OPENNUTRI_STORE_PDFS_IN_SUPABASE=0` by default and preserves `pdf_url`.
-- `process_stage_queue.py` fetches source PDFs on demand.
-- `api/pdf.js` proxies PDF requests for CORS.
-- `pdfCache.js` stores bytes in Cache Storage and keeps a local LRU.
-- `Annotate.jsx` loads queue/profile in parallel, lazy-loads cockpit, and fetches the food catalog during idle time.
-- `get_cockpit_ai_extractions` returns normalized payload and normalization summary only.
-
-Evidence:
-
-- Commits: `f8cad36`, `a6a7be7`, `68a4285`, `52bcd12`, `7733205`, `e15356e`, `9d0fbc0`, `390c162`, `376d687`, `ac8bf72`.
-- README records measured cockpit AI list egress reduction in the handoff state.
-
-### 9.14 Tests and Validation Infrastructure
-
-**When:** March to June 2026, expanding with each risky subsystem.
-**Credit:** Arciel for test suite architecture; Ayşegül/Huan where tests cover their frontend behavior indirectly.
-**Technology:** Node/Vite frontend tests, Python tests, Supabase schema-check scripts, `pandoc` doc export validation.
-
-Current tracked test files:
-
-| Test file | Lines | What it validates |
-| --- | ---: | --- |
-| `EvidenceLocations.test.js` | 225 | Evidence source merge/dedup behavior. |
-| `PdfTextScanner.test.js` | 655 | PDF table/paragraph/evidence scanner behavior. |
-| `evidenceStatusCache.test.js` | 92 | Evidence cache behavior. |
-| `test_ai_routing.py` | 2,469 | AI normalization, routing, unit handling, priority/failure cases. |
-| `test_bilingual_pipeline.py` | 1,120 | Crawler language/source/filter behavior. |
-| `test_daily_ops.py` | 983 | Daily ops orchestration and quota/drain logic. |
-| `test_pdf_page_markers.py` | 73 | PDF page marker injection. |
-| Total | 5,617 | Focused regression suite for high-risk behavior. |
-
-Why these tests matter:
-
-- PDF highlighting, AI routing, crawler scoring, and daily ops are the most failure-prone parts of the project.
-- Many bugs in this project are not syntax errors; they are routing/truth/permission regressions.
-- The tests encode decisions that later agents must not accidentally undo, such as retry fairness, page markers, and scanner behavior.
-
-### 9.15 Documentation and Project Management
-
-**When:** March to June 2026.
-**Credit:** Arciel primarily, with Huan/Ayşegül contributions reflected in their own feature docs and commits.
-**Technology:** Markdown, DOCX/PDF export scripts, GitHub workflow docs, repo agent instructions.
-
-What was built:
-
-- README architecture and operations documentation.
-- `AGENTS.md` standing instructions for future agents.
-- `INSTRUCTIONS.md` startup/credential/workflow rules.
-- Handoff state document.
-- Reviewer workflow map.
-- Reviewer SOP.
-- Defense reports, midterm reports, decks, and work reports.
-- Backlog maintenance.
-
-Why it was needed:
-
-The system changed quickly. Without state docs, future work would repeatedly re-derive or accidentally revert important decisions: general queue vs slots, source-URL PDFs, no hard-negative crawler vetoes, AI prefill behavior, tester read-only mode, and the three-stage cascade.
-
-How it was implemented:
-
-- README records active commands, architecture, secrets by env var name, daily ops, crawler, feedback, and deployment assumptions.
-- AGENTS records standing rules and product truths for future coding agents.
-- Handoff state records live ops audits and schema/model changes.
-- Work reports are exported to DOCX for assessment.
+Most defensible metrics: 216 `baezarciel` commits plus the initial `ArcielB` commit (the three most recent being these defense documents); `baezarciel` churn ~`+66,000/-17,000` with work-report files excluded from the project-code metric; backend/ops/schema bucket ~31,500 lines.
+
+
+## 9. Assessment ledger — attribution, dates, and evidence by workstream
+
+This ledger is the **attribution lens**: who built what, when, on what technology, and where the evidence lives. The *mechanics* of each workstream are in §6 (Deep Technical Work Log) and are not repeated here — each entry points to its §6 home. The ledger is organized by workstream rather than commit order because the project repeatedly replaced earlier architecture with better production versions.
+
+### 9.1 Project bootstrap & MVP annotator
+- **When:** 2025-12-19, then 2026-03-02 → 03-09. **Credit:** Ayşegül (original annotator MVP on `origin/master`); Arciel (import/reorganization into the current repo); Huan (later theme refinement). **Tech:** React, Vite, Supabase Auth/Storage, plain CSS, PDF.js/react-pdf.
+- The first usable deliverable: a browser interface where a labeler could open a paper, inspect its PDF, and enter food/nutrient rows — login, app shell, Google OAuth, theme toggle, first food form and PDF highlight behavior, initial SQL schema fragments.
+- **Evidence:** Ayşegül all-ref commits `7c2d372`, `614a82c`, `6245a17`, `00fd645` (flexible nutrients + autocomplete + PDF highlight redesign), `8a29dcb`; current frontend ~14,100 tracked lines; principal frontend files 10,334 current lines.
+
+### 9.2 Authentication, roles, theme & read-only training access
+- **When:** March → May 2026. **Credit:** Ayşegül (auth/frontend shell), Huan (theme centralization, reset-password, tester visibility), Arciel (role/RLS/RPC backing, reviewer-profile workflow). **Tech:** Supabase Auth, React state, `matchMedia`, session storage, Postgres RLS, `SECURITY DEFINER` predicates.
+- Multi-principal access: labeler / cockpit / tester / approver / service role, with tester read-only and a private signup allowlist enforced by an auth hook. Full mechanics in §6 (Database) and §6 (Annotator app shell).
+- **Evidence:** Huan commits `cbf61ad`, `341b40e`, `4e208a5`, `9f18a56`; schema evidence 75 RLS policies / 32 RLS-enabled tables / 22 `SECURITY DEFINER` functions; files `App.jsx`, `Login.jsx`, `ResetPassword.jsx`, `useTheme.js`, `migration.sql`.
+
+### 9.3 Annotation editor, AI prefill & the payload contract
+- **When:** March → June 2026, major changes 2026-04-13, 05-02, 06-04. **Credit:** Ayşegül (core editor/workflow frontend); Arciel (backend contract/RPCs, AI-prefill integration, general-queue redesign, performance). **Tech:** React 19, Supabase JS, Postgres RPCs, JSONB, deterministic hashing.
+- The one stable payload language spoken by JS, SQL, and Python that makes AI rows and human rows interchangeable and hash-comparable. Full mechanics in §6 (Database — payload builders) and §6 (Annotator app).
+- **Evidence:** `Annotate.jsx` (1,163), `annotateHelpers.js` (574), `ai_routing.py` (842); RPCs `submit_general_label`, `approve_label_submission`, `build_annotation_submission_payload`, `build_label_payload_diff`.
+
+### 9.4 General queue & approval workflow
+- **When:** slot workflow April 2026; general-queue replacement 2026-05-02; refinements through June. **Credit:** Arciel (schema/RPC/workflow redesign, final approval model); Ayşegül (frontend queue/approval surfaces); Huan (earlier conflict system, later superseded). **Tech:** Supabase Postgres, RLS, RPCs, React views, immutable JSON payloads.
+- **Why it changed:** the slot workflow was too heavy operationally; the team needed every active labeler to see available useful papers and a paper to leave the queue as soon as a real submission exists — while final truth stayed under reviewer (Arciel) control. The schema preserves all three generations (slot → conflict → general queue); see §6 (Database, "the workflow engine was rebuilt twice").
+- **Evidence:** workflow map `crawl → upload → Small → Medium → Strong → human_review_ready → paper_label_submissions → approval → paper_label_approvals → paper_review_outcomes → feedback`; `QueueView.jsx`, `ApprovalView.jsx`, `DashboardView.jsx`; `migration.sql`.
+
+### 9.5 PDF evidence viewer, highlighting & source navigation
+- **When:** initial viewer March; intensive highlighting 2026-04-22 → 06-05. **Credit:** Ayşegül (frontend PDF/highlight UX ownership); Arciel (evidence-source integration, caching, page-hint fixes, source-URL delivery); Huan (continuous scroll). **Tech:** PDF.js/react-pdf, browser text-layer geometry, Cache Storage API, localStorage LRU, Supabase dedup cache, Vercel serverless proxy.
+- The single hardest piece of code in the project — turning AI `table_label`/`page_hint`/`source_quote` metadata into inspectable overlays on arbitrary publisher PDFs. Full mechanics (nine hard problems) in §6 (PDF evidence subsystem).
+- **Evidence:** `PdfTextScanner.js` (2,323), `PdfViewer.jsx` (939), `EvidenceLocations.js` (439); tests `PdfTextScanner.test.js` (655), `EvidenceLocations.test.js` (225), `evidenceStatusCache.test.js` (92); commits `6aba2f2`, `f383732`, `cce6945`, `63ac650`, `a683c49`, `8fb77f5`, `ad1b38b`, `398cc46`, `b1ab87b`, `662a5f8`, `faf5341`, `82b09b0`, `c875853`, `5a23ac3`, `3564c57`, `8e89198`, `dc855e4`, `7733205`, `27c44ae`, `ac8bf72`.
+
+### 9.6 Autocomplete, fuzzy matching & search telemetry
+- **When:** initial autocomplete 2026-03-03; fuzzy-match upgrade 2026-05-09; telemetry through May. **Credit:** Ayşegül (autocomplete UX/components); Huan (reusable fuzzy-match engine); Arciel (catalog loading, telemetry integration). **Tech:** React, Supabase catalog queries, in-memory ranking, debouncing, fuzzy token matching, search-session logging.
+- Forgiving search without unsafe over-matching (e.g. surfacing *Apple, raw* over *Apple juice, canned*). Full mechanics in §6 (Annotator app — domain-tuned IR) and §6 (Huan's `fuzzyMatch`).
+- **Evidence:** `FoodAutocomplete.jsx` (664), `NutrientAutocomplete.jsx` (334), `fuzzyMatch.js` (162), `searchSessionLogger.js` (110); Huan commit `e3971b2`.
+
+### 9.7 Suggestions, help requests, attachments & cockpit review
+- **When:** initial modal 2026-03-02; Huan's full system 2026-04-21 → 05-12; help/context integration later. **Credit:** Huan (suggestion/review/attachment vertical); Ayşegül (frontend continuity); Arciel (help-context integration). **Tech:** React modal/views, Supabase table + Storage, RLS/storage policies, signed URLs.
+- A complete full-stack slice with per-user folder paths, transactional upload-then-insert with rollback, and signed-URL viewing. Full mechanics in §6 (Huan's features).
+- **Evidence:** Huan commits `2fcdc55`, `4db6334`, `ebe2a3d`, `bd29ab5`, `0a5fdd6`, `967c927`, `8dc6771`, `528848c`; `SuggestionModal.jsx` (279), `SuggestionAttachmentsCell.jsx` (83), `HelpRequestModal.jsx` (29); `migration.sql` (`backlog_review_items`, `suggestion-attachments` bucket + 4 storage policies).
+
+### 9.8 Database schema, RPCs & security
+- **When:** March → June 2026, major migrations April/May. **Credit:** Arciel. **Tech:** Supabase Postgres, SQL/PL-pgSQL, JSONB, RLS, `SECURITY DEFINER`, triggers, indexes.
+- The shared truth store and least-privilege security model behind every surface. Full mechanics (five schema layers, the security model, the concurrency primitive, payload builders) in §6 (Database).
+- **Evidence:** `migration.sql` (5,396); 31 tables / 26 RPCs / 75 policies / 69 indexes / 2 triggers / 22 `SECURITY DEFINER`; core RPCs `claim_paper_stage_tasks`, `get_general_queue_cards`, `get_cockpit_ai_extractions`, `get_pipeline_ops_snapshot`, `submit_general_label`, `approve_label_submission`.
+
+### 9.9 AI cascade & model worker
+- **When:** Gemini integration April 2026; Gemma cascade May; Flash-Lite middle stage 2026-05-29; PDF-mode Gemini 2026-05-31. **Credit:** Arciel. **Tech:** Python, Supabase client, Gemini/Gemma via the Google generative SDK path, `pdftotext`, JSON parsing, SHA-256, Postgres RPC task claiming.
+- Three-stage cascade with one shared contract, deterministic normalization, routing buckets, follow-up prioritization, retry-fairness, quota safety, and same-attempt fallback. Full mechanics in §6 (AI extraction cascade).
+- **Evidence:** `unified_evaluator.py` (687), `ai_routing.py` (842), `process_stage_queue.py` (1,560); `test_ai_routing.py` (2,469), `test_pdf_page_markers.py` (73); recovery/regression tools `recover_gemini_candidates.py` (446), `flash_lite_triage_experiment.py` (245).
+
+### 9.10 Paper-discovery crawler & relevance scoring
+- **When:** March crawler reorg, late-March crawler-v2/feedback hardening, May/June daily-ops refinements. **Credit:** Arciel. **Tech:** Python, Europe PMC/OpenAlex/Semantic Scholar APIs, DergiPark local index, urllib/curl, `pdftotext`, sentence-transformers, JSON manifests.
+- Multi-signal, explainable, additive (no hard veto) Search→Filter→Acquisition with PMC proof-of-work PDF recovery and canonical dedup. Full mechanics in §6 (Crawler v2) including the shared `models.py` identity keys.
+- **Evidence:** `crawler_v2.py` (2,215), `ranking.py` (485), `models.py` (374), `embeddings.py` (138); `test_bilingual_pipeline.py` (1,120); adapters `europe_pmc.py`, `search_sources.py`, `dergipark_source.py`.
+
+### 9.11 Feedback learning
+- **When:** 2026-03-20 onward, refined after reviewer-truth workflow changes. **Credit:** Arciel. **Tech:** Python, Supabase REST, smoothed log-odds n-gram scoring, JSON config output.
+- Learns only from resolved human truth (never from AI-finalized outcomes) and feeds soft scores back to the next crawl. Full mechanics (good/bad/background log-odds, the derived pools) in §6 (L2 feedback-learning loop).
+- **Evidence:** `update_terms.py` (1,219), `feedback_terms.py`, `feedback_config.py`, `supabase_terms.py`; README documents that pending/superseded and AI-only outcomes do not feed learning.
+
+### 9.12 Daily-ops automation
+- **When:** April recursive loop; hardening through May; controller/worker split 2026-05-29; bounded crawler runtime 2026-06-04. **Credit:** Arciel. **Tech:** GitHub Actions, Python orchestrator, Supabase service role, Gemini secrets, `poppler-utils`, pip caching, GitHub concurrency groups.
+- One serialized refill controller + five parallel drain workers on a 5-minute cron, made safe by the DB claim RPC. Full mechanics (controller/drain logic, two-timezone quota accounting, nested wall-clock budgets) in §6 (Daily-ops orchestration).
+- **Evidence:** `.github/workflows/daily-ops.yml` (148), `daily_ops_orchestrator.py` (2,358); `test_daily_ops.py` (983); README daily-ops section, AGENTS ops notes.
+
+### 9.13 Storage, egress & frontend performance
+- **When:** earlier storage/upload decisions April/May; major work 2026-05-30 → 06-05. **Credit:** Arciel (storage/egress architecture, backend projections); Ayşegül (frontend performance UX). **Tech:** Supabase Postgres/Storage, Vercel serverless, Cache Storage API, localStorage LRU, Vite-bundled PDF worker, lean RPCs.
+- Source-URL PDFs (no default Supabase paper storage), same-origin PDF proxy, durable browser cache + prefetch, lean one-RPC queue, lazy cockpit, slim cockpit AI projection (measured ~82 MB → ~11 MB egress). Full mechanics in §6 (Daily-ops — PDF proxy) and §6 (Annotator app — egress-driven architecture).
+- **Evidence:** commits `f8cad36`, `a6a7be7`, `68a4285`, `52bcd12`, `7733205`, `e15356e`, `9d0fbc0`, `390c162`, `376d687`, `ac8bf72`; `api/pdf.js` (102), `pdfCache.js` (107); handoff STATE.md egress audit.
+
+### 9.14 Tests & validation infrastructure
+- **When:** March → June 2026, expanding with each risky subsystem. **Credit:** Arciel (suite architecture); Ayşegül/Huan where tests cover their frontend behavior. **Tech:** Vite frontend tests, Python tests, Supabase schema-check scripts, `pandoc` doc-export validation.
+- 5,617 lines of focused regression weighted toward the code that can silently corrupt data or burn quota. Full breakdown in §3.4; the `test_ai_routing.py` names read as a specification of the AI-cascade invariants (see §6 ETL + test suite).
+- **Evidence:** `test_ai_routing.py` (2,469), `test_bilingual_pipeline.py` (1,120), `test_daily_ops.py` (983), `test_pdf_page_markers.py` (73); frontend `PdfTextScanner.test.js` (655), `EvidenceLocations.test.js` (225), `evidenceStatusCache.test.js` (92).
+
+### 9.15 Documentation & project management
+- **When:** March → June 2026. **Credit:** Arciel primarily, with Huan/Ayşegül feature docs. **Tech:** Markdown, DOCX/PDF export scripts, GitHub workflow docs, repo agent instructions.
+- The state docs that stop future work from re-deriving or reverting key decisions (general queue vs slots, source-URL PDFs, no hard-negative vetoes, AI-prefill behavior, tester read-only, the three-stage cascade).
+- **Evidence:** `README.md`, `AGENTS.md`, `INSTRUCTIONS.md`, `docs/handoff_2026-03-20/STATE.md`, `docs/reviewer_workflow_map.md`, `docs/reviewer_sop_en.md`, the defense/work-report set, `BACKLOG.md`.
 
 ## 10. Chronological Milestone Ledger
 
@@ -2045,23 +932,30 @@ This is not every commit, but it records the major dated changes that define the
 | 2026-05-29 | `fcccf8c`, `e4bc421`, `686fed8`, `8a1949d`, `0bc0d64`, `b1b8a8e` | Arciel | Gemini quota routing, drain workers decoupled from controller, Flash-Lite triage stage, three-stage Pipeline UI, medium-stage backfill. | Established the current three-stage cascade and visible ops funnel. |
 | 2026-05-30 to 2026-05-31 | `f8cad36`, `a6a7be7`, `68a4285`, `52bcd12`, `7733205`, `27c44ae`, `938176c`, `bc93f8b`, `0011272` | Arciel + frontend ownership | Source-URL PDFs, CORS proxy, browser cache, journal page hint fix, PDF-mode Gemini, Gemma text-mode decision documented. | Solved storage/egress pressure and evidence page-number reliability. |
 | 2026-06-04 to 2026-06-05 | `e15356e`, `9d0fbc0`, `390c162`, `376d687`, `43d3d60`, `ac8bf72` | Arciel + frontend ownership | Lazy cockpit, self-hosted PDF worker, egress reduction, durable PDF cache, one-RPC queue, bounded crawler runtime, evidence-first rendering. | Made the app and daily ops faster and less fragile. |
-| 2026-06-05 | `fd1b930`, `bf89977`, `1a8d1cf`, `6607ac9`, `4a8ec8` | Arciel/Codex documentation work | Work reports v1/v2 and frontend report deepening. | Created assessment artifacts and corrected attribution evidence. |
+| 2026-06-05 | `fd1b930`, `bf89977`, `1a8d1cf`, `6607ac9`, `4a8ec8a`, `0713a03`, `ef213e7`, `cc035c3` | Arciel (documentation, with Codex/Claude assist) | Per-contributor work reports v1/v2, frontend report deepening, current-code report, and this consolidated/restructured master report. | Created assessment artifacts, corrected attribution evidence, and merged the three report streams into one non-redundant document. |
 
-## 11. Evidence Commands Used for This Final Version
 
-The key reproducible commands were:
+## 11. Validation state & evidence commands
+
+This report was built from the current tracked source after a remote refresh (`git fetch origin`), an ahead/behind check (`main...origin/main` even), and a working-tree status check. Every metric in §3 was re-verified file-by-file against the `cc035c3` working tree.
+
+Reproducible commands used to gather and check the evidence:
 
 ```text
 git fetch origin
-git rev-list --left-right --count main...origin/main
-git shortlog -sne --all
-git log --all --author=<author> --format= --numstat -- ...exclusions...
-git ls-files ... | wc -l
-wc -l <key files>
-rg -n <schema/RPC/policy/model/crawler evidence>
-pandoc -t plain <report.md> | wc -w
-pandoc <report.md> -o <report.docx>
-unzip -p <report.docx> word/document.xml
+git rev-list --left-right --count main...origin/main      # ahead/behind
+git shortlog -sne --all                                    # commit counts by author
+git log --all --author=<author> --format= --numstat -- <paths>   # filtered churn
+git ls-files <globs> | wc -l                               # tracked source inventory
+wc -l <key files>                                          # exact file sizes
+grep -ciE 'CREATE TABLE|CREATE .*FUNCTION|CREATE POLICY|...' migration.sql   # schema counts
+grep -rcE '^\s*def test_' tests/*.py                       # test-function counts
+pandoc <report.md> -o <report.docx>                        # DOCX export
+pandoc <report.md> -t plain | wc -w                        # word count
+unzip -p <report.docx> word/document.xml | head           # DOCX sanity check
+git diff --check ; git diff --cached --check               # whitespace/merge-marker check
 ```
 
-The important limitation is equally explicit: the report is evidence-backed from source, history, docs, tests, and key implementation files, but it is not a claim that every tracked line in USDA dumps, generated documents, or every retained legacy file was read end to end.
+Honest limitation: this report is evidence-backed from source, git history, project docs, the test suite, and direct reads of every principal implementation file. It is **not** a claim that every tracked line in the USDA data dumps, the generated documents, or every retained legacy file was read end to end. Where current implementation and older prose ever conflict, the `cc035c3` source tree is authoritative.
+
+This is a documentation-only artifact: producing it changed no application code, no schema, no workflow YAML, no live database, and no deployment.
