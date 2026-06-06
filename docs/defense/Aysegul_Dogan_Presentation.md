@@ -17,34 +17,49 @@
 
 ## 1. What is the general problem?
 
-The world needs **trustworthy food-composition data** — how much protein, fat, iron, vitamin C, etc. a given food actually contains. This data feeds nutrition labels, diet-tracking apps, food exporters, food inspection, and public-health datasets.
+Accurate **food-composition data** — how much protein, fat, iron, vitamin C and so on a given food actually contains — is the backbone of nutrition labels, diet-tracking apps, food-export compliance, clinical nutrition, and public-health policy. Every one of those depends on a reliable answer to one question: *what is actually in this food?*
 
-The problem is that this data is **scattered across thousands of scientific papers**, written in inconsistent formats, and **no single source contains it in a clean, reusable form**. A nutritionist who wants "the iron content of raw lentils, measured directly" has to find the right paper, read it, locate the right table, and copy the number by hand. This does not scale.
+The problem is **where that data comes from today.** The reference databases the whole world relies on — the USDA's FoodData Central, the EU's EFSA database, national databases like Turkey's TürKomp — are all built the same way: **human experts manually transcribe values out of scientific papers and lab reports, by hand, one number at a time.** That manual process is the bottleneck, and it produces three problems that never go away:
 
-Two naive solutions both fail:
+- **Coverage is narrow.** Because manual curation is slow and expensive, these databases prioritize common global commodities and leave out the long tail — regional foods, processed products, new varieties. Enormous amounts of perfectly good published data are simply never entered. (As one concrete example, thousands of foods that already appear in the scientific literature are absent from *both* USDA and EFSA.)
+- **Updates are rare.** Manual databases go stale. TürKomp, for instance, has barely been updated since 2014; even the major databases lag years behind the literature.
+- **Access is gated.** Building one of these is so costly that the result is licensed for a fee — so most apps and researchers end up paying to use foreign data that often doesn't even contain the foods they care about.
 
-- **"Just scrape the papers automatically."** Scientific papers are messy: the data lives inside PDF tables with footnotes, units, sample codes, and multi-column layouts. Pure automation produces too many wrong numbers, and wrong nutrition data is worse than none.
-- **"Just ask an AI."** A language model will confidently invent values. For something that ends up on a food label, a hallucinated number is dangerous.
+And yet **the data already exists.** It is published every day, in thousands of scientific papers — just locked inside unstructured PDFs, in tables full of footnotes, units, sample codes, and multi-column layouts. The reason it isn't in a database is not that nobody measured it; it's that **reading it out by hand doesn't scale.**
 
-So the real problem is: **how do you discover the right papers at scale, extract candidate values cheaply, and still guarantee that a qualified human verifies every number before it becomes "truth"?** You need both automation *and* a human in the loop — and the human's job has to be fast enough to actually be done.
+The two obvious shortcuts both fail. **Pure manual entry** is exactly the bottleneck above. **Pure automation — "just let an AI read the papers"** — produces too many wrong numbers, and a wrong value on a food label or in a dietary guideline is worse than no value at all.
+
+So the real problem is: **how do you turn that ocean of published-but-unstructured data into a clean database at scale, while still guaranteeing every number is correct enough to trust?**
 
 ## 2. How did we solve it (as a team)?
 
-We built **OpenNutri** — an end-to-end pipeline that combines machine scale with human judgment. It is one system with three surfaces over a single Supabase Postgres database:
+We built **OpenNutri** — a **"Hybrid Intelligence" pipeline** that flips the model: instead of a human reading every paper from scratch, **the machine does the discovery and the heavy reading at scale, and the human only verifies.** The result is a database that is *automatically generated, expert-verified, citation-backed, and self-improving* — which is exactly where it beats every current alternative:
 
-1. **A Python discovery & extraction pipeline** (Arciel's backend) that starts from reference USDA food/nutrient data, searches the scientific literature (Europe PMC, OpenAlex, Semantic Scholar), filters for relevance, downloads the PDFs, and runs a **three-stage AI cascade** — a cheap screening model on ~1,500 papers/day, a medium triage model, and a strong PDF-reading model on the best ~20/day — to produce **candidate** nutrition values.
+- **vs. USDA / EFSA / TürKomp** (manual curation): OpenNutri reads the literature automatically, so it can cover far more foods, stay continuously up to date instead of going stale, and attach **DOI-level provenance to every single value** — existing databases cite sources only at the food-item level, if at all.
+- **vs. commercial providers** (Edamam, FatSecret, Nutritionix): those don't generate new data — they resell licensed government data or crowd-sourced label scans. OpenNutri produces *new* structured data straight from primary scientific sources.
+- **vs. a single AI model:** OpenNutri doesn't trust one model's guess. It uses a **layered cascade** where each paper passes through progressively more capable (and more expensive) stages, and only the hard cases climb to the costly ones — so it reads at scale without paying top price per paper, and **every value is checked.**
 
-2. **A Supabase database contract** (Arciel's backend) that stores everything immutably, enforces who-can-do-what with row-level security, and runs the review workflow.
+In its full design the cascade has five layers: **(L1)** a crawler that discovers candidate papers, **(L2)** a lightweight filter, **(L3)** open-source extraction models, **(L4)** a stronger commercial model for the hard cases, and **(L5) expert human verification** that produces the final gold-standard record. The system is **self-improving**: every expert correction at L5 flows back down as a training signal, so over time the AI handles more papers on its own and the cost per paper falls — something a manual database can never do, because manual work only ever produces data, it never improves the tool.
 
-3. **The expert-annotator web app** (my frontend) — the part a human actually uses. The AI's candidate values are never trusted directly. They are presented to a qualified labeler inside a workspace where they can **see the source PDF, see exactly which table and sentence each number came from**, correct it, and submit it. An approver then finalizes the truth, and that accepted human truth is **fed back** to make the next crawl smarter.
+Our current implementation realizes this as one system with three surfaces over a single Supabase Postgres database:
 
-The key idea: **the AI does the searching and the heavy reading so the human only has to verify, not hunt.** My frontend is what makes that verification fast, visual, and trustworthy. Without it, the whole pipeline produces unverified guesses; with it, every published number has a human behind it who could *see* the evidence on the page.
+1. **A Python discovery & extraction pipeline** (Arciel's backend) — from reference USDA data it searches the literature (Europe PMC, OpenAlex, Semantic Scholar), filters for relevance, downloads the PDFs, and runs a working **three-stage AI cascade** (a cheap screening model on ~1,500 papers/day → a medium triage model → a strong PDF-reading model on the best ~20/day) to produce **candidate** values. This is L1–L4 in working form.
+
+2. **A Supabase database contract** (Arciel's backend) — stores everything immutably, enforces who-can-do-what with row-level security, and runs the review workflow.
+
+3. **The expert-annotator web app** (my frontend) — **this is Layer 5, the human-verification layer**, and it is what the rest of this document is about.
 
 ## 3. What is my part, why is it necessary, and what did I do?
 
-**My part is the entire expert-annotator frontend** — the web application that every human labeler and approver actually uses. It is a **React 19 + Vite** single-page app, deployed on **Vercel**.
+**My part is the entire expert-annotator frontend** — the web application that every human verifier and approver actually uses. It is a **React 19 + Vite** single-page app, deployed on **Vercel**. In OpenNutri's design it is **Layer 5 — Expert Human Verification, the "Gold Standard" layer.**
 
-**Why it is necessary.** The backend can find papers and propose numbers, but a proposed number is worthless until a human confirms it. The frontend is the *only* place where verification happens. If verification is slow, painful, or untrustworthy, no human truth ever gets produced and the whole project fails. So the frontend is not "the UI on top" — it is the **verification instrument** that the project's entire value depends on.
+**Why it is necessary: it replaces manual data entry with verification — and that is the whole game.** Every existing food database is built by an expert doing *manual data entry*: read the whole paper, find the right table, decode its headers and units, and type each number into a database by hand. That is the exact bottleneck that keeps those databases narrow and out of date. My frontend exists to **break that bottleneck**, and it is necessary for three concrete reasons:
+
+1. **It turns "transcribe from scratch" into "review a draft."** By the time a paper reaches my screen, the AI has already found it, read it, and filled in candidate values. The expert no longer transcribes — they **verify and correct** a pre-filled draft. Reviewing a proposed number is dramatically faster than hunting for it and typing it; that is the difference between a few papers an hour and the throughput this project needs (on the order of 8–12 verified papers per day, per expert). Same expert, an order of magnitude more output.
+2. **It makes the evidence instant instead of a manual search.** In manual entry, the slowest and most error-prone step is *finding* the right value in a 15-page PDF and being sure it's the right row, right column, right units. My UI does that for them: **the exact table or sentence a value came from lights up on the PDF**, and the nutrient names inside that table are clickable so a value drops straight into the editor. The expert's eyes go straight to the evidence — they confirm rather than search. This is exactly *why* my hardest technical work, the PDF evidence engine, had to exist: without it, "verify, don't hunt" is just a slogan.
+3. **It is the only place verified truth — and the training signal — is produced.** Manual data entry produces a number and nothing else. My verification UI produces a number **plus** an error-categorized correction that becomes the feedback signal making the AI better next time, **plus** automatic DOI provenance for that value, **plus** the immutable audit record that lets the project promise its quality bar (under 0.5% error). So the UI is not a prettier spreadsheet — it is what converts an expensive manual process into a fast, self-improving, traceable one.
+
+In short: **manual data entry doesn't scale and never improves; the verification UI I built does both.** That is why it is the component the whole project's value rests on.
 
 It also had a hard constraint: the whole project runs on **free tiers** (Supabase free egress limit, Vercel). So the frontend couldn't just fetch everything — it had to be carefully engineered to stay inside strict data limits while still feeling instant.
 
@@ -194,14 +209,14 @@ On top of the scanner, `PdfViewer.jsx` does the rendering: a **self-hosted, bund
 
 ## 5. Closing summary
 
-I built the **entire frontend of OpenNutri** — the verification instrument the whole project depends on. In numbers:
+I built the **entire frontend of OpenNutri** — **Layer 5, the expert-verification layer** that replaces slow manual data entry with a fast, self-improving verification loop, and turns the AI pipeline's raw output into trustworthy, citation-backed data. In numbers:
 
 - **~14,100 lines** of current frontend code; **10,334 lines** concentrated in the principal queue, PDF, autocomplete, and view files; plus **~970 lines of tests** locking down the hardest behavior.
 - The **PDF evidence engine alone is ~4,050 lines** of *document layout analysis running in a web browser* — projection-profile column detection, an adaptive per-fragment table classifier, caption-anchored table growth, MAD-robust column clipping, a three-tier quote matcher that survives a lying page number, and union-find de-duplication, refined over **27 commits**. It is, on the team's own assessment, the **single hardest piece of code in the entire project — frontend or backend.**
 
-And it isn't a prototype. It is **production-deployed on Vercel**, it runs **entirely client-side** with no server round-trip, it works on **arbitrary publisher PDFs**, it stays inside a **free-tier data budget** through parallel boot, one-RPC loading, idle catalog loading, and durable shared caching, and it is **precision-first** — it would rather highlight nothing than highlight the wrong thing, because a wrong number on a food label is worse than none.
+And it isn't a prototype. It is **production-deployed on Vercel**, runs **entirely client-side** with no server round-trip, works on **arbitrary publisher PDFs**, stays inside a **free-tier data budget** through parallel boot, one-RPC loading, idle catalog loading, and durable shared caching, and is deliberately **precision-first** — it would rather highlight nothing than highlight the wrong thing, because a wrong number in a food database, on an export label, or in a health guideline is worse than none.
 
-The backend can find papers and the AI can propose numbers, but **none of it becomes trustworthy data until a human confirms it on my screen.** My frontend is what turns a pile of PDFs and AI guesses into something a nutritionist can actually believe — and it does it fast enough to use all day.
+Every food database in the world is still built by experts typing numbers out of papers by hand — which is exactly why those databases are narrow, stale, and expensive. **My frontend changes the unit of work from "transcribe a paper" to "verify a draft," and makes every verification both traceable and a lesson the AI learns from.** That is what lets OpenNutri do at scale what manual curation never could — and it does it fast enough to run all day.
 
 ---
 
@@ -209,34 +224,49 @@ The backend can find papers and the AI can propose numbers, but **none of it bec
 
 ## 1. Genel problem nedir?
 
-Dünyanın **güvenilir besin bileşim verisine** ihtiyacı var — yani belirli bir gıdanın gerçekte ne kadar protein, yağ, demir, C vitamini vb. içerdiğine. Bu veri; besin etiketlerini, diyet takip uygulamalarını, gıda ihracatçılarını, gıda denetimini ve halk sağlığı veri setlerini besler.
+Doğru **besin bileşim verisi** — bir gıdanın gerçekte ne kadar protein, yağ, demir, C vitamini vb. içerdiği — besin etiketlerinin, diyet takip uygulamalarının, gıda ihracat uyumunun, klinik beslenmenin ve halk sağlığı politikasının temelidir. Bunların hepsi tek bir soruya güvenilir bir yanıta bağlıdır: *bu gıdanın içinde gerçekte ne var?*
 
-Sorun şu ki bu veri **binlerce bilimsel makaleye dağılmış** durumda, tutarsız formatlarda yazılmış ve **hiçbir tek kaynak onu temiz, yeniden kullanılabilir bir biçimde içermiyor.** "Çiğ mercimeğin doğrudan ölçülmüş demir içeriği"ni isteyen bir beslenme uzmanı; doğru makaleyi bulmak, okumak, doğru tabloyu bulmak ve sayıyı elle kopyalamak zorunda. Bu ölçeklenmiyor.
+Asıl sorun, **bu verinin bugün nereden geldiğidir.** Tüm dünyanın dayandığı referans veritabanları — ABD'nin USDA FoodData Central'ı, AB'nin EFSA veritabanı, Türkiye'nin TürKomp'u gibi ulusal veritabanları — hepsi aynı şekilde kurulur: **insan uzmanlar, değerleri bilimsel makalelerden ve laboratuvar raporlarından elle, tek tek sayı sayı kopyalar.** Bu manuel süreç darboğazdır ve asla ortadan kalkmayan üç sorun üretir:
 
-İki kolaycı çözüm de başarısız oluyor:
+- **Kapsam dardır.** Manuel derleme yavaş ve pahalı olduğundan, bu veritabanları yaygın küresel ürünleri önceliklendirir ve uzun kuyruğu — bölgesel gıdaları, işlenmiş ürünleri, yeni çeşitleri — dışarıda bırakır. Yayımlanmış gayet iyi verinin muazzam bir kısmı hiçbir zaman girilmez. (Somut bir örnek olarak, bilimsel literatürde halihazırda görünen binlerce gıda hem USDA'da hem de EFSA'da yoktur.)
+- **Güncellemeler nadirdir.** Manuel veritabanları eskir. Örneğin TürKomp 2014'ten beri neredeyse hiç güncellenmedi; büyük veritabanları bile literatürün yıllar gerisindedir.
+- **Erişim ücretlidir.** Bunlardan birini kurmak o kadar maliyetlidir ki sonuç ücret karşılığı lisanslanır — böylece çoğu uygulama ve araştırmacı, çoğu zaman önemsedikleri gıdaları içermeyen yabancı veriyi kullanmak için para öder.
 
-- **"Makaleleri otomatik olarak kazıyalım."** Bilimsel makaleler dağınıktır: veri; dipnotları, birimleri, örnek kodları ve çok sütunlu yerleşimleri olan PDF tablolarının içinde yaşar. Saf otomasyon çok fazla yanlış sayı üretir — ve **yanlış besin verisi, hiç veri olmamasından daha kötüdür.**
-- **"Yapay zekâya soralım."** Bir dil modeli, değerleri özgüvenle uydurur. Sonunda bir besin etiketine giden bir şey için, halüsinasyonla üretilmiş bir sayı tehlikelidir.
+Oysa **veri zaten mevcuttur.** Her gün, binlerce bilimsel makalede yayımlanır — yalnızca yapısız PDF'lerin içinde, dipnotlar, birimler, örnek kodları ve çok sütunlu yerleşimlerle dolu tabloların içinde kilitlidir. Bir veritabanında olmamasının nedeni kimsenin ölçmemiş olması değildir; **onu elle okuyup çıkarmanın ölçeklenmemesidir.**
 
-Yani asıl problem: **doğru makaleleri nasıl ölçekli biçimde keşfeder, aday değerleri ucuza çıkarır, ama yine de her sayının "gerçek" olmadan önce nitelikli bir insan tarafından doğrulanmasını nasıl garanti edersin?** Hem otomasyona *hem de* döngüde bir insana ihtiyacın var — ve insanın işi gerçekten yapılabilecek kadar hızlı olmalı.
+İki bariz kısayol da başarısız olur. **Saf manuel giriş**, tam da yukarıdaki darboğazdır. **Saf otomasyon — "bırak yapay zekâ makaleleri okusun"** — çok fazla yanlış sayı üretir ve bir besin etiketindeki ya da bir diyet kılavuzundaki yanlış bir değer, hiç değer olmamasından daha kötüdür.
+
+Yani asıl problem: **o yayımlanmış-ama-yapısız veri okyanusunu, her sayının güvenilecek kadar doğru olduğunu garanti ederken, ölçekli biçimde nasıl temiz bir veritabanına dönüştürürsün?**
 
 ## 2. Biz bunu (ekip olarak) nasıl çözdük?
 
-**OpenNutri**'yi kurduk — makine ölçeğini insan muhakemesiyle birleştiren uçtan uca bir hat. Tek bir Supabase Postgres veritabanı üzerinde üç yüzeyi olan tek bir sistem:
+**OpenNutri**'yi kurduk — modeli tersine çeviren bir **"Hibrit Zekâ" hattı**: her makaleyi sıfırdan bir insanın okuması yerine, **makine keşfi ve ağır okumayı ölçekte yapar, insan ise yalnızca doğrular.** Sonuç; *otomatik üretilen, uzman-doğrulamalı, atıf-destekli ve kendini geliştiren* bir veritabanıdır — ki tam da burada mevcut tüm alternatifleri geçer:
 
-1. **Bir Python keşif & çıkarım hattı** (Arciel'in backend'i): referans USDA gıda/besin verisinden başlar, bilimsel literatürü (Europe PMC, OpenAlex, Semantic Scholar) tarar, alaka için filtreler, PDF'leri indirir ve **üç aşamalı bir yapay zekâ kademesi** çalıştırır — günde ~1.500 makalede ucuz bir eleme modeli, bir orta seviye ayıklama modeli ve en iyi ~20 makalede güçlü bir PDF-okuyan model — **aday** besin değerleri üretir.
+- **USDA / EFSA / TürKomp'a karşı** (manuel derleme): OpenNutri literatürü otomatik okur, böylece çok daha fazla gıdayı kapsayabilir, eskimek yerine sürekli güncel kalabilir ve **her bir değere DOI düzeyinde köken bilgisi** iliştirebilir — mevcut veritabanları kaynakları yalnızca gıda-öğesi düzeyinde belirtir, o da varsa.
+- **Ticari sağlayıcılara karşı** (Edamam, FatSecret, Nutritionix): bunlar yeni veri üretmez — lisanslı devlet verisini ya da kitle-kaynaklı etiket taramalarını yeniden satar. OpenNutri, birincil bilimsel kaynaklardan doğrudan *yeni* yapılandırılmış veri üretir.
+- **Tek bir yapay zekâ modeline karşı:** OpenNutri tek bir modelin tahminine güvenmez. Her makalenin giderek daha yetenekli (ve daha pahalı) aşamalardan geçtiği **katmanlı bir kademe** kullanır ve yalnızca zor vakalar pahalı katmanlara tırmanır — böylece makale başına en yüksek bedeli ödemeden ölçekte okur ve **her değer kontrol edilir.**
 
-2. **Bir Supabase veritabanı sözleşmesi** (Arciel'in backend'i): her şeyi değiştirilemez biçimde saklar, kimin neyi yapabileceğini satır düzeyi güvenlikle uygular ve inceleme iş akışını yürütür.
+Tam tasarımında kademe beş katmanlıdır: **(L1)** aday makaleleri keşfeden bir tarayıcı, **(L2)** hafif bir filtre, **(L3)** açık kaynak çıkarım modelleri, **(L4)** zor vakalar için daha güçlü bir ticari model ve **(L5) uzman insan doğrulaması** — nihai altın-standart kaydı üreten katman. Sistem **kendini geliştirir**: L5'teki her uzman düzeltmesi bir eğitim sinyali olarak aşağı akar, böylece zamanla yapay zekâ daha fazla makaleyi kendi başına halleder ve makale başına maliyet düşer — manuel bir veritabanının asla yapamayacağı bir şey, çünkü manuel emek yalnızca veri üretir, aracı asla geliştirmez.
 
-3. **Uzman-etiketleyici web uygulaması** (benim frontend'im): bir insanın gerçekten kullandığı kısım. Yapay zekânın aday değerlerine asla doğrudan güvenilmez. Bunlar; nitelikli bir etiketleyiciye, **kaynak PDF'i görebileceği, her sayının tam olarak hangi tablo ve cümleden geldiğini görebileceği** bir çalışma alanı içinde sunulur; etiketleyici düzeltir ve gönderir. Ardından bir onaylayıcı gerçeği kesinleştirir ve bu kabul edilen insan gerçeği, bir sonraki taramayı daha akıllı yapmak için **geri beslenir.**
+Mevcut uygulamamız bunu, tek bir Supabase Postgres veritabanı üzerinde üç yüzeyli tek bir sistem olarak gerçekleştirir:
 
-Temel fikir: **arama ve ağır okuma işini yapay zekâ yapar, böylece insan yalnızca doğrulamak zorunda kalır — avlanmak değil.** Benim frontend'im, bu doğrulamayı hızlı, görsel ve güvenilir kılan şeydir. O olmadan tüm hat doğrulanmamış tahminler üretir; onunla ise yayınlanan her sayının arkasında, kanıtı sayfanın üzerinde *görebilmiş* bir insan vardır.
+1. **Bir Python keşif & çıkarım hattı** (Arciel'in backend'i) — referans USDA verisinden başlayarak literatürü (Europe PMC, OpenAlex, Semantic Scholar) tarar, alaka için filtreler, PDF'leri indirir ve çalışan **üç aşamalı bir yapay zekâ kademesi** çalıştırır (günde ~1.500 makalede ucuz eleme → orta ayıklama → en iyi ~20 makalede güçlü bir PDF-okuyan model) ve **aday** değerler üretir. Bu, L1–L4'ün çalışan hâlidir.
+
+2. **Bir Supabase veritabanı sözleşmesi** (Arciel'in backend'i) — her şeyi değiştirilemez saklar, kimin neyi yapabileceğini satır düzeyi güvenlikle uygular ve inceleme iş akışını yürütür.
+
+3. **Uzman-etiketleyici web uygulaması** (benim frontend'im) — **bu, Layer 5, insan-doğrulama katmanıdır** ve bu belgenin geri kalanı bununla ilgilidir.
 
 ## 3. Benim parçam ne, neden gerekli ve neyi yaptım?
 
-**Benim parçam, uzman-etiketleyici frontend'inin tamamı** — her insan etiketleyicinin ve onaylayıcının gerçekten kullandığı web uygulaması. **React 19 + Vite** tek-sayfa uygulaması olup **Vercel**'de yayında.
+**Benim parçam, uzman-etiketleyici frontend'inin tamamı** — her insan doğrulayıcının ve onaylayıcının gerçekten kullandığı web uygulaması. **React 19 + Vite** tek-sayfa uygulaması olup **Vercel**'de yayında. OpenNutri'nin tasarımında bu, **Layer 5 — Uzman İnsan Doğrulaması, "Altın Standart" katmanıdır.**
 
-**Neden gerekli.** Backend makaleleri bulup sayılar önerebilir, ama önerilen bir sayı, bir insan onu doğrulayana kadar değersizdir. Frontend, doğrulamanın gerçekleştiği *tek* yerdir. Doğrulama yavaş, zahmetli veya güvenilmezse hiçbir insan gerçeği üretilmez ve tüm proje başarısız olur. Yani frontend "üstteki arayüz" değildir — projenin tüm değerinin dayandığı **doğrulama enstrümanıdır.**
+**Neden gerekli: manuel veri girişini doğrulamayla değiştirir — ve bütün mesele budur.** Mevcut her gıda veritabanı, bir uzmanın *manuel veri girişi* yapmasıyla kurulur: tüm makaleyi oku, doğru tabloyu bul, başlıklarını ve birimlerini çöz ve her sayıyı elle veritabanına yaz. Bu, o veritabanlarını dar ve güncel olmayan tutan tam o darboğazdır. Benim frontend'im bu darboğazı **kırmak** için vardır ve üç somut nedenden gereklidir:
+
+1. **"Sıfırdan kopyalama"yı "taslağı gözden geçirme"ye dönüştürür.** Bir makale benim ekranıma geldiğinde, yapay zekâ onu çoktan bulmuş, okumuş ve aday değerleri doldurmuştur. Uzman artık kopyalamaz — önceden doldurulmuş bir taslağı **doğrular ve düzeltir.** Önerilen bir sayıyı gözden geçirmek, onu avlayıp yazmaktan çok daha hızlıdır; bu, saatte birkaç makale ile bu projenin ihtiyaç duyduğu verim (uzman başına günde ~8–12 doğrulanmış makale) arasındaki farktır. Aynı uzman, kat kat fazla çıktı.
+2. **Kanıtı manuel bir aramadan anlık hâle getirir.** Manuel girişte en yavaş ve en hataya açık adım, 15 sayfalık bir PDF'te doğru değeri *bulmak* ve doğru satır, doğru sütun, doğru birim olduğundan emin olmaktır. Benim arayüzüm bunu onlar için yapar: **bir değerin geldiği tam tablo veya cümle PDF üzerinde aydınlanır** ve o tablonun içindeki besin adları tıklanabilir olduğundan bir değer doğrudan editöre düşer. Uzmanın gözü doğrudan kanıta gider — aramak yerine onaylar. En zor teknik işimin, PDF kanıt motorunun, var olmak zorunda olmasının nedeni tam da budur: o olmadan "doğrula, avlanma" yalnızca bir slogandır.
+3. **Doğrulanmış gerçeğin — ve eğitim sinyalinin — üretildiği tek yerdir.** Manuel veri girişi bir sayı üretir, başka bir şey değil. Benim doğrulama arayüzüm bir sayı **artı** bir sonraki sefer yapay zekâyı iyileştiren geri-besleme sinyaline dönüşen, hata-kategorili bir düzeltme **artı** o değer için otomatik DOI kökeni **artı** projenin kalite çıtasını (% 0,5 altı hata) vaat etmesini sağlayan değiştirilemez denetim kaydı üretir. Yani arayüz daha güzel bir hesap tablosu değildir — pahalı bir manuel süreci hızlı, kendini geliştiren ve izlenebilir bir sürece dönüştüren şeydir.
+
+Kısacası: **manuel veri girişi ne ölçeklenir ne de gelişir; benim kurduğum doğrulama arayüzü ikisini de yapar.** Projenin tüm değerinin dayandığı bileşen olmasının nedeni budur.
 
 Ayrıca zorlu bir kısıtı vardı: tüm proje **ücretsiz katmanlarda** çalışıyor (Supabase ücretsiz veri-çıkış limiti, Vercel). Bu yüzden frontend her şeyi öylece çekemezdi — katı veri limitleri içinde kalırken yine de anlık hissettirecek şekilde dikkatle mühendislik yapılması gerekti.
 
@@ -386,11 +416,11 @@ Tarayıcının üzerinde, `PdfViewer.jsx` çizimi yapar: **kendi sunucumuzda bar
 
 ## 5. Bitiş özeti
 
-OpenNutri'nin **tüm frontend'ini** kurdum — tüm projenin dayandığı doğrulama enstrümanını. Rakamlarla:
+OpenNutri'nin **tüm frontend'ini** kurdum — yavaş manuel veri girişini hızlı, kendini geliştiren bir doğrulama döngüsüyle değiştiren ve yapay zekâ hattının ham çıktısını güvenilir, atıf-destekli veriye dönüştüren **Layer 5, uzman-doğrulama katmanını.** Rakamlarla:
 
 - **~14.100 satır** güncel frontend kodu; **10.334 satır** ana kuyruk, PDF, otomatik tamamlama ve görünüm dosyalarında yoğunlaşmış; artı en zor davranışı kilitleyen **~970 satır test.**
 - **Tek başına PDF kanıt motoru ~4.050 satırdır** — *bir web tarayıcısında çalışan belge yerleşim analizi* — projeksiyon-profili sütun saptama, uyarlanır parça-başına tablo sınıflandırıcı, başlık-çapalı tablo büyütme, MAD-sağlam sütun kırpma, yalan söyleyen bir sayfa numarasından sağ çıkan üç-kademeli alıntı eşleştirici ve union-find tekilleştirme — **27 commit** boyunca rafine edildi. Ekibin kendi değerlendirmesine göre, **tüm projedeki tek en zor kod parçasıdır — frontend ya da backend.**
 
-Ve bu bir prototip değil. **Vercel'de yayında**, **tamamen istemci tarafında** sunucu turu olmadan çalışır, **keyfi yayıncı PDF'leri** üzerinde işler, paralel açılış, tek-RPC yükleme, boşta katalog yükleme ve kalıcı paylaşımlı önbellekleme sayesinde **ücretsiz-katman veri bütçesi** içinde kalır ve **önce-kesinlik** ilkesini benimser — yanlış bir şeyi vurgulamaktansa hiçbir şeyi vurgulamamayı tercih eder, çünkü bir besin etiketindeki yanlış bir sayı, hiç sayı olmamasından daha kötüdür.
+Ve bu bir prototip değil. **Vercel'de yayında**, **tamamen istemci tarafında** sunucu turu olmadan çalışır, **keyfi yayıncı PDF'leri** üzerinde işler, paralel açılış, tek-RPC yükleme, boşta katalog yükleme ve kalıcı paylaşımlı önbellekleme sayesinde **ücretsiz-katman veri bütçesi** içinde kalır ve bilerek **önce-kesinlik** ilkesini benimser — yanlış bir şeyi vurgulamaktansa hiçbir şeyi vurgulamamayı tercih eder, çünkü bir gıda veritabanındaki, bir ihracat etiketindeki veya bir sağlık kılavuzundaki yanlış bir sayı, hiç sayı olmamasından daha kötüdür.
 
-Backend makaleleri bulabilir ve YZ sayılar önerebilir, ama **bunların hiçbiri, bir insan onu benim ekranımda onaylayana kadar güvenilir veri olmaz.** Benim frontend'im, bir yığın PDF'i ve YZ tahminini bir beslenme uzmanının gerçekten inanabileceği bir şeye dönüştüren şeydir — ve bunu, bütün gün kullanılabilecek kadar hızlı yapar.
+Dünyadaki her gıda veritabanı hâlâ uzmanların sayıları makalelerden elle yazmasıyla kuruluyor — bu veritabanlarının dar, eski ve pahalı olmasının nedeni tam da budur. **Benim frontend'im, işin birimini "bir makaleyi kopyalamak"tan "bir taslağı doğrulamak"a çevirir ve her doğrulamayı hem izlenebilir hem de yapay zekânın öğrendiği bir ders hâline getirir.** OpenNutri'nin, manuel derlemenin asla yapamadığını ölçekte yapmasını sağlayan şey budur — ve bunu bütün gün çalışabilecek kadar hızlı yapar.
