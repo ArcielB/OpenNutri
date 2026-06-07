@@ -21,11 +21,11 @@ Accurate **food-composition data** — how much protein, fat, iron or vitamin C 
 
 ## 2. How did we solve it (as a team)?
 
-We built **OpenNutri**: the AI reads each paper and proposes the numbers **with a confidence signal**, and only the papers it is unsure about are routed to a human to verify and correct. That is what lets the system scale — experts spend their time only on the hard cases — while keeping the data trustworthy. It splits into three parts:
+We built **OpenNutri**: instead of a person reading each paper from scratch, **the AI does the reading and proposes the numbers, and a person verifies the ones the AI is unsure about.** It splits into three parts:
 
-- **A backend pipeline** (Arciel) that finds relevant papers, downloads the PDFs, runs AI models over them to produce *candidate* nutrient values, and flags the low-confidence ones for human review.
+- **A backend pipeline** (Arciel) that finds relevant papers, downloads the PDFs, and runs AI models over them to produce *candidate* nutrient values.
 - **A database** (Arciel) that stores everything and runs the review workflow.
-- **The annotator web app** (my frontend) — where a human verifies and corrects those flagged candidate values. **This is the part I built, and the rest of this document is about it.**
+- **The annotator web app** (my frontend) — where a human checks and corrects those candidate values. **This is the part I built, and the rest of this document is about it.**
 
 ## 3. What is my part, why is it necessary, and what did I do?
 
@@ -196,11 +196,11 @@ Doğru **besin bileşim verisi** — bir gıdanın ne kadar protein, yağ, demir
 
 ## 2. Biz bunu (ekip olarak) nasıl çözdük?
 
-**OpenNutri**'yi kurduk: yapay zekâ her makaleyi okur ve sayıları **bir güven sinyaliyle birlikte** önerir; yalnızca emin olmadığı makaleler bir insana doğrulanıp düzeltilmek üzere yönlendirilir. Sistemin ölçeklenmesini sağlayan şey budur — uzmanlar zamanlarını yalnızca zor vakalara harcar — ve veri güvenilir kalır. Üç parçaya ayrılır:
+**OpenNutri**'yi kurduk: her makaleyi sıfırdan bir insanın okuması yerine, **yapay zekâ okuyup sayıları önerir, insan ise yapay zekânın emin olmadığı makaleleri doğrular.** Üç parçaya ayrılır:
 
-- **Bir backend hattı** (Arciel) — ilgili makaleleri bulur, PDF'leri indirir, üzerlerinde yapay zekâ modelleri çalıştırarak *aday* besin değerleri üretir ve düşük-güvenli olanları insan incelemesine işaretler.
+- **Bir backend hattı** (Arciel) — ilgili makaleleri bulur, PDF'leri indirir ve üzerlerinde yapay zekâ modelleri çalıştırarak *aday* besin değerleri üretir.
 - **Bir veritabanı** (Arciel) — her şeyi saklar ve inceleme iş akışını yürütür.
-- **Etiketleyici web uygulaması** (benim frontend'im) — bir insanın işaretlenen bu aday değerleri doğrulayıp düzelttiği yer. **Benim kurduğum parça budur ve bu belgenin geri kalanı bununla ilgilidir.**
+- **Etiketleyici web uygulaması** (benim frontend'im) — bir insanın bu aday değerleri kontrol edip düzelttiği yer. **Benim kurduğum parça budur ve bu belgenin geri kalanı bununla ilgilidir.**
 
 ## 3. Benim parçam ne, neden gerekli ve neyi yaptım?
 
