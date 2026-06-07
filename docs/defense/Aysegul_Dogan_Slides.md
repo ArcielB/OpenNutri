@@ -30,11 +30,11 @@
 ## Slayt 0 — Başlık
 
 > 🖼️ **GÖRSEL:** Slide 0'daki görselin aynısı (canlı çalışma alanı, başlık üstte).
-> *Altyazı:* "OpenNutri Annotator — Vercel'de canlı"
+> *Altyazı:* "OpenNutri Annotator — Vercel'de yayında"
 
-- **OpenNutri — Uzman-Doğrulama Frontend'i**
+- **OpenNutri — Uzman Doğrulama Frontend'i**
 - Ayşegül Doğan
-- *"Etiketleyici uygulamanın tamamını ben kurdum — yapay zekânın ham tahminlerinin güvenilir besin verisine dönüştüğü yer."*
+- *"Etiketleyici uygulamanın tamamını ben geliştirdim — yapay zekânın ham tahminlerinin güvenilir besin verisine dönüştüğü yer."*
 
 ---
 ---
@@ -58,10 +58,10 @@
 > *Altyazı:* "Veri zaten var. Onu elle çıkarmak ölçeklenmiyor."
 
 - Her besin etiketi, diyet uygulaması ve beslenme kılavuzu **besin bileşim verisine** dayanır — protein, yağ, demir, C vitamini…
-- Bu veri bugün **elle** kurulur: uzman makaleyi okur, doğru tabloyu bulur, her sayıyı tek tek veritabanına yazar.
-- Yavaş ve pahalı → veritabanları **dar** kalır ve hızla **eskir**.
-- Veri zaten mevcut — **sürekli yayımlanıyor** — ama yapısız PDF'lerin içinde kilitli.
-- Ve bir yapay zekâya denetimsiz okutamazsınız: bir etikette güvenilemeyecek kadar **çok yanlış sayı** üretir.
+- Bu veri bugün **elle** üretiliyor: uzman makaleyi okur, doğru tabloyu bulur, her sayıyı tek tek veritabanına yazar.
+- Yavaş ve pahalı → veritabanları **dar** kalır ve hızla **güncelliğini yitirir**.
+- Veri zaten var — **sürekli yayımlanıyor** — ama yapısı belirsiz PDF'lerin içine gömülü.
+- Bir yapay zekâya da denetimsiz okutamazsınız: bir etikette güvenilemeyecek kadar **çok hatalı sayı** çıkar.
 
 ---
 ---
@@ -85,12 +85,12 @@
 > 🖼️ **GÖRSEL:** Slide 2'deki mimari şema (Backend → Veritabanı → **Frontend (BENİM)**; "düşük güven → insan" dalı).
 > *Altyazı:* "Yapay zekâ sayıları önerir. İnsan, emin olmadıklarını doğrular."
 
-- İşi tersine çevirdik: **yapay zekâ makaleyi okuyup sayıları önerir; insan, yapay zekânın emin olmadıklarını doğrular** (düşük güvenli makaleleri).
+- İşi tersine çevirdik: **yapay zekâ makaleyi okuyup sayıları önerir; insan yalnızca yapay zekânın emin olmadıklarını doğrular** (düşük güvenli makaleleri).
 - Üç parça:
   - **Backend hattı** (Arciel) — makaleleri bulur, PDF'leri indirir, YZ kademesini çalıştırır → *aday* değerler.
   - **Veritabanı** (Arciel) — her şeyi saklar, inceleme iş akışını yürütür.
   - **Etiketleyici web uygulaması** (ben) — insanın bu adayları kontrol edip düzelttiği yer.
-- **Benim parçam etiketleyici — bu sunumun geri kalanı bununla ilgili.**
+- **Benim parçam etiketleyici uygulama — bu sunumun geri kalanı onunla ilgili.**
 
 ---
 ---
@@ -113,11 +113,11 @@
 > 🖼️ **GÖRSEL:** Slide 3'teki açıklamalı çalışma alanı (vurgulu PDF hücresinden editördeki satıra ok: "kanıt → değer").
 > *Altyazı:* "İşin birimi *kopyalamak*tan *doğrulamak*a değişir."
 
-- Benim parçam, **etiketleyici frontend'inin tamamı** — **React 19 + Vite** uygulaması, **Vercel'de** yayında, **tamamen tarayıcıda** çalışır.
-- İşin birimini **makale kopyalamaktan → taslak doğrulamaya** çevirir.
-- Makale, yapay zekânın değerleriyle **önceden doldurulmuş** açılır ve — işin özü — **her değerin geldiği tam tablo veya cümle PDF üzerinde aydınlanır**, içindeki besin adları **tıklanabilirdir**.
-- Böylece doğrulayıcının gözü, makalede aramak yerine **doğrudan kanıta gidip onaylar**.
-- Her düzeltme, zamanla **yapay zekâyı iyileştirmek için geri beslenir**.
+- Benim parçam, **etiketleyici frontend'inin tamamı** — **React 19 + Vite** uygulaması, **Vercel'de** yayında, **tamamen tarayıcıda** çalışıyor.
+- Yapılan işi **makaleyi kopyalamaktan → taslağı doğrulamaya** dönüştürür.
+- Makale, yapay zekânın değerleriyle **önceden doldurulmuş** olarak açılır ve — işin özü bu — **her değerin alındığı tam tablo ya da cümle PDF üzerinde belirginleşir**, içindeki besin adları **tıklanabilir** olur.
+- Böylece doğrulayıcının gözü, makaleyi baştan aramak yerine **doğrudan kanıta gidip onaylar**.
+- Ayrıca her düzeltme, zamanla **yapay zekâyı iyileştirmek için geri beslenir**.
 
 ---
 ---
@@ -170,12 +170,12 @@
 > 🖼️ **GÖRSEL:** Slide 5'teki açıklamalı çalışma alanı (araç çubuğu, alt eylem satırı, "tek dosyada ≈30 React state" notu).
 > *Altyazı:* "`Annotate.jsx` — tek ekran: kuyruk · PDF · editör · gönder."
 
-- **Tek ekran her şeyi bağlar** — kuyruk, PDF, gıda/besin editörü, gönder. (`Annotate.jsx`, ~1.160 satır, ~**30 parça React state**.)
-- **Paralel açılış, şelale yok** — kabuk anında boyanır; kuyruk ile inceleyici profili arka arkaya değil, **birlikte** yüklenir.
-- **Tek-RPC kuyruğu** — sade kartlar + en son YZ yükü + kullanıcı durumu **tek turda**; backend sürümleri arasında çalışmaya devam etmesi için **sürümlenmiş yedekle**.
-- **YZ ön-doldurması bir insan taslağının asla üzerine yazmaz** — küçük görünür, her yükleme yolunu etkiler.
-- **Test-modu farkında** — her DB yazımı Supabase'e dokunmak yerine yerel günlüğe eklenebilir → gerçek veriyi kirletmeden demo yapılabilir.
-- Bilerek **Supabase ücretsiz-katman çıkış bütçesi** etrafında tasarlandı (`select('*')` yok).
+- **Tek ekran her şeyi bir araya getirir** — kuyruk, PDF, gıda/besin editörü, gönderme. (`Annotate.jsx`, ~1.160 satır, ~**30 ayrı React state**.)
+- **Paralel açılış, ardışık bekleme yok** — arayüz anında çizilir; kuyruk ile inceleyici profili sırayla değil, **aynı anda** yüklenir.
+- **Tek RPC'li kuyruk** — sade kartlar + en son YZ payload'ı + kullanıcının durumu **tek seferde** gelir; backend'in farklı sürümlerinde de çalışsın diye **sürüme göre yedeğiyle**.
+- **YZ ön doldurması bir insan taslağının asla üzerine yazmaz** — küçük gibi görünür ama her yükleme yolunu etkiler.
+- **Test moduna duyarlı** — her veritabanı yazımı, Supabase'e dokunmak yerine yerel bir günlüğe yazılabilir → gerçek veriyi kirletmeden demo yapılabilir.
+- Bilerek **Supabase ücretsiz katman çıkış (egress) bütçesi** gözetilerek tasarlandı (`select('*')` yok).
 
 ---
 ---
@@ -195,12 +195,12 @@
 ## Slayt 6 — YZ ön-doldurması: makale dolu açılır
 
 > 🖼️ **GÖRSEL:** Slide 6'daki editör paneli (YZ'den gelen dolu satırlar, "AI" etiketi, düzenlenebilir alanlar).
-> *Altyazı:* "İnceleyiciler boş form değil, yapılı satırları düzeltir."
+> *Altyazı:* "İnceleyiciler boş bir form değil, hazır satırları düzeltir."
 
-- Kayıtlı taslak yoksa, en son YZ **normalize yükü** **düzenlenebilir gıda/besin satırlarına** dönüşür.
-- Kayıtlı bir insan taslağı varsa, **o** yüklenir — insan işi asla üzerine yazılmaz.
-- Yük şekli **backend sözleşmesiyle birebir** eşleşir (Python → SQL → JavaScript), böylece düzeltme metrikleri güvenilir kalır.
-- Projenin temel UX kazançlarından biri: **taslağı düzelt, sıfırdan başlama.**
+- Kayıtlı taslak yoksa, en son YZ çıkarımının **normalize edilmiş payload'ı** **düzenlenebilir gıda/besin satırlarına** dönüşür.
+- Kayıtlı bir insan taslağı varsa **o** yüklenir — insanın işi asla üzerine yazılmaz.
+- Payload'ın yapısı **backend sözleşmesiyle birebir** uyuşur (Python → SQL → JavaScript), böylece düzeltme metrikleri güvenilir kalır.
+- Projenin en önemli UX kazanımlarından biri: **taslağı düzelt, sıfırdan başlama.**
 
 ---
 ---
@@ -222,10 +222,10 @@
 > 🖼️ **GÖRSEL:** Slide 7'deki önce/sonra görseli ("PDF.js'in verdiği" dağınık harf kutuları → "ihtiyacımız olan" tablo bölgesi + paragraf bloğu).
 > *Altyazı:* "PDF.js harf ve koordinat verir. Tablo, sütun, paragraf kavramı yoktur."
 
-- Bu, **doğrulamanın kalbi**: YZ *"protein = 22,04 g/100 g"* dediğinde, insan o sayıyı **gerçek sayfada görebilmeli**.
-- Ve girişi hızlandırmak için, **tabloların içindeki** besin adları **tıklanabilir** olmalı.
-- Ama PDF.js size yalnızca **konumlanmış harflerin düz listesini** verir — `{ metin, x, y, genişlik, yükseklik }`. **Tablo, sütun veya paragraf kavramı yok.**
-- Bu yüzden **belge yapısını saf geometriden yeniden inşa etmem** gerekti — tarayıcıda, **sunucu yok, makine öğrenmesi modeli yok.**
+- Bu, **doğrulamanın kalbi**: YZ *"protein = 22,04 g/100 g"* dediğinde, insanın o sayıyı **gerçek sayfada görebilmesi** lazım.
+- Veri girişini hızlandırmak için de **tabloların içindeki** besin adlarının **tıklanabilir** olması lazım.
+- Ama PDF.js size yalnızca **konumları belli harflerin düz bir listesini** verir — `{ metin, x, y, genişlik, yükseklik }`. **Tablo, sütun ya da paragraf diye bir kavram yok.**
+- Bu yüzden **belgenin yapısını sıfırdan, salt geometriden yeniden kurmam** gerekti — üstelik tarayıcıda, **sunucu yok, makine öğrenmesi modeli yok.**
 
 ---
 ---
@@ -246,9 +246,9 @@
 > 🖼️ **GÖRSEL:** Slide 8'deki hat şeması (harfler → uyarlanır metrikler → sütun saptama → satır gruplama → parçalar → sınıflandırma → başlık-çapalı tablo büyütme → paragraf blokları → eşleştirici kademesi).
 > *Altyazı:* "`PdfTextScanner.js` — ~70 hesaplamalı geometri fonksiyonu, 2.323 satır."
 
-- `PdfTextScanner.js` yaklaşık **70 hesaplamalı geometri fonksiyonudur** (**2.323 satır** — repodaki en büyük tek dosya).
-- Sayfa başına: **harfler → uyarlanır metrikler → sütunlar → satırlar → parçalar → sınıflandırma → tablo büyütme → paragraflar → eşleştirici kademesi** (her YZ alıntısını bulur).
-- **Her eşik, sayfanın kendi tipografisinden türetilir** (ortanca harf yüksekliği, ortanca satır boşluğu) — aynı kod hem yoğun 7 punto tabloda hem 12 punto özette çalışır, **sabit piksel değeri yok**.
+- `PdfTextScanner.js` yaklaşık **70 hesaplamalı geometri fonksiyonundan** oluşur (**2.323 satır** — depodaki en büyük tek dosya).
+- Her sayfada: **harfler → sayfaya uyarlanan ölçütler → sütunlar → satırlar → parçalar → sınıflandırma → tablo büyütme → paragraflar → eşleştirme kademesi** (her YZ alıntısını bulur).
+- **Her eşik, sayfanın kendi tipografisinden hesaplanır** (medyan harf yüksekliği, medyan satır boşluğu) — aynı kod hem yoğun 7 puntoluk bir tabloda hem 12 puntoluk bir özette çalışır, **sabit piksel değeri yok**.
 
 ---
 ---
@@ -270,10 +270,10 @@
 > 🖼️ **GÖRSEL:** Slide 9'daki açıklamalı PDF sayfası (tablo bölgesi + paragraf bloğu farklı renkte; iki sütun arası "oluk" çizgisi).
 > *Altyazı:* "Dosyanın hiç saklamadığı yapıyı yeniden kurmak."
 
-- **Projeksiyon profiliyle sütun saptama** — x eksenini kutula, dikey "oluk"ları bul, oluğu kesen satırları böl → aynı yükseklikteki sol ve sağ sütun satırları asla kaynaşmaz.
-- **Parça başına tablo/düzyazı sınıflandırıcı** — her metin koşusu için özellik vektörü (sayısal token, "T1" gibi kodlar, birimler, başlık önekleri…) → tamsayı **`tableScore`** → `isTableLike`. Küçük, **elle yapılmış bir metin sınıflandırıcı**.
-- **Başlık-çapalı tablo büyütme** — "Tablo 3 …" bul, bölgeyi satır satır **aşağı** büyüt; bir veri satırı kabul edilince sonrakiler de kabul edilir çünkü **bağlamda** açıkça oraya aittirler.
-- **Paragraf blokları + araya giren-veri birleştirme** — sayısal bir satırın böldüğü paragrafı yeniden birleştir; böylece "22,04 ± 1,25 g/100 g" alıntılayan cümle tek temiz vurguya çözülür.
+- **Projeksiyon profiliyle sütun saptama** — x eksenini küçük kutucuklara böl, dikey "olukları" bul, bir oluğu kesen satırları ayır → aynı yükseklikteki sol ve sağ sütun satırları asla birbirine karışmaz.
+- **Parça başına tablo/düzyazı sınıflandırıcı** — her metin parçası için bir özellik vektörü (sayısal token, "T1" gibi kodlar, birimler, başlık önekleri…) → tam sayı bir **`tableScore`** → `isTableLike`. Elle yazılmış, küçük bir **metin sınıflandırıcı**.
+- **Başlığa dayalı tablo büyütme** — "Tablo 3 …" başlığını bul, bölgeyi satır satır **aşağı doğru** büyüt; bir veri satırı kabul edildikten sonra sonrakiler de kabul edilir, çünkü **bağlam içinde** açıkça o tabloya aittirler.
+- **Paragraf blokları + araya giren veriyi birleştirme** — sayısal bir satırın ikiye böldüğü paragrafı yeniden birleştir; böylece "22,04 ± 1,25 g/100 g" geçen bir cümle tek ve temiz bir vurguda toplanır.
 
 ---
 ---
@@ -293,12 +293,12 @@
 ## Slayt 10 — PDF motoru — zor alt-problemler (2 / 2)
 
 > 🖼️ **GÖRSEL:** Slide 10'daki açıklamalı PDF sayfası (üç YZ satırını temsil eden tek birleşik vurgu + tek kanıt çipi; "basılı s. 1217" ↔ "PDF sayfa 3" küçük kıyas kutusu).
-> *Altyazı:* "Önce-kesinlik: yanlış şeyi vurgulamaktansa hiçbir şeyi vurgulamamayı tercih eder."
+> *Altyazı:* "Önce kesinlik: yanlış bir şeyi vurgulamaktansa hiçbir şeyi vurgulamamayı yeğler."
 
-- **MAD ile sağlam sütun kırpma** — PDF.js hâlâ iki sütunu kaynaştırdığında, **ortanca + ortanca-mutlak-sapma** ile kırp; kısa son satırları atmadan aykırıları çitler.
-- **3 kademeli kaynak-alıntı eşleştirici** — paragraf → arama-parçası → satır-penceresi, her biri yedekli; metin rakam↔harf sınırlarında normalize edilir, "10.80g/100 g" ↔ "10.80 g/100 g".
-- **Yalan söyleyen `page_hint`** — YZ *basılı* sayfayı bildirir (5 sayfalık ayrı-baskıda "1217"). Aşan ipuçları **kapı tutmaz** hâle getirilir ve **basılı-vs-PDF kayma histogramı** ipucunu gerçek sayfaya eşler.
-- **Union-find (iki kez)** — üst üste binen vurgu bölgelerini tek bölgeye topla; ikinci geçiş **aynı** paragrafa atıf yapan farklı YZ satırlarını birleştirir → tek çip, tek yer paylaşımı, yeniden çizimlerde **titreme yok**.
+- **MAD ile sağlam sütun kırpma** — PDF.js iki sütunu hâlâ birbirine karıştırdığında, **medyan + medyan mutlak sapma (MAD)** ile kırp; kısa son satırları atmadan aykırı değerleri ayıkla.
+- **3 kademeli kaynak alıntısı eşleştirici** — paragraf → arama parçası → satır penceresi, her biri yedekli; metin, rakam↔harf sınırlarında normalize edilir, "10.80g/100 g" ↔ "10.80 g/100 g".
+- **Yanıltıcı `page_hint`** — YZ *basılı* sayfa numarasını bildirir (5 sayfalık bir ayrı baskıda "1217" gibi). Sayfa sayısını aşan ipuçları **eşleştirmeyi engellemeyecek** hâle getirilir ve **basılı sayfa ile PDF sayfası arasındaki kayma histogramı** ipucunu gerçek sayfaya eşler.
+- **Union-find (iki kez)** — üst üste binen vurgu bölgelerini tek bölgede topla; ikinci geçiş, **aynı** paragrafa atıf yapan farklı YZ satırlarını birleştirir → tek bir rozet, tek bir overlay, yeniden çizimlerde **titreme yok**.
 
 ---
 ---
@@ -322,12 +322,12 @@
 > 🖼️ **GÖRSEL:** Slide 11'deki açıklamalı görüntüleyici (vurgulu kanıt bölgesi, tablo içinde tıklanabilir besin adları, üstte kanıt çipleri şeridi).
 > *Altyazı:* "Gerçek dergi PDF'lerinde 27 commit boyunca ayarlandı — projedeki tek en zor dosya, frontend ya da backend."
 
-- **Kendi sunucumuzda barındırılan, paketlenmiş PDF.js worker'ı** — kritik yolda CDN bağımlılığı yok.
-- **Başsız kanıt taraması** — her sayfanın metnini **tuvalini çizmeden** okur (tarayıcı boştayken); vurguları önceden hesaplar, hangi sayfaların kanıt içerdiğini öğrenir.
-- **Kanıt-öncelikli çizim** — sayfa 1 + kanıt sayfaları önce boyanır; gerisi arkadan dolar.
-- **Koordinat dönüşümü** — PDF sınırlarını ekran piksellerine ölçekler ve **Y eksenini ters çevirir**.
-- **Özel metin çizici** — tıklanabilir besin işaretlerini **yalnızca saptanmış tabloların içine** enjekte eder (düzyazıdaki rastgele kelimelere değil).
-- Bu alt-sistemin tamamı **tarayıcıda belge yerleşim analizidir** — `PdfTextScanner.js` (2.323) + `PdfViewer.jsx` (939) + `EvidenceLocations.js` (439) ≈ **3.700 satır**, artı onu kilitleyen **~970 satır test**.
+- **Kendi sunucumuzda barındırılan, pakete gömülü PDF.js worker'ı** — kritik yolda CDN bağımlılığı yok.
+- **Görünmez (headless) kanıt taraması** — her sayfanın metnini **canvas'ını çizmeden** okur (tarayıcı boştayken); vurguları önceden hesaplar, hangi sayfaların kanıt içerdiğini öğrenir.
+- **Önce kanıtı çizme** — sayfa 1 ve kanıt sayfaları önce çizilir; gerisi arkadan tamamlanır.
+- **Koordinat dönüşümü** — PDF koordinatlarını ekran piksellerine ölçekler ve **Y eksenini ters çevirir**.
+- **Özel metin çizici** — tıklanabilir besin işaretlerini **yalnızca tespit edilen tabloların içine** yerleştirir (düz metindeki rastgele kelimelere değil).
+- Bu alt sistemin tamamı **tarayıcıda çalışan bir belge yerleşim analizidir** — `PdfTextScanner.js` (2.323) + `PdfViewer.jsx` (939) + `EvidenceLocations.js` (439) ≈ **3.700 satır**, artı bu davranışı sabitleyen **~970 satır test**.
 
 ---
 ---
@@ -349,10 +349,10 @@
 > 🖼️ **GÖRSEL:** Slide 12'deki katmanlı şema (Cache Storage baytları · localStorage LRU · Supabase paylaşımlı kanıt; "yeniden açış = anlık" notu).
 > *Altyazı:* "10–25 MB PDF'ler anlık ve inceleyiciler arası paylaşımlı hâle getirildi."
 
-- Bu PDF'ler **10–25 MB** — tarayıcının normal HTTP önbelleği bu büyüklüğü **atar**, Supabase ise **`no-cache`** ile sunar.
-- **PDF baytları → Cache Storage API** (uçucu HTTP önbelleği değil), **localStorage'da LRU indeks** (üst sınır 40). Her seferinde PDF.js'e **taze `ArrayBuffer`** verilir (aktarımda buffer'ları ayırır — doğru yapılması gereken ince bir hata).
-- **Sonraki iki kuyruk makalesini boştayken önceden çek** → "Next" anında açılır.
-- **Çözülmüş kanıt konumları makale başına, yerel + uzak** (Supabase) → *herhangi biri* incelenmiş bir makaleyi yeniden açtığında yer paylaşımları **tarama bitmeden önbellekten** boyanır.
+- Bu PDF'ler **10–25 MB** — tarayıcının normal HTTP önbelleği bu boyuttaki dosyaları **siler**, Supabase ise onları **`no-cache`** ile sunar.
+- **PDF baytları → Cache Storage API** (geçici HTTP önbelleği değil), **localStorage'da bir LRU indeksiyle** (üst sınır 40). PDF.js'e her seferinde **yeni bir `ArrayBuffer`** verilir (aktarım sırasında buffer'ı devre dışı bıraktığı için — fark edilmesi zor bir hata).
+- **Sıradaki iki makaleyi tarayıcı boştayken önceden indir** → "Next"e basınca anında açılır.
+- **Çözülmüş kanıt konumları makale başına hem yerelde hem uzakta önbelleğe alınır** (Supabase) → *herhangi biri* daha önce incelenmiş bir makaleyi açtığında, overlay'ler **tarama bitmeden önbellekten** çizilir.
 
 ---
 ---
@@ -375,11 +375,11 @@
 > 🖼️ **GÖRSEL:** Slide 13'teki "apple" arama açılır listesi (**"Apple, raw"** en üstte; işlenmiş türevler aşağıda). Besin otomatik tamamlamadan küçük bir kesit.
 > *Altyazı:* "\"elma\" *Elma, çiğ*'i öne çıkarmalı — asla *Elma suyu, konserve*'yi değil."
 
-- Etiketleyici serbest metin yazar ("elma", "c vitamini") → bunun **kanonik USDA katalog girdisine** eşlenmesi gerekir; bağışlayıcı (yazım hatası, çoğul, kısmi ad) ama **güvensiz aşırı-eşleşme olmadan**.
-- Her girdinin kanonik adı, taban adı ve takma adları üzerinde **ağırlıklı puanlama sıralayıcısı** (`scoreFoodMatch`); token başına tam / kök / düzenleme-mesafesi.
-- **Bütün-gıda ayrıştırması** — "konserve/kurutulmuş", bebek-maması/restoran ve türetilmiş-önek sahte dostlarını cezalandırır; bütün-gıda ipuçlarını ödüllendirir → genel sorgular çiğ gıdayı öne çıkarır. Yararlı örtüşme yoksa sert ret.
-- Katalog yüklenmeden **iki-sorgulu Supabase stratejisi**; sonrasında **yerel sıralama**. 250 ms geciktirme, tam klavye gezinme, özel-gıda girişi, `search_sessions` telemetri tablosuna kayıt.
-- **Dürüst atıf:** düşük seviyeli bulanık ilkel (tokenizer / çekim / Levenshtein) **Huan'ındır**; **alana özel puanlayıcı, bütün-gıda ayrıştırması, veri-yükleme stratejisi ve UX benimdir.**
+- Etiketleyici serbest metin yazar ("elma", "c vitamini") → bunun **kanonik USDA katalog girdisine** eşlenmesi gerekir; hoşgörülü biçimde (yazım hatası, çoğul, kısmi ad) ama **tehlikeli aşırı eşleşmeler olmadan**.
+- Her girdinin kanonik adı, taban adı ve takma adları üzerinde **ağırlıklı puana göre sıralayan bir sistem** (`scoreFoodMatch`); her token için tam / kök / düzenleme mesafesi eşleşmesi.
+- **Bütün gıdayı ayırt etme** — "konserve/kurutulmuş", bebek maması/restoran girdilerini ve önekten türeyen yanıltıcı eşleşmeleri cezalandırır; bütün gıda ipuçlarını ödüllendirir → genel sorgular çiğ gıdayı öne çıkarır. Anlamlı bir örtüşme yoksa doğrudan reddedilir.
+- Katalog yüklenmeden önce **iki sorgulu bir Supabase stratejisi**; yüklendikten sonra **yerelde sıralama**. 250 ms debounce, tam klavye gezinmesi, özel gıda girişi, `search_sessions` telemetri tablosuna kayıt.
+- **Dürüst atıf:** düşük seviyeli bulanık eşleştirme bileşeni (tokenizer / çekim / Levenshtein) **Huan'ın**; **alana özel puanlayıcı, bütün gıdayı ayırt etme, veri yükleme stratejisi ve kullanıcı deneyimi benim.**
 
 ---
 ---
@@ -400,9 +400,9 @@
 > 🖼️ **GÖRSEL:** Slide 14'teki 3 adımlı dizi ((1) PDF'te besin adına tıklama → (2) `NutrientPopover` açılması → (3) editöre yeni satır düşmesi; oklar 1-2-3).
 > *Altyazı:* "Sayfadaki tıklama bir veri satırına döner. Etiketlemeyi hızlı yapan budur."
 
-- Tıklanabilir tablo besinlerinin getirisi: **sayfadaki tıklama değeri doğrudan editöre düşürür**.
-- Tıklama → **`NutrientPopover`**, **görünüm-alanına duyarlı** konumlanır — çapanın altında, ekrana sıkıştırılmış, yer yoksa üste çevrilmiş; değer girişine odaklanır; Escape / dışına-tıklamada kapanır.
-- **İlk gıda öğesine eklenen** (tekilleştirilmiş) bir besin satırı yayar. **`FoodItemForm`** gıda otomatik tamamlama + dinamik besin satırlarını tek gıda kartında birleştirir.
+- Tıklanabilir tablo besinlerinin getirisi şu: **sayfadaki bir tıklama değeri doğrudan editöre ekler**.
+- Tıklama → **`NutrientPopover`**, **ekran alanına duyarlı** biçimde konumlanır — tıklanan yerin altında, ekran içinde kalacak şekilde, yer yoksa yukarı çevrilir; değer girişine odaklanır; Escape ya da dışına tıklamada kapanır.
+- **İlk gıda öğesine eklenen** (tekilleştirilmiş) bir besin satırı oluşturur. **`FoodItemForm`**, gıda otomatik tamamlamayı + dinamik besin satırlarını tek bir gıda kartında birleştirir.
 
 ---
 ---
@@ -423,9 +423,9 @@
 > 🖼️ **GÖRSEL:** Slide 15'teki iki ekran görüntüsü (solda **Onay** — Orijinal Gönderi vs düzenlenebilir İnceleyici Nihai Yükü, Karar + not; sağda **Etiketleyici Panosu** — özet kartları + performans tablosu).
 > *Altyazı:* "Tek bir form değil — eksiksiz bir operasyon arayüzü."
 
-- **Onay** — yan yana: **Orijinal Gönderi** vs **düzenlenebilir İnceleyici Nihai Yükü**, bir karar (Kullanılabilir / Kullanılamaz) ve notla. Onaylayıcılara kapılı; diğerlerine **salt-okunur önizleme**.
-- **Pano** — etiketleyici performansı, değiştirilemez gönderi/onay kayıtlarından **istemci tarafında** hesaplanır: Gönderilen / Bekleyen / Kabul / **Düzeltilen** / Geçersizleşen, artı gönderi başına **"Hata Detayı"** sütunu.
-- **İzinler her görünümde farklı** — etiketleyici, test, kokpit, onaylayıcı ve geliştirici hesapları farklı kontroller görür.
+- **Onay** — yan yana: **Orijinal Gönderi** vs **düzenlenebilir İnceleyici Nihai Payload'ı**, bir karar (Kullanılabilir / Kullanılamaz) ve bir notla. Yalnızca onaylayıcılara açık; diğerlerine **salt okunur önizleme**.
+- **Pano** — etiketleyici performansı, değiştirilemeyen gönderi/onay kayıtlarından **istemci tarafında** hesaplanır: Gönderilen / Bekleyen / Kabul / **Düzeltilen** / Geçersiz kılınan, artı gönderi başına bir **"Hata Detayı"** sütunu.
+- **İzinler her ekranda farklı** — etiketleyici, test, kokpit, onaylayıcı ve geliştirici hesapları farklı kontroller görür.
 
 ---
 ---
@@ -443,12 +443,12 @@
 
 ## Slayt 16 — 6) Kokpit görünümleri — operasyon
 
-> 🖼️ **GÖRSEL:** Slide 16'daki bir satırı açılmış **Faydalı Makaleler** tablosu (**AI Extraction Detail** paneli: güven, kabul/giriş satır, red-nedeni rozetleri, normalize JSON). **Pipeline** huni çubuklarından küçük kesit.
-> *Altyazı:* "Normalizasyon özetini gösteririz — kasıtlı olarak modelin ham muhakemesini değil."
+> 🖼️ **GÖRSEL:** Slide 16'daki bir satırı açılmış **Faydalı Makaleler** tablosu (**AI Extraction Detail** paneli: güven, kabul/giriş satır sayısı, ret nedeni rozetleri, normalize edilmiş JSON). **Pipeline** huni çubuklarından küçük bir kesit.
+> *Altyazı:* "Normalizasyon özetini gösteririz — bilinçli olarak modelin ham akıl yürütmesini değil."
 
-- **Faydalı Makaleler** — Makale · Yönlendirme · **Son YZ** · Gönderiler · Onay · Nihai Sonuç, genişletilebilir **YZ detay paneliyle**: güven, kabul edilen satırlar, **red-nedeni histogramı** ve normalize JSON — yani *normalizasyon özeti*, **kasıtlı olarak** modelin ham muhakemesi değil.
-- **Pipeline** — huni (arama → filtre → yükleme → küçük / orta / güçlü → insan) **korunan / düşen** sayılarıyla çubuklar hâlinde, artı canlı **"Şu An"** ızgarası (bekleyen, çalışan, etiketçiye hazır, onay bekleyen, YZ başarısız).
-- Bunların tümü **tek devasa dosyadan sekiz odaklı görünüme ayrıştırıldı**; metrikler **eski-veri tamamlamasından** sağ çıkar, hiçbir aşama yanlışlıkla sıfır okumaz.
+- **Faydalı Makaleler** — Makale · Yönlendirme · **Son YZ** · Gönderiler · Onay · Nihai Sonuç; genişletilebilir bir **YZ detay paneliyle**: güven, kabul edilen satırlar, **ret nedeni histogramı** ve normalize edilmiş JSON — yani *normalizasyon özeti*, **bilinçli olarak** modelin ham akıl yürütmesi değil.
+- **Pipeline** — huni (arama → filtre → yükleme → küçük / orta / güçlü → insan), korunan / düşen sayılarıyla çubuklar hâlinde, artı canlı bir **"Şu An"** ızgarası (bekleyen, çalışan, etiketleyiciye hazır, onay bekleyen, YZ başarısız).
+- Bunların tümü **tek devasa bir dosyadan, sekiz ayrı ve odaklı ekrana ayrıldı**; metrikler **eski verinin geriye dönük tamamlanmasıyla** doğru kalır, hiçbir aşama yanlışlıkla sıfır görünmez.
 
 ---
 ---
@@ -468,12 +468,12 @@
 ## Slayt 17 — 7) Uygulama kabuğu, kimlik doğrulama & tema
 
 > 🖼️ **GÖRSEL:** Slide 17'deki **Giriş** ekranı ("OpenNutri Annotator", Google ile + e-posta/parola + "Forgot password?"), yanında aynı ekranın **açık/koyu** kıyası (OS'a duyarlı tema).
-> *Altyazı:* "Oturum → giriş → uygulama, parıltısız biçimde OS'a göre temalı."
+> *Altyazı:* "Oturum → giriş → uygulama; OS temasına göre, ekranda titreme olmadan."
 
-- **`App.jsx`** Supabase oturumunu kontrol eder → **parola-sıfırlama** / **giriş** / etiketleyiciye yönlendirir.
+- **`App.jsx`** Supabase oturumunu kontrol eder → **parola sıfırlama** / **giriş** / etiketleyici ekranına yönlendirir.
 - **`Login.jsx`** — e-posta/parola **ve Google OAuth**, artı "Forgot password?".
-- **`useTheme`** — OS temasının üstüne geçersiz-kılma çözer, `prefers-color-scheme`'i dinler, temayı **yanlış-tema-parıltısı olmadan** yazar ve geçersiz-kılmayı yalnızca sistemden farklıysa kalıcılaştırır (varsayılan olarak OS'u izler).
-- **Dürüst atıf:** kabuk ve giriş akışı benimdir; sonraki tema **merkezileştirmesi** ve parola-sıfırlama **düzeltmesi** bunun üstüne **Huan'ındı**.
+- **`useTheme`** — OS temasının üstüne bir geçersiz kılma (override) uygular, `prefers-color-scheme`'i dinler, temayı **yanlış temanın bir an görünmesine yol açmadan** uygular ve override'ı yalnızca sistemden farklıysa kalıcı yapar (varsayılan olarak OS'u izler).
+- **Dürüst atıf:** uygulama kabuğu ve giriş akışı benim; sonradan eklenen tema **merkezileştirmesi** ve parola sıfırlama **düzeltmesi** bunun üstüne **Huan'a ait**.
 
 ---
 ---
@@ -493,10 +493,10 @@
 ## Slayt 18 — Bitiş: hepsi neye varıyor
 
 > 🖼️ **GÖRSEL:** Slide 18'deki "rakamlarla" kartı (14.100 · 4.050 · 970 · 27) + Slide 0'daki çalışma alanı görseli.
-> *Altyazı:* "Vercel'de yayında. Tamamen istemci tarafında. Önce-kesinlik."
+> *Altyazı:* "Vercel'de yayında. Tamamen istemci tarafında. Önce kesinlik."
 
-- **~14.100 satır** frontend; **10.334** ana dosyalarda; en zor davranışı kilitleyen **~970 satır test**.
-- **Tek başına PDF kanıt motoru ≈ 4.050 satır** — *tarayıcıda* belge yerleşim analizi — sütun saptama, uyarlanır tablo sınıflandırıcı, başlık-çapalı büyütme, MAD kırpma, yalan sayfa numarasından sağ çıkan 3-kademeli eşleştirici, union-find tekilleştirme — **27 commit** boyunca. Ekibin kendi değerlendirmesine göre **projedeki tek en zor kod parçası, frontend ya da backend.**
-- Prototip değil: **Vercel'de yayında**, **tamamen istemci tarafında** (sunucu turu yok), **keyfi yayıncı PDF'leri** üzerinde çalışır, **ücretsiz-katman bütçesi** içinde kalır ve **önce-kesinlik** ilkelidir — yanlış bir şeyi vurgulamaktansa hiçbir şeyi vurgulamaz, çünkü bir etiketteki yanlış sayı, hiç sayı olmamasından kötüdür.
-- **İşin birimini "makale kopyalamak"tan "taslak doğrulamak"a çevirir — ve her doğrulamayı hem izlenebilir hem de yapay zekânın öğrendiği bir ders yapar.** OpenNutri'nin, manuel derlemenin asla yapamadığını ölçekte yapmasını sağlayan budur.
+- **~14.100 satır** frontend; **10.334**'ü ana dosyalarda; en kritik davranışı sabitleyen **~970 satır test**.
+- **Tek başına PDF kanıt motoru ≈ 4.050 satır** — *tarayıcıda çalışan* bir belge yerleşim analizi — sütun saptama, uyarlanır bir tablo sınıflandırıcı, başlığa dayalı büyütme, MAD ile kırpma, yanıltıcı bir sayfa numarasından sağ çıkan 3 kademeli eşleştirici, union-find ile tekilleştirme — hepsi **27 commit** boyunca. Ekibin kendi değerlendirmesine göre **projedeki tek en zor kod parçası, frontend ya da backend.**
+- Prototip değil: **Vercel'de yayında**, **tamamen istemci tarafında** (sunucuya gidip gelmeden), **her türlü yayıncı PDF'i** üzerinde çalışır, **ücretsiz katman bütçesi** içinde kalır ve **önce kesinlik** ilkesini benimser — yanlış bir şeyi vurgulamaktansa hiçbir şeyi vurgulamaz, çünkü bir etiketteki yanlış bir sayı, hiç sayı olmamasından daha kötüdür.
+- **Yapılan işi "makaleyi kopyalamak"tan "taslağı doğrulamak"a dönüştürür — ve her doğrulamayı hem izlenebilir hem de yapay zekânın öğrendiği bir ders hâline getirir.** OpenNutri'nin, elle derlemenin asla başaramayacağı ölçeği yakalamasını sağlayan da bu.
 
