@@ -48,8 +48,7 @@
 
 ## Slide 3 — My part, and why it's necessary
 
-> 🖼️ **IMAGE:** the same pipeline as Slide 0, but the **human box is small at the end** and everything feeding it is labelled "mine." Add four small risk icons over the backend: 🔓 a leaked RLS policy · 🛑 a stalled worker · 💸 wasted model quota · ❌ a wrong auto-accept.
-> *Caption:* "The frontend can only ever be as good as what reaches it. The backend is what reaches it."
+*(No image — this is the "why it's necessary" argument; it lands better as clean text than as a third pipeline diagram in a row. Optional footer line: "The frontend can only ever be as good as what reaches it. The backend is what reaches it.")*
 
 - My part is the **entire backend** — database, AI pipeline, crawler, learning loop, and the automation that runs it all unattended, on free infrastructure, every 5 minutes.
 - **Why it's necessary:** someone has to *find* the right papers, *get* the PDFs out of hostile publisher sites, *read* them cheaply, *decide* trustworthy-vs-uncertain, *store* it under a security model, and *keep the machine running* with no server and no budget.
@@ -59,8 +58,7 @@
 
 ## Slide 4 — What I built: seven pieces
 
-> 🖼️ **IMAGE — "map" slide:** seven numbered tiles arranged along the pipeline flow (front door → … → runs-itself). Doubles as the agenda.
-> *Caption:* "A self-running research pipeline, on the Supabase and GitHub free tiers."
+*(No image — agenda slide; the numbered list is the visual. Optional footer line: "A self-running research pipeline, on the Supabase and GitHub free tiers.")*
 
 1. **Database & security contract** — 31 tables, 75 RLS policies, the RPCs everyone calls.
 2. **Paper-discovery crawler** — the front door: search → filter → acquisition.
@@ -182,7 +180,7 @@
 
 ## Slide 14 — 6) Daily-ops automation — it runs itself, for free
 
-> 🖼️ **IMAGE — ops diagram:** a 5-minute clock driving **one serialized `refill-controller`** (crawl/upload/refill) + a **matrix of 5 parallel `drain-workers`**; all five point at the DB through one **`FOR UPDATE SKIP LOCKED`** box. Real inset: a GitHub Actions run list, or the **Pipeline → "Right Now"** cockpit grid.
+> 🖼️ **IMAGE — ops diagram:** a 5-minute clock driving **one serialized `refill-controller`** (crawl/upload/refill) + a **matrix of 5 parallel `drain-workers`**; all five point at the DB through one **`FOR UPDATE SKIP LOCKED`** box. (The real Pipeline cockpit screenshot is on the next slide — keep this one a clean diagram.)
 > *Caption:* "A real continuous pipeline on GitHub-hosted runners and a free Gemini quota — no server."
 
 - The whole pipeline has to *run* continuously — crawl, screen ~1,500/day, triage, extract — with **no server and no budget**.
@@ -194,7 +192,7 @@
 
 ## Slide 15 — 6) Engineered for the free-tier ceiling
 
-> 🖼️ **IMAGE — constraints panel:** four labelled chips — **Quota-day across 2 timezones** (Gemma=UTC, Gemini=America/Los_Angeles) · **3 nested wall-clock budgets** (controller 75 min / crawler 2,400 s / model 300 s) · **source-URL PDFs** (no Supabase storage) · **same-origin PDF proxy** (SSRF-hardened). Optionally the **Pipeline funnel** screenshot.
+> 🖼️ **IMAGE — real cockpit screenshot:** the **Pipeline** view you built — the **"Paper Funnel"** bars (search → filter → upload → small / medium / strong → human, with kept/dropped counts) and the live **"Right Now"** grid. This is the genuine operational artifact; the four constraints below are the talking points over it.
 > *Caption:* "Every architectural choice here is downstream of one constraint: do it for free."
 
 - **Quota-day accounting across two timezones** — Gemma counts a UTC day; both Gemini stages count an `America/Los_Angeles` day to match Google's reset, so the funnel spends exactly the daily budget.
@@ -205,7 +203,7 @@
 
 ## Slide 16 — 7) Reference data, tests & documentation
 
-> 🖼️ **IMAGE — three-panel:** (1) **USDA CSV → idempotent upsert → canonical foods/nutrients**; (2) a list of real test names reading like a spec (`rejects_stale_or_mismatched_db_ids`, `threshold_one_disables_ai_auto_finalization`, `build_labels_excludes_ai_model_outcomes`); (3) a docs stack (README · AGENTS · STATE · workflow map).
+> 🖼️ **IMAGE — a real test-file snippet:** a screenshot of actual `pytest` function names from `test_ai_routing.py`, which read like a specification of the invariants — e.g. `rejects_stale_or_mismatched_db_ids`, `threshold_one_disables_ai_auto_finalization`, `audit_sampling_is_deterministic`, `build_labels_excludes_ai_model_outcomes`. (One concrete panel beats a three-icon montage here.)
 > *Caption:* "The unglamorous layer that's the difference between a demo and a system operated for six months."
 
 - **Reference ETL:** idempotent loaders stream USDA FoodData Central into canonical foods/nutrients — upsert on conflict + **deterministic UUIDs** keep every reference ID stable for the foreign keys to point at.

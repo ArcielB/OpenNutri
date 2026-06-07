@@ -124,8 +124,7 @@
 
 ## Slide 4 — What I built: seven pieces
 
-> 🖼️ **IMAGE — "map" slide:** seven labelled tiles (a 7-up grid or a numbered roadmap). Optionally a faint thumbnail of the relevant screen behind each tile. This doubles as the agenda for the rest of the talk.
-> *Caption:* "Everything below runs client-side, on arbitrary publisher PDFs, fast enough to do all day."
+*(No image — this is the agenda slide; the numbered list is the visual, and the real screens follow. Optional footer line: "Everything below runs client-side, on arbitrary publisher PDFs, fast enough to do all day.")*
 
 1. **Annotation workspace & orchestrator** — the screen that ties everything together.
 2. **PDF evidence engine** — *the hardest piece of code in the whole project.*
@@ -139,8 +138,7 @@
 
 ## Slayt 4 — Yaptıklarım: yedi parça
 
-> 🖼️ **GÖRSEL:** Slide 4'teki "harita" slaytı (yedi etiketli kutu; sunumun geri kalanının ajandası).
-> *Altyazı:* "Aşağıdakilerin hepsi tarayıcıda, keyfi yayıncı PDF'leri üzerinde, bütün gün çalışacak kadar hızlı işler."
+*(Görsel yok — bu ajanda slaytı; numaralı liste zaten görseldir ve gerçek ekranlar sonraki slaytlarda gelir. İsteğe bağlı alt satır: "Aşağıdakilerin hepsi tarayıcıda, keyfi yayıncı PDF'leri üzerinde, bütün gün çalışacak kadar hızlı işler.")*
 
 1. **Etiketleme çalışma alanı & orkestratör** — her şeyi bağlayan ekran.
 2. **PDF kanıt motoru** — *tüm projedeki en zor kod parçası.*

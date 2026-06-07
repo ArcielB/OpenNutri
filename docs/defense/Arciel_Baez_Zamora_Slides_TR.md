@@ -48,8 +48,7 @@
 
 ## Slayt 3 — Benim parçam ve neden gerekli
 
-> 🖼️ **GÖRSEL:** Slayt 0'daki hattın aynısı, ama **insan kutusu sonda küçük** ve onu besleyen her şey "benim" etiketli. Backend üstüne dört küçük risk simgesi: 🔓 sızan bir RLS politikası · 🛑 takılan bir işçi · 💸 boşa giden model kotası · ❌ yanlış bir otomatik-kabul.
-> *Altyazı:* "Frontend ancak kendisine ulaşan şey kadar iyi olabilir. Backend, ona ulaşan şeydir."
+*(Görsel yok — bu "neden gerekli" argümanıdır; arka arkaya üçüncü bir hat şeması yerine temiz metin olarak daha iyi oturur. İsteğe bağlı alt satır: "Frontend ancak kendisine ulaşan şey kadar iyi olabilir. Backend, ona ulaşan şeydir.")*
 
 - Benim parçam **backend'in tamamı** — veritabanı, YZ hattı, tarayıcı, öğrenme döngüsü ve bunların hepsini gözetimsiz, ücretsiz altyapıda, her 5 dakikada bir çalıştıran otomasyon.
 - **Neden gerekli:** birinin doğru makaleleri *bulması*, PDF'leri düşman yayıncı sitelerinden *çekmesi*, ucuza *okuması*, güvenilir-mi-belirsiz-mi *karar vermesi*, bir güvenlik modeli altında *saklaması* ve sunucu/bütçe olmadan *makineyi çalışır tutması* gerekir.
@@ -59,8 +58,7 @@
 
 ## Slayt 4 — Yaptıklarım: yedi parça
 
-> 🖼️ **GÖRSEL — "harita" slaytı:** hat akışı boyunca dizilmiş yedi numaralı kutu (ön kapı → … → kendi kendine çalışır). Ajanda görevi de görür.
-> *Altyazı:* "Supabase ve GitHub ücretsiz katmanlarında, kendi kendini çalıştıran bir araştırma hattı."
+*(Görsel yok — ajanda slaytı; numaralı liste zaten görseldir. İsteğe bağlı alt satır: "Supabase ve GitHub ücretsiz katmanlarında, kendi kendini çalıştıran bir araştırma hattı.")*
 
 1. **Veritabanı & güvenlik sözleşmesi** — 31 tablo, 75 RLS politikası, herkesin çağırdığı RPC'ler.
 2. **Makale-keşif tarayıcısı** — ön kapı: arama → filtre → edinim.
@@ -182,7 +180,7 @@
 
 ## Slayt 14 — 6) Günlük-operasyon otomasyonu — kendi kendine çalışır, ücretsiz
 
-> 🖼️ **GÖRSEL — ops şeması:** 5 dakikalık bir saat, **bir serileştirilmiş `refill-controller`**'ı (tara/yükle/doldur) + **5 paralel `drain-workers` matrisini** sürüyor; beşi de DB'ye tek bir **`FOR UPDATE SKIP LOCKED`** kutusundan işaret ediyor. Gerçek ek: bir GitHub Actions çalışma listesi, ya da **Pipeline → "Şu An"** kokpit ızgarası.
+> 🖼️ **GÖRSEL — ops şeması:** 5 dakikalık bir saat, **bir serileştirilmiş `refill-controller`**'ı (tara/yükle/doldur) + **5 paralel `drain-workers` matrisini** sürüyor; beşi de DB'ye tek bir **`FOR UPDATE SKIP LOCKED`** kutusundan işaret ediyor. (Gerçek Pipeline kokpit ekran görüntüsü sonraki slayttadır — bunu temiz bir şema tut.)
 > *Altyazı:* "GitHub-barındırmalı runner'larda ve ücretsiz bir Gemini kotasında gerçek, sürekli bir hat — sunucu yok."
 
 - Tüm hat sürekli *çalışmalı* — tara, günde ~1.500 ele, triyaj yap, çıkar — **sunucu ve bütçe olmadan**.
@@ -194,7 +192,7 @@
 
 ## Slayt 15 — 6) Ücretsiz-katman tavanı için mühendislik
 
-> 🖼️ **GÖRSEL — kısıtlar paneli:** dört etiketli çip — **2 saat dilimi boyunca kota-günü** (Gemma=UTC, Gemini=America/Los_Angeles) · **3 iç içe duvar-saati bütçesi** (denetleyici 75 dk / tarayıcı 2.400 sn / model 300 sn) · **kaynak-URL PDF'ler** (Supabase depolama yok) · **aynı-köken PDF proxy** (SSRF-sağlam). İsteğe bağlı **Pipeline hunisi** ekran görüntüsü.
+> 🖼️ **GÖRSEL — gerçek kokpit ekran görüntüsü:** kurduğun **Pipeline** görünümü — **"Paper Funnel"** çubukları (arama → filtre → yükleme → küçük / orta / güçlü → insan, korunan/düşen sayılarıyla) ve canlı **"Şu An"** ızgarası. Bu, gerçek operasyonel artefakttır; aşağıdaki dört kısıt onun üstündeki konuşma noktalarıdır.
 > *Altyazı:* "Buradaki her mimari seçim tek bir kısıttan kaynaklanır: bunu ücretsiz yap."
 
 - **İki saat dilimi boyunca kota-günü muhasebesi** — Gemma bir UTC gününü; her iki Gemini aşaması Google'ın sıfırlamasıyla eşleşmek için bir `America/Los_Angeles` gününü sayar; böylece huni tam olarak günlük bütçeyi harcar.
@@ -205,7 +203,7 @@
 
 ## Slayt 16 — 7) Referans veri, testler & dokümantasyon
 
-> 🖼️ **GÖRSEL — üç panel:** (1) **USDA CSV → idempotent upsert → kanonik gıdalar/besinler**; (2) bir spesifikasyon gibi okunan gerçek test adları listesi (`rejects_stale_or_mismatched_db_ids`, `threshold_one_disables_ai_auto_finalization`, `build_labels_excludes_ai_model_outcomes`); (3) bir doküman yığını (README · AGENTS · STATE · iş-akışı haritası).
+> 🖼️ **GÖRSEL — gerçek bir test-dosyası kesiti:** `test_ai_routing.py`'den gerçek `pytest` fonksiyon adlarının ekran görüntüsü; değişmezlerin bir spesifikasyonu gibi okunur — örn. `rejects_stale_or_mismatched_db_ids`, `threshold_one_disables_ai_auto_finalization`, `audit_sampling_is_deterministic`, `build_labels_excludes_ai_model_outcomes`. (Burada tek somut panel, üç-simgeli bir montajdan iyidir.)
 > *Altyazı:* "Bir demo ile altı ay işletilmiş bir sistem arasındaki farkı yapan gösterişsiz katman."
 
 - **Referans ETL:** idempotent yükleyiciler USDA FoodData Central'ı kanonik gıdalar/besinlere akıtır — çakışmada upsert + **deterministik UUID'ler** her referans ID'sini, foreign key'lerin işaret etmesi için kararlı tutar.
