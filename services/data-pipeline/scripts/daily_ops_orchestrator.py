@@ -314,6 +314,23 @@ def _count_queued_stage_tasks(client: Any, *, stage_key: str) -> int | None:
     return _count_stage_tasks_by_status(client, stage_key=stage_key, status="queued")
 
 
+def _count_queued_ai_papers(client: Any, *, stage_key: str | None = None) -> int | None:
+    if not hasattr(client, "table"):
+        return None
+    query = (
+        client.table("papers")
+        .select("id", count="exact")
+        .eq("routing_status", "queued_for_ai")
+    )
+    if stage_key is not None:
+        query = query.eq("current_stage_key", stage_key)
+    response = query.limit(1).execute()
+    count = getattr(response, "count", None)
+    if count is None:
+        return None
+    return int(count)
+
+
 def _count_stage_tasks_by_status(
     client: Any,
     *,
@@ -370,11 +387,30 @@ def _fetch_queue_counts(
     extraction_stage_key: str,
     triage_stage_key: str | None = None,
 ) -> dict[str, int]:
-    state = refill_assignment_queue.fetch_state(client)
-    papers = state.get("papers", [])
-    queued_total = _queued_ai_paper_count(papers)
-    queued_screening = _queued_ai_paper_count_for_stage(papers, screening_stage_key)
-    queued_extraction = _queued_ai_paper_count_for_stage(papers, extraction_stage_key)
+    # Count-only queries. The previous implementation called
+    # refill_assignment_queue.fetch_state, downloading every papers and
+    # ai_extractions row (~9 MB per call, 3-4 calls per tick, six concurrent
+    # jobs) just to derive these counts — that alone exceeded the Supabase
+    # free-tier egress budget. Clients without PostgREST support (test fakes,
+    # dry runs) keep the original full-state path.
+    queued_total = _count_queued_ai_papers(client)
+    if queued_total is None:
+        state = refill_assignment_queue.fetch_state(client)
+        papers = state.get("papers", [])
+        queued_total = _queued_ai_paper_count(papers)
+        queued_screening = _queued_ai_paper_count_for_stage(papers, screening_stage_key)
+        queued_extraction = _queued_ai_paper_count_for_stage(papers, extraction_stage_key)
+        queued_triage_papers = (
+            _queued_ai_paper_count_for_stage(papers, triage_stage_key) if triage_stage_key else 0
+        )
+    else:
+        queued_screening = int(_count_queued_ai_papers(client, stage_key=screening_stage_key) or 0)
+        queued_extraction = int(_count_queued_ai_papers(client, stage_key=extraction_stage_key) or 0)
+        queued_triage_papers = (
+            int(_count_queued_ai_papers(client, stage_key=triage_stage_key) or 0)
+            if triage_stage_key
+            else 0
+        )
     screening_task_count = _count_queued_stage_tasks(client, stage_key=screening_stage_key)
     extraction_task_count = _count_queued_stage_tasks(client, stage_key=extraction_stage_key)
     if screening_task_count is not None:
@@ -388,7 +424,7 @@ def _fetch_queue_counts(
         queued_triage = (
             int(triage_task_count)
             if triage_task_count is not None
-            else _queued_ai_paper_count_for_stage(papers, triage_stage_key)
+            else queued_triage_papers
         )
     if screening_task_count is not None and extraction_task_count is not None:
         queued_total = queued_screening + queued_extraction + (queued_triage if triage_stage_key else 0)
