@@ -5,12 +5,14 @@ import json
 import os
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
 
+import httpx
 from supabase import Client, create_client
 
 
@@ -55,11 +57,34 @@ def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def fetch_all(client: Client, table: str, select: str, batch_size: int = 1000) -> list[dict]:
+def fetch_all(
+    client: Client,
+    table: str,
+    select: str,
+    batch_size: int = 1000,
+    max_attempts: int = 4,
+) -> list[dict]:
     rows: list[dict] = []
     offset = 0
     while True:
-        response = client.table(table).select(select).range(offset, offset + batch_size - 1).execute()
+        # Supabase/PostgREST occasionally drops the connection mid-response on
+        # these long paginated reads (httpx.RemoteProtocolError "Server
+        # disconnected"); each page is an idempotent read, so retry with backoff
+        # instead of letting one blip kill the whole ops tick.
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = client.table(table).select(select).range(offset, offset + batch_size - 1).execute()
+                break
+            except httpx.HTTPError as exc:
+                if attempt >= max_attempts:
+                    raise
+                wait_seconds = 2 ** attempt
+                print(
+                    f"[fetch_all] transient error reading {table} offset={offset} "
+                    f"(attempt {attempt}/{max_attempts}): {type(exc).__name__}: {exc}; retrying in {wait_seconds}s",
+                    file=sys.stderr,
+                )
+                time.sleep(wait_seconds)
         batch = response.data or []
         rows.extend(batch)
         if len(batch) < batch_size:

@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import json
 import http.client
-import socket
 from typing import Dict, Iterable, List, Optional
-from urllib.error import URLError
 from urllib.parse import quote
 from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 
 from .models import CandidatePaper
+
+
+# urllib only wraps connect-phase failures in URLError; timeouts and resets while
+# reading the response surface as raw OSError subclasses (TimeoutError,
+# ConnectionResetError) and RemoteDisconnected is an HTTPException. Catch them all
+# so one flaky upstream request degrades to "no results" instead of crashing the run.
+TRANSIENT_NETWORK_ERRORS = (OSError, http.client.HTTPException)
 
 
 class EuropePMCClient:
@@ -26,7 +31,7 @@ class EuropePMCClient:
         try:
             with urlopen(url, timeout=self.timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except (URLError, http.client.RemoteDisconnected, socket.timeout, TimeoutError):
+        except TRANSIENT_NETWORK_ERRORS:
             return self._search_ncbi(query, limit)
 
         results = payload.get("resultList", {}).get("result", [])
@@ -92,7 +97,7 @@ class EuropePMCClient:
         try:
             with urlopen(search_url, timeout=self.timeout_seconds) as response:
                 search_payload = json.loads(response.read().decode("utf-8"))
-        except URLError:
+        except TRANSIENT_NETWORK_ERRORS:
             return []
 
         ids = search_payload.get("esearchresult", {}).get("idlist", [])
@@ -111,7 +116,7 @@ class EuropePMCClient:
         try:
             with urlopen(fetch_url, timeout=self.timeout_seconds) as response:
                 xml_text = response.read().decode("utf-8", errors="ignore")
-        except URLError:
+        except TRANSIENT_NETWORK_ERRORS:
             return None
 
         try:

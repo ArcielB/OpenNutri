@@ -447,6 +447,8 @@ class CrawlerQuotaTests(unittest.TestCase):
         crawler.query_limit = 10
         crawler.search_sources = {}
         crawler._next_audit_flag = lambda: False
+        crawler._crawl_deadline = None
+        crawler._crawl_stop_reason = None
 
         batch_one = [
             self.make_candidate("tr-first", "tr", 5.0),
@@ -533,6 +535,8 @@ class CrawlerQuotaTests(unittest.TestCase):
         crawler.search_sources = {}
         crawler._next_audit_flag = lambda: False
         crawler._raw_search_limit = lambda query_limit=None: 6
+        crawler._crawl_deadline = None
+        crawler._crawl_stop_reason = None
 
         raw_candidates = [
             self.make_candidate("reject-1", "tr", 1.0),

@@ -5,6 +5,7 @@ import re
 import shutil
 import hashlib
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -406,7 +407,15 @@ class FoodCompositionCrawlerV2:
             if client is None:
                 continue
 
-            raw_candidates = client.search(task.spec, limit=raw_limit)[:raw_limit]
+            try:
+                raw_candidates = client.search(task.spec, limit=raw_limit)[:raw_limit]
+                search_error = None
+            except Exception as exc:
+                # A single flaky source/query must not abort the whole refill run;
+                # record the failure and move on to the next search task.
+                raw_candidates = []
+                search_error = f"{type(exc).__name__}: {exc}"
+                print(f"[crawler] search failed source={task.source} query={task.query_text!r}: {search_error}", file=sys.stderr)
             if self._wallclock_reached():
                 break
             stat_key = self._task_key(task)
@@ -439,6 +448,8 @@ class FoodCompositionCrawlerV2:
                 "pdf_validation_fail": 0,
                 "metadata_rejected": 0,
             }
+            if search_error:
+                stats["search_error"] = search_error
             query_log.append(stats)
             query_stats[stat_key] = stats
 
