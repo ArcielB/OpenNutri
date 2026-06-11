@@ -42,6 +42,12 @@ jobs:
           restore-keys: |
             opennutri-controller-hf-${{ runner.os }}-
 
+      - name: Install CPU-only torch
+        # sentence-transformers pulls torch, which by default drags the full
+        # NVIDIA CUDA wheel set (~3-4 GB) onto this CPU-only runner. Installing
+        # the CPU build first satisfies the dependency with ~10x less download.
+        run: python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
       - name: Install Python dependencies
         run: python3 -m pip install -r services/data-pipeline/requirements.txt
 
@@ -77,6 +83,18 @@ jobs:
               | tail -n 1
           )"
           python3 -c 'import json, sys; data=json.loads(sys.argv[1]); screening=(data.get("stage_summaries") or {}).get(data.get("screening_stage_key"), {}); storage=data.get("storage_cleanup") or {}; print("Daily ops controller mode={mode} stopped_reason={reason} active_target={active_target} active_count={active_count} refills={refills} requested_en={requested_en} storage_remaining_bytes={storage_remaining} storage_soft_limit_exceeded={storage_exceeded}".format(mode=data.get("mode", "controller"), reason=data.get("stopped_reason", ""), active_target=screening.get("active_target", 0), active_count=screening.get("active_count", 0), refills=screening.get("refill_cycles", 0), requested_en=screening.get("refill_requested_en", 0), storage_remaining=storage.get("remaining_bytes_after_cleanup"), storage_exceeded=data.get("storage_soft_limit_exceeded", False)))' "$summary"
+
+      - name: Upload controller log artifact
+        # The orchestrator's stdout (crawler/upload prints + JSONL summaries) is
+        # piped through `tail -n 1` above, so this file is the only place the
+        # full crawl/refill detail survives.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-ops-controller-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/opennutri-daily-ops-controller.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
 
   drain-workers:
     # Runs in parallel with refill-controller (no longer gated on it). There is always a
@@ -151,3 +169,12 @@ jobs:
               | tail -n 1
           )"
           python3 -c 'import json, sys; data=json.loads(sys.argv[1]); daily=data.get("daily_completed") or {}; print("Daily ops worker mode={mode} stopped_reason={reason} daily_completed={daily} screened={screened} routed_to_gemini={routed} gemini_used={gemini} human_ready={human} quota_exhausted_stages={quota}".format(mode=data.get("mode", "drain"), reason=data.get("stopped_reason", ""), daily=daily, screened=data.get("screened", 0), routed=data.get("routed_to_gemini", 0), gemini=data.get("gemini_used", 0), human=data.get("human_ready", 0), quota=data.get("quota_exhausted_stages", [])))' "$summary"
+
+      - name: Upload worker log artifact
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || matrix.worker <= fromJSON(inputs.workers)) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-ops-worker-${{ matrix.worker }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/opennutri-daily-ops-worker.jsonl
+          if-no-files-found: ignore
+          retention-days: 7

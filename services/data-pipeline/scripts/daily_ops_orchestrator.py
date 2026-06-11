@@ -760,6 +760,35 @@ def _run_screening_refill(
         process_ai_after_upload=False,
     )
     _log(args, f"finished crawler refill {cycle_index}: EN={requested['en']} TR={requested['tr']}")
+    _log_crawl_outcome(args, cycle_index=cycle_index)
+
+
+def _log_crawl_outcome(args: argparse.Namespace, *, cycle_index: int) -> None:
+    # The orchestrator's stdout is piped through `tail -n 1` in CI to capture
+    # the JSON summary, which swallows the crawler's own prints. Surface the
+    # per-language crawl outcome on stderr so workflow logs show why a refill
+    # did or did not produce new papers.
+    payload = ensure_paper_stock._load_manifest_payload(args.data_dir)
+    summary = payload.get("summary") if isinstance(payload, dict) else None
+    if not isinstance(summary, dict):
+        _log(args, f"crawler refill {cycle_index} outcome: no manifest summary available")
+        return
+    stop_reason = str((payload or {}).get("stop_reason") or "").strip()
+    languages = summary.get("languages") if isinstance(summary.get("languages"), dict) else {}
+    parts = []
+    for language, row in sorted(languages.items()):
+        if not isinstance(row, dict):
+            continue
+        parts.append(
+            f"{language.upper()} hits={int(row.get('hits', 0))}"
+            f" gate_pass={int(row.get('search_gate_pass', 0))}"
+            f" metadata_pass={int(row.get('metadata_pass', 0))}"
+            f" pdf_fail={int(row.get('pdf_fetch_fail', 0)) + int(row.get('pdf_validation_fail', 0))}"
+            f" accepted={int(row.get('accepted', 0))}"
+        )
+    detail = "; ".join(parts) if parts else "no per-language stats"
+    suffix = f" stop_reason={stop_reason}" if stop_reason else ""
+    _log(args, f"crawler refill {cycle_index} outcome: {detail}{suffix}")
 
 
 def _paper_bucket_soft_limit_bytes(args: argparse.Namespace) -> int:
