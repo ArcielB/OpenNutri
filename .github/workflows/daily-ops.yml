@@ -66,7 +66,7 @@ jobs:
               --screening-daily-target 1500 \
               --screening-active-target 150 \
               --triage-daily-target 500 \
-              --extraction-daily-target 20 \
+              --extraction-daily-target 250 \
               --screening-refill-batch-en 30 \
               --screening-refill-chunk-en 30 \
               --screening-prefill-stall-limit 3 \
@@ -126,6 +126,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Daily targets are safety ceilings, not expected throughput: the real
+          # stop condition is the Gemini API's own daily quota, detected by the
+          # orchestrator as a 429 with zero successful calls in the window
+          # (daily_quota_exhausted). Raising a target lets the pipeline use
+          # whatever quota Google actually grants instead of self-throttling.
           summary="$(
             python3 services/data-pipeline/scripts/daily_ops_orchestrator.py \
               --json-summary \
@@ -139,8 +144,8 @@ jobs:
               --screening-tick-tasks 20 \
               --triage-daily-target 500 \
               --triage-tick-tasks 10 \
-              --extraction-daily-target 20 \
-              --extraction-tick-tasks 2 \
+              --extraction-daily-target 250 \
+              --extraction-tick-tasks 5 \
               --refill-step-tr 0 \
               | tee /tmp/opennutri-daily-ops-worker.jsonl \
               | tail -n 1
