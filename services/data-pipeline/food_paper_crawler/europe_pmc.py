@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import http.client
+import re
 from typing import Dict, Iterable, List, Optional
 from urllib.parse import quote
 from urllib.request import urlopen
@@ -160,6 +161,11 @@ class EuropePMCClient:
         rewritten = rewritten.replace("AND IN_PMC:y", "")
         rewritten = rewritten.replace("IN_PMC:y AND ", "")
         rewritten = rewritten.replace("IN_PMC:y", "")
+        rewritten = re.sub(
+            r"PUB_YEAR:\[(\d{4}) TO (\d{4})\]",
+            lambda m: f"{m.group(1)}:{m.group(2)}[pdat]",
+            rewritten,
+        )
         return rewritten
 
     def _collect_text(self, node: Optional[ET.Element]) -> str:

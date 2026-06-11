@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -16,6 +17,37 @@ from .models import CandidatePaper, QuerySpec
 
 DEFAULT_SEARCH_SOURCES = ("europepmc", "openalex", "semanticscholar")
 OPENALEX_ALLOWED_TYPES = {"article", "preprint"}
+
+# Rotating publication-year windows. The learned queries are stable from day to
+# day and every source returns the same relevance-sorted first page, so once
+# those results were marked seen the crawler reported source_exhausted while
+# almost the whole corpus was untouched. Constraining each UTC day to a
+# different publication-year slice makes the same queries sweep disjoint parts
+# of the literature. One slot is None (unfiltered) so fresh publications are
+# still picked up promptly.
+YEAR_WINDOWS: Tuple[Optional[Tuple[int, int]], ...] = (
+    None,
+    (2022, 2026),
+    (2018, 2021),
+    (2014, 2017),
+    (2008, 2013),
+    (1995, 2007),
+)
+
+# OpenAlex also supports plain page-based paging, so on top of the year window
+# we advance one result page per full window cycle: over 24 days each query
+# sweeps 4 pages x 6 windows instead of the same first page forever.
+OPENALEX_PAGE_CYCLE = 4
+
+
+def current_year_window(now: Optional[datetime] = None) -> Optional[Tuple[int, int]]:
+    moment = now or datetime.now(timezone.utc)
+    return YEAR_WINDOWS[moment.toordinal() % len(YEAR_WINDOWS)]
+
+
+def current_openalex_page(now: Optional[datetime] = None) -> int:
+    moment = now or datetime.now(timezone.utc)
+    return (moment.toordinal() // len(YEAR_WINDOWS)) % OPENALEX_PAGE_CYCLE + 1
 DOI_PATTERN = re.compile(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", re.IGNORECASE)
 PMCID_PATTERN = re.compile(r"PMC\d+", re.IGNORECASE)
 UNIT_QUERY_TERMS = {"mg/100g", "g/100g", "ug/100g", "µg/100g"}
@@ -113,7 +145,11 @@ class EuropePMCSearchSource:
         self.client = EuropePMCClient(page_size=page_size)
 
     def query_text(self, spec: QuerySpec) -> str:
-        return spec.query
+        query = spec.query
+        window = current_year_window()
+        if window:
+            query = f"({query}) AND (PUB_YEAR:[{window[0]} TO {window[1]}])"
+        return query
 
     def search(self, spec: QuerySpec, limit: int) -> List[CandidatePaper]:
         return self.client.search(self.query_text(spec), limit=limit)
@@ -128,6 +164,15 @@ class OpenAlexSearchSource:
     def search(self, spec: QuerySpec, limit: int) -> List[CandidatePaper]:
         query = self.query_text(spec)
         url = f"{self.base_url}?search={quote(query)}&per-page={min(limit, 200)}"
+        window = current_year_window()
+        if window:
+            url += (
+                f"&filter=from_publication_date:{window[0]}-01-01"
+                f",to_publication_date:{window[1]}-12-31"
+            )
+        page = current_openalex_page()
+        if page > 1:
+            url += f"&page={page}"
         request = Request(url, headers={"User-Agent": "OpenNutri/1.0"})
         try:
             with urlopen(request, timeout=20) as response:
@@ -232,6 +277,9 @@ class SemanticScholarSearchSource:
             f"{self.base_url}?query={quote(query)}&limit={min(limit, 100)}"
             f"&fields={quote(self.fields, safe=',')}"
         )
+        window = current_year_window()
+        if window:
+            url += f"&year={window[0]}-{window[1]}"
         request = Request(url, headers={"User-Agent": "OpenNutri/1.0"})
         try:
             with urlopen(request, timeout=20) as response:
