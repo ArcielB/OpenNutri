@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import hashlib
 import subprocess
 import tarfile
 import tempfile
@@ -17,6 +16,7 @@ from urllib.request import Request, urlopen
 
 from .europe_pmc import EuropePMCClient
 from .models import CandidatePaper, DownloadRecord
+from .pmc_pow import solve_pmc_pow
 from .ranking import score_candidate, validate_pdf_text
 from .supabase_terms import fetch_food_terms, fetch_nutrient_terms
 
@@ -525,22 +525,7 @@ class FoodCompositionCrawler:
         return sorted(queries, key=score, reverse=True)
 
     def _solve_pmc_pow(self, html: str) -> Optional[str]:
-        challenge_match = re.search(r'POW_CHALLENGE = "([^"]+)"', html)
-        difficulty_match = re.search(r'POW_DIFFICULTY = "([^"]+)"', html)
-        cookie_match = re.search(r'POW_COOKIE_NAME = "([^"]+)"', html)
-        if not challenge_match or not difficulty_match or not cookie_match:
-            return None
-
-        challenge = challenge_match.group(1)
-        difficulty = int(difficulty_match.group(1))
-        cookie_name = cookie_match.group(1)
-        prefix = "0" * difficulty
-        nonce = 0
-        while True:
-            digest = hashlib.md5(f"{challenge}{nonce}".encode("utf-8")).hexdigest()
-            if digest.startswith(prefix):
-                return f"{cookie_name}={challenge},{nonce}"
-            nonce += 1
+        return solve_pmc_pow(html)
 
     def _build_filename(self, candidate: CandidatePaper) -> str:
         if candidate.pmcid:

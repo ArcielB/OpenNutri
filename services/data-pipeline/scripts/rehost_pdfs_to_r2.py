@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -29,6 +30,7 @@ PIPELINE_ROOT = PROJECT_ROOT / "services" / "data-pipeline"
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
+from food_paper_crawler.pmc_pow import solve_pmc_pow
 from pdf_limits import max_paper_pdf_bytes
 from scripts import r2_storage
 from scripts.refill_assignment_queue import fetch_all, require_client
@@ -37,6 +39,7 @@ from scripts.refill_assignment_queue import fetch_all, require_client
 DEFAULT_STATUSES = ("human_review_ready", "queued_for_ai")
 DOWNLOAD_TIMEOUT_SECONDS = 60
 USER_AGENT = "Mozilla/5.0 (compatible; OpenNutriPDF/1.0)"
+PMCID_PATTERN = re.compile(r"PMC\d+", re.IGNORECASE)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,15 +57,56 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def download_pdf(url: str, *, max_bytes: int) -> bytes:
-    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/pdf,*/*"})
+def _fetch(url: str, *, max_bytes: int, cookie: str | None = None) -> bytes:
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/pdf,*/*"}
+    if cookie:
+        headers["Cookie"] = cookie
+    request = Request(url, headers=headers)
     with urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
         data = response.read(max_bytes + 1)
     if len(data) > max_bytes:
         raise ValueError(f"PDF exceeds {max_bytes} bytes")
-    if not data.startswith(b"%PDF"):
-        raise ValueError("payload is not a PDF")
     return data
+
+
+def download_pdf(url: str, *, max_bytes: int) -> bytes:
+    data = _fetch(url, max_bytes=max_bytes)
+    if data.startswith(b"%PDF"):
+        return data
+    # NCBI PMC fronts PDFs with a proof-of-work challenge page; solve it and
+    # retry with the unlock cookie.
+    if len(data) < 64 * 1024:
+        cookie = solve_pmc_pow(data.decode("utf-8", errors="ignore"))
+        if cookie:
+            data = _fetch(url, max_bytes=max_bytes, cookie=cookie)
+            if data.startswith(b"%PDF"):
+                return data
+    raise ValueError("payload is not a PDF")
+
+
+def alternate_urls(url: str) -> list[str]:
+    """The recorded URL first, then mirrors worth trying when it fails.
+
+    EuropePMC's getPdf renderer 500s persistently for some articles even when
+    the same PDF is available from NCBI PMC directly (behind the POW page the
+    downloader can now solve)."""
+    urls = [url]
+    if "europepmc.org" in url:
+        match = PMCID_PATTERN.search(url)
+        if match:
+            urls.append(f"https://pmc.ncbi.nlm.nih.gov/articles/{match.group(0).upper()}/pdf/")
+    return urls
+
+
+def download_pdf_with_fallbacks(url: str, *, max_bytes: int) -> bytes:
+    last_error: Exception | None = None
+    for candidate_url in alternate_urls(url):
+        try:
+            return download_pdf(candidate_url, max_bytes=max_bytes)
+        except Exception as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
 
 
 def main() -> int:
@@ -96,7 +140,7 @@ def main() -> int:
             print(f"{label}: would download {source_url}")
             continue
         try:
-            data = download_pdf(source_url, max_bytes=max_bytes)
+            data = download_pdf_with_fallbacks(source_url, max_bytes=max_bytes)
             new_url = r2_storage.upload_pdf_bytes(data, filename, config=config)
             update: dict = {"pdf_url": new_url}
             if not row.get("source_pdf_url"):

@@ -75,5 +75,33 @@ class YearWindowRotationTests(unittest.TestCase):
         self.assertIn('"open access"[filter]', rewritten)
 
 
+
+
+class PmcPowTests(unittest.TestCase):
+    def test_solver_uses_sha256_and_cookie_format(self) -> None:
+        import hashlib
+
+        from food_paper_crawler.pmc_pow import solve_pmc_pow
+
+        html = (
+            'const POW_CHALLENGE = "abc:def"\n'
+            'const POW_DIFFICULTY = "2"\n'
+            'const POW_COOKIE_NAME = "cloudpmc-viewer-pow"\n'
+        )
+        cookie = solve_pmc_pow(html)
+        self.assertIsNotNone(cookie)
+        name, value = cookie.split("=", 1)
+        challenge, nonce = value.rsplit(",", 1)
+        self.assertEqual(name, "cloudpmc-viewer-pow")
+        self.assertEqual(challenge, "abc:def")
+        digest = hashlib.sha256(f"{challenge}{nonce}".encode()).hexdigest()
+        self.assertTrue(digest.startswith("00"))
+
+    def test_solver_ignores_non_challenge_pages(self) -> None:
+        from food_paper_crawler.pmc_pow import solve_pmc_pow
+
+        self.assertIsNone(solve_pmc_pow("<html>plain error page</html>"))
+
+
 if __name__ == "__main__":
     unittest.main()
