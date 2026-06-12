@@ -13,7 +13,11 @@
 
 const CACHE_NAME = 'opennutri-pdfs-v1'
 const ORDER_KEY = 'opennutri-pdf-cache-order:v1'
-const MAX_ENTRIES = 40
+// Sized to hold the whole working queue (~250 papers, typically 1-3 MB each,
+// so a few hundred MB worst-typical). 40 was too small: reading ~20 papers
+// plus their prefetched neighbours filled the LRU and evicted papers the
+// reviewer had already opened, forcing slow re-downloads days later.
+const MAX_ENTRIES = 150
 
 function cachesAvailable() {
   return typeof window !== 'undefined' && 'caches' in window
@@ -40,6 +44,16 @@ function writeOrder(order) {
 // Move `url` to the front of the LRU index (most-recently-used).
 function touchOrder(url) {
   writeOrder([url, ...readOrder().filter((entry) => entry !== url)])
+}
+
+// Register `url` at the BACK of the LRU index (next in line for eviction).
+// Prefetches use this so a speculative warm can never displace a paper the
+// reviewer actually opened; if the paper is later opened for real,
+// touchOrder promotes it.
+function appendOrder(url) {
+  const order = readOrder()
+  if (order.includes(url)) return
+  writeOrder([...order, url])
 }
 
 // Drop least-recently-used entries (both the Cache Storage body and the index)
@@ -94,12 +108,15 @@ export async function getPdfBytes(url) {
 export async function prefetchPdf(url) {
   if (!url || !cachesAvailable()) return
   try {
+    // When the cache is full of real reads, downloading just to self-evict
+    // wastes bandwidth — skip instead.
+    if (readOrder().length >= MAX_ENTRIES) return
     const cache = await caches.open(CACHE_NAME)
     if (await cache.match(url)) return
     const res = await fetch(url)
     if (!res.ok) return
     await cache.put(url, res.clone())
-    touchOrder(url)
+    appendOrder(url)
     await evictIfNeeded(cache)
   } catch {
     // Prefetch is advisory; ignore all failures.
