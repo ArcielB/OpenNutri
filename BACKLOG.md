@@ -31,6 +31,22 @@ Reduce Free-plan database-size risk without harming the active annotator/pipelin
 - the live DB either keeps `claims` intentionally or removes/archives it
 - the dashboard database-size usage has a comfortable margin below 500 MB
 
+### RESOLVED 2026-06-12
+Verified before acting: zero reads of `claims` in app or pipeline runtime code, zero
+RPCs/views referencing it, zero foreign keys pointing into it, all 644,125 rows from a
+single bulk import (one `source_id`), never updated since insert. The data is the output
+of `services/data-pipeline/etl_sr_legacy_to_opennutri.py` over the SR Legacy CSVs that
+live in this repo, so it is reproducible offline at any time.
+
+Action taken: archived to `data/archives/claims_archive_2026-06-12.csv.gz` (644,125 rows
+verified, 51 MB gzipped, local + gitignored), then `TRUNCATE public.claims` on the live
+project. Schema kept intact so `migration.sql` stays the source of truth and the ETL can
+refill it if a product surface ever needs it. DB size dropped 320 MB -> 134 MB.
+
+Restore if ever needed (either works):
+- `psql "$POOLER_URL" -c "\copy public.claims from program 'zcat data/archives/claims_archive_2026-06-12.csv.gz' with (format csv, header)"`
+- or rerun `etl_sr_legacy_to_opennutri.py` against the repo CSVs.
+
 ## 10. Calibrate AI routing thresholds from audited human truth
 
 ### Problem
