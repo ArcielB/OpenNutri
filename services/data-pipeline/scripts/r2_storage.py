@@ -13,7 +13,7 @@ credentials):
 - R2_ACCESS_KEY_ID      R2 API token access key (S3-compatible)
 - R2_SECRET_ACCESS_KEY  R2 API token secret
 - R2_PUBLIC_BASE_URL    public base for reads, e.g. https://pub-xxxx.r2.dev
-- R2_BUCKET             bucket name (optional, default "opennutri-papers")
+- R2_BUCKET             bucket name (optional, default "open-nutri")
 
 Objects are keyed "papers/<filename>" — papers.filename is the crawler's
 unique, stable name for each PDF, so the key works both for new uploads and
@@ -26,7 +26,7 @@ import os
 from pathlib import Path
 
 
-DEFAULT_BUCKET = "opennutri-papers"
+DEFAULT_BUCKET = "open-nutri"
 KEY_PREFIX = "papers"
 
 
