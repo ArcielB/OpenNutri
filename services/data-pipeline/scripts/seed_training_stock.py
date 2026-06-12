@@ -3,11 +3,16 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
 from collections import defaultdict
+from pathlib import Path
 
-import httpx
 from supabase import Client, create_client
+
+PIPELINE_ROOT = Path(__file__).resolve().parents[1]
+if str(PIPELINE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PIPELINE_ROOT))
+
+from scripts.refill_assignment_queue import fetch_all  # noqa: E402
 
 
 SUPPORTED_LANGUAGES = ("en", "tr")
@@ -38,38 +43,6 @@ def require_client() -> Client:
     if not supabase_url or not supabase_key:
         raise SystemExit("Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.")
     return create_client(supabase_url, supabase_key)
-
-
-def fetch_all(
-    client: Client,
-    table: str,
-    select: str,
-    batch_size: int = 1000,
-    max_attempts: int = 4,
-) -> list[dict]:
-    rows: list[dict] = []
-    offset = 0
-    while True:
-        # Retry transient PostgREST disconnects; each page is an idempotent read.
-        for attempt in range(1, max_attempts + 1):
-            try:
-                response = client.table(table).select(select).range(offset, offset + batch_size - 1).execute()
-                break
-            except httpx.HTTPError as exc:
-                if attempt >= max_attempts:
-                    raise
-                wait_seconds = 2 ** attempt
-                print(
-                    f"[fetch_all] transient error reading {table} offset={offset} "
-                    f"(attempt {attempt}/{max_attempts}): {type(exc).__name__}: {exc}; retrying in {wait_seconds}s",
-                    file=sys.stderr,
-                )
-                time.sleep(wait_seconds)
-        batch = response.data or []
-        rows.extend(batch)
-        if len(batch) < batch_size:
-            return rows
-        offset += batch_size
 
 
 def normalize_language(value: object) -> str | None:
