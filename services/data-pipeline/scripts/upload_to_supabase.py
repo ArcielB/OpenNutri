@@ -26,6 +26,7 @@ from ai_routing import (
 )
 from food_paper_crawler.models import build_search_batch_key, build_search_hit_key
 from pdf_limits import max_paper_pdf_bytes, pdf_size_limit_message
+from scripts import r2_storage
 
 
 EXISTING_PAPER_SELECT = "id,canonical_key,routing_status,current_stage_key,latest_ai_extraction_id,pdf_url"
@@ -624,6 +625,20 @@ async def upload_papers(args: argparse.Namespace, supabase: Client) -> None:
             skipped_uploads.append(f"{filename}: {reason}; refreshed metadata/search-hit links only")
             print(f"  Skipped Storage upload: {reason}.")
             continue
+
+        # Re-host the validated PDF on Cloudflare R2 (free egress) when
+        # configured: the durable copy becomes pdf_url and the publisher URL is
+        # preserved in source_pdf_url. On any failure the source URL stays in
+        # place, so this never blocks registration.
+        if r2_storage.r2_enabled():
+            try:
+                if file_path.stat().st_size <= max_upload_bytes:
+                    original_pdf_url = payload.get("pdf_url") or None
+                    payload["pdf_url"] = r2_storage.upload_pdf_file(file_path, filename)
+                    payload["source_pdf_url"] = original_pdf_url
+                    print("  Uploaded PDF to R2; pdf_url now serves from R2.")
+            except Exception as exc:
+                print(f"  R2 upload failed; keeping source pdf_url: {exc}")
 
         if not store_pdf_files and not payload.get("pdf_url"):
             upload_errors.append(

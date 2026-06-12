@@ -154,6 +154,9 @@ CREATE TABLE IF NOT EXISTS papers (
     canonical_key TEXT,
     filename TEXT NOT NULL,
     pdf_url TEXT,
+    -- Original publisher/aggregator URL preserved when pdf_url is repointed at
+    -- our own PDF host (Cloudflare R2); used for provenance and re-fetching.
+    source_pdf_url TEXT,
     source TEXT,
     source_record_id TEXT,
     workflow_language TEXT
@@ -170,6 +173,7 @@ ALTER TABLE papers
     ADD COLUMN IF NOT EXISTS abstract TEXT,
     ADD COLUMN IF NOT EXISTS canonical_key TEXT,
     ADD COLUMN IF NOT EXISTS pdf_url TEXT,
+    ADD COLUMN IF NOT EXISTS source_pdf_url TEXT,
     ADD COLUMN IF NOT EXISTS source TEXT,
     ADD COLUMN IF NOT EXISTS source_record_id TEXT,
     ADD COLUMN IF NOT EXISTS workflow_language TEXT

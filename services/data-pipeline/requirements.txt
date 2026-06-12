@@ -1,3 +1,4 @@
 google-generativeai
 sentence-transformers
 supabase
+boto3
