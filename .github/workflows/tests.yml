@@ -27,6 +27,9 @@ jobs:
           cache: pip
           cache-dependency-path: services/data-pipeline/requirements-worker.txt
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
       - name: Install dependencies
         # Worker requirements (supabase + google-generativeai) are enough for
         # the test suite; the heavy sentence-transformers stack is not needed.
