@@ -26,11 +26,9 @@ Consequently, the entire Turkish food ecosystem—from researchers and exporters
 
 - Turkish food exporters struggle to provide accurate, verified nutritional labeling required for EU compliance
 
-Preliminary analysis indicates that **over 2,000** distinctly Turkish food items present in academic literature are absent from both USDA and EFSA databases (see Section 4.6.3).
+Many distinctly Turkish food items present in the academic literature are absent from both the USDA and EFSA databases — a gap this project is designed to close (see Section 4.6.3).
 
-Önemli
-
-Ön çalışma, akademik literatürde yer alan 2.000'den fazla belirgin Türk gıdasının hem USDA hem de EFSA veri tabanlarında bulunmadığını göstermektedir (Bölüm 4.6.3'e bakınız).
+Akademik literatürde yer alan birçok belirgin Türk gıdası, hem USDA hem de EFSA veri tabanlarında bulunmamaktadır; proje bu açığı kapatmak üzere tasarlanmıştır (Bölüm 4.6.3'e bakınız).
 
 ## The Solution: OpenNutri
 
@@ -339,7 +337,7 @@ OpenNutri, birlikte ele alındığında gıda bileşimi veri altyapısına temel
 | 2 | Kademeli Hibrit Zeka mimarisi (L1–L5) | Her katmanın giderek daha yetenekli (ve pahalı) yapay zeka modelleri uyguladığı ve her birinin önceki katmanın çıktısını doğruladığı beş katmanlı doğrulama kademesi. | Mevcut sistemler tek modelli işlem hatları kullanır. FrugalGPT yalnızca maliyet düşürme için kademeli olarak çalışır. OpenNutri'nin kademeli çalışmasının çift işlevi vardır (maliyet optimizasyonu + çok katmanlı doğrulama). |
 | 3 | Kendini geliştiren Öğrenilmiş Yönlendirici | Belge karmaşıklığını tahmin eden ve uygun çıkarma katmanına yönlendiren eğitilebilir meta sınıflandırıcı. Hedef: GPT-4o'ya kıyasla ≥%90 maliyet azaltımı (Bölüm 4.6). | Statik model kademeli çalışma (FrugalGPT) sabit güven eşiklerini kullanır. OpenNutri'nin yönlendiricisi, daha fazla belge işlendikçe gelişen öğrenilmiş bir sınıflandırıcıdır. Sistem zamanla daha ucuz hale gelir. |
 | 4 | RLHF ile katmanlar arası öğrenme | Daha yüksek katmanlardaki (L4-L5) uzman düzeltmeleri, daha düşük katmanları (L1-L3) iyileştirmek için geri dönen eğitim sinyali üretir. Hedef, otomatik onay oranını yaklaşık %60'tan %90'a çıkarmak. | RLHF, chatbot hizalaması için yaygın olarak kullanılmaktadır. Uzman düzeltmelerinin doğrudan çıkarma modellerini yeniden eğittiği yapılandırılmış veri çıkarma işlemine uygulanması yenilikçidir. Doğrulamayı maliyet merkezinden eğitim yatırımına dönüştürür. |
-| 5 | DOI düzeyinde kaynak takibi + Türk gıdaları kapsamı | Her besin kaydı, DOI aracılığıyla kaynak yayınına bağlanır. Özellikle uluslararası veri tabanlarında bulunmayan Türkçe literatürü ve Türk gıda ürünlerini hedeflemektedir. | Mevcut hiçbir gıda bileşimi veri tabanı, bireysel kayıt düzeyinde makine tarafından okunabilir kaynak izlenebilirliği sağlamaz. Mevcut veri tabanları (USDA, EFSA, TürKomp) kaynakları gıda maddesi düzeyinde belirtirken bireysel besin değeri düzeyinde belirtmez. Tahmini 5.000'den fazla Türk gıda maddesi uluslararası veri tabanlarında yer almamaktadır. |
+| 5 | DOI düzeyinde kaynak takibi + Türk gıdaları kapsamı | Her besin kaydı, DOI aracılığıyla kaynak yayınına bağlanır. Özellikle uluslararası veri tabanlarında bulunmayan Türkçe literatürü ve Türk gıda ürünlerini hedeflemektedir. | Mevcut hiçbir gıda bileşimi veri tabanı, bireysel kayıt düzeyinde makine tarafından okunabilir kaynak izlenebilirliği sağlamaz. Mevcut veri tabanları (USDA, EFSA, TürKomp) kaynakları gıda maddesi düzeyinde belirtirken bireysel besin değeri düzeyinde belirtmez. Çok sayıda Türk gıda maddesi uluslararası veri tabanlarında yer almamaktadır; proje en az 5.000 özgün Türk gıda maddesini indekslemeyi hedefler. |
 
 Ek metodolojik yenilik: OpenNutri, standart NLP metriklerinin (kesinlik, geri çağırma, F1) ötesinde alana özgü doğrulama sunmaktadır. Sistem, çıkarılan verileri gıda bilimi kısıtlamalarına göre doğrular: enerji-makro besin dengesi (Atwater faktörleri), fizyolojik olarak makul aralıklar ve çapraz referans tutarlılığı. Bu, yapay zeka-bilim literatüründe emsali olmayan bir uygulamadır.
 
@@ -787,7 +785,7 @@ Beklenen verim: İlgili makale başına ortalama ~5 çıkarılabilir gıda-besin
 
 ## 4.6. Preliminary Work, Existing System, and Feasibility
 
-The project team has already developed and deployed an end-to-end working prototype of the proposed OpenNutri pipeline. The system currently runs in automated daily operation and demonstrates the technical feasibility of the core architectural components in practice. This section presents the existing system, the feasibility evidence it provides, and a preliminary analysis of the Turkish food-data gap.
+The project team has already developed and deployed an end-to-end working prototype of the proposed OpenNutri pipeline. The system currently runs in automated daily operation and demonstrates the technical feasibility of the core architectural components in practice. This section presents the existing system, the feasibility evidence it provides, and a preliminary assessment of the Turkish food-data gap.
 
 ### 4.6.1. Existing Developed System (Proof of Concept)
 
@@ -820,15 +818,15 @@ The developed prototype substantially de-risks the project by making its highest
 
 Project funding will transform this proven prototype into a national-scale, self-improving, and progressively autonomous system by financing the components the prototype does not yet include: (1) migrating screening and extraction from off-the-shelf commercial models to fine-tuned open-weight models (L3), reducing cost and external dependency; (2) developing the domain-specific food-science validation rule engine together with the food-engineering team; (3) replacing static routing thresholds with the trainable, cost-optimizing Learned Router; and (4) closing the RLHF-based cross-layer learning loop through which expert corrections continuously retrain the lower layers. In short, the prototype proves the architecture works; the grant funds the components that make it scalable, cheaper, and national in scope.
 
-### 4.6.3. Preliminary Analysis of the Turkish Food-Data Gap
+### 4.6.3. Preliminary Assessment of the Turkish Food-Data Gap
 
-Using the ingested USDA FoodData Central reference layer and cross-referencing against international databases, a preliminary analysis indicates that **over 2,000** distinctly Turkish food items present in academic literature are absent from both the USDA and EFSA databases. The project aims to close this gap by indexing at least 5,000 uniquely Turkish food items — the evidence base for the national-gain argument in Section 1.
+Turkey's national database TürKomp covers only ~580 analyzed foods, while the country's agricultural and culinary diversity is far larger; many distinctly Turkish foods and regional varieties documented in the scientific literature are not represented in the USDA or EFSA databases. Precisely quantifying this gap is itself one of the project's early deliverables: by systematically indexing Turkish-language literature, the project will produce the first machine-readable count of Turkish food items absent from international databases, targeting the indexing of at least 5,000 uniquely Turkish food items — the evidence base for the national-gain argument in Section 1.
 
 ---
 
 4.6. Ön Çalışmalar, Mevcut Sistem ve Fizibilite
 
-Proje ekibi, önerilen OpenNutri işlem hattının uçtan uca çalışan bir prototipini halihazırda geliştirmiş ve devreye almıştır. Sistem şu anda otomatik günlük operasyonda çalışmakta ve önerilen mimarinin temel bileşenlerinin teknik fizibilitesini uygulamada kanıtlamaktadır. Bu bölüm; geliştirilen mevcut sistemi, bu sistemin sağladığı fizibilite kanıtlarını ve Türk gıda veri açığına ilişkin ön analizi sunar.
+Proje ekibi, önerilen OpenNutri işlem hattının uçtan uca çalışan bir prototipini halihazırda geliştirmiş ve devreye almıştır. Sistem şu anda otomatik günlük operasyonda çalışmakta ve önerilen mimarinin temel bileşenlerinin teknik fizibilitesini uygulamada kanıtlamaktadır. Bu bölüm; geliştirilen mevcut sistemi, bu sistemin sağladığı fizibilite kanıtlarını ve Türk gıda veri açığına ilişkin ön değerlendirmeyi sunar.
 
 4.6.1. Geliştirilen Mevcut Sistem (Kavram Kanıtı)
 
@@ -861,9 +859,9 @@ Geliştirilen prototip, projenin en yüksek riskli bileşenini — çok bileşen
 
 Proje desteği, kanıtlanmış bu prototipi, henüz içermediği bileşenleri finanse ederek ulusal ölçekte, kendi kendini geliştiren ve giderek otonomlaşan bir sisteme dönüştürecektir: (1) tarama ve çıkarımın hazır ticari modellerden ince ayarlı açık-ağırlıklı modellere (L3) taşınarak maliyet ve dışa bağımlılığın düşürülmesi; (2) gıda mühendisliği ekibiyle birlikte alana özgü gıda bilimi doğrulama kural motorunun geliştirilmesi; (3) statik yönlendirme eşiklerinin yerine maliyet-optimizasyonlu, eğitilebilir Öğrenilmiş Yönlendiricinin kurulması; ve (4) uzman düzeltmelerinin alt katmanları sürekli yeniden eğittiği RLHF tabanlı katmanlar arası öğrenme döngüsünün tamamlanması. Kısacası prototip, mimarinin çalıştığını kanıtlar; destek ise onu ölçeklenebilir, daha ucuz ve ulusal kapsamlı kılan bileşenleri hayata geçirir.
 
-4.6.3. Türk Gıda Veri Açığı Ön Analizi
+4.6.3. Türk Gıda Veri Açığı Ön Değerlendirmesi
 
-Sisteme aktarılan USDA FoodData Central referans katmanı ve uluslararası veri tabanlarıyla çapraz referanslama kullanılarak yapılan ön analiz, akademik literatürde yer alan 2.000'den fazla belirgin Türk gıda öğesinin hem USDA hem de EFSA veri tabanlarında bulunmadığını göstermektedir. Proje, bu açığı kapatarak en az 5.000 özgün Türk gıda öğesini indekslemeyi hedefler — Bölüm 1'deki ulusal kazanım argümanının kanıt temeli.
+Türkiye'nin ulusal veri tabanı TürKomp yalnızca ~580 analiz edilmiş gıdayı kapsarken, ülkenin tarımsal ve kültürel gıda çeşitliliği çok daha geniştir; bilimsel literatürde belgelenen birçok belirgin Türk gıdası ve yöresel çeşit, USDA veya EFSA veri tabanlarında yer almamaktadır. Bu açığın kesin olarak ölçülmesi, projenin erken çıktılarından biridir: Türkçe literatürün sistematik olarak indekslenmesiyle proje, uluslararası veri tabanlarında bulunmayan Türk gıdalarına ilişkin makine tarafından okunabilir ilk sayımı üretecek ve en az 5.000 özgün Türk gıda öğesini indekslemeyi hedefleyecektir — Bölüm 1'deki ulusal kazanım argümanının kanıt temeli.
 
 
 ### 4.7. Değişkenler ve İstatistiksel Yöntemler
