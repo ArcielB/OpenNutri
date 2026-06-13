@@ -34,7 +34,7 @@ Akademik literatürde yer alan birçok belirgin Türk gıdası, hem USDA hem de 
 
 We are proposing a globally novel **Progressively Autonomous Data Verification System**. Unlike existing international systems that rely on slow manual entry, OpenNutri introduces a **"Hybrid Intelligence" pipeline** (AI Extraction + Food Science Logic + Expert Reinforcement) to build a progressively autonomous, self-correcting nutritional database designed for national-scale indexing — an architecture not offered by any existing food composition database (see the novelty comparison in Section 3).
 
-Bu soruna çözüm olarak, küresel ölçekte yeni bir Aşamalı Olarak Otonom Veri Doğrulama Sistemi olan OpenNutri önerilmektedir. Manuel veri girişine dayanan mevcut uluslararası sistemlerin aksine, OpenNutri, ulusal ölçekte indeksleme amacıyla tasarlanmış ilk aşamalı olarak otonom, kendi kendini düzelten beslenme veri tabanının geliştirilmesini hedeflemektedir. Bu sistem, “Hibrit Zeka” teknolojisini temel alarak yapay zeka tabanlı veri toplama, gıda bilimi temelli mantıksal doğrulama mekanizmaları ve uzman denetimini bütünleştiren bir yapıya öncülük etmektedir.
+Bu soruna çözüm olarak, küresel ölçekte yeni bir Aşamalı Olarak Otonom Veri Doğrulama Sistemi olan OpenNutri önerilmektedir. Manuel veri girişine dayanan mevcut uluslararası sistemlerin aksine, OpenNutri, ulusal ölçekte indeksleme amacıyla tasarlanmış ilk aşamalı olarak otonom, kendi kendini düzelten beslenme veri tabanının geliştirilmesini hedeflemektedir. Bu sistem, “Hibrit Zeka” teknolojisini temel alarak yapay zeka tabanlı veri çıkarımı, gıda bilimi temelli mantıksal doğrulama mekanizmaları ve uzman denetimini bütünleştiren bir yapıya öncülük etmektedir.
 
 ## National Gains by Sector
 
@@ -101,7 +101,7 @@ Türkiye, yabancı verileri yüksek bedellerle ithal eden bir konumdan çıkarak
 
 The aim of this project is to develop **OpenNutri** — a Progressively Autonomous Nutritional Data Verification System that creates Turkey's first sovereign national food composition infrastructure. OpenNutri uses a novel "Hybrid Intelligence" approach — combining AI-driven extraction, food science validation logic, and expert reinforcement learning (RLHF) — to automatically extract, validate, and standardize nutritional data from global scientific literature at scale, resulting in a verified nutritional database, a production API, and a licensable extraction engine — the infrastructure necessary to deliver the national gains identified in Section 1.
 
-Bu projenin amacı, Türkiye'nin ilk bağımsız ve ulusal besin verileri için altyapı oluşturan Aşamalı Olarak Otonom Besin Verisi Doğrulama Sistemi OpenNutri'yi geliştirmektir. OpenNutri, yapay zeka destekli veri toplama, gıda bilimi temelli mantıksal doğrulama mekanizmaları ve uzman denetimi destekli öğrenmeyi (RLHF) birleştiren yeni bir "Hibrit Zeka" yaklaşımı kullanarak, küresel bilimsel literatürden beslenme verilerini otomatik olarak çıkarır, doğrular ve standartlaştırır; bu da doğrulanmış bir beslenme veri tabanı, üretim API'si ve lisanslanabilir bir veri çıkarma motoruyla sonuçlanır. Bu altyapı, Bölüm 1'de tanımlanan ulusal kazanımları sağlamak için gereklidir.
+Bu projenin amacı, Türkiye'nin ilk bağımsız ve ulusal besin verileri için altyapı oluşturan Aşamalı Olarak Otonom Besin Verisi Doğrulama Sistemi OpenNutri'yi geliştirmektir. OpenNutri, yapay zeka destekli veri çıkarımı, gıda bilimi temelli mantıksal doğrulama mekanizmaları ve uzman denetimi destekli öğrenmeyi (RLHF) birleştiren yeni bir "Hibrit Zeka" yaklaşımı kullanarak, küresel bilimsel literatürden beslenme verilerini otomatik olarak çıkarır, doğrular ve standartlaştırır; bu da doğrulanmış bir beslenme veri tabanı, üretim API'si ve lisanslanabilir bir veri çıkarma motoruyla sonuçlanır. Bu altyapı, Bölüm 1'de tanımlanan ulusal kazanımları sağlamak için gereklidir.
 
 ## 2.2. Ölçülebilir Hedefler
 
@@ -115,13 +115,13 @@ Build an end-to-end AI pipeline that takes scientific papers as input and output
 
 - Food science validation rules designed by domain experts
 
-**Hedef**** 1**: Hibrit Zeka Veri Toplama Motorunu Geliştirmek
+**Hedef**** 1**: Hibrit Zeka Veri Çıkarma Motorunu Geliştirmek
 
 Bilimsel makaleleri girdi olarak alan, yapılandırılmış ve doğrulanmış beslenme verileri üreten uçtan uca bir yapay zeka işlem hattı oluşturmak hedeflenmektedir. Sistem şunları birleştirecektir: 
 
-- Gelişmiş Dil Modelleri (örneğin, ince ayarlanmış açık kaynaklı veya hızlı mühendislik ürünü ticari modeller) 
+- Gelişmiş Dil Modelleri (örneğin, ince ayarlanmış açık kaynaklı modeller veya istem mühendisliği [prompt engineering] uygulanmış ticari modeller) 
 
-- Bilinen standartlarla karşılaştırmalı doğrulama yapmak üzere kullanılan Geri Getirme Destekli Üretim (RAG) 
+- Bilinen standartlarla karşılaştırmalı doğrulama yapmak üzere kullanılan Geri Getirmeyle Güçlendirilmiş Üretim (RAG) 
 
 - Alanında uzmanlar tarafından tasarlanmış gıda bilimi doğrulama kuralları
 
@@ -163,11 +163,11 @@ Büyük bilimsel veri tabanlarından (PubMed Central, DergiPark, Google Scholar)
 
 Başarı Ölçütleri:
 
-- İlgililik açısından en az 100.000 araştırma makalesini taramak
+- Küresel bilimsel veri tabanlarından en az 100.000 ilgili makaleyi işlemek
 
-- İlgili literatürden en az 500.000 adet ham gıda besin ögesi verisini çıkarmak
+- İşlenen literatürden en az 500.000 gıda-besin kaydı çıkarmak (ilgili makale başına ~5 kayıt)
 
-- Uluslararası veri tabanlarında (örn. USDA, EFSA) yer almayan en az 5.000 özgün Türk gıda ürününün indekslenmesi
+- Uluslararası veri tabanlarında (örn. USDA, EFSA) yer almayan en az 5.000 özgün Türk gıda ürününü indekslemek
 
 ### Objective 3: Build Expert-Verified Gold Standard Dataset
 
@@ -212,7 +212,7 @@ Use the expert-verified dataset to continuously improve the AI extraction models
 
 **Hedef**** 4: ****Uzman**** Geri Bildirimi Kullanarak (RLHF) ****Geliştirilmiş**** ****Modelleri**** ****Eğitmek**
 
-Uzmanlar tarafından doğrulanmış verileri kullanarak, İnsan Geri Bildiriminden Pekiştirmeli Öğrenme (RLHF) yoluyla yapay zeka veri toplama modellerini sürekli olarak geliştirmek ve kendi kendini geliştiren bir sistem oluşturmak hedeflenmektedir.
+Uzmanlar tarafından doğrulanmış verileri kullanarak, İnsan Geri Bildiriminden Pekiştirmeli Öğrenme (RLHF) yoluyla yapay zeka veri çıkarma modellerini sürekli olarak geliştirmek ve kendi kendini geliştiren bir sistem oluşturmak hedeflenmektedir.
 
 Başarı Ölçütleri:
 
@@ -611,7 +611,7 @@ Hedef bağlantısı: L3, Hedef 1'i (≥%99,5 otomatik onaylı doğruluk, lider b
 
 **4.2.4. Katman 4 — Ticari Model Zenginleştirme (Kademeli Yükseltme)**
 
-Amaç: Mevcut L3 modellerinin kapasitesini aşan veri toplama görevlerini en güncel ticari LLM'leri kullanarak gerçekleştirmek.
+Amaç: Mevcut L3 modellerinin kapasitesini aşan veri çıkarma görevlerini en güncel ticari LLM'leri kullanarak gerçekleştirmek.
 
 Yöntem:
 
@@ -625,7 +625,7 @@ Yöntem:
 
 o (a) Dinamik istem mühendisliği: Derlenmiş hata örnekleri, uç vakalar ve alana özgü talimatlarla sürekli olarak güncellenen "bağlam dosyası"
 
-o (b) Geri Getirme ile Güçlendirilmiş Üretim (RAG): Alma sistemi (Lewis vd., 2020), her API çağrısından önce doğrulanmış veri tabanından ilgili referans verilerini alır
+o (b) Geri Getirmeyle Güçlendirilmiş Üretim (RAG): Alma sistemi (Lewis vd., 2020), her API çağrısından önce doğrulanmış veri tabanından ilgili referans verilerini alır
 
 Çıktı: İşlenen alt görevler için yapılandırılmış kayıtlar. L4 çıktıları, doğrulandıktan sonra, açık kaynak modellerinin ticari API çağrılarının yerini aldığı birincil mekanizma olan L3 için eğitim verisi haline gelir.
 
@@ -1021,7 +1021,7 @@ WP1: Altyapı ve Veri Toplama · WP2: Çekirdek Çıkarım Motoru (L3) · WP3: B
 | **Çıktı**** ****Türü** | **Çıktı** | **Çıktının**** Elde ****Edilmesi**** ****Öngörülen**** Zaman ****Aralığı** |
 | --- | --- | --- |
 | **Bilimsel****/Akademik ****Çıktılar**** (****Bildiri****, Makale, Kitap ****Bölümü****, Kitap ****vb****.):** |
-|  | Referans makalesi: Büyük ölçekli gıda bileşimi veri toplama referansı — önemli bir test seti üzerinde çoklu model karşılaştırması (lider ticari ve açık ağırlıklı LLM'ler [örn. GPT, Claude, Gemini, Llama, Mistral] ile OpenNutri). Referans veri seti ve değerlendirme kodu Zenodo/HuggingFace'te yayınlanması. (Hedef: NeurIPS Veri Setleri ve Referanslar bölümü veya ACL) | 12–18 ay |
+|  | Referans makalesi: Büyük ölçekli gıda bileşimi veri çıkarma referansı — önemli bir test seti üzerinde çoklu model karşılaştırması (lider ticari ve açık ağırlıklı LLM'ler [örn. GPT, Claude, Gemini, Llama, Mistral] ile OpenNutri). Referans veri seti ve değerlendirme kodu Zenodo/HuggingFace'te yayınlanması. (Hedef: NeurIPS Veri Setleri ve Referanslar bölümü veya ACL) | 12–18 ay |
 |  | Mimari makale: Kademeli Hibrit Zeka (Cascaded Hybrid Intelligence) sistemine teknik derinlemesine bakış (L1-L5 işlem hattı, Öğrenilmiş Yönlendirici, Katmanlar Arası Öğrenme), ablasyon çalışmaları ve maliyet analizi ile birlikte. (Hedef: Expert Systems with Applications, or Computers and Electronics in Agriculture) | 12–18 ay |
 |  | Veri seti makalesi: OpenNutri-DB — tanım, metodoloji, Türk gıda veri açığı analizi ve USDA/EFSA/TürKomp ile karşılaştırma. (Hedef: JFCA, Food Chemistry, or Nature Scientific Data) | 12–18 ay |
 | **Ekonomik****/****Ticari****/****Sosyal**** ****Çıktılar**** (****Ürün****, ****Prototip****, Patent, ****Faydalı**** Model, ****Üretim**** ****İzni****, ****Tescil****, vb.):** |
