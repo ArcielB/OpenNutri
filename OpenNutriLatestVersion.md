@@ -134,7 +134,7 @@ Bilimsel makaleleri girdi olarak alan, yapılandırılmış ve doğrulanmış be
 | Database error rate | N/A (no systematic audit) | < 0.5% |
 | Cost per paper | ~$0.10 | <$0.03 |
 
-Baseline reflects a leading commercial model (GPT-4o) applied without a verification pipeline; comparative figures are grounded in the operational prototype and published literature (see Section 4.6). GPT-4o is used as the reference point as a widely adopted, industry-leading commercial model.
+The baseline reflects a leading general-purpose commercial LLM applied without a verification pipeline; GPT-4o is used here as a representative, widely-adopted reference point, and the published benchmark (Objective 5) will compare against the strongest commercial models available at evaluation time. Comparative figures are grounded in the operational prototype and published literature (see Section 4.6).
 
 Başarı Ölçütleri:
 
@@ -145,7 +145,7 @@ Başarı Ölçütleri:
 | Veritabanı hata oranı | N/A (sistematik denetim yok) | <%0,5 |
 | Makale başına maliyet | ~$0,10 | <$0,03 |
 
-Not: Referans, doğrulama hattı olmadan uygulanan lider bir ticari modeli (GPT-4o) yansıtır; karşılaştırmalı değerler mevcut prototip ve yayımlanmış literatüre dayanır (Bölüm 4.6'ya bakınız). GPT-4o, yaygın olarak kullanılan, sektör lideri bir ticari model olduğu için referans noktası olarak alınmıştır.
+Not: Referans, doğrulama hattı olmadan uygulanan lider, genel amaçlı bir ticari LLM'yi yansıtır; GPT-4o burada yaygın olarak kullanılan temsili bir referans noktası olarak alınmıştır ve yayımlanacak kıyaslama (Hedef 5), değerlendirme anında mevcut en güçlü ticari modellerle karşılaştırma yapacaktır. Karşılaştırmalı değerler mevcut prototip ve yayımlanmış literatüre dayanır (Bölüm 4.6'ya bakınız).
 
 ### Objective 2: Process Large-Scale Scientific Literature
 
@@ -239,7 +239,7 @@ Deploy the complete OpenNutri infrastructure for public use and validate scienti
 
 - Open-access dataset released publicly with full documentation
 
-- System performance benchmark report published (accuracy, cost, speed vs GPT-4o baseline)
+- System performance benchmark report published (accuracy, cost, speed vs. leading commercial LLMs)
 
 - ≥3 peer-reviewed academic publications submitted
 
@@ -257,7 +257,7 @@ OpenNutri altyapısının tamamını kamu kullanımına sunmak ve bilimsel katk�
 
 - Açık erişimli veri setini, tam dokümantasyonla birlikte kamuya açık olarak yayınlamak 
 
-- Sistem performans karşılaştırma raporunu (GPT-4o referansına kıyasla doğruluk, maliyet ve hız) yayımlamak
+- Sistem performans karşılaştırma raporunu (lider ticari LLM'lere kıyasla doğruluk, maliyet ve hız) yayımlamak
 
 - En az 3 hakemli akademik yayın göndermek
 
@@ -265,7 +265,7 @@ OpenNutri altyapısının tamamını kamu kullanımına sunmak ve bilimsel katk�
 
 | No. | Objective | Key Success Metrics |
 | --- | --- | --- |
-| 1 | Hybrid Intelligence Engine | ≥99.5% auto-approved accuracy, ≥90% cost reduction vs. GPT-4o (Section 4.6) |
+| 1 | Hybrid Intelligence Engine | ≥95% (initial) → ≥99.5% (post-RLHF) auto-approved accuracy, ≥90% cost reduction vs. a leading commercial LLM (Section 4.6) |
 | 2 | Literature Processing | ≥500k food-nutrient records, ≥5k uniquely Turkish food items |
 | 3 | Gold Standard Dataset | ≥25,000 expert-verified records, 181 nutrients, <0.5% error |
 | 4 | RLHF Training | ≥90% auto-approval, <$0.01/paper |
@@ -335,7 +335,7 @@ OpenNutri, birlikte ele alındığında gıda bileşimi veri altyapısına temel
 | --- | --- | --- | --- |
 | 1 | Bilimsel literatürden aşamalı olarak otonom veri çıkarma | Uçtan uca yapay zeka işlem hattı: bilimsel makaleler → uluslararası standartlara uygun, yapılandırılmış, doğrulanmış besin bileşimi verileri (100 g başına enerji, makro besinler, vitaminler, mineraller). | Mevcut tüm veri tabanları (USDA, EFSA, TürKomp) manuel laboratuvar analizine ve uzman küratörlüğüne dayanmaktadır. FoodMine (Hooton vd. 2020) standart besin bileşimini değil, kimyasal bileşikleri çıkarmaktadır. |
 | 2 | Kademeli Hibrit Zeka mimarisi (L1–L5) | Her katmanın giderek daha yetenekli (ve pahalı) yapay zeka modelleri uyguladığı ve her birinin önceki katmanın çıktısını doğruladığı beş katmanlı doğrulama kademesi. | Mevcut sistemler tek modelli işlem hatları kullanır. FrugalGPT yalnızca maliyet düşürme için kademeli olarak çalışır. OpenNutri'nin kademeli çalışmasının çift işlevi vardır (maliyet optimizasyonu + çok katmanlı doğrulama). |
-| 3 | Kendini geliştiren Öğrenilmiş Yönlendirici | Belge karmaşıklığını tahmin eden ve uygun çıkarma katmanına yönlendiren eğitilebilir meta sınıflandırıcı. Hedef: GPT-4o'ya kıyasla ≥%90 maliyet azaltımı (Bölüm 4.6). | Statik model kademeli çalışma (FrugalGPT) sabit güven eşiklerini kullanır. OpenNutri'nin yönlendiricisi, daha fazla belge işlendikçe gelişen öğrenilmiş bir sınıflandırıcıdır. Sistem zamanla daha ucuz hale gelir. |
+| 3 | Kendini geliştiren Öğrenilmiş Yönlendirici | Belge karmaşıklığını tahmin eden ve uygun çıkarma katmanına yönlendiren eğitilebilir meta sınıflandırıcı. Hedef: lider bir ticari LLM'ye kıyasla ≥%90 maliyet azaltımı (Bölüm 4.6). | Statik model kademeli çalışma (FrugalGPT) sabit güven eşiklerini kullanır. OpenNutri'nin yönlendiricisi, daha fazla belge işlendikçe gelişen öğrenilmiş bir sınıflandırıcıdır. Sistem zamanla daha ucuz hale gelir. |
 | 4 | RLHF ile katmanlar arası öğrenme | Daha yüksek katmanlardaki (L4-L5) uzman düzeltmeleri, daha düşük katmanları (L1-L3) iyileştirmek için geri dönen eğitim sinyali üretir. Hedef, otomatik onay oranını yaklaşık %60'tan %90'a çıkarmak. | RLHF, chatbot hizalaması için yaygın olarak kullanılmaktadır. Uzman düzeltmelerinin doğrudan çıkarma modellerini yeniden eğittiği yapılandırılmış veri çıkarma işlemine uygulanması yenilikçidir. Doğrulamayı maliyet merkezinden eğitim yatırımına dönüştürür. |
 | 5 | DOI düzeyinde kaynak takibi + Türk gıdaları kapsamı | Her besin kaydı, DOI aracılığıyla kaynak yayınına bağlanır. Özellikle uluslararası veri tabanlarında bulunmayan Türkçe literatürü ve Türk gıda ürünlerini hedeflemektedir. | Mevcut hiçbir gıda bileşimi veri tabanı, bireysel kayıt düzeyinde makine tarafından okunabilir kaynak izlenebilirliği sağlamaz. Mevcut veri tabanları (USDA, EFSA, TürKomp) kaynakları gıda maddesi düzeyinde belirtirken bireysel besin değeri düzeyinde belirtmez. Çok sayıda Türk gıda maddesi uluslararası veri tabanlarında yer almamaktadır; proje en az 5.000 özgün Türk gıda maddesini indekslemeyi hedefler. |
 
@@ -583,11 +583,11 @@ L3 katmanı içinde modeller, artan boyutta alt katmanlara ayrılır. Öğrenilm
 
 These domain-specific constraints function as a hallucination detection layer — catching fabricated or implausible values that pass standard NLP confidence checks but violate food science reality. Records passing all rules and exceeding the confidence threshold are accepted; failures escalate to L4 or L5.
 
-**Objective linkage:** L3 drives Objective 1 (≥99.5% auto-approved accuracy, ≥90% cost reduction vs. GPT-4o, Section 4.6) and Objective 2 (≥500,000 data points).
+**Objective linkage:** L3 drives Objective 1 (≥99.5% auto-approved accuracy, ≥90% cost reduction vs. a leading commercial LLM, Section 4.6) and Objective 2 (≥500,000 data points).
 
 Bu alana özgü kısıtlamalar, bir yanılsama tespit katmanı görevi görür; standart NLP güven kontrollerinden geçen ancak gıda bilimi gerçekliğini ihlal eden uydurma veya mantıksız değerleri yakalar. Tüm kuralları geçen ve güven eşiğini aşan kayıtlar kabul edilir; başarısız kayıtlar L4 veya L5'e yükselir.
 
-Hedef bağlantısı: L3, Hedef 1'i (≥%99,5 otomatik onaylı doğruluk, GPT-4o'ya kıyasla ≥%90 maliyet azaltımı, Bölüm 4.6) ve Hedef 2'yi (≥500.000 veri noktası) yönlendirir.
+Hedef bağlantısı: L3, Hedef 1'i (≥%99,5 otomatik onaylı doğruluk, lider bir ticari LLM'ye kıyasla ≥%90 maliyet azaltımı, Bölüm 4.6) ve Hedef 2'yi (≥500.000 veri noktası) yönlendirir.
 
 ### 4.2.4. Layer 4 — Commercial Model Augmentation (Escalation)
 
@@ -643,7 +643,7 @@ o (b) Geri Getirme ile Güçlendirilmiş Üretim (RAG): Alma sistemi (Lewis vd.,
 
 - For each correction, experts annotate: corrected value, error category, difficulty rating
 
-**Adaptive dual-review protocol** (targeting <0.5% database error): During calibration (~500 papers), both bursiyerler independently verify every paper to establish baseline κ ≥ 0.99 (McHugh, 2012) and calibrate confidence threshold X. In production, papers below X receive dual review; those above receive single review with ~5% random dual-review for monitoring. If κ drops below 0.99, X is lowered. Two food engineering bursiyerler serve as primary annotators, targeting ~8–12 verified papers per day each. Prof. Dr. Sumnu resolves all disagreements.
+**Adaptive dual-review protocol** (targeting <0.5% database error): During calibration (~500 papers), both bursiyerler independently verify every paper to establish strong baseline inter-annotator agreement (target κ ≥ 0.9, "almost perfect" per McHugh, 2012) and calibrate confidence threshold X. High agreement confirms that the annotation guidelines are well-defined; the database-accuracy guarantee itself comes not from agreement but from **adjudication** — every disagreement is resolved by Prof. Dr. Sumnu — combined with periodic random audit. In production, papers below X receive dual review; those above receive single review with ~5% random dual-review for monitoring. If agreement falls materially below target, the guidelines are clarified and X is lowered. Two food engineering bursiyerler serve as primary annotators, targeting ~8–12 verified papers per day each.
 
 **Output:** Gold-standard records with full provenance and error annotations.
 
@@ -659,7 +659,7 @@ o Özellikler: yan yana PDF + düzeltme formu, standartlaştırılmış hata tak
 
 • Her düzeltme için uzmanlar şunları not eder: düzeltilen değer, hata kategorisi, zorluk derecelendirmesi
 
-Veri tabanı hata oranını %0,5'in altında tutmak için ekip, uyarlanabilir çift inceleme protokolü kullanmaktadır. Bu protokol, iki gıda mühendisliği bursiyerinin bağımsız olarak 500 makaleyi inceleyerek yüksek bir uzmanlar arası güvenilirlik (κ ≥ 0,99) elde etmesi ve bir güven eşiği (X) belirlemesiyle başlayan bir kalibrasyon süreciyle başlar. Üretim aşamasında, bu eşiğin altında kalan makaleler çift incelemeye tabi tutulurken, üstünde kalanlar tek incelemeye tabi tutulur; tutarlılığı sağlamak için %5'lik rastgele bir denetimle desteklenir. κ'deki herhangi bir düşüş, daha sıkı denetim için eşiğin düşürülmesini tetikler; her uzman günlük olarak 8-12 doğrulanmış makaleyi hedefler ve Prof. Dr. Sumnu, herhangi bir anlaşmazlık durumunda nihai hakem olarak görev yapar.
+Veri tabanı hata oranını %0,5'in altında tutmak için ekip, uyarlanabilir çift inceleme protokolü kullanmaktadır. Bu protokol, iki gıda mühendisliği bursiyerinin bağımsız olarak ~500 makaleyi inceleyerek güçlü bir uzmanlar arası uyum (hedef κ ≥ 0,9; McHugh 2012'ye göre "neredeyse mükemmel") elde etmesi ve bir güven eşiği (X) belirlemesiyle başlayan bir kalibrasyon süreciyle başlar. Yüksek uyum, açıklama kılavuzlarının iyi tanımlandığını doğrular; veri tabanı doğruluğu güvencesi ise uyumdan değil, **hakemlikten** gelir: her anlaşmazlık Prof. Dr. Sumnu tarafından çözülür ve periyodik rastgele denetimle desteklenir. Üretim aşamasında, bu eşiğin altında kalan makaleler çift incelemeye tabi tutulurken, üstünde kalanlar tek incelemeye tabi tutulur; %5'lik rastgele bir çift incelemeyle izlenir. Uyum, hedefin belirgin biçimde altına düşerse kılavuzlar netleştirilir ve X düşürülür. Her uzman günlük olarak 8-12 doğrulanmış makaleyi hedefler.
 
 Çıktı: Tam kaynak ve hata açıklamalarıyla altın standart kayıtlar.
 
@@ -910,7 +910,7 @@ Türkiye'nin ulusal veri tabanı TürKomp yalnızca ~580 analiz edilmiş gıday�
 
 **Inter-annotator reliability:**
 
-- Cohen's Kappa (κ) for extraction correctness judgments (Shrout & Fleiss, 1979). Target: κ ≥ 0.99, consistent with the <0.5% database error target (Section 4.2.5).
+- Cohen's κ (McHugh, 2012) for categorical correctness judgments and the intraclass correlation coefficient (Shrout & Fleiss, 1979) for continuous nutrient values. Target: strong agreement (κ ≥ 0.9, "almost perfect"), used to validate that the annotation guidelines are well-calibrated. Database accuracy (<0.5% error) is guaranteed separately by dual-review adjudication and periodic random audit (Section 4.2.5), not by agreement alone.
 
 **Router performance:**
 
@@ -938,7 +938,7 @@ Maliyet-doğruluk dengesi:
 
 Anotasyoncular arası güvenilirlik:
 
-- Çıkarma doğruluğu değerlendirmeleri için Cohen'in Kappa'sı (κ) (Shrout & Fleiss, 1979). Hedef: κ ≥ 0,99, %0,5'ten düşük veritabanı hata hedefiyle tutarlı (Bölüm 4.2.5).
+- Kategorik doğruluk değerlendirmeleri için Cohen'in κ'sı (McHugh, 2012) ve sürekli besin değerleri için sınıf-içi korelasyon katsayısı (Shrout & Fleiss, 1979). Hedef: güçlü uyum (κ ≥ 0,9; "neredeyse mükemmel"); açıklama kılavuzlarının iyi kalibre edildiğini doğrulamak için kullanılır. Veri tabanı doğruluğu (<%0,5 hata), uyumla değil; ayrı olarak çift inceleme hakemliği ve periyodik rastgele denetimle güvence altına alınır (Bölüm 4.2.5).
 
 Yönlendirici performansı:
 
@@ -1017,7 +1017,7 @@ WP1: Altyapı ve Veri Toplama · WP2: Çekirdek Çıkarım Motoru (L3) · WP3: �
 | **Çıktı**** ****Türü** | **Çıktı** | **Çıktının**** Elde ****Edilmesi**** ****Öngörülen**** Zaman ****Aralığı** |
 | --- | --- | --- |
 | **Bilimsel****/Akademik ****Çıktılar**** (****Bildiri****, Makale, Kitap ****Bölümü****, Kitap ****vb****.):** |
-|  | Referans makalesi: Büyük ölçekli gıda bileşimi veri toplama referansı — önemli bir test seti üzerinde çoklu model karşılaştırması (GPT-4o, Claude, Llama, Mistral ve OpenNutri). Referans veri seti ve değerlendirme kodu Zenodo/HuggingFace'te yayınlanması. (Hedef: NeurIPS Veri Setleri ve Referanslar bölümü veya ACL) | 12–18 ay |
+|  | Referans makalesi: Büyük ölçekli gıda bileşimi veri toplama referansı — önemli bir test seti üzerinde çoklu model karşılaştırması (lider ticari ve açık ağırlıklı LLM'ler [örn. GPT, Claude, Gemini, Llama, Mistral] ile OpenNutri). Referans veri seti ve değerlendirme kodu Zenodo/HuggingFace'te yayınlanması. (Hedef: NeurIPS Veri Setleri ve Referanslar bölümü veya ACL) | 12–18 ay |
 |  | Mimari makale: Kademeli Hibrit Zeka (Cascaded Hybrid Intelligence) sistemine teknik derinlemesine bakış (L1-L5 işlem hattı, Öğrenilmiş Yönlendirici, Katmanlar Arası Öğrenme), ablasyon çalışmaları ve maliyet analizi ile birlikte. (Hedef: Expert Systems with Applications, or Computers and Electronics in Agriculture) | 12–18 ay |
 |  | Veri seti makalesi: OpenNutri-DB — tanım, metodoloji, Türk gıda veri açığı analizi ve USDA/EFSA/TürKomp ile karşılaştırma. (Hedef: JFCA, Food Chemistry, or Nature Scientific Data) | 12–18 ay |
 | **Ekonomik****/****Ticari****/****Sosyal**** ****Çıktılar**** (****Ürün****, ****Prototip****, Patent, ****Faydalı**** Model, ****Üretim**** ****İzni****, ****Tescil****, vb.):** |
