@@ -643,7 +643,9 @@ o (b) Geri Getirme ile Güçlendirilmiş Üretim (RAG): Alma sistemi (Lewis vd.,
 
 - For each correction, experts annotate: corrected value, error category, difficulty rating
 
-**Adaptive dual-review protocol** (targeting <0.5% database error): During calibration (~500 papers), both bursiyerler independently verify every paper to establish strong baseline inter-annotator agreement (target κ ≥ 0.9, "almost perfect" per McHugh, 2012) and calibrate confidence threshold X. High agreement confirms that the annotation guidelines are well-defined; the database-accuracy guarantee itself comes not from agreement but from **adjudication** — every disagreement is resolved by Prof. Dr. Sumnu — combined with periodic random audit. In production, papers below X receive dual review; those above receive single review with ~5% random dual-review for monitoring. If agreement falls materially below target, the guidelines are clarified and X is lowered. Two food engineering bursiyerler serve as primary annotators, targeting ~8–12 verified papers per day each.
+**Adaptive dual-review protocol** (targeting <0.5% database error): The gold standard's trustworthiness does not rest on the assumption that individual reviewers are infallible — it rests on three *independent* safeguards that also catch errors two reviewers might share: **(i)** the food-science validation constraints (Atwater mass balance, physiological ranges, cross-nutrient consistency) apply to human-verified records exactly as they do to AI output — an objective check that does not depend on reviewer opinion and that flags an "agreed-but-impossible" value regardless of agreement; **(ii) adjudication** — every disagreement is resolved by Prof. Dr. Sumnu; and **(iii)** periodic **random audit** of accepted records against the source PDF, which bounds the residual error rate and surfaces shared (agreed-but-wrong) mistakes.
+
+During calibration (~500 papers), both bursiyerler independently verify every paper. Inter-annotator agreement (target κ ≥ 0.9) is monitored as a **process-health diagnostic** — it indicates whether the annotation guidelines are unambiguous, not whether the data is correct — and is used to calibrate confidence threshold X. In production, low-confidence papers (below X) receive dual review; high-confidence papers (above X — those on which the AI extraction and the validation rules already concur) receive single review, plus ~5% random dual-review and the standing audit. A paper a reviewer cannot resolve is flagged and escalated, never guessed. If agreement falls materially below target, the guidelines are clarified and X is lowered. Two food engineering bursiyerler serve as primary annotators, targeting ~8–12 verified papers per day each.
 
 **Output:** Gold-standard records with full provenance and error annotations.
 
@@ -659,7 +661,9 @@ o Özellikler: yan yana PDF + düzeltme formu, standartlaştırılmış hata tak
 
 • Her düzeltme için uzmanlar şunları not eder: düzeltilen değer, hata kategorisi, zorluk derecelendirmesi
 
-Veri tabanı hata oranını %0,5'in altında tutmak için ekip, uyarlanabilir çift inceleme protokolü kullanmaktadır. Bu protokol, iki gıda mühendisliği bursiyerinin bağımsız olarak ~500 makaleyi inceleyerek güçlü bir uzmanlar arası uyum (hedef κ ≥ 0,9; McHugh 2012'ye göre "neredeyse mükemmel") elde etmesi ve bir güven eşiği (X) belirlemesiyle başlayan bir kalibrasyon süreciyle başlar. Yüksek uyum, açıklama kılavuzlarının iyi tanımlandığını doğrular; veri tabanı doğruluğu güvencesi ise uyumdan değil, **hakemlikten** gelir: her anlaşmazlık Prof. Dr. Sumnu tarafından çözülür ve periyodik rastgele denetimle desteklenir. Üretim aşamasında, bu eşiğin altında kalan makaleler çift incelemeye tabi tutulurken, üstünde kalanlar tek incelemeye tabi tutulur; %5'lik rastgele bir çift incelemeyle izlenir. Uyum, hedefin belirgin biçimde altına düşerse kılavuzlar netleştirilir ve X düşürülür. Her uzman günlük olarak 8-12 doğrulanmış makaleyi hedefler.
+Altın standardın güvenilirliği, tek tek inceleyicilerin yanılmaz olduğu varsayımına değil; iki inceleyicinin paylaşabileceği hataları da yakalayan üç *bağımsız* güvenceye dayanır: **(i)** gıda bilimi doğrulama kısıtlamaları (Atwater kütle dengesi, fizyolojik aralıklar, besinler arası tutarlılık), yapay zeka çıktısında olduğu gibi insan tarafından doğrulanmış kayıtlara da uygulanır — bu, inceleyici görüşünden bağımsız nesnel bir kontroldür ve "üzerinde uzlaşılmış ama imkânsız" bir değeri, uzlaşmaya rağmen işaretler; **(ii) hakemlik** — her anlaşmazlık Prof. Dr. Sumnu tarafından çözülür; ve **(iii)** kabul edilen kayıtların kaynak PDF'e karşı periyodik **rastgele denetimi**, kalan hata oranını sınırlar ve paylaşılan (üzerinde uzlaşılmış ama yanlış) hataları ortaya çıkarır.
+
+Kalibrasyon sırasında (~500 makale) her iki bursiyer de her makaleyi bağımsız olarak doğrular. Uzmanlar arası uyum (hedef κ ≥ 0,9), sürecin sağlığını gösteren bir **ölçüt** olarak izlenir — bu, açıklama kılavuzlarının belirsiz olup olmadığını gösterir, verinin doğru olup olmadığını değil — ve güven eşiği X'i kalibre etmek için kullanılır. Üretimde, düşük güvenli makaleler (X'in altında) çift incelemeye; yüksek güvenli makaleler (X'in üstünde — yapay zeka çıkarımı ile doğrulama kurallarının zaten uyuştuğu makaleler) tek incelemeye tabi tutulur; buna %5 rastgele çift inceleme ve sürekli denetim eklenir. İnceleyicinin çözemediği bir makale tahmin edilmez; işaretlenip yükseltilir. Uyum, hedefin belirgin biçimde altına düşerse kılavuzlar netleştirilir ve X düşürülür. İki gıda mühendisliği bursiyeri birincil açıklayıcı olarak görev yapar ve her biri günde ~8–12 doğrulanmış makaleyi hedefler.
 
 Çıktı: Tam kaynak ve hata açıklamalarıyla altın standart kayıtlar.
 
@@ -910,7 +914,7 @@ Türkiye'nin ulusal veri tabanı TürKomp yalnızca ~580 analiz edilmiş gıday�
 
 **Inter-annotator reliability:**
 
-- Cohen's κ (McHugh, 2012) for categorical correctness judgments and the intraclass correlation coefficient (Shrout & Fleiss, 1979) for continuous nutrient values. Target: strong agreement (κ ≥ 0.9, "almost perfect"), used to validate that the annotation guidelines are well-calibrated. Database accuracy (<0.5% error) is guaranteed separately by dual-review adjudication and periodic random audit (Section 4.2.5), not by agreement alone.
+- Cohen's κ (McHugh, 2012) for categorical correctness judgments and the intraclass correlation coefficient (Shrout & Fleiss, 1979) for continuous nutrient values. Target: strong agreement (κ ≥ 0.9, "almost perfect"), used to validate that the annotation guidelines are well-calibrated. Database accuracy (<0.5% error) is guaranteed separately — by the food-science validation constraints, dual-review adjudication, and periodic random audit (Section 4.2.5) — not by agreement alone.
 
 **Router performance:**
 
@@ -938,7 +942,7 @@ Maliyet-doğruluk dengesi:
 
 Anotasyoncular arası güvenilirlik:
 
-- Kategorik doğruluk değerlendirmeleri için Cohen'in κ'sı (McHugh, 2012) ve sürekli besin değerleri için sınıf-içi korelasyon katsayısı (Shrout & Fleiss, 1979). Hedef: güçlü uyum (κ ≥ 0,9; "neredeyse mükemmel"); açıklama kılavuzlarının iyi kalibre edildiğini doğrulamak için kullanılır. Veri tabanı doğruluğu (<%0,5 hata), uyumla değil; ayrı olarak çift inceleme hakemliği ve periyodik rastgele denetimle güvence altına alınır (Bölüm 4.2.5).
+- Kategorik doğruluk değerlendirmeleri için Cohen'in κ'sı (McHugh, 2012) ve sürekli besin değerleri için sınıf-içi korelasyon katsayısı (Shrout & Fleiss, 1979). Hedef: güçlü uyum (κ ≥ 0,9; "neredeyse mükemmel"); açıklama kılavuzlarının iyi kalibre edildiğini doğrulamak için kullanılır. Veri tabanı doğruluğu (<%0,5 hata), uyumla değil; gıda bilimi doğrulama kısıtlamaları, çift inceleme hakemliği ve periyodik rastgele denetimle ayrı olarak güvence altına alınır (Bölüm 4.2.5).
 
 Yönlendirici performansı:
 
