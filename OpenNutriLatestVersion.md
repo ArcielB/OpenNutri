@@ -414,9 +414,9 @@ Bu üç bileşen birlikte, proje ömrü boyunca belge başına işlem maliyetini
 
 | Paradigma | Temel Referanslar |
 | --- | --- |
-| Kademeli sınıflandırıcılar — girdileri giderek daha pahalı modellerden geçirir. | Viola ve Jones, 2001; Wang v.d., 2011; Chen v.d., 2023; Yue v.d., 2024 |
-| Uzman Karışımı (MoE) yönlendirmesi — ağ, her girdi için uzmanlaşmış alt modelleri seçer | Shazeer v.d., 2017; Fedus v.d., 2022 |
-| RLHF — dil modeli çıktılarını uzman değerlendirmesiyle hizalar | Ouyang v.d., 2022 |
+| Kademeli sınıflandırıcılar — girdileri giderek daha pahalı modellerden geçirir. | Viola ve Jones, 2001; Wang vd., 2011; Chen vd., 2023; Yue vd., 2024 |
+| Uzman Karışımı (MoE) yönlendirmesi — ağ, her girdi için uzmanlaşmış alt modelleri seçer | Shazeer vd., 2017; Fedus vd., 2022 |
+| RLHF — dil modeli çıktılarını uzman değerlendirmesiyle hizalar | Ouyang vd., 2022 |
 | Aktif öğrenme — maliyet-etkin açıklama, belirsiz örnekleri insan incelemesi için önceliklendirir | Settles, 2012 |
 
 Yenilik, bu paradigmalardan herhangi birinin tekil uygulanmasında değil, her katmanın çıktısının sistematik olarak her bir önceki katmanı iyileştirdiği ve öğrenilmiş bir maliyet optimizasyon yönlendiricisinin önceki kademe çalışmalarında kullanılan statik eşiklerin yerini aldığı, alana özgü bir kademeye entegre edilmelerinde yatmaktadır.
@@ -438,7 +438,7 @@ Bu mimari, projenin ölçülebilir hedeflerini doğrudan mümkün kılmaktadır:
 ```
                           ┌──────────────────────────┐
                           │   ÖĞRENİLMİŞ YÖNLENDİRİCİ │
-                          │  (Uyarlanabilir Orkestra) │
+                          │       (Orkestratör)       │
                           │  her makale için en uygun │
                           │  giriş katmanını seçer    │
                           └──────────┬───────────────┘
@@ -509,7 +509,7 @@ Yöntem:
 
 Geri bildirim şu kaynaklardan alınmaktadır: L2 (ikili alaka düzeyi etiketleri), L3–L5 (onaylanmış gıda bileşimi içeriği)
 
-Hedef bağlantısı: Doğrudan Hedef 2'ye (en az 100.000 ilgili makale işleme) ve Hedef 3'e (en az 5.000 benzersiz Türk gıda maddesi indeksleme) hizmet etmektedir.
+Hedef bağlantısı: Doğrudan Hedef 2'ye (en az 100.000 ilgili makale işleme) ve Hedef 3'e (en az 5.000 özgün Türk gıda maddesi indeksleme) hizmet etmektedir.
 
 ### 4.2.2. Layer 2 — Lightweight Paper Classifier (Filtering)
 
@@ -575,7 +575,7 @@ L3 katmanı içinde modeller, artan boyutta alt katmanlara ayrılır. Öğrenilm
 
 **Makro Besin ****Kütle**** ****Dengesi**** ****Kontrolü****:** Protein, yağ, karbonhidrat, nem, kül toplamının, 100 g numune başına yaklaşık 100 g olması beklenir (Food and Agriculture Organization / International Network of Food Data Systems, 2012).
 
-- **Fizyolojik**** ****Referans**** ****Aralık**** ****Kontrolleri**: Ürünün bileşenlerin kompozisyon değerleri, referans veri tabanlarından ve literatürden türetilmiş aralıklarla belirlenir. Örneğin, bir tahıl ürününün protein içeriği, belirlenmiş referans aralıkları içinde olmalıdır (USDA SR Legacy, TürKomp).
+- **Fizyolojik**** ****Referans**** ****Aralık**** ****Kontrolleri**: Ürün bileşenlerinin kompozisyon değerleri, referans veri tabanlarından ve literatürden türetilmiş aralıklara göre kontrol edilir. Örneğin, bir tahıl ürününün protein içeriği, belirlenmiş referans aralıkları içinde olmalıdır (USDA SR Legacy, TürKomp).
 
 - **Besinler**** Arası ****Tutarlılık**: Bileşenler arası ilişkiler kontrol edilir. Örneğin, toplam yağ değerinin bireysel yağ asitleri toplamına eşit veya ondan büyük olması.
 
@@ -653,7 +653,7 @@ Amaç: (a) Hiçbir yapay zeka katmanının güvenle çıkaramadığı makaleler 
 
 Yöntem:
 
-• Gıda mühendisliği’nden bursiyerler için özel olarak tasarlanmış doğrulama arayüzü (bkz. WP4)
+• Gıda mühendisliği bursiyerleri için özel olarak tasarlanmış doğrulama arayüzü (bkz. WP4)
 
 o Özellikler: yan yana PDF + düzeltme formu, standartlaştırılmış hata taksonomisi, zorluk derecelendirmeleri, klavye ile yönlendirilen navigasyon, zaman damgalı denetim izi
 
@@ -703,7 +703,7 @@ The Router is trained via contextual bandit methods (Li et al., 2010; Agarwal et
 
 Amaç: Her makaleyi (ve her bir alt görevi) doğru çıkarım yapabilen en ucuz işlem katmanına dinamik olarak yönlendirmek.
 
-Yönlendirici, her makaleyi hangi katmanın işleyebileceğini tahmin etmek için belge özelliklerini (dergi, dil, tablo sayısı, metin karmaşıklığı, L2 güvenirliği) kullanır. İşlemden sonra, kabul etme, yeniden deneme veya yükseltme kararı vermek için güven puanlarını ve doğrulama sonuçlarını alır. Bu, özelliklerin başarısız olacağını tahmin ettiği katmanları atlamayı da içerir. Birden fazla katman çıkarma girişiminde bulunduğunda, çıktıları arasındaki uyum ek bir kabul sinyali görevi görür (Seung vd., 1992).
+Yönlendirici, her makaleyi hangi katmanın işleyebileceğini tahmin etmek için belge özelliklerini (dergi, dil, tablo sayısı, metin karmaşıklığı, L2 güven puanı) kullanır. İşlemden sonra, kabul etme, yeniden deneme veya yükseltme kararı vermek için güven puanlarını ve doğrulama sonuçlarını alır. Bu, özelliklerin başarısız olacağını tahmin ettiği katmanları atlamayı da içerir. Birden fazla katman çıkarma girişiminde bulunduğunda, çıktıları arasındaki uyum ek bir kabul sinyali görevi görür (Seung vd., 1992).
 
 Eğitim hedefi: Yönlendirici, bileşik maliyet fonksiyonunu en aza indirir:
 
@@ -726,7 +726,7 @@ Yönlendirici, bağlamsal bandit yöntemleri (Li vd., 2010; Agarwal vd., 2014) k
 
 Higher-layer examples receive greater training weight via focal loss (Lin et al., 2017), prioritizing cases where lower layers failed. This creates a compounding economic effect: training is a one-time cost, but once L3 absorbs the capabilities of L4 (commercial APIs, ~$0.01–$0.05/call) and L5 (human experts, ~$2–4/paper), every subsequently handled paper is a permanent cost reduction. At the target volume of 100,000+ papers, even a modest improvement in auto-approval rate (e.g., from 60% to 90%) eliminates tens of thousands of L4/L5 invocations — producing savings that exceed the total training compute budget by an order of magnitude.
 
-Üst katmanlardan gelen örnekler, **focal**** ****loss** (Lin ve ark., 2017) kullanılarak daha yüksek eğitim ağırlığı alır. Böylece alt katmanların başarısız olduğu durumlar önceliklendirilir. Bu yapı birikimli bir ekonomik** **etki yaratır: eğitim tek seferlik bir maliyettir; ancak L3, L4’ün (ticari API’ler, ~$0,01–$0,05/çağrı) ve L5’in (insan uzmanlar, ~$2–4/makale) yeteneklerini öğrendikten sonra, sistemin işlediği her yeni makale kalıcı bir maliyet düşüşü sağlar. Hedeflenen 100.000’den fazla makale hacminde, otomatik onay oranındaki mütevazı bir artış bile (örneğin %60’tan %90’a) on binlerce L4/L5 çağrısını ortadan kaldırır. Bu da toplam eğitim hesaplama bütçesini kat kat aşan tasarruflar sağlar.
+Üst katmanlardan gelen örnekler, **focal**** ****loss** (Lin vd., 2017) kullanılarak daha yüksek eğitim ağırlığı alır. Böylece alt katmanların başarısız olduğu durumlar önceliklendirilir. Bu yapı birikimli bir ekonomik** **etki yaratır: eğitim tek seferlik bir maliyettir; ancak L3, L4’ün (ticari API’ler, ~$0,01–$0,05/çağrı) ve L5’in (insan uzmanlar, ~$2–4/makale) yeteneklerini öğrendikten sonra, sistemin işlediği her yeni makale kalıcı bir maliyet düşüşü sağlar. Hedeflenen 100.000’den fazla makale hacminde, otomatik onay oranındaki mütevazı bir artış bile (örneğin %60’tan %90’a) on binlerce L4/L5 çağrısını ortadan kaldırır. Bu da toplam eğitim hesaplama bütçesini kat kat aşan tasarruflar sağlar.
 
 4. YÖNTEM (METHOD) —Part B: Veriler, Ön Çalışmalar ve İstatistikler
 
@@ -761,7 +761,7 @@ Elde edilen tüm beslenme verileri, TÜBİTAK'ın Açık Bilim politikalarına u
 | INFOODS etiket adları (Klensin vd., 1989) | Besin maddesi tanımlama |
 | FoodEx2 (EFSA, 2015) | Gıda sınıflandırması |
 | LanguaL thesaurus (Møller vd., 2008) | Gıda tanımlama özellikleri |
-| Besin değerlerinin 100 g yenilebilir kısım başına standardizasyonu | Orijinal birimlerin ve dönüşüm faktörlerin korunumu |
+| Besin değerlerinin 100 g yenilebilir kısım başına standardizasyonu | Orijinal birimlerin ve dönüşüm faktörlerinin korunması |
 
 ### 4.5.3. Database Schema and Storage
 
@@ -777,7 +777,7 @@ Elde edilen tüm beslenme verileri, TÜBİTAK'ın Açık Bilim politikalarına u
 
 4.5.3. Veri tabanı Şeması ve Depolama
 
-• Birincil veri tabanı: ACID uyumlu PostgreSQL. Pgvector uzantısı, Varlık Bağlantısı (L3) ve RAG alma (L4) için vektör benzerliği araması sağlar.
+• Birincil veri tabanı: ACID uyumlu PostgreSQL. Pgvector uzantısı, Varlık Bağlama (L3) ve RAG geri getirme (L4) için vektör benzerliği araması sağlar.
 
 • Kaynak: Her kayıt şunları izler; kaynak DOI, sayfa/tablo/cümle referansı, çıkarma katmanı, güven puanı, doğrulama durumu.
 
@@ -879,7 +879,7 @@ Türkiye'nin ulusal veri tabanı TürKomp yalnızca ~580 analiz edilmiş gıday�
 | Veri tabanı hata oranı | Hata içeren kayıtların yüzdesi (otomatik onaylanan + insan tarafından doğrulanan) | Alan uzmanları tarafından periyodik rastgele denetim | % |
 | Makale başına maliyet | Kabul edilebilir kaliteye ulaşmak için toplam hesaplama maliyeti | Tüm katmanlarda GPU saatleri + API maliyetleri | USD |
 | Çıkarma gecikmesi | Veri alımından yapılandırılmış çıktıya kadar geçen süre | Gerçek zaman | saniye |
-| Geri çağırma | Fiilen çıkarılan çıkarılabilir veri noktalarının oranı | Kapsamlı uzman çıkarımıyla karşılaştırma | % |
+| Geri çağırma | Çıkarılabilir veri noktaları arasında fiilen çıkarılanların oranı | Kapsamlı uzman çıkarımıyla karşılaştırma | % |
 
 ### 4.7.2. Bağımsız Değişkenler
 
@@ -887,9 +887,9 @@ Türkiye'nin ulusal veri tabanı TürKomp yalnızca ~580 analiz edilmiş gıday�
 | --- | --- | --- |
 | Model boyutu (L3) | 1–3B, 7–13B, 30–70B parametre | Boyut-doğruluk-maliyet dengesi |
 | İnce ayar yöntemi | LoRA, QLoRA, tam ince ayar | PEFT'in tam ince ayarın ≥%95'ini sağladığını doğrulamak |
-| Eğitim verisi hacmi | 500, 1k, 2k, 4k, 5k doğrulanmış makale | Öğrenme eğrileri, azalan getiriler |
+| Eğitim verisi hacmi | 500, 1.000, 2.000, 4.000, 5.000 doğrulanmış makale | Öğrenme eğrileri, azalan getiriler |
 | Modüler vs. monolitik | Tek model vs. göreve özgü modeller | Modüler üstünlüğü doğrulamak |
-| Güven eşiği | 0.7, 0.8, 0.85, 0.9, 0.95 | Kabul/yükseltme süreçlerini %0,5'ten az hata için optimize edin |
+| Güven eşiği | 0,7; 0,8; 0,85; 0,9; 0,95 | Kabul/yükseltme süreçlerini %0,5'ten az hata için optimize etmek |
 | Makale özellikleri | Dil, tablo karmaşıklığı, gıda kategorisi | Sistematik performans farklılıklarını belirlemek |
 
 ### 4.7.3. Statistical Analysis Plan
@@ -924,7 +924,7 @@ Türkiye'nin ulusal veri tabanı TürKomp yalnızca ~580 analiz edilmiş gıday�
 
 Performans değerlendirmesi:
 
-- Besin kategorileri genelinde makro ortalamalı hassasiyet, geri çağırma, F1 puanı
+- Besin kategorileri genelinde makro ortalamalı kesinlik, geri çağırma, F1 puanı
 
 - Bootstrap yeniden örnekleme yoluyla %95 güven aralıkları (Efron & Tibshirani, 1993), n=1000
 
@@ -940,7 +940,7 @@ Maliyet-doğruluk dengesi:
 
 - Ek doğrulama çabasının marjinal getirilerini tahmin etmek için güç yasası öğrenme eğrileri (Hestness vd., 2017)
 
-Anotasyoncular arası güvenilirlik:
+Değerlendiriciler arası güvenilirlik:
 
 - Kategorik doğruluk değerlendirmeleri için Cohen'in κ'sı (McHugh, 2012) ve sürekli besin değerleri için sınıf-içi korelasyon katsayısı (Shrout & Fleiss, 1979); açıklama kılavuzlarının iyi kalibre edildiğini doğrulamak için izlenir (bir doğruluk hedefi olarak değil). Veri tabanı doğruluğu (<%0,5 hata), uyumla değil; gıda bilimi doğrulama kısıtlamaları, çift inceleme hakemliği ve periyodik rastgele denetimle ayrı olarak güvence altına alınır (Bölüm 4.2.5).
 
