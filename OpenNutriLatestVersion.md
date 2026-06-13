@@ -142,7 +142,7 @@ Başarı Ölçütleri:
 | --- | --- | --- |
 | Otomatik onay doğruluğu | N/A (doğrulama hattı yok) | ≥%95 |
 | Otomatik onay oranı | N/A (güven puanlaması yok) | ≥%60 |
-| Veritabanı hata oranı | N/A (sistematik denetim yok) | <%0,5 |
+| Veri tabanı hata oranı | N/A (sistematik denetim yok) | <%0,5 |
 | Makale başına maliyet | ~$0,10 | <$0,03 |
 
 Not: Referans, doğrulama hattı olmadan uygulanan lider, genel amaçlı bir ticari LLM'yi yansıtır; GPT-4o burada yaygın olarak kullanılan temsili bir referans noktası olarak alınmıştır ve yayımlanacak kıyaslama (Hedef 5), değerlendirme anında mevcut en güçlü ticari modellerle karşılaştırma yapacaktır. Karşılaştırmalı değerler mevcut prototip ve yayımlanmış literatüre dayanır (Bölüm 4.6'ya bakınız).
@@ -220,7 +220,7 @@ Başarı Ölçütleri:
 | --- | --- | --- |
 | Otomatik onay doğruluğu | ~%95 | ≥ %99,5 |
 | Otomatik onay oranı | ~%60 | ≥ %90 |
-| Veritabanı hata oranı | < %0,5 | < %0,5 |
+| Veri tabanı hata oranı | < %0,5 | < %0,5 |
 | Makale başına maliyet | ~$0,03 | <$0,01 |
 
 Otomatik onay doğruluğu = Sistem tarafından insan incelemesi olmadan kabul edilen kayıtların yüzde kaçının doğru olduğunu gösterir (periyodik rastgele denetimle ölçülür). Otomatik onay oranı = Belgelerin yüzde kaçının insan incelemesini tamamen atladığını gösterir. %0,5'in altındaki veri tabanı hata hedefi, hem otomatik onaylı hem de insan tarafından doğrulanmış kayıtlar için geçerli olan katı bir kısıtlamadır.
@@ -973,7 +973,7 @@ Etik: Bu proje yalnızca açık erişimli veya kurumsal lisanslı bilimsel yayı
 
 | İP No | İş Paketlerinin Adı ve Hedefleri | Kim(ler) Tarafından Gerçekleştirileceği | Zaman Aralığı | Başarı Ölçütü ve Projenin Başarısına Katkısı |
 | --- | --- | --- | --- | --- |
-| 1 | Altyapı ve Veri Toplama — (1) L1 Akıllı Tarayıcıyı geliştirmek. (2) L2 Sınıflandırıcıyı oluşturmak ve eğitmek. (3) Veri tabanı şemasını oluşturmak. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacı****:** Prof. Dr. Servet Gülüm Sumnu · **Bursiyerler****:** Arciel Aliognis, Alijon Alimov | 1–4 Ay | Çok kaynaklı tarayıcı çalışır durumda. L2 sınıflandırıcı F1 ≥ 0,92. Aday veritabanı >300.000 makale (L2 filtrelemesinden sonra ≥100.000 ilgili sonuç elde etmek için yeterli). |
+| 1 | Altyapı ve Veri Toplama — (1) L1 Akıllı Tarayıcıyı geliştirmek. (2) L2 Sınıflandırıcıyı oluşturmak ve eğitmek. (3) Veri tabanı şemasını oluşturmak. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacı****:** Prof. Dr. Servet Gülüm Sumnu · **Bursiyerler****:** Arciel Aliognis, Alijon Alimov | 1–4 Ay | Çok kaynaklı tarayıcı çalışır durumda. L2 sınıflandırıcı F1 ≥ 0,92. Aday veri tabanı >300.000 makale (L2 filtrelemesinden sonra ≥100.000 ilgili sonuç elde etmek için yeterli). |
 | 2 | Çekirdek Çıkarma Motoru (L3) Geliştirme — (1) Altın standart temel veri kümesini oluşturmak. (2) Alt göreve özgü modellere ince ayar yapmak (tablo ayrıştırma, varlık bağlama). (3) Doğrulama kural motorunu tasarlamak. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacılar****:** Dr. Engin Esme, Prof. Dr. Servet Gülüm Sumnu · **Bursiyerler****:** Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3–8 Ay | Kıyaslamada L3 doğruluğu ≥ %75. 5+ modüler alt görev entegre edildi. 10+ doğrulama kuralı aktif. Maliyet, ticari API tabanlı temel maliyete göre ≥ %30 daha düşük. |
 | 3 | Basamaklı Entegrasyon ve Yönlendirici Optimizasyonu — (1) L4'ü (Ticari API'ler) entegre etmek. (2) Dinamik prompt mühendisliği geliştirmek. (3) Öğrenilmiş Yönlendiriciyi eğitmek. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacı****:** Dr. Engin Esme · **Bursiyerler****:** Arciel Aliognis, Alijon Alimov | 5–10 Ay | Tam L1–L4 uçtan uca kademeli. Yönlendirici, rastgele yönlendirmeye kıyasla ≥ %20 maliyet düşüşü sağlıyor. Modüler yükseltme çalışır durumda. Uçtan uca gecikme < 60s/makale (L5 hariç). Makale başına maliyet < 0,03$. |
 | 4 | Uzman Doğrulama ve Katmanlar Arası Öğrenme — (1) Doğrulama arayüzü geliştirmek. (2) Kalibrasyon: Referans oluşturmak için ~500 makalenin çift incelemesi. (3) Üretim: Kalan makaleler için uyarlanabilir protokol. (4) RLHF/ince ayar uygulamak. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacılar****:** Prof. Dr. Servet Gülüm Sumnu, Dr. Engin Esme · **Bursiyerler****:** Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 4–16 Ay | ≥25.000 altın standart kayıt (~5.000 doğrulanmış makaleden). Hata oranı < %0,5. Otomatik onay oranı ≥ %90 (uzman düzeltmesi olmadan kabul edilen makaleler). Maliyet < 0,01$/makale. |
@@ -997,7 +997,7 @@ WP1: Altyapı ve Veri Toplama · WP2: Çekirdek Çıkarım Motoru (L3) · WP3: B
 | İP No | Riskler | B Planı / Risk Yönetimi |
 | --- | --- | --- |
 | **WP1** | Yayıncı API hız sınırlamaları, tarayıcı alma hacmini ciddi şekilde kısıtlayarak 100.000 aday makale hedefine ulaşılmasını engelliyor. | Toplu semantik veri kümelerine (Semantic Scholar Open Research Corpus, OpenAlex) ve açık erişimli depolara (PubMed Central toplu FTP) geçmek. Türkçe içerik için DergiPark ve kurumsal arşivlere odaklanmak; kurumsal kütüphane ve veri erişim kanalları üzerinden toplu erişim sağlanması. |
-| **WP2** | İlk L3 modelleri %70'in altında doğruluk oranıyla çalışarak daha yüksek katmanlar için kabul edilemez hata hacmi oluşturuyor. | L3'ü son derece uzmanlaşmış, tek görevli modellere kaydırmak (nutrient sınıfı başına ayrı uzman model). L4 bütçesini geçici olarak artırmak. Araştırmacının (Prof. Dr. Sumnu) gıda mühendisliği uzmanlığıyla tasarlanan daha sıkı fiziko-kimyasal doğrulama kurallarını uygulamak. |
+| **WP2** | İlk L3 modelleri %70'in altında doğruluk oranıyla çalışarak daha yüksek katmanlar için kabul edilemez hata hacmi oluşturuyor. | L3'ü son derece uzmanlaşmış, tek görevli modellere kaydırmak (besin sınıfı başına ayrı uzman model). L4 bütçesini geçici olarak artırmak. Araştırmacının (Prof. Dr. Sumnu) gıda mühendisliği uzmanlığıyla tasarlanan daha sıkı fiziko-kimyasal doğrulama kurallarını uygulamak. |
 | **WP3** | Öğrenilen Yönlendirici yakınsama sağlayamıyor ve çok fazla makalenin pahalı katmanlara aktarılması bütçe aşımına neden oluyor. | Statik eşik kademesine geri dönmek (FrugalGPT tarzı). Ön kıyaslamaya dayalı olarak katman başına katı güven eşikleri belirlemek. (Böylece dinamik optimizasyondan ödün verilir ancak öngörülebilir API harcaması garanti edilir.) |
 | **WP3** | Ticari API fiyat artışları: OpenAI/Anthropic/Google proje süresince fiyatları önemli ölçüde artırıyor. | Çoklu sağlayıcı model listesi; en ucuz uygun modeli otomatik olarak seçmek. (Katmanlar Arası Öğrenme, zaman içinde L4 bağımlılığını azaltır.) Bütçede %20 API maliyet tamponu. (Açık kaynaklı modeller (Llama, Mistral, Qwen) alternatif olarak hızla gelişmektedir.) |
 | **WP4** | Doğrulama verimliliği programın gerisinde kalıyor (hedef: 5.000 makale). | Araştırmacı (Prof. Dr. Sumnu) gözetiminde gıda bileşimi açıklama protokollerinin sadeleştirilmesi ve bursiyer ekibinin eğitilmesi. (Yürütücü ikincil açıklamalar için devreye girer.) En etkili makalelere öncelik vermek (Türk gıdaları, yeni veriler). %0,5'in altında hata kalitesini korurken hacim hedefini azaltmak. |
@@ -1039,9 +1039,9 @@ WP1: Altyapı ve Veri Toplama · WP2: Çekirdek Çıkarım Motoru (L3) · WP3: B
 | **Toplumsal****/****Kültürel**** ****Etki****:** |
 | Yaşam Kalitesine Katkı | OpenNutri veri tabanı, Türk yemek kültürüne uyarlanmış kanıta dayalı beslenme rehberliği sağlar. Sağlık teknolojisi uygulamaları, Türk diyetleri (simit, lahmacun, yöresel yemekler) için doğru beslenme takibi sağlayabilir; bu, söz konusu gıdaları kapsamayan yabancı veri tabanlarıyla şu an için mümkün değildir. Hedef: Proje tamamlandıktan sonraki 2 yıl içinde OpenNutri verilerini kullanan en az 5 yerli beslenme uygulaması. | 18–36 ay |
 | Sürdürülebilir Çevre ve Enerjiye Katkı | Bileşimsel izlenebilirlik aracılığıyla sağlanan gıda tedarik zinciri şeffaflığı, Yeşil Mutabakat (Green Deal) uyumluluğunu ve sürdürülebilir gıda üretiminin izlenmesini destekler. | 18–42 ay |
-| Refah veya Eğitim Seviyesinin İyileştirilmesine Katkı | Sağlık Bakanlığı, obezite ve bulaşıcı olmayan hastalıklara (diyabet, hipertansiyon) karşı kanıta dayalı halk sağlığı politikalarını desteklemek için dinamik bir ulusal beslenme izleme aracı (Bölüm 1.3) kazanacaktır. Bölgesel besinsel bileşim haritaları, hedef odaklı okul beslenme programlarını ve bölgesel diyet müdahalelerini mümkün kılıyor. | 18–36 ay |
+| Refah veya Eğitim Seviyesinin İyileştirilmesine Katkı | Sağlık Bakanlığı, obezite ve bulaşıcı olmayan hastalıklara (diyabet, hipertansiyon) karşı kanıta dayalı halk sağlığı politikalarını desteklemek için dinamik bir ulusal beslenme izleme aracı (Bölüm 1.3) kazanacaktır. Bölgesel besinsel bileşim haritaları, hedef odaklı okul beslenme programlarını ve bölgesel diyet müdahalelerini mümkün kılmaktadır. | 18–36 ay |
 | **Akademik ****Etki****:** |
-| Yeni Ar-Ge Kararları | Açık kıyaslama (benchmark) ve metodoloji, yeni bir araştırma alanı yaratmaktadır: Yapay zeka destekli gıda bileşimi çıkarımı. Modüler kademeli mimari, diğer bilimsel veri çıkarmı alanlarına (farmakoloji, çevre bilimi, malzeme bilimi) aktarılabilir niteliktedir. | 12–24 ay |
+| Yeni Ar-Ge Kararları | Açık kıyaslama (benchmark) ve metodoloji, yeni bir araştırma alanı yaratmaktadır: Yapay zeka destekli gıda bileşimi çıkarımı. Modüler kademeli mimari, diğer bilimsel veri çıkarımı alanlarına (farmakoloji, çevre bilimi, malzeme bilimi) aktarılabilir niteliktedir. | 12–24 ay |
 | Ulusal/Uluslararası Ar-Ge İşbirlikleri | OpenNutri'nin açık erişimli veri tabanı ve standartlaştırılmış formatı (INFOODS/FoodEx2), USDA FoodData Central, EFSA ve FAO/INFOODS girişimleriyle doğrudan entegrasyon sağlar. Hedef: 2 yıl içinde uluslararası bir gıda bileşimi kuruluşuyla en az 1 resmi iş birliği anlaşması. | 18–36 ay |
 | Araştırmacı Sayısındaki ve Niteliğindeki Değişim | Yapay zeka ve gıda bilimi kesişiminde eğitim almış 4 lisans araştırmacısı - nadir bulunan disiplinler arası bir yetkinlik seti. Öğrenciler, LLM ince ayar (fine-tuning), RLHF, kademeli mimariler ve gıda bileşimi standartları konularında uygulamalı deneyim kazanmakta olup ilgili konularda yüksek lisans tezleri yürütmeleri beklenmektedir. | 0–18 ay |
 | Üniversite-Sanayi İşbirliklerine Katkı | OpenNutri API ve veri tabanı, üniversite-sanayi ortaklıklarının kurulabileceği somut ürünler sunmaktadır (Bölüm 6.3'e bakınız). Gıda ihracatçıları ve sağlık teknolojisi şirketleri, akademik araştırma çıktılarının doğrudan paydaşları haline gelir. | 12–36 ay |
@@ -1065,7 +1065,7 @@ OpenNutri'nin ticari olarak pazarlanabilir üç çıktısı – doğrulanmış g
 
 • *Pilot **ortaklıklar**:* API (Hedef 5); projenin üç hedef sektörünü temsil eden, stratejik olarak seçilmiş 2-3 kuruluşa ücretsiz bir pilot uygulama olarak sunulacaktır: (1) AB Yönetmeliği 1169/2011 uyumluluk verilerine ihtiyaç duyan bir Türk gıda ihracatçısı, (2) yerel gıda veri altyapısına ihtiyaç duyan yerli bir sağlık teknolojisi veya beslenme uygulaması şirketi ve (3) bir halk sağlığı veya gıda güvenliği kurumu (örneğin, bir üniversite hastanesi diyetetik bölümü veya bir belediye sağlık müdürlüğü). Bu pilotlar, sonraki program başvuruları için belgelenmiş kullanım örnekleri ve niyet mektupları oluşturacaktır.
 
-• *Fikri **mülkiyet** **koruması*: Projenin temel savunulabilir varlıkları – tescilli, ince ayarlı model ağırlıkları (L2, L3, Yönlendirici), uzmanlar tarafından derlenmiş altın standart veri seti (30.000'den fazla doğrulanmış kayıt) ve alana özgü doğrulama kural motoru – ticari sır hükümleri ve veri tabanı hakları (sui generis) yoluyla korunacaktır. Çift lisanslama modeli (ücretsiz akademik / ücretli ticari), ticari değeri korurken açık bilimsel katkıyı da Garanti altına alır.
+• *Fikri **mülkiyet** **koruması*: Projenin temel savunulabilir varlıkları – tescilli, ince ayarlı model ağırlıkları (L2, L3, Yönlendirici), uzmanlar tarafından derlenmiş altın standart veri seti (25.000'den fazla doğrulanmış kayıt) ve alana özgü doğrulama kural motoru – ticari sır hükümleri ve veri tabanı hakları (sui generis) yoluyla korunacaktır. Çift lisanslama modeli (ücretsiz akademik / ücretli ticari), ticari değeri korurken açık bilimsel katkıyı da garanti altına alır.
 
 • *İş** **modelinin** **resmileştirilmesi**:* Kademeli API fiyatlandırması (ücretsiz akademik kademe / ücretli ticari kademe), veri tabanı lisanslama koşulları ve pilot verilerle doğrulanmış birim ekonomisi de dahil olmak üzere ayrıntılı bir iş planı hazırlanacaktır.
 
@@ -1087,9 +1087,9 @@ Spin-off şirket ilk gelirleriyle faaliyete geçtiğinde:
 
 **Beklenen**** ****Sonuç****: **Proje tamamlandıktan sonraki 3 yıl içinde spin-off şirketinin 5-10 çalışana sahip olması, API aboneliklerinden ve veri tabanı lisanslamasından düzenli gelir elde etmesi ve en az bir uluslararası motor lisanslama anlaşması yapması hedeflenmektedir. Böylece Türkiye’nin gıda bileşimi veri altyapısını satın alan bir ülkeden bu altyapıyı satan bir ülkeye dönüşmesi amaçlanmaktadır.
 
-# **6.4. ****Proje**** ****Çıktılarının**** ****Paylaşımı**** ****ve**** ****Yayılımı**
+## **6.4. ****Proje**** ****Çıktılarının**** ****Paylaşımı**** ****ve**** ****Yayılımı**
 
-# Proje faaliyetleri boyunca elde edilecek çıktıların ve ulaşılacak sonuçların ilgili paydaşlar ve olası kullanıcılara ulaştırılması ve yayılmasına yönelik yapılacak olan etkinlikler aşağıdaki tabloda verilmiştir.
+Proje faaliyetleri boyunca elde edilecek çıktıların ve ulaşılacak sonuçların ilgili paydaşlar ve olası kullanıcılara ulaştırılması ve yayılmasına yönelik yapılacak olan etkinlikler aşağıdaki tabloda verilmiştir.
 
 | **Etkinlik**** ****Türü** | **Paydaş**** / ****Olası**** ****Kullanıcılar** | **Etkinliğin**** ****Zamanı**** ****ve**** ****Süresi** |
 | --- | --- | --- |
