@@ -279,11 +279,11 @@ a) Patent, Faydalı Model ve Tescil Aramaları
 
 Aramalar üç veri tabanında gerçekleştirilmiştir:
 
-• **TURKPATENT** (tpe.gov.tr) — Türkçe anahtar kelimeler: "gida kompozisyon veri tabani", "besin degeri yapay zeka", "otomatik gida analizi"
+• **TURKPATENT** (tpe.gov.tr) — Türkçe anahtar kelimeler: "gıda kompozisyon veri tabanı", "besin değeri yapay zeka", "otomatik gıda analizi"
 
 • **Espacenet** (worldwide.espacenet.com) ve Google Patents (patents.google.com) — İngilizce anahtar kelimeler: "food composition database" + "artificial intelligence", "nutritional data extraction" + "NLP", "cascade model" + "LLM routing", "food ontology" + "automated construction"
 
-**Sonuçlar**: Türk ulusal veri tabanında ilgili patent, faydalı model veya tescil bulunamadı. TürKomp (TÜBİTAK KAMAG 1007, 2008-2013 kapsamında geliştirilen Türkiye'nin mevcut gıda kompozisyon veritabanı), tescilli bir patent olmaksızın TÜBİTAK'ın kurumsal fikri mülkiyeti olarak elinde bulunmaktadır.
+**Sonuçlar**: Türk ulusal veri tabanında ilgili patent, faydalı model veya tescil bulunamadı. TürKomp (TÜBİTAK KAMAG 1007, 2008-2013 kapsamında geliştirilen Türkiye'nin mevcut gıda kompozisyon veri tabanı), tescilli bir patent olmaksızın TÜBİTAK'ın kurumsal fikri mülkiyeti olarak elinde bulunmaktadır.
 
 ### International Search Results
 
@@ -329,17 +329,17 @@ ________________________________________
 
 b) Projenin Yenilikçi Yönleri
 
-OpenNutri, birlikte ele alındığında gıda bileşimi veri altyapısına temelden yeni bir yaklaşım oluşturan birbirine bağlı 5 yenilik sunmaktadır. Mevcut hiçbir sistem - ticari, akademik veya devlet - bu yetenekleri bir araya getirmemektedir.
+OpenNutri, birlikte ele alındığında gıda bileşimi veri altyapısına temelden yeni bir yaklaşım oluşturan birbirine bağlı 5 yenilik sunmaktadır. Mevcut hiçbir sistem — ticari, akademik veya kamu — bu yetenekleri bir araya getirmemektedir.
 
 | No. | Yenilik | Nedir? | Neden Yeni? |
 | --- | --- | --- | --- |
 | 1 | Bilimsel literatürden aşamalı olarak otonom veri çıkarma | Uçtan uca yapay zeka işlem hattı: bilimsel makaleler → uluslararası standartlara uygun, yapılandırılmış, doğrulanmış besin bileşimi verileri (100 g başına enerji, makro besinler, vitaminler, mineraller). | Mevcut tüm veri tabanları (USDA, EFSA, TürKomp) manuel laboratuvar analizine ve uzman küratörlüğüne dayanmaktadır. FoodMine (Hooton vd. 2020) standart besin bileşimini değil, kimyasal bileşikleri çıkarmaktadır. |
 | 2 | Kademeli Hibrit Zeka mimarisi (L1–L5) | Her katmanın giderek daha yetenekli (ve pahalı) yapay zeka modelleri uyguladığı ve her birinin önceki katmanın çıktısını doğruladığı beş katmanlı doğrulama kademesi. | Mevcut sistemler tek modelli işlem hatları kullanır. FrugalGPT yalnızca maliyet düşürme için kademeli olarak çalışır. OpenNutri'nin kademeli çalışmasının çift işlevi vardır (maliyet optimizasyonu + çok katmanlı doğrulama). |
-| 3 | Kendini geliştiren Öğrenilmiş Yönlendirici | Belge karmaşıklığını tahmin eden ve uygun çıkarma katmanına yönlendiren eğitilebilir meta sınıflandırıcı. Hedef: lider bir ticari LLM'ye kıyasla ≥%90 maliyet azaltımı (Bölüm 4.6). | Statik model kademeli çalışma (FrugalGPT) sabit güven eşiklerini kullanır. OpenNutri'nin yönlendiricisi, daha fazla belge işlendikçe gelişen öğrenilmiş bir sınıflandırıcıdır. Sistem zamanla daha ucuz hale gelir. |
+| 3 | Kendini geliştiren Öğrenilmiş Yönlendirici | Belge karmaşıklığını tahmin eden ve uygun çıkarma katmanına yönlendiren eğitilebilir meta sınıflandırıcı. Hedef: lider bir ticari LLM'ye kıyasla ≥%90 maliyet azaltımı (Bölüm 4.6). | Statik model kademeleri (FrugalGPT) sabit güven eşikleri kullanır. OpenNutri'nin yönlendiricisi, daha fazla belge işlendikçe gelişen öğrenilmiş bir sınıflandırıcıdır. Sistem zamanla daha ucuz hale gelir. |
 | 4 | RLHF ile katmanlar arası öğrenme | Daha yüksek katmanlardaki (L4-L5) uzman düzeltmeleri, daha düşük katmanları (L1-L3) iyileştirmek için geri dönen eğitim sinyali üretir. Hedef, otomatik onay oranını yaklaşık %60'tan %90'a çıkarmak. | RLHF, chatbot hizalaması için yaygın olarak kullanılmaktadır. Uzman düzeltmelerinin doğrudan çıkarma modellerini yeniden eğittiği yapılandırılmış veri çıkarma işlemine uygulanması yenilikçidir. Doğrulamayı maliyet merkezinden eğitim yatırımına dönüştürür. |
 | 5 | DOI düzeyinde kaynak takibi + Türk gıdaları kapsamı | Her besin kaydı, DOI aracılığıyla kaynak yayınına bağlanır. Özellikle uluslararası veri tabanlarında bulunmayan Türkçe literatürü ve Türk gıda ürünlerini hedeflemektedir. | Mevcut hiçbir gıda bileşimi veri tabanı, bireysel kayıt düzeyinde makine tarafından okunabilir kaynak izlenebilirliği sağlamaz. Mevcut veri tabanları (USDA, EFSA, TürKomp) kaynakları gıda maddesi düzeyinde belirtirken bireysel besin değeri düzeyinde belirtmez. Çok sayıda Türk gıda maddesi uluslararası veri tabanlarında yer almamaktadır; proje en az 5.000 özgün Türk gıda maddesini indekslemeyi hedefler. |
 
-Ek metodolojik yenilik: OpenNutri, standart NLP metriklerinin (kesinlik, geri çağırma, F1) ötesinde alana özgü doğrulama sunmaktadır. Sistem, çıkarılan verileri gıda bilimi kısıtlamalarına göre doğrular: enerji-makro besin dengesi (Atwater faktörleri), fizyolojik olarak makul aralıklar ve çapraz referans tutarlılığı. Bu, yapay zeka-bilim literatüründe emsali olmayan bir uygulamadır.
+Ek metodolojik yenilik: OpenNutri, standart NLP metriklerinin (kesinlik, geri çağırma, F1) ötesinde alana özgü doğrulama sunmaktadır. Sistem, çıkarılan verileri gıda bilimi kısıtlamalarına göre doğrular: enerji-makro besin dengesi (Atwater faktörleri), fizyolojik olarak makul aralıklar ve çapraz referans tutarlılığı. Bu, yapay zeka ile bilimsel veri çıkarımı literatüründe emsali olmayan bir uygulamadır.
 
 c) Ticarileştirme Potansiyeli
 
@@ -347,7 +347,7 @@ OpenNutri, birbirinden bağımsız olarak ticarileştirilebilir iki çıktı ür
 
 | No. | Çıktı | Açıklama | Gelir Modeli |
 | --- | --- | --- | --- |
-| 1 | Gıda bileşimi veri tabanı | %99,5'in üzerinde doğrulukla 500.000'den fazla gıda-besin verisi kaydı. Manuel verit abanlarına göre kat kat daha düşük maliyetle ölçeklenebilir ve bu maliyet zamanla azalır. | Kademeli API erişimi (ücretli, hacme göre ölçeklendirilmiş). Aylık güncellemelerle ücretsiz akademik erişim. |
+| 1 | Gıda bileşimi veri tabanı | %99,5'in üzerinde doğrulukla 500.000'den fazla gıda-besin kaydı. Manuel veri tabanlarına göre kat kat daha düşük maliyetle ölçeklenebilir ve bu maliyet zamanla azalır. | Kademeli API erişimi (ücretli, hacme göre ölçeklendirilmiş). Aylık güncellemelerle ücretsiz akademik erişim. |
 | 2 | Kademeli Hibrit Zeka doğrulama motoru | Çıkarma + doğrulama işlem hattı, ulusal gıda bileşimi veri tabanları oluşturmak veya yeni alanlara genişlemek için lisanslanabilir bir teknoloji olarak geliştirilir. | Motor lisanslaması (ülke veya alan adı bazında). Uyarlama ve dağıtım hizmetleri. |
 
 **Doğrudan**** ****bir**** ****rakip**** ****bulunmamaktadır**. Ticari gıda veri tabanları (Edamam, FatSecret, Nutritionix) mevcut devlet verilerini (USDA, EFSA) toplayıp yeniden satmaktadır. Hiçbiri bilimsel literatürden yeni veri üretmemektedir.
@@ -356,7 +356,7 @@ OpenNutri, birbirinden bağımsız olarak ticarileştirilebilir iki çıktı ür
 
 • Veri tabanı için: Dijital sağlık platformları, beslenme uygulamaları ve kişiselleştirilmiş diyet hizmetleri yoğun bir talep yaratmaktadır. TürKomp, 2014'ten beri sistematik olarak güncellenmemiştir; bu, yıllık 27 milyar dolardan fazla ihracat yapan bir sektör için on yıllık bir veri açığıdır.
 
-• Motor için: FAO/INFOODS, ulusal gıda bileşimi programlarını aktif olarak desteklemektedir, ancak çoğu ülke manuel veri tabanı oluşturma için kaynaklardan yoksundur. Bu maliyeti iki kat azaltan yapay zeka destekli motor, büyüyen ve karşılanmamış küresel bir ihtiyacı karşılamaktadır.
+• Motor için: FAO/INFOODS, ulusal gıda bileşimi programlarını aktif olarak desteklemektedir, ancak çoğu ülke manuel veri tabanı oluşturma için kaynaklardan yoksundur. Bu maliyeti kat kat azaltan yapay zeka destekli motor, büyüyen ve karşılanmamış küresel bir ihtiyacı karşılamaktadır.
 
 Değer önerisi olarak veri bağımsızlığı: Çoğu ülke şu anda gıda bileşimi referans verileri için USDA veya EFSA'ya bağımlıdır; bu veri tabanları yerel gıdaları kapsamaz, yabancı güncelleme programlarına göre çalışır ve kendi nüfuslarıyla ilgili gıdalara öncelik verir. Bağımsız, yerel olarak kontrol edilen bir gıda bileşimi veri tabanı oluşturma yeteneği, bu motorun uluslararası lisanslama için en önemli değer önerisidir.
 
@@ -366,12 +366,12 @@ Hesaplama açısından yoğun aşamalar (model eğitimi, RLHF, uzman doğrulamas
 
 | **Proje**** ****Sonrası**** ****Tekrarlayan**** ****Unsur** | **Tahmini**** ****Yıllık**** ****Maliyet** |
 | --- | --- |
-| Bulut yedekleme (~3 TB) | ~6,000 TL |
-| Yazılım araçları / izleme | ~2,000 TL |
-| Ticari API yedekleme (L4, yeni makalelerin ~%5'i) | ~1,000 TL |
+| Bulut yedekleme (~3 TB) | ~6.000 TL |
+| Yazılım araçları / izleme | ~2.000 TL |
+| Ticari API yedekleme (L4, yeni makalelerin ~%5'i) | ~1.000 TL |
 | Alan adı, SSL, çeşitli | ~500 TL |
-| Depolama genişletme (ek sürücüler) | ~3,000 TL |
-| Toplam | **~12,500 TL/****yıl** |
+| Depolama genişletme (ek sürücüler) | ~3.000 TL |
+| Toplam | **~12.500 TL/****yıl** |
 
 Güç, ağ ve fiziksel altyapı ev sahibi kurum tarafından sağlanmaktadır. Ticari geçişin ardından (Bölüm 6.3), eşdeğer altyapı, TÜBİTAK 1512 BİGG tohum fonundan tek seferlik bir yatırım olarak sağlanmaktadır.
 
