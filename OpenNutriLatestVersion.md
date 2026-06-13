@@ -6,11 +6,11 @@
 
 The global nutritional data infrastructure is currently stuck in a manual, labor-intensive bottleneck. Major institutions (USDA, EFSA) rely on human experts to manually transcribe data from literature. Due to limited resources, these institutions prioritize global commodities and systematically exclude "niche" data, including the vast majority of Turkish agricultural research.
 
-Güncel ve güvenilir veriler içeren bir besin veri tabanı, diyet alımlarının doğru hesaplanması için kritik önem arz etmektedir (Schakel ve diğerleri, 1988). Çoğu besin veri tabanı, USDA ve EFSA gibi güvenilir kurumlardan alınan verilerle uzmanlar tarafından manuel olarak hazırlanmaktadır. Yüksek iş gücü gerektiren bu yoğun süreç hali hazırda sorun teşkil etmektedir. Sınırlı kaynaklar nedeniyle, bu kurumlar küresel ürün ve araştırmalara öncelik vermekte ve Türk tarım araştırmalarının büyük çoğunluğu da dahil olmak üzere niş verileri sistematik olarak göz ardı etmektedir. Sonuç olarak, araştırmacılardan ihracatçılara ve halk sağlığı kurumlarına kadar tüm Türk gıda ekosistemi bu verimsizliğin mağduru olmaktadır:
+Güncel ve güvenilir veriler içeren bir besin veri tabanı, diyet alımlarının doğru hesaplanması için kritik önem arz etmektedir (Schakel ve diğerleri, 1988). Çoğu besin veri tabanı, USDA ve EFSA gibi güvenilir kurumlardan alınan verilerle uzmanlar tarafından manuel olarak hazırlanmaktadır. Yüksek iş gücü gerektiren bu yoğun süreç halihazırda sorun teşkil etmektedir. Sınırlı kaynaklar nedeniyle, bu kurumlar küresel ürün ve araştırmalara öncelik vermekte ve Türk tarım araştırmalarının büyük çoğunluğu da dahil olmak üzere niş verileri sistematik olarak göz ardı etmektedir. Sonuç olarak, araştırmacılardan ihracatçılara ve halk sağlığı kurumlarına kadar tüm Türk gıda ekosistemi bu verimsizliğin mağduru olmaktadır:
 
-• Türk bilimsel araştırmalar PDF arşivlerinde kalmakta ve küresel ölçekte standart belirleyen kurumlar açısından erişilebilir ve görünür olmamaktadır. 
+• Türkiye'nin bilimsel araştırmaları yapılandırılmamış PDF arşivlerinde kalmakta; küresel standart belirleyici kurumlar için ne erişilebilir ne de görünür durumdadır. 
 
-• Türkiye'nin ulusal veri tabanı TürKomp, yaklaşık 580 analiz edilmiş gıda ile kritik ve yüksek kaliteli bir temel oluşturmuş (TÜBİTAK MAM Gıda Enstitüsü, KAMAG 1007), ancak kuruluşundan bu yana sistematik ve büyük ölçekli bir genişlemeye tabi tutulmamıştır. Bu altyapının manuel laboratuvar analizine dayanmasından ötürü ülkenin geniş tarımsal çeşitliliğini kapsayacak şekilde ölçeklendirilmesi maliyet açısından hâlâ çok yüksektir. 
+• Türkiye'nin ulusal veri tabanı TürKomp, yaklaşık 580 analiz edilmiş gıda ile kritik ve yüksek kaliteli bir temel oluşturmuş (TÜBİTAK MAM Gıda Enstitüsü, KAMAG 1007), ancak kuruluşundan bu yana sistematik ve büyük ölçekli bir genişlemeye tabi tutulmamıştır. Manuel laboratuvar analizine dayandığı için, bu altyapının ülkenin geniş tarımsal çeşitliliğini kapsayacak biçimde ölçeklendirilmesinin maliyeti hâlâ çok yüksektir. 
 
 • Türk kurumları, yabancı veri tabanlarına erişmek için yüksek lisanslama ve abonelik ücretleri ödemek zorunda kalmakta ve bu durum ulusal kaynakları fiilen dışlayan altyapıyı finansal olarak desteklemek anlamına gelmektedir. 
 
@@ -42,7 +42,7 @@ Bu soruna çözüm olarak, küresel ölçekte yeni bir Aşamalı Olarak Otonom V
 
 Currently, Turkish exporters often face a choice: pay high fees for private laboratory analysis (a full nutritional panel typically ranges from ~$200 to over $1,000 per sample; e.g., Great Lakes Scientific 2023 price list) or risk EU border rejection by using generic foreign data.
 
-Türk ihracatçıları genellikle bir seçimle karşı karşıya kalmaktadır: özel laboratuvar analizleri için yüksek ücretler ödemek veya yabancı verileri kullanarak AB sınırında reddedilme riskini göze almak. Bu soruna yönelik OpenNutri, Türk ürünleri için doğrulanmış, araştırmalarla desteklenen bir "Referans Standardı" sağlamayı hedeflemektedir. OpenNutri, bu maliyeti önemli ölçüde düşürerek üreticilerin AB Yönetmeliği 1169/2011 ve Yeşil Mutabakat İzlenebilirlik standartlarını anında ve laboratuvar ücreti ödemeden karşılamalarını sağlamaktadır ve Türk ihracatının finansal rekabet gücünü doğrudan arttırmaktadır
+Türk ihracatçıları genellikle bir seçimle karşı karşıya kalmaktadır: özel laboratuvar analizleri için yüksek ücretler ödemek veya yabancı verileri kullanarak AB sınırında reddedilme riskini göze almak. Bu soruna yönelik OpenNutri, Türk ürünleri için doğrulanmış, araştırmalarla desteklenen bir "Referans Standardı" sağlamayı hedeflemektedir. OpenNutri, bu maliyeti önemli ölçüde düşürerek üreticilerin AB Yönetmeliği 1169/2011 ve Yeşil Mutabakat izlenebilirlik standartlarını anında ve laboratuvar ücreti ödemeden karşılamalarını sağlamakta, böylece Türk ihracatının finansal rekabet gücünü doğrudan artırmaktadır.
 
 |  |  |
 | --- | --- |
@@ -53,7 +53,7 @@ Türk ihracatçıları genellikle bir seçimle karşı karşıya kalmaktadır: �
 
 Turkish health-tech startups and dietitians are currently blocked by a lack of infrastructure. Global databases are either very limited in scope (USDA) or prohibitively expensive for startups to license (NCCDB, Nutritionix), and virtually all exclude key Turkish foods.
 
-Türk sağlık teknolojisi girişimleri ve beslenme uzmanları altyapı eksikliği nedeniyle kısıtlanmaktadır. Küresel veri tabanları ya kapsam olarak çok sınırlı ya da girişimler için lisanslama maliyeti olduça yüksek ve büyük çoğunluğu temel Türk gıdalarını kapsamamaktadır. OpenNutri, bu sektör için "Ulusal Veri Altyapısı" ile yabancı algoritmaların sahip olmadığı yerel diyetler için güvenilir veriler sunarak yerli geliştiricilerin bölgesel pazarda küresel rakiplerle rekabet etmelerini sağlamaktadır.
+Türk sağlık teknolojisi girişimleri ve beslenme uzmanları altyapı eksikliği nedeniyle kısıtlanmaktadır. Küresel veri tabanları ya kapsam olarak çok sınırlıdır ya da girişimlerin lisanslaması için oldukça pahalıdır; üstelik büyük çoğunluğu temel Türk gıdalarını kapsamamaktadır. OpenNutri, bu sektör için "Ulusal Veri Altyapısı" ile yabancı algoritmaların sahip olmadığı yerel diyetler için güvenilir veriler sunarak yerli geliştiricilerin bölgesel pazarda küresel rakiplerle rekabet etmelerini sağlamaktadır.
 
 |  |  |
 | --- | --- |
@@ -64,7 +64,7 @@ Türk sağlık teknolojisi girişimleri ve beslenme uzmanları altyapı eksikli�
 
 Effective policy against obesity and Non-Communicable Diseases (Diabetes, Hypertension) requires knowing what nutrients Turkish foods actually contain — but this data is scattered across thousands of unstructured research papers.
 
-Sağlık Bakanlığı, obezite ve bulaşıcı olmayan hastalıkların (örneğin: diyabet, hipertansiyon) tüm çeşitleriyle mücadele etmek için ayrıntılı verilere ihtiyaç duymaktadır. OpenNutri, tüm ulusal gıda tedariğinin kapsamlı besin bileşimine gerçek zamanlı ulaşılabilirlik sağlayan dinamik bir "Ulusal Gösterge Paneli" görevi görmektedir. Bu, hükümetin güncel olmayan tahminler yerine gerçek verileri kullanarak sektörün sağlık hedeflerine ulaşmasını sağlamaktadır.
+Sağlık Bakanlığı, obezite ve bulaşıcı olmayan hastalıkların (örneğin: diyabet, hipertansiyon) tüm çeşitleriyle mücadele etmek için ayrıntılı verilere ihtiyaç duymaktadır. OpenNutri, tüm ulusal gıda arzının kapsamlı besin bileşimine gerçek zamanlı erişim sağlayan dinamik bir "Ulusal Gösterge Paneli" görevi görmektedir. Bu, hükümetin güncel olmayan tahminler yerine gerçek verileri kullanarak sektörün sağlık hedeflerine ulaşmasını sağlamaktadır.
 
 |  |  |
 | --- | --- |
