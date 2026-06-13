@@ -12,7 +12,7 @@ Güncel ve güvenilir veriler içeren bir besin veri tabanı, diyet alımların�
 
 • Türkiye'nin ulusal veri tabanı TürKomp, yaklaşık 580 analiz edilmiş gıda ile kritik ve yüksek kaliteli bir temel oluşturmuş (TÜBİTAK MAM Gıda Enstitüsü, KAMAG 1007), ancak kuruluşundan bu yana sistematik ve büyük ölçekli bir genişlemeye tabi tutulmamıştır. Bu altyapının manuel laboratuvar analizine dayanmasından ötürü ülkenin geniş tarımsal çeşitliliğini kapsayacak şekilde ölçeklendirilmesi maliyet açısından hâlâ çok yüksektir. 
 
-• Türk kurumları, yabancı veri tabanlarına erişmek için yüksek lisans ve abonelik ücretleri ödemek zorunda kalmakta ve bu durum ulusal kaynakları fiilen dışlayan altyapıyı finansal olarak desteklemek anlamına gelmektedir. 
+• Türk kurumları, yabancı veri tabanlarına erişmek için yüksek lisanslama ve abonelik ücretleri ödemek zorunda kalmakta ve bu durum ulusal kaynakları fiilen dışlayan altyapıyı finansal olarak desteklemek anlamına gelmektedir. 
 
 • Türk gıda ihracatçıları, AB uyumluluğu için gerekli olan güvenilir ve doğrulanmış beslenme etiketlemesini sağlamakta zorlanmaktadır.
 
