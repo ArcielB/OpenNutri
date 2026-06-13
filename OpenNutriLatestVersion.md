@@ -292,6 +292,7 @@ Aramalar üç veri tabanında gerçekleştirilmiştir:
 | **US20190295440A1** | Gıda analizi ve sağlık önerileri. Makine öğrenimi/doğal dil işleme kullanarak web'den taranan verilerden bir gıda ontolojisi oluşturur; bulut sistemleri aracılığıyla kişiselleştirilmiş sağlık önerileri üretir. | Tüketici tavsiye platformu. Bilimsel literatürden bileşimsel veri çıkarmaz. Doğrulama kademesi yoktur. Farklı girdi (web verileri) ve çıktı (tavsiyeler). |
 | **US9286290B2, CN110532834A, WO2025107898A1** | Genel tablo çıkarma. Doğal dil işleme ve düzen analizi kullanarak belgelerden tablo yapılarını çıkaran alan bağımsız araçlar. | Gıda bilimi alanında uzmanlık bilgisi yok, beslenme kısıtlamalarının doğrulanması yok, maliyet optimizasyonlu rota belirleme yok. OpenNutri'nin yeniliği, tablo çıkarma işleminde değil, kademeli doğrulama mimarisinde yatıyor. |
 | **FoodMine** (Hooton et al., Scientific Reports, 2020) *[A**k**ademi**k**]* | Gıdaların kimyasal bileşimini bulmak için PubMed'i kullanan doğal dil işleme algoritması. Sadece sarımsak ve kakao üzerinde pilot uygulama yapılmıştır. | Kimyasal bileşikleri (flavonoidler, fenolikler) çıkarır, standart besin bileşimini (makro besinler, vitaminler, mineraller/100g) değil. Tek modelli üretim hattı. Doğrulama kademesi yok, RLHF yok, Türkçe desteği yok. Sadece 2 gıda kategorisi. |
+| **P-NUT / Gıda Bilgi Grafikleri** (Ispirova vd., 2020; Cenikj vd., 2023) *[Akademik]* | Kısa metin açıklamalarından besin içeriğini *tahmin eden* makine öğrenmesi modelleri ve metinden gıda/biyomedikal bilgi grafikleri oluşturan dil modelleri. | Ölçülmüş bileşim değerlerini kaynağıyla (DOI) *çıkarmaz*; içeriği tahmin eder veya varlıklar arası ilişkileri grafik olarak modeller. Kademeli doğrulama, RLHF, öğrenilmiş yönlendirme ve kayıt düzeyinde kaynak izlenebilirliği bulunmaz; 100 g bazlı standart bileşim veri tabanı üretmez. |
 
 **Commercial competitors:** Edamam, FatSecret, and Nutritionix protect platforms via trade secrets and licensing (no patents found). None extract food composition data from scientific literature — they use licensed government data (USDA), crowdsourcing, and NLP for label/recipe parsing.
 
@@ -565,9 +566,9 @@ Amaç: Birincil veri çıkarma motoru ve merkezi bilimsel katkı. Yapılandırı
 | Birim Normalizasyonu ve Dönüştürme | Farklı birimleri (mg/100g, %, ppm, µg/porsiyon) standart bir biçime dönüştürme | Kural tabanlı motor + hafif ML yedekleme |
 | Varlık Bağlama | Çıkarılan gıda adlarını standartlaştırılmış tanımlayıcılarla (LanguaL, FoodEx2) eşleme | Gömme tabanlı benzerlik araması + ince ayarlı sınıflandırıcı |
 
-Within L3, models are organized into sub-tiers of increasing size. The Learned Router selects the cheapest sub-tier per sub-task. Models are initially fine-tuned on the expert-verified gold-standard records produced by the operational annotation platform (Section 4.6) using parameter-efficient methods (LoRA, QLoRA; Hu et al., 2022; Dettmers et al., 2023), then continuously improved as L4/L5 verified outputs become additional training data.
+Within L3, models are organized into sub-tiers of increasing size. The Learned Router selects the cheapest sub-tier per sub-task. Models are initially fine-tuned on the expert-verified gold-standard records produced by the operational annotation platform (Section 4.6) using parameter-efficient methods (LoRA, QLoRA; Hu et al., 2022; Dettmers et al., 2023), then continuously improved as L4/L5 verified outputs become additional training data. The effectiveness of such domain-specific fine-tuning for scientific information extraction is well established (Li et al., 2023).
 
-L3 katmanı içinde modeller, artan boyutta alt katmanlara ayrılır. Öğrenilmiş Yönlendirici, her alt görev için en ucuz alt katmanı seçer. Modeller başlangıçta, parametre açısından verimli yöntemler (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023) kullanılarak doğrulama platformunun ürettiği uzman onaylı altın standart kayıtlar (Bölüm 4.6) üzerinde ince ayar yapılır, ardından L4/L5 doğrulanmış çıktılar ek eğitim verisi haline geldikçe sürekli olarak iyileştirilir.
+L3 katmanı içinde modeller, artan boyutta alt katmanlara ayrılır. Öğrenilmiş Yönlendirici, her alt görev için en ucuz alt katmanı seçer. Modeller başlangıçta, parametre açısından verimli yöntemler (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023) kullanılarak doğrulama platformunun ürettiği uzman onaylı altın standart kayıtlar (Bölüm 4.6) üzerinde ince ayar yapılır, ardından L4/L5 doğrulanmış çıktılar ek eğitim verisi haline geldikçe sürekli olarak iyileştirilir. Bu tür alana özgü ince ayarın bilimsel bilgi çıkarımındaki etkinliği literatürde gösterilmiştir (Li vd., 2023).
 
 **Çıktı****:** Alan bazında güvenilirlik puanları ve verilerin kaynağı hakkında bilgi içeren yapılandırılmış gıda-besin kayıtları.
 
@@ -1153,6 +1154,8 @@ Proje faaliyetleri boyunca elde edilecek çıktıların ve ulaşılacak sonuçla
 - Ouyang, L., et al. (2022). Training language models to follow instructions with human feedback. *NeurIPS*, 35, 27730–27744.
 
 - Sanh, V., et al. (2019). DistilBERT: Smaller, faster, cheaper and lighter. *arXiv:1910.01108*.
+
+- Schakel, S.F., Sievert, Y.A., & Buzzard, I.M. (1988). Sources of data for developing and maintaining a nutrient database. *Journal of the American Dietetic Association*, 88(10), 1268–1271.
 
 - Settles, B. (2012). *Active Learning*. Morgan & Claypool Publishers.
 
