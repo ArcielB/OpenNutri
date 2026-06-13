@@ -138,7 +138,7 @@ The baseline reflects a leading general-purpose commercial LLM applied without a
 
 Başarı Ölçütleri:
 
-| **Ölçüt** | **Referans**** (GPT-4o)** | **Hedef**** (Initial ****OpenNutri****)** |
+| **Ölçüt** | **Referans**** (GPT-4o)** | **Hedef**** (Başlangıç ****OpenNutri****)** |
 | --- | --- | --- |
 | Otomatik onay doğruluğu | N/A (doğrulama hattı yok) | ≥%95 |
 | Otomatik onay oranı | N/A (güven puanlaması yok) | ≥%60 |
@@ -216,7 +216,7 @@ Uzmanlar tarafından doğrulanmış verileri kullanarak, İnsan Geri Bildirimind
 
 Başarı Ölçütleri:
 
-| **Ölçüt** | **RLHF ****Öncesi**** (Initial)** | **RLHF ****Sonrası**** (Final)** |
+| **Ölçüt** | **RLHF ****Öncesi**** (Başlangıç)** | **RLHF ****Sonrası**** (Nihai)** |
 | --- | --- | --- |
 | Otomatik onay doğruluğu | ~%95 | ≥ %99,5 |
 | Otomatik onay oranı | ~%60 | ≥ %90 |
