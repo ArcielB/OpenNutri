@@ -1,3 +1,11 @@
+**Proje Başlığı:** OpenNutri — Bilimsel Literatürden Aşamalı Olarak Otonom Gıda Bileşimi Veri Çıkarımı ve Doğrulama Sistemi (Kademeli Hibrit Zeka)
+
+**Proje Yürütücüsü:** Prof. Dr. Murat Ceylan
+
+**Projenin Yürütüleceği Kurum/Kuruluş:** [KURUM: ev sahibi üniversite/kurum adı son aşamada eklenecektir]
+
+\newpage
+
 # 1. ULUSAL KAZANIM ve PROJENİN ÖNEMİ
 
 ## Güncel Problem ve İhtiyaç
@@ -299,7 +307,7 @@ L3 tek bir monolitik model yerine alt görevlere ayrılmış modüler bir tasar�
 | Birim normalizasyonu | mg/100 g, µg/100 g, %, ppm, porsiyon gibi birimleri standart baza dönüştürme. | Kural tabanlı motor + denetimli yardımcı sınıflandırıcı. |
 | Varlık bağlama | Gıda ve besin adlarını LanguaL, FoodEx2, INFOODS ve yerel kataloglarla eşleme. | Gömme tabanlı benzerlik, takma ad eşlemesi ve uzman onaylı özel kayıtlar. |
 
-Modeller, doğrulama platformunda üretilen altın standart kayıtlar ile parametre-verimli ince ayar yöntemleri kullanılarak eğitilir (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023). Alana özgü ince ayarın bilimsel bilgi çıkarımındaki etkinliği literatürde gösterilmiştir (Li vd., 2023). L4/L5 doğrulanmış çıktıları ve hata etiketleri eğitim verisine eklendikçe L3'ün kapsama alanı genişler. L3'ün tek başına nihai <%0,5 hata hedefine ulaşması beklenmez; bu hedef, L3 + doğrulama kuralları + L4/L5 yükseltme ve rastgele denetimden oluşan tüm sistem için tanımlıdır.
+Modeller, doğrulama platformunda üretilen altın standart kayıtlar ile parametre-verimli ince ayar yöntemleri kullanılarak eğitilir (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023). Alana özgü ince ayarın bilimsel bilgi çıkarımındaki etkinliği literatürde gösterilmiştir (Li vd., 2023). Başlangıçta altın standart veri henüz sınırlıyken L3, WP4 kalibrasyon aşamasının ürettiği ilk çift incelemeli küme (~500 makale), doğrulanmış L4 çıktıları ve mevcut prototipin ürettiği çıkarımlarla başlatılır; bu nedenle L3 ince ayarı (WP2, 3-8. Aylar) ile uzman doğrulamasının (WP4, 4. Aydan itibaren) zaman çizelgeleri kasıtlı olarak örtüşür. L4/L5 doğrulanmış çıktıları ve hata etiketleri eğitim verisine eklendikçe L3'ün kapsama alanı genişler. L3'ün tek başına nihai <%0,5 hata hedefine ulaşması beklenmez; bu hedef, L3 + doğrulama kuralları + L4/L5 yükseltme ve rastgele denetimden oluşan tüm sistem için tanımlıdır.
 
 **Gıda bilimi doğrulama kuralları:** Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği ekibiyle birlikte tasarlanacak bu kurallar, standart dil modeli güven puanından bağımsız bir doğrulama katmanı oluşturur.
 
@@ -364,7 +372,7 @@ Alt katmanların başarısız olduğu örneklere eğitimde daha yüksek ağırl�
 | --- | --- | --- | --- | --- |
 | Europe PMC / PubMed Central | Açık erişimli biyomedikal ve gıda bilimi yayınları | İngilizce | API/OAI-PMH ve açık tam metin | Ana açık literatür kaynağı |
 | DergiPark | Türk dergileri | Türkçe / İngilizce | OAI-PMH meta veri + açık tam metin | Türkçe literatür ve yerel gıdalar |
-| OpenAlex | Açık akademik meta veri | Çok dilli | REST API | Deduplicasyon, atıf grafiği ve keşif |
+| OpenAlex | Açık akademik meta veri | Çok dilli | REST API | Tekilleştirme, atıf grafiği ve keşif |
 | Semantic Scholar | Akademik grafik ve PDF bağlantıları | Çok dilli | REST API ve açık veri setleri | Anlamsal arama ve meta veri zenginleştirme |
 | Crossref | DOI meta verileri | Çok dilli | REST API | DOI doğrulama ve kaynak bağlantısı |
 | Scopus / Web of Science / ScienceDirect | Kurumsal erişimli yayınlar | Çok dilli | EKUAL ve üniversite kütüphanesi erişimi | Lisans koşullarına uygun tam metin doğrulama |
@@ -399,9 +407,9 @@ Proje ekibi, önerilen OpenNutri işlem hattının uçtan uca çalışan bir pro
 | Model kademesi | Tarama → triyaj → nihai çıkarım şeklinde çalışan 3 aktif model aşaması. |
 | Normalizasyon | g/100 g, mg/100 g, µg/100 g, kcal/100 g vb. birim ve baz dönüşümleri; referans gıda/besin kataloglarıyla eşleme. |
 | Temel veri katmanı | USDA FoodData Central referans verisi sisteme alınmıştır. |
-| Uzman doğrulama platformu | Kimlik doğrulamalı web arayüzü; PDF görüntüleyici, kaynak vurgulama, yapılandırılmış düzeltme ve hata-diff kaydı. |
-| Operasyon | Zamanlanmış otomasyonla crawl → extract → route → review döngüsü çalışır durumdadır. |
-| Gösterge metrikleri | ~17.700 aday makale taranmış, ~4.300 kayıt sisteme alınmış, ~5.000 AI çıkarımı üretilmiş, 339 makale uzman inceleme kuyruğuna yönlendirilmiştir. |
+| Uzman doğrulama platformu | Kimlik doğrulamalı web arayüzü; PDF görüntüleyici, kaynak vurgulama, yapılandırılmış düzeltme ve hata farkı (diff) kaydı. |
+| Operasyon | Zamanlanmış otomasyonla tara → çıkar → yönlendir → incele döngüsü çalışır durumdadır. |
+| Gösterge metrikleri | ~17.700 aday makale taranmış, ~4.300 kayıt sisteme alınmış, ~5.000 yapay zekâ çıkarımı üretilmiş, 339 makale uzman inceleme kuyruğuna yönlendirilmiştir. |
 
 Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem entegrasyonunu fiilen çalışır hale getirerek fizibilite riskini düşürmektedir. Proje desteği, prototipin eksik kalan araştırma bileşenlerini tamamlayacaktır: (1) tarama ve çıkarımın hazır modellerden ince ayarlı açık ağırlıklı modellere taşınması; (2) gıda bilimi doğrulama kural motorunun sistematik olarak geliştirilmesi; (3) statik yönlendirme eşiklerinin yerine Öğrenilmiş Yönlendirici kurulması; (4) uzman düzeltmelerinin alt katmanları sürekli yeniden eğittiği öğrenme döngüsünün kapatılması.
 
@@ -469,7 +477,7 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 
 | İP No | İş Paketinin Adı ve Hedefleri | Sorumlu Ekip | Zaman Aralığı | Başarı Ölçütü ve Katkısı |
 | --- | --- | --- | --- | --- |
-| 1 | **Altyapı ve Veri Toplama:** L1 akıllı tarayıcı, L2 sınıflandırıcı, veri tabanı şeması ve kaynak erişim hattı. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Alijon Alimov | 1-4. Aylar | Çok kaynaklı tarayıcı çalışır durumda; L2 F1 ≥0,92; ≥100.000 ilgili makaleye ulaşabilecek aday havuz ve deduplicasyon hattı. |
+| 1 | **Altyapı ve Veri Toplama:** L1 akıllı tarayıcı, L2 sınıflandırıcı, veri tabanı şeması ve kaynak erişim hattı. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Alijon Alimov | 1-4. Aylar | Çok kaynaklı tarayıcı çalışır durumda; L2 F1 ≥0,92; ≥100.000 ilgili makaleye ulaşabilecek aday havuz ve tekilleştirme hattı. |
 | 2 | **Çekirdek Çıkarma Motoru (L3):** Alt göreve özgü açık ağırlıklı modeller, normalizasyon, varlık bağlama ve gıda bilimi doğrulama kuralları. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3-8. Aylar | L3 alt görevleri entegre; ≥10 doğrulama kuralı aktif; ticari API tabanlı referansa göre en az %30 maliyet düşüşü; düşük güvenli kayıtların L4/L5'e güvenli yönlendirilmesi. |
 | 3 | **Kademeli Entegrasyon ve Yönlendirici:** L4 ticari model yükseltmesi, RAG/istem dosyası, Öğrenilmiş Yönlendirici ve maliyet optimizasyonu. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Dr. Engin Esme; Bursiyerler: Arciel Aliognis, Alijon Alimov | 5-10. Aylar | L1-L4 uçtan uca çalışır; yönlendirici rastgele/statik yönlendirmeye göre ≥%20 maliyet düşüşü sağlar; L5 hariç uçtan uca gecikme <60 sn/makale hedeflenir. |
 | 4 | **Uzman Doğrulama ve Katmanlar Arası Öğrenme:** Kalibrasyon, uyarlanabilir doğrulama protokolü, altın standart veri üretimi ve uzman geri bildirimli model iyileştirme. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Prof. Dr. Servet Gülüm Şumnu, Dr. Engin Esme; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 4-16. Aylar | ≥5.000 uzman doğrulamalı makale; ≥25.000 altın standart kayıt; kabul edilen kayıtların rastgele denetiminde hata <%0,5; otomatik onay oranı ≥%90. |
@@ -524,6 +532,8 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | Araştırmacı Yetiştirme | Gıda Bilimi ekibi: gıda bileşimi analizi, Türk gıda profillemesi, kalite kontrol protokolleri, USDA/EFSA/TürKomp çapraz referanslama ve yapay zekâ destekli doğrulama iş akışları. | 0-18 ay |
 
 ## 6.2. Projeden Elde Edilmesi Öngörülen Etkiler
+
+Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) önceliklerinden gıda ve tarımın öncelikli gelişme alanı olarak güçlendirilmesi, gıda güvencesi, dijital dönüşüm, yerli ve milli teknoloji geliştirme ve yeşil dönüşüm hedefleriyle doğrudan ilişkilidir. Hedef kitle ve alanlar; kamu sağlık ve gıda güvenliği kurumları, gıda sanayisi ve ihracatçıları, sağlık teknolojisi geliştiricileri ile akademik araştırma topluluğudur. Beklenen etkiler aşağıda doğrulanabilir göstergelerle özetlenmiştir.
 
 | Etki Türü | Etki | Öngörülen Zaman |
 | --- | --- | --- |
@@ -581,6 +591,8 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Agarwal, A., et al. (2014). Taming the monster: A fast and simple algorithm for contextual bandits. *ICML*, 1638–1646.
 
+- Cenikj, G., Strojnik, L., Angelski, R., Ogrinc, N., Koroušić Seljak, B., & Eftimov, T. (2023). From language models to large-scale food and biomedical knowledge graphs. *Scientific Reports*, 13, 7815.
+
 - Chapelle, O., & Li, L. (2011). An empirical evaluation of Thompson sampling. *NeurIPS*, 24.
 
 - Chen, L., et al. (2023). FrugalGPT: How to use large language models while reducing cost and improving performance. *arXiv:2305.05176*.
@@ -593,6 +605,8 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Efron, B., & Tibshirani, R.J. (1993). *An Introduction to the Bootstrap*. Chapman & Hall/CRC.
 
+- European Parliament and Council. (2011). *Regulation (EU) No 1169/2011 on the provision of food information to consumers*. EUR-Lex. https://eur-lex.europa.eu/eli/reg/2011/1169/oj
+
 - FAO/INFOODS (2012). *FAO/INFOODS Guidelines for Food Matching*. Rome: FAO.
 
 - Fedus, W., et al. (2022). Switch Transformers: Scaling to trillion parameter models. *JMLR*, 23(120), 1–39.
@@ -601,7 +615,11 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Hestness, J., et al. (2017). Deep learning scaling is predictable, empirically. *arXiv:1712.01208*.
 
+- Hooton, F., Menichetti, G., & Barabási, A.-L. (2020). Exploring food contents in scientific literature with FoodMine. *Scientific Reports*, 10, 16191.
+
 - Hu, E.J., et al. (2022). LoRA: Low-rank adaptation of large language models. *ICLR*.
+
+- Ispirova, G., Eftimov, T., & Koroušić Seljak, B. (2020). P-NUT: Predicting NUTrient content from short text descriptions. *Mathematics*, 8(10), 1811.
 
 - Klensin, J.C., et al. (1989). *Identification of Food Components for INFOODS Data Interchange*. Tokyo: UNU Press.
 
@@ -627,6 +645,8 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Schakel, S.F., Sievert, Y.A., & Buzzard, I.M. (1988). Sources of data for developing and maintaining a nutrient database. *Journal of the American Dietetic Association*, 88(10), 1268–1271.
 
+- Semantic Scholar. (2026). *Semantic Scholar Academic Graph API*. https://www.semanticscholar.org/product/api
+
 - Settles, B. (2012). *Active Learning*. Morgan & Claypool Publishers.
 
 - Seung, H.S., et al. (1992). Query by committee. *COLT*, 287–294.
@@ -639,10 +659,6 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Turc, I., et al. (2019). Well-read students learn better: On the importance of pre-training compact models. *arXiv:1908.08962*.
 
-- European Parliament and Council. (2011). *Regulation (EU) No 1169/2011 on the provision of food information to consumers*. EUR-Lex. https://eur-lex.europa.eu/eli/reg/2011/1169/oj
-
-- Semantic Scholar. (2026). *Semantic Scholar Academic Graph API*. https://www.semanticscholar.org/product/api
-
 - TÜBİTAK MAM Gıda Enstitüsü (2014). *Türkiye'nin Ulusal Gıda Kompozisyon Veri Tabanı (TürKomp)*. TÜBİTAK Marmara Araştırma Merkezi. https://mam.tubitak.gov.tr/turkiyenin-ulusal-gida-kompozisyon-veri-tabani/
 
 - TÜBİTAK ULAKBİM. (2026). *TRUBA Başvuru ve yüksek başarımlı hesaplama altyapısı*. https://www.truba.gov.tr/
@@ -652,9 +668,3 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 - Wang, M., et al. (2011). Classifier cascade for minimizing feature evaluation cost. *AISTATS*, 218–226.
 
 - Yue, X., et al. (2024). Large language model cascades with mixture of thoughts representations. *ICLR*.
-
-- Cenikj, G., Strojnik, L., Angelski, R., Ogrinc, N., Koroušić Seljak, B., & Eftimov, T. (2023). From language models to large-scale food and biomedical knowledge graphs. *Scientific Reports*, 13, 7815.
-
-- Hooton, F., Menichetti, G., & Barabási, A.-L. (2020). Exploring food contents in scientific literature with FoodMine. *Scientific Reports*, 10, 16191.
-
-- Ispirova, G., Eftimov, T., & Koroušić Seljak, B. (2020). P-NUT: Predicting NUTrient content from short text descriptions. *Mathematics*, 8(10), 1811.
