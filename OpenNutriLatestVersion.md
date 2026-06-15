@@ -1,4 +1,4 @@
-**Proje Başlığı:** OpenNutri — Bilimsel Literatürden Aşamalı Olarak Otonom Gıda Bileşimi Veri Çıkarımı ve Doğrulama Sistemi (Kademeli Hibrit Zeka)
+**Proje Başlığı:** OpenNutri — Bilimsel Literatürden Aşamalı Olarak Otonom Gıda Bileşimi Veri Çıkarımı ve Doğrulama Sistemi (Kademeli Hibrit Zekâ)
 
 **Proje Yürütücüsü:** Prof. Dr. Murat Ceylan
 
@@ -10,7 +10,7 @@
 
 ## Güncel Problem ve İhtiyaç
 
-Güncel ve güvenilir veriler içeren bir besin veri tabanı, diyet alımlarının doğru hesaplanması için kritik önem arz etmektedir (Schakel ve diğerleri, 1988). Çoğu besin veri tabanı, USDA ve EFSA gibi güvenilir kurumlardan alınan verilerle ve uzman kürasyonu ile hazırlanmakta; bu süreç, bilimsel literatürdeki verilerin hızla artmasına rağmen hâlâ büyük ölçüde manuel yürütülmektedir. Sınırlı kaynaklar nedeniyle küresel kurumlar yaygın ürünlere öncelik vermekte; Türkçe literatürde, yerel tarım ürünlerinde ve bölgesel gıdalarda üretilen bilimsel veri uluslararası besin veri altyapılarına yeterince yansımamaktadır.
+Güncel ve güvenilir veriler içeren bir besin veri tabanı, diyet alımlarının doğru hesaplanması için kritik önem arz etmektedir (Schakel ve diğerleri, 1988). Çoğu besin veri tabanı, USDA FoodData Central ve EuroFIR gibi güvenilir kaynaklardan alınan verilerle ve uzman kürasyonu ile hazırlanmakta; bu süreç, bilimsel literatürdeki verilerin hızla artmasına rağmen hâlâ büyük ölçüde manuel yürütülmektedir. Sınırlı kaynaklar nedeniyle küresel kurumlar yaygın ürünlere öncelik vermekte; Türkçe literatürde, yerel tarım ürünlerinde ve bölgesel gıdalarda üretilen bilimsel veri uluslararası besin veri altyapılarına yeterince yansımamaktadır.
 
 Bu durum Türkiye için dört somut kayıp üretmektedir:
 
@@ -22,11 +22,11 @@ Bu durum Türkiye için dört somut kayıp üretmektedir:
 
 - Türk gıda ihracatçıları, AB etiketleme ve ürün belgelendirme süreçlerinde yerel ürünü temsil eden, kaynaklı ve doğrulanmış besin verisine sınırlı erişmektedir.
 
-Akademik literatürde yer alan birçok belirgin Türk gıdası, hem USDA hem de EFSA veri tabanlarında bulunmamaktadır; proje bu açığı kapatmak üzere tasarlanmıştır (Bölüm 4.6.1).
+Akademik literatürde yer alan birçok belirgin Türk gıdası, USDA FoodData Central ve EuroFIR gibi uluslararası gıda bileşimi veri tabanlarında bulunmamaktadır; proje bu açığı kapatmak üzere tasarlanmıştır (Bölüm 4.6.1).
 
 ## Çözüm: OpenNutri
 
-OpenNutri, bilimsel yayınlardan gıda bileşimi verisi çıkaran, doğrulayan ve standartlaştıran **Aşamalı Olarak Otonom Veri Doğrulama Sistemi** olarak önerilmektedir. Manuel veri girişine dayanan mevcut sistemlerden farklı olarak OpenNutri; yapay zekâ tabanlı veri çıkarımı, gıda bilimi temelli mantıksal doğrulama kuralları ve uzman geri bildirimiyle öğrenen bir **Hibrit Zeka** işlem hattını birleştirir. Amaç, Türkiye'nin gıda bileşimi bilgisini yalnızca arşivleyen değil, kaynak yayına kadar izlenebilir biçimde sürekli genişleten ve zamanla daha düşük maliyetle çalışan ulusal bir veri altyapısı oluşturmaktır.
+OpenNutri, bilimsel yayınlardan gıda bileşimi verisi çıkaran, doğrulayan ve standartlaştıran **Aşamalı Olarak Otonom Veri Doğrulama Sistemi** olarak önerilmektedir. Manuel veri girişine dayanan mevcut sistemlerden farklı olarak OpenNutri; yapay zekâ tabanlı veri çıkarımı, gıda bilimi temelli mantıksal doğrulama kuralları ve uzman geri bildirimiyle öğrenen bir **Hibrit Zekâ** işlem hattını birleştirir. Amaç, Türkiye'nin gıda bileşimi bilgisini yalnızca arşivleyen değil, kaynak yayına kadar izlenebilir biçimde sürekli genişleten ve zamanla daha düşük maliyetle çalışan ulusal bir veri altyapısı oluşturmaktır.
 
 ## Sektörel Ulusal Kazanımlar
 
@@ -78,13 +78,13 @@ Türkiye bugün yapılandırılmış besin verisi için büyük ölçüde yabanc
 
 ## 2.1. Projenin Amacı
 
-Bu projenin amacı, Türkiye'nin bağımsız ve sürdürülebilir gıda bileşimi veri altyapısını oluşturmak üzere **OpenNutri** sistemini geliştirmektir. OpenNutri; yapay zekâ destekli veri çıkarımı, gıda bilimi doğrulama kuralları ve uzman geri bildirimiyle öğrenen kademeli bir mimari kullanarak bilimsel literatürdeki besin bileşimi verilerini otomatik biçimde çıkarır, doğrular ve uluslararası standartlara göre yapılandırır. Proje sonunda doğrulanmış bir besin veri tabanı, üretim ortamında çalışan REST API, açık araştırma veri seti ve farklı kurumlara uyarlanabilir bir veri çıkarma/doğrulama motoru ortaya çıkacaktır.
+Bu projenin amacı, Türkiye'nin bağımsız ve sürdürülebilir gıda bileşimi veri altyapısını oluşturmak üzere **OpenNutri** sistemini geliştirmektir. OpenNutri; yapay zekâ destekli veri çıkarımı, gıda bilimi doğrulama kuralları ve uzman geri bildirimiyle öğrenen kademeli bir mimari kullanarak bilimsel literatürdeki besin bileşimi verilerini otomatik biçimde çıkarır, doğrular ve uluslararası standartlara göre yapılandırır. Proje sonunda doğrulanmış bir besin veri tabanı, üretim ortamında çalışan REST API, açık araştırma veri seti ve farklı kurumlara uyarlanabilir bir veri çıkarma/doğrulama motoru ortaya çıkacaktır. Proje çıktısı, 1005 programının kapsamına uygun olarak bir yöntem/model (Kademeli Hibrit Zekâ çıkarma-doğrulama motoru) ile bunun ürünleşmiş biçimlerini (veri tabanı ve REST API) hedefler; talep edilen hesaplama donanımı bu Ar-Ge çıktılarının üretilmesi için bir araçtır, kalıcı altyapı kurmak başlı başına bir amaç değildir.
 
 Proje sıfırdan başlamamaktadır. Bölüm 4.6'da özetlenen prototip hâlihazırda çok kaynaklı literatür tarama, model kademesi, normalizasyon, uzman doğrulama arayüzü ve zamanlanmış otomasyon bileşenleriyle çalışmaktadır. Destek, bu prototipi ulusal ölçekte kullanılabilecek, maliyeti düşen ve uzman doğrulamasıyla kendini iyileştiren bir altyapıya dönüştürmek için kullanılacaktır.
 
 ## 2.2. Ölçülebilir Hedefler
 
-### Hedef 1: Hibrit Zeka Veri Çıkarma Motorunu Geliştirmek
+### Hedef 1: Hibrit Zekâ Veri Çıkarma Motorunu Geliştirmek
 
 Bilimsel makaleleri girdi olarak alan, yapılandırılmış ve doğrulanmış gıda-besin kayıtları üreten uçtan uca bir yapay zekâ işlem hattı geliştirilecektir. Sistem; ince ayarlanmış açık ağırlıklı modelleri, gerektiğinde ticari model desteğini, geri getirmeyle güçlendirilmiş üretimi (RAG), gıda bilimi doğrulama kurallarını ve kaynak izlenebilirliğini birlikte kullanacaktır.
 
@@ -95,9 +95,9 @@ Bilimsel makaleleri girdi olarak alan, yapılandırılmış ve doğrulanmış g�
 | Otomatik onay doğruluğu | Doğrulama hattı olmayan tek model yaklaşımı | Başlangıç sisteminde ≥%95; proje sonunda ≥%99,5 |
 | Otomatik onay oranı | Güven puanlaması yok | Başlangıçta ≥%60; proje sonunda ≥%90 |
 | Veri tabanı hata oranı | Sistematik denetim yok | Tüm kabul edilen kayıtlar için <%0,5 |
-| Makale başına işlem maliyeti | Lider ticari LLM tekil kullanımı | Başlangıçta <$0,03; proje sonunda <$0,01 |
+| Makale başına otomatik işlem maliyeti | Lider ticari LLM tekil kullanımı | Başlangıçta <$0,03; proje sonunda <$0,01 |
 
-Referans değerler, doğrulama hattı olmadan uygulanan lider genel amaçlı ticari LLM yaklaşımını temsil eder. Nihai kıyaslama, değerlendirme tarihinde mevcut en güçlü ticari ve açık ağırlıklı modellerle yapılacaktır.
+Referans değerler, doğrulama hattı olmadan uygulanan lider genel amaçlı ticari LLM yaklaşımını temsil eder. Tablodaki başlangıç değerleri ölçülmüş prototip sonuçları değil, ilk kalibrasyon hedefleridir; gerçek otomatik onay doğruluğu WP4 doğrulama günlükleriyle ölçülecektir. Nihai kıyaslama, değerlendirme tarihinde mevcut en güçlü ticari ve açık ağırlıklı modellerle yapılacaktır.
 
 ### Hedef 2: Büyük Ölçekli Bilimsel Literatürü İşlemek
 
@@ -136,9 +136,9 @@ Uzman düzeltmeleri; denetimli ince ayar, tercih temelli öğrenme/RLHF ve hata 
 | Otomatik onay doğruluğu | ~%95 | ≥%99,5 |
 | Otomatik onay oranı | ~%60 | ≥%90 |
 | Veri tabanı hata oranı | <%0,5 | <%0,5 |
-| Makale başına maliyet | <$0,03 | <$0,01 |
+| Makale başına otomatik işlem maliyeti | <$0,03 | <$0,01 |
 
-**Otomatik onay doğruluğu**, sistemin insan incelemesi olmadan kabul ettiği kayıtların periyodik rastgele denetimde doğru bulunma oranıdır. **Otomatik onay oranı**, insan incelemesine gitmeden tamamlanan makale oranıdır. <%0,5 veri tabanı hata hedefi, hem otomatik onaylanan hem de insan tarafından doğrulanan kayıtlar için geçerli katı kalite kısıtıdır.
+**Otomatik onay doğruluğu**, sistemin insan incelemesi olmadan kabul ettiği kayıtların periyodik rastgele denetimde doğru bulunma oranıdır. **Otomatik onay oranı**, insan incelemesine gitmeden tamamlanan makale oranıdır. <%0,5 veri tabanı hata hedefi, hem otomatik onaylanan hem de insan tarafından doğrulanan kayıtlar için geçerli katı kalite kısıtıdır. Makale başına maliyet hedefleri (<$0,03 → <$0,01) otomatik işlenen makalelerin hesaplama ve API maliyetini ifade eder; uzman doğrulama emeği WP4 kapsamında ayrıca bütçelenir ve ayrı raporlanır.
 
 ### Hedef 5: Sistemi Yayına Almak ve Bilimsel Yayılımı Sağlamak
 
@@ -146,7 +146,7 @@ OpenNutri altyapısı araştırma ve ürünleşme kullanımına açılacak; meto
 
 **Başarı ölçütleri:**
 
-- Üretim REST API'sini <200 ms hedef yanıt süresi ve ≥100 eş zamanlı istek/saniye kapasitesiyle devreye almak.
+- Üretim REST API'sini <200 ms (p95) yanıt süresi ve saniyede ≥100 istek işleme kapasitesiyle devreye almak.
 
 - Geliştirici dokümantasyonu ve SDK yayımlamak.
 
@@ -162,7 +162,7 @@ OpenNutri altyapısı araştırma ve ürünleşme kullanımına açılacak; meto
 
 | No. | Hedef | Ana Başarı Ölçütleri |
 | --- | --- | --- |
-| 1 | Hibrit Zeka Motoru | Başlangıçta ≥%95, nihai sistemde ≥%99,5 otomatik onay doğruluğu; makale başına maliyette lider ticari tekil modele göre ≥%90 düşüş |
+| 1 | Hibrit Zekâ Motoru | Başlangıçta ≥%95, nihai sistemde ≥%99,5 otomatik onay doğruluğu; makale başına maliyette lider ticari tekil modele göre ≥%90 düşüş |
 | 2 | Literatür İşleme | ≥100.000 ilgili makale; ≥500.000 gıda-besin kaydı; ≥5.000 özgün Türk gıda ürünü/varyantı |
 | 3 | Altın Standart Veri Tabanı | ≥5.000 uzman doğrulamalı makale; ≥25.000 altın standart kayıt; <%0,5 hata |
 | 4 | Uzman Geri Bildirimli Öğrenme | ≥%90 otomatik onay oranı; <$0,01/makale işlem maliyeti |
@@ -195,7 +195,7 @@ OpenNutri'nin yeniliği tek bir algoritmadan değil, gıda bileşimi veri altyap
 | No. | Yenilik | Nedir? | Neden Yeni? |
 | --- | --- | --- | --- |
 | 1 | Bilimsel literatürden aşamalı olarak otonom veri çıkarma | Bilimsel makalelerden uluslararası standartlara uygun, 100 g bazlı ve kaynaklı gıda-besin kayıtları üretir. | Mevcut veri tabanları çoğunlukla manuel laboratuvar analizi ve uzman kürasyonuna dayanır; literatürdeki dağınık veriyi ulusal ölçekte otomatik veri tabanına dönüştürmez. |
-| 2 | Kademeli Hibrit Zeka mimarisi (L1-L5) | Tarama, filtreleme, açık ağırlıklı çıkarım, ticari model yükseltme ve uzman doğrulamasını maliyet/kalite dengesiyle birleştirir. | Tek model yaklaşımlarından farklı olarak hem maliyet optimizasyonu hem de çok katmanlı doğrulama sağlar. |
+| 2 | Kademeli Hibrit Zekâ mimarisi (L1-L5) | Tarama, filtreleme, açık ağırlıklı çıkarım, ticari model yükseltme ve uzman doğrulamasını maliyet/kalite dengesiyle birleştirir. | Tek model yaklaşımlarından farklı olarak hem maliyet optimizasyonu hem de çok katmanlı doğrulama sağlar. |
 | 3 | Öğrenilmiş Yönlendirici | Belge ve alt görev özelliklerine göre en ucuz yeterli katmanı seçen eğitilebilir karar mekanizmasıdır. | Statik eşiklere dayalı kademelerin yerine, proje boyunca doğrulama sonuçlarından öğrenen bir rota optimizasyonu kullanır. |
 | 4 | Uzman geri bildirimiyle katmanlar arası öğrenme | L4/L5 çıktıları ve uzman düzeltmeleri L1-L3 modellerini yeniden eğiten yapılandırılmış sinyale dönüşür. | Doğrulamayı yalnızca kalite kontrol maliyeti olmaktan çıkarır; alt katmanların zaman içinde daha fazla görevi otomatik çözmesini sağlayan eğitim yatırımına dönüştürür. |
 | 5 | Kayıt düzeyinde kaynak izlenebilirliği ve Türk gıdaları kapsamı | Her besin kaydı DOI, sayfa, tablo/satır ve çıkarım katmanı bilgisiyle saklanır; özellikle Türkçe literatür ve yerel gıdalar hedeflenir. | Mevcut veri tabanlarında kaynaklar çoğu zaman gıda maddesi veya veri seti düzeyindedir; OpenNutri kayıt düzeyinde makine tarafından okunabilir kaynak izi hedefler. |
@@ -209,7 +209,7 @@ OpenNutri, birbirinden bağımsız olarak ticarileştirilebilecek iki ana ürün
 | No. | Çıktı | Açıklama | Gelir Modeli |
 | --- | --- | --- | --- |
 | 1 | Gıda bileşimi veri tabanı ve API | 500.000'den fazla kaynaklı gıda-besin kaydı; Türk gıdaları ve uluslararası literatür kapsamı; düzenli güncellenen veri altyapısı. | Ücretsiz akademik erişim, ticari API aboneliği, veri lisansı ve kurumsal entegrasyon. |
-| 2 | Kademeli Hibrit Zeka doğrulama motoru | Literatürden veri çıkarma, normalizasyon, doğrulama ve uzman geri bildirimi iş akışı. | Ülke/kurum/alan bazlı motor lisanslama, uyarlama ve dağıtım hizmetleri. |
+| 2 | Kademeli Hibrit Zekâ doğrulama motoru | Literatürden veri çıkarma, normalizasyon, doğrulama ve uzman geri bildirimi iş akışı. | Ülke/kurum/alan bazlı motor lisanslama, uyarlama ve dağıtım hizmetleri. |
 
 **Doğrudan aynı kapsamda çalışan bir rakip tespit edilmemiştir.** Ticari gıda veri tabanları mevcut devlet verilerini, kitle kaynaklı kayıtları veya etiket/tarif ayrıştırmasını kullanır. Akademik sistemler ise genellikle tek görevli, pilot ölçekli veya tahmin odaklıdır. OpenNutri'nin ticari değeri, doğrulanmış veri üretimini ve veri üretme motorunu birlikte sunmasından kaynaklanır.
 
@@ -234,7 +234,7 @@ Güç, ağ ve fiziksel altyapı ev sahibi kurum tarafından sağlanacaktır. Tic
 
 ## 4.1. Araştırma Tasarımı ve Genel Yaklaşım
 
-Proje, **Kademeli Hibrit Zeka İşlem Hattı** geliştirmektedir. Bu mimari, mevcut gıda bileşimi veri tabanlarının manuel uzman kürasyonuna dayalı yapısını ölçeklenebilir bir yapay zekâ + gıda bilimi + uzman doğrulama sistemine dönüştürür. Sistem beş işlem katmanından oluşur:
+Proje, **Kademeli Hibrit Zekâ İşlem Hattı** geliştirmektedir. Bu mimari, mevcut gıda bileşimi veri tabanlarının manuel uzman kürasyonuna dayalı yapısını ölçeklenebilir bir yapay zekâ + gıda bilimi + uzman doğrulama sistemine dönüştürür. Sistem beş işlem katmanından oluşur:
 
 - **L1:** Çok kaynaklı literatür tarayıcısı ve keşif katmanı.
 
@@ -417,7 +417,7 @@ Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem ent
 
 ### 4.6.1. Türk Gıda Veri Açığı Ön Değerlendirmesi
 
-TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da Türkiye'nin tarımsal ve kültürel gıda çeşitliliği çok daha geniştir. Bilimsel literatürde belgelenen birçok yerel gıda, yöresel ürün ve ürün varyantı USDA veya EFSA veri tabanlarında bulunmamaktadır. Bu açığın kesin ölçümü projenin erken çıktılarından biridir: Türkçe ve Türkiye kaynaklı literatür sistematik olarak indekslenecek, uluslararası veri tabanlarında bulunmayan gıda öğeleri makine tarafından okunabilir biçimde sayılacak ve en az 5.000 özgün Türk gıda ürünü veya varyantı hedeflenecektir.
+TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da Türkiye'nin tarımsal ve kültürel gıda çeşitliliği çok daha geniştir. Bilimsel literatürde belgelenen birçok yerel gıda, yöresel ürün ve ürün varyantı USDA FoodData Central veya EuroFIR gibi uluslararası gıda bileşimi veri tabanlarında bulunmamaktadır. Bu açığın kesin ölçümü projenin erken çıktılarından biridir: Türkçe ve Türkiye kaynaklı literatür sistematik olarak indekslenecek, uluslararası veri tabanlarında bulunmayan gıda öğeleri makine tarafından okunabilir biçimde sayılacak ve en az 5.000 özgün Türk gıda ürünü veya varyantı hedeflenecektir.
 
 ## 4.7. Değişkenler ve İstatistiksel Yöntemler
 
@@ -428,7 +428,7 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 | Otomatik onay doğruluğu | İnsan incelemesi olmadan kabul edilen kayıtların doğru olan yüzdesi. | Periyodik rastgele uzman denetimi. | % |
 | Otomatik onay oranı | İnsan müdahalesi olmadan tamamlanan makalelerin oranı. | Toplam işlenen makaleye oran. | % |
 | Veri tabanı hata oranı | Hata içeren kabul edilmiş kayıtların oranı. | Otomatik + insan doğrulamalı kayıtların rastgele denetimi. | % |
-| Makale başına maliyet | Kabul edilebilir kaliteye ulaşmak için toplam işlem maliyeti. | GPU saati + API maliyeti + insan doğrulama maliyeti. | USD |
+| Makale başına otomatik işlem maliyeti | Bir makaleyi otomatik olarak kabul edilebilir kaliteye getirmenin işlem maliyeti (insan doğrulama emeği hariç). | GPU saati + API maliyeti. | USD |
 | Çıkarma gecikmesi | Veri alımından yapılandırılmış çıktıya kadar geçen süre. | Gerçek zaman ölçümü. | saniye |
 | Geri çağırma | Çıkarılabilir veriler arasında sistemin yakaladığı oran. | Uzman oluşturulmuş referansla karşılaştırma. | % |
 
@@ -481,7 +481,7 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 | 2 | **Çekirdek Çıkarma Motoru (L3):** Alt göreve özgü açık ağırlıklı modeller, normalizasyon, varlık bağlama ve gıda bilimi doğrulama kuralları. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3-8. Aylar | L3 alt görevleri entegre; ≥10 doğrulama kuralı aktif; ticari API tabanlı referansa göre en az %30 maliyet düşüşü; düşük güvenli kayıtların L4/L5'e güvenli yönlendirilmesi. |
 | 3 | **Kademeli Entegrasyon ve Yönlendirici:** L4 ticari model yükseltmesi, RAG/istem dosyası, Öğrenilmiş Yönlendirici ve maliyet optimizasyonu. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Dr. Engin Esme; Bursiyerler: Arciel Aliognis, Alijon Alimov | 5-10. Aylar | L1-L4 uçtan uca çalışır; yönlendirici rastgele/statik yönlendirmeye göre ≥%20 maliyet düşüşü sağlar; L5 hariç uçtan uca gecikme <60 sn/makale hedeflenir. |
 | 4 | **Uzman Doğrulama ve Katmanlar Arası Öğrenme:** Kalibrasyon, uyarlanabilir doğrulama protokolü, altın standart veri üretimi ve uzman geri bildirimli model iyileştirme. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Prof. Dr. Servet Gülüm Şumnu, Dr. Engin Esme; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 4-16. Aylar | ≥5.000 uzman doğrulamalı makale; ≥25.000 altın standart kayıt; kabul edilen kayıtların rastgele denetiminde hata <%0,5; otomatik onay oranı ≥%90. |
-| 5 | **Sistem Dağıtımı, Kıyaslama ve Yaygınlaştırma:** REST API, açık araştırma veri seti, performans kıyaslaması, dokümantasyon ve yayınlar. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 14-18. Aylar | ≥500.000 gıda-besin kaydı; API yayında (<200 ms hedef yanıt süresi, ≥100 eşzamanlı istek/s); açık veri ve kıyaslama raporu yayımlanır; ≥3 makale hakemli dergilere gönderilir. |
+| 5 | **Sistem Dağıtımı, Kıyaslama ve Yaygınlaştırma:** REST API, açık araştırma veri seti, performans kıyaslaması, dokümantasyon ve yayınlar. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 14-18. Aylar | ≥500.000 gıda-besin kaydı; API yayında (<200 ms p95 yanıt süresi, ≥100 istek/saniye); açık veri ve kıyaslama raporu yayımlanır; ≥3 makale hakemli dergilere gönderilir. |
 
 **İş-Zaman Çizelgesi (Gantt) — Aylar 1-18**
 
@@ -523,13 +523,13 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | Çıktı Türü | Çıktı | Öngörülen Zaman Aralığı |
 | --- | --- | --- |
 | Bilimsel/Akademik | Büyük ölçekli gıda bileşimi veri çıkarma kıyaslaması: ticari ve açık ağırlıklı LLM'ler ile OpenNutri'nin doğruluk, maliyet ve hız karşılaştırması; değerlendirme veri seti ve kodunun yayımlanması. | 12-18 ay |
-| Bilimsel/Akademik | Kademeli Hibrit Zeka mimarisi makalesi: L1-L5 işlem hattı, Öğrenilmiş Yönlendirici, katmanlar arası öğrenme, ablasyon çalışmaları ve maliyet analizi. | 12-18 ay |
-| Bilimsel/Akademik | OpenNutri-DB veri seti makalesi: veri tabanı tanımı, metodoloji, Türk gıda veri açığı analizi ve USDA/EFSA/TürKomp karşılaştırması. | 12-18 ay |
+| Bilimsel/Akademik | Kademeli Hibrit Zekâ mimarisi makalesi: L1-L5 işlem hattı, Öğrenilmiş Yönlendirici, katmanlar arası öğrenme, ablasyon çalışmaları ve maliyet analizi. | 12-18 ay |
+| Bilimsel/Akademik | OpenNutri-DB veri seti makalesi: veri tabanı tanımı, metodoloji, Türk gıda veri açığı analizi ve USDA/EuroFIR/TürKomp karşılaştırması. | 12-18 ay |
 | Ekonomik/Ticari/Sosyal | OpenNutri Veri Tabanı: en az 500.000 kaynak izlenebilir gıda-besin kaydı, en az 5.000 özgün Türk gıda ürünü/varyantı ve kaynakta mevcut olduğunda 181'e kadar besin öğesi. | 6-12 ay ilk sürüm; 12-18 ay tam ölçek |
 | Ekonomik/Ticari/Sosyal | OpenNutri API: sürekli güncellenen veri tabanına erişim sağlayan, dokümantasyon ve SDK içeren üretim REST API. | 12-18 ay |
 | Ekonomik/Ticari/Sosyal | Kademeli doğrulama motoru: başka ülkelerin veya kurumların gıda bileşimi dijitalleştirme süreçlerine uyarlanabilir veri çıkarma/doğrulama altyapısı. | 12-18 ay |
-| Araştırmacı Yetiştirme | Yazılım/Yapay Zeka ekibi: LLM ince ayarı, RAG, RLHF/tercih temelli öğrenme, rota optimizasyonu, API geliştirme ve gıda veri standartları konularında uygulamalı eğitim. | 0-18 ay |
-| Araştırmacı Yetiştirme | Gıda Bilimi ekibi: gıda bileşimi analizi, Türk gıda profillemesi, kalite kontrol protokolleri, USDA/EFSA/TürKomp çapraz referanslama ve yapay zekâ destekli doğrulama iş akışları. | 0-18 ay |
+| Araştırmacı Yetiştirme | Yazılım/Yapay Zekâ ekibi: LLM ince ayarı, RAG, RLHF/tercih temelli öğrenme, rota optimizasyonu, API geliştirme ve gıda veri standartları konularında uygulamalı eğitim. | 0-18 ay |
+| Araştırmacı Yetiştirme | Gıda Bilimi ekibi: gıda bileşimi analizi, Türk gıda profillemesi, kalite kontrol protokolleri, USDA/EuroFIR/TürKomp çapraz referanslama ve yapay zekâ destekli doğrulama iş akışları. | 0-18 ay |
 
 ## 6.2. Projeden Elde Edilmesi Öngörülen Etkiler
 
@@ -605,13 +605,13 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Efron, B., & Tibshirani, R.J. (1993). *An Introduction to the Bootstrap*. Chapman & Hall/CRC.
 
+- EuroFIR AISBL. (2024). *European Food Information Resource (EuroFIR) food composition platform*. https://www.eurofir.org
+
 - European Parliament and Council. (2011). *Regulation (EU) No 1169/2011 on the provision of food information to consumers*. EUR-Lex. https://eur-lex.europa.eu/eli/reg/2011/1169/oj
 
 - FAO/INFOODS (2012). *FAO/INFOODS Guidelines for Food Matching*. Rome: FAO.
 
 - Fedus, W., et al. (2022). Switch Transformers: Scaling to trillion parameter models. *JMLR*, 23(120), 1–39.
-
-- Google Data API Team. (2007). *Scholar API discussion*. Google Groups. https://groups.google.com/g/google-help-dataapi/c/lraJZ9qPeFc
 
 - Greenfield, H., & Southgate, D.A.T. (2003). *Food Composition Data: Production, Management and Use* (2nd ed.). Rome: FAO.
 
