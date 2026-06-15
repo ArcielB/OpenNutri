@@ -26,7 +26,7 @@ Akademik literatürde yer alan birçok belirgin Türk gıdası, USDA FoodData Ce
 
 ## Çözüm: OpenNutri
 
-OpenNutri, bilimsel yayınlardan gıda bileşimi verisi çıkaran, doğrulayan ve standartlaştıran **Aşamalı Olarak Otonom Veri Doğrulama Sistemi** olarak önerilmektedir. Manuel veri girişine dayanan mevcut sistemlerden farklı olarak OpenNutri; yapay zekâ tabanlı veri çıkarımı, gıda bilimi temelli mantıksal doğrulama kuralları ve uzman geri bildirimiyle öğrenen bir **Hibrit Zekâ** işlem hattını birleştirir. Amaç, Türkiye'nin gıda bileşimi bilgisini yalnızca arşivleyen değil, kaynak yayına kadar izlenebilir biçimde sürekli genişleten ve zamanla daha düşük maliyetle çalışan ulusal bir veri altyapısı oluşturmaktır.
+OpenNutri, bilimsel yayınlardan gıda bileşimi verisi çıkaran, doğrulayan ve standartlaştıran **Aşamalı Olarak Otonom Veri Doğrulama Sistemi** olarak önerilmektedir. Manuel veri girişine dayanan mevcut sistemlerden farklı olarak OpenNutri; yapay zekâ tabanlı veri çıkarımı, gıda bilimi temelli mantıksal doğrulama kuralları ve uzman geri bildirimiyle öğrenen bir **Hibrit Zekâ** işlem hattını birleştirir. Amaç, Türkiye'nin gıda bileşimi bilgisini bilimsel literatürden çıkaran, doğrulayan ve standartlaştıran bir yöntem/model ile bunun ürünleşmiş biçimlerini (kaynağına kadar izlenebilir, sürekli genişleyen bir veri tabanı ve REST API) geliştirmektir. Böylece bu bilgi yalnızca arşivlenmekle kalmaz; zamanla daha düşük maliyetle çalışan, ulusal denetimdeki bir besin verisi kaynağına dönüşür.
 
 ## Sektörel Ulusal Kazanımlar
 
@@ -78,9 +78,9 @@ Türkiye bugün yapılandırılmış besin verisi için büyük ölçüde yabanc
 
 ## 2.1. Projenin Amacı
 
-Bu projenin amacı, Türkiye'nin bağımsız ve sürdürülebilir gıda bileşimi veri altyapısını oluşturmak üzere **OpenNutri** sistemini geliştirmektir. OpenNutri; yapay zekâ destekli veri çıkarımı, gıda bilimi doğrulama kuralları ve uzman geri bildirimiyle öğrenen kademeli bir mimari kullanarak bilimsel literatürdeki besin bileşimi verilerini otomatik biçimde çıkarır, doğrular ve uluslararası standartlara göre yapılandırır. Proje sonunda doğrulanmış bir besin veri tabanı, üretim ortamında çalışan REST API, açık araştırma veri seti ve farklı kurumlara uyarlanabilir bir veri çıkarma/doğrulama motoru ortaya çıkacaktır. Proje çıktısı, 1005 programının kapsamına uygun olarak bir yöntem/model (Kademeli Hibrit Zekâ çıkarma-doğrulama motoru) ile bunun ürünleşmiş biçimlerini (veri tabanı ve REST API) hedefler; talep edilen hesaplama donanımı bu Ar-Ge çıktılarının üretilmesi için bir araçtır, kalıcı altyapı kurmak başlı başına bir amaç değildir.
+Bu projenin amacı, bilimsel literatürdeki besin bileşimi verisini ulusal denetimde ve sürdürülebilir biçimde üretebilen bir yöntem/model (**OpenNutri** Kademeli Hibrit Zekâ motoru) ile bunun ürünleşmiş biçimlerini (doğrulanmış veri tabanı ve REST API) geliştirmektir. OpenNutri; yapay zekâ destekli veri çıkarımı, gıda bilimi doğrulama kuralları ve uzman geri bildirimiyle öğrenen kademeli bir mimari kullanarak bilimsel literatürdeki besin bileşimi verilerini otomatik biçimde çıkarır, doğrular ve uluslararası standartlara göre yapılandırır. Proje sonunda doğrulanmış bir besin veri tabanı, üretim ortamında çalışan REST API, açık araştırma veri seti ve farklı kurumlara uyarlanabilir bir veri çıkarma/doğrulama motoru ortaya çıkacaktır. Proje çıktısı, 1005 programının kapsamına uygun olarak bir yöntem/model (Kademeli Hibrit Zekâ çıkarma-doğrulama motoru) ile bunun ürünleşmiş biçimlerini (veri tabanı ve REST API) hedefler; talep edilen hesaplama donanımı bu Ar-Ge çıktılarının üretilmesi için bir araçtır, kalıcı altyapı kurmak başlı başına bir amaç değildir.
 
-Proje sıfırdan başlamamaktadır. Bölüm 4.6'da özetlenen prototip hâlihazırda çok kaynaklı literatür tarama, model kademesi, normalizasyon, uzman doğrulama arayüzü ve zamanlanmış otomasyon bileşenleriyle çalışmaktadır. Destek, bu prototipi ulusal ölçekte kullanılabilecek, maliyeti düşen ve uzman doğrulamasıyla kendini iyileştiren bir altyapıya dönüştürmek için kullanılacaktır.
+Proje sıfırdan başlamamaktadır. Bölüm 4.6'da özetlenen prototip hâlihazırda çok kaynaklı literatür tarama, model kademesi, normalizasyon, uzman doğrulama arayüzü ve zamanlanmış otomasyon bileşenleriyle çalışmaktadır. Destek, bu prototipi ulusal ölçekte kullanılabilen, maliyeti düşen ve uzman doğrulamasıyla kendini iyileştiren bir yöntem/model ile doğrulanmış veri ürününe dönüştürmek için kullanılacaktır.
 
 ## 2.2. Ölçülebilir Hedefler
 
@@ -335,11 +335,11 @@ Kuralları geçen ve güven eşiğini aşan kayıtlar kabul edilir; başarısız
 
 **Amaç:** Sistem güvenle karar veremediğinde nihai kalite güvencesi sağlamak ve tüm yapay zekâ katmanları için en güçlü eğitim sinyalini üretmek.
 
-**Yöntem:** Gıda mühendisliği bursiyerleri ve alan uzmanları, yan yana PDF görüntüleyici ve yapılandırılmış düzeltme formu içeren doğrulama arayüzünde yapay zekâ ön çıkarımlarını sıfırdan veri girmek yerine inceler ve düzeltir (Monarch, 2021). Her düzeltme; düzeltilen değer, hata kategorisi, zorluk derecesi, kaynak tablo/sayfa ve açıklama olarak kaydedilir.
+**Yöntem:** Doğrulama protokolünün tasarımı, bursiyer eğitimi ve nihai tahkim Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği araştırmacıları tarafından yürütülür. Gıda mühendisliği bursiyerleri (doğrulamanın ağırlıklı yürütüldüğü dönemde yüksek lisans düzeyindeki araştırmacılar), yan yana PDF görüntüleyici ve yapılandırılmış düzeltme formu içeren arayüzde yapay zekâ ön çıkarımlarını sıfırdan veri girmek yerine inceler ve düzeltir (Monarch, 2021). Her düzeltme; düzeltilen değer, hata kategorisi, zorluk derecesi, kaynak tablo/sayfa ve açıklama olarak kaydedilir.
 
 **Uyarlanabilir çift inceleme protokolü:** Kalibrasyon aşamasında yaklaşık 500 makale iki bursiyer tarafından bağımsız olarak doğrulanır. Uzmanlar arası uyum, verinin doğruluğunun tek garantisi olarak değil, yönergelerin açıklığını ölçen süreç sağlığı göstergesi olarak izlenir. Üretim aşamasında düşük güvenli makaleler çift incelemeye; yüksek güvenli ve kurallar ile uyumlu makaleler tek incelemeye alınır. Buna periyodik rastgele çift inceleme ve kabul edilen kayıtların kaynak PDF'e karşı rastgele denetimi eklenir. Anlaşmazlıklar Prof. Dr. Şumnu tarafından karara bağlanır; çözülemeyen kayıt tahmin edilmez, işaretlenir ve üst incelemeye alınır.
 
-**Kapasite:** İki gıda mühendisliği bursiyerinin her biri günde ortalama 8-12 doğrulanmış makale hedeflediğinde, WP4 doğrulama penceresi boyunca yaklaşık 5.000 uzman doğrulamalı makale ve 25.000 altın standart kayıt üretilebilir. Aktif öğrenme kuyruğu, insan incelemesini en yüksek eğitim değeri taşıyan örneklere yönlendirerek bu kapasitenin verimli kullanılmasını sağlar.
+**Kapasite:** Doğrulamayı yürüten iki gıda mühendisliği bursiyerinin (doğrulama penceresinin önemli bölümünde yüksek lisans düzeyindeki araştırmacılar) her biri günde ortalama 8-12 makale hedeflediğinde, Prof. Dr. Şumnu'nun protokol ve tahkim gözetiminde WP4 doğrulama penceresi boyunca yaklaşık 5.000 uzman doğrulamalı makale ve 25.000 altın standart kayıt üretilebilir. Aktif öğrenme kuyruğu, insan incelemesini en yüksek eğitim değeri taşıyan örneklere yönlendirerek bu kapasitenin verimli kullanılmasını sağlar.
 
 ## 4.3. Öğrenilmiş Yönlendirici
 
@@ -413,7 +413,7 @@ Proje ekibi, önerilen OpenNutri işlem hattının uçtan uca çalışan bir pro
 
 Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem entegrasyonunu fiilen çalışır hale getirerek fizibilite riskini düşürmektedir. Proje desteği, prototipin eksik kalan araştırma bileşenlerini tamamlayacaktır: (1) tarama ve çıkarımın hazır modellerden ince ayarlı açık ağırlıklı modellere taşınması; (2) gıda bilimi doğrulama kural motorunun sistematik olarak geliştirilmesi; (3) statik yönlendirme eşiklerinin yerine Öğrenilmiş Yönlendirici kurulması; (4) uzman düzeltmelerinin alt katmanları sürekli yeniden eğittiği öğrenme döngüsünün kapatılması.
 
-**Ekip yetkinliği:** Proje ekibi, gıda bilimi doğrulama kural katmanını tasarlamak ve denetlemek için gereken gıda mühendisliği alan uzmanlığını (Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği araştırmacıları) ile yazılım mühendisliği ve uygulamalı yapay zekâ yetkinliğini (Prof. Dr. Murat Ceylan, Dr. Engin Esme ve bursiyer ekibi) bir araya getiren disiplinler arası bir yapıdadır. [EKİP: buraya eklenecek 1-2 somut yetkinlik/başarı son aşamada onaylanacaktır.]
+**Ekip yetkinliği:** Proje ekibi, gıda bilimi doğrulama kural katmanını tasarlamak ve denetlemek için gereken gıda mühendisliği alan uzmanlığını (Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği araştırmacıları) ile yazılım mühendisliği ve uygulamalı yapay zekâ yetkinliğini (Prof. Dr. Murat Ceylan, Dr. Engin Esme ve bursiyer ekibi) bir araya getiren disiplinler arası bir yapıdadır. Gıda mühendisliği bursiyerlerinden ikisi, proje süresince yüksek lisans düzeyine geçerek doğrulama ve tez çalışmalarını bu düzeyde sürdürür. [EKİP: buraya eklenecek 1-2 somut yetkinlik/başarı son aşamada onaylanacaktır.]
 
 ### 4.6.1. Türk Gıda Veri Açığı Ön Değerlendirmesi
 
@@ -527,9 +527,10 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | Bilimsel/Akademik | OpenNutri-DB veri seti makalesi: veri tabanı tanımı, metodoloji, Türk gıda veri açığı analizi ve USDA/EuroFIR/TürKomp karşılaştırması. | 12-18 ay |
 | Ekonomik/Ticari/Sosyal | OpenNutri Veri Tabanı: en az 500.000 kaynak izlenebilir gıda-besin kaydı, en az 5.000 özgün Türk gıda ürünü/varyantı ve kaynakta mevcut olduğunda 181'e kadar besin öğesi. | 6-12 ay ilk sürüm; 12-18 ay tam ölçek |
 | Ekonomik/Ticari/Sosyal | OpenNutri API: sürekli güncellenen veri tabanına erişim sağlayan, dokümantasyon ve SDK içeren üretim REST API. | 12-18 ay |
-| Ekonomik/Ticari/Sosyal | Kademeli doğrulama motoru: başka ülkelerin veya kurumların gıda bileşimi dijitalleştirme süreçlerine uyarlanabilir veri çıkarma/doğrulama altyapısı. | 12-18 ay |
+| Ekonomik/Ticari/Sosyal | Kademeli doğrulama motoru: başka ülkelerin veya kurumların gıda bileşimi dijitalleştirme süreçlerine uyarlanabilir veri çıkarma/doğrulama motoru. | 12-18 ay |
 | Araştırmacı Yetiştirme | Yazılım/Yapay Zekâ ekibi: LLM ince ayarı, RAG, RLHF/tercih temelli öğrenme, rota optimizasyonu, API geliştirme ve gıda veri standartları konularında uygulamalı eğitim. | 0-18 ay |
 | Araştırmacı Yetiştirme | Gıda Bilimi ekibi: gıda bileşimi analizi, Türk gıda profillemesi, kalite kontrol protokolleri, USDA/EuroFIR/TürKomp çapraz referanslama ve yapay zekâ destekli doğrulama iş akışları. | 0-18 ay |
+| Araştırmacı Yetiştirme | İki yüksek lisans tezi: gıda mühendisliği bursiyerlerinin doğrulama metodolojisi, Türk gıda veri açığı ve yapay zekâ destekli gıda bileşimi doğrulaması üzerine tez çalışmaları. | 6-18 ay |
 
 ## 6.2. Projeden Elde Edilmesi Öngörülen Etkiler
 
@@ -542,7 +543,7 @@ Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) önceliklerinden gıda ve
 | Sürdürülebilirlik | Gıda tedarik zinciri izlenebilirliği ve Yeşil Mutabakat uyum süreçlerinde bileşimsel veri desteği. | 18-42 ay |
 | Akademik | Yapay zekâ destekli gıda bileşimi çıkarımı için açık kıyaslama ve metodoloji; farmakoloji, çevre bilimi ve malzeme bilimi gibi alanlara aktarılabilir mimari. | 12-24 ay |
 | Akademik | USDA FoodData Central, EFSA ve FAO/INFOODS gibi veri ekosistemleriyle uyumlu format sayesinde ulusal/uluslararası iş birliği zemini. | 18-36 ay |
-| Akademik | Yapay zekâ ve gıda bilimi kesişiminde eğitim almış 4 bursiyer; yüksek lisans tezleri ve disiplinler arası uzmanlık kazanımı. | 0-18 ay |
+| Akademik | Yapay zekâ ve gıda bilimi kesişiminde eğitim almış 4 bursiyer; ikisi yüksek lisans düzeyine geçerek tez üretir, ekipte disiplinler arası uzmanlık kazanılır. | 0-18 ay |
 | Ekonomik | Gıda ihracatı, sağlık teknolojisi, diyetisyen uygulamaları, gıda üretim kalite kontrolü ve tarımsal ürün pazarlaması için veri altyapısı. | 18-36 ay |
 | Ekonomik | Veri lisanslama, API aboneliği ve doğrulama motoru uyarlamasıyla iki ana gelir kanalı. | 24-48 ay |
 | İstihdam | Proje sonrası 2 yıl içinde veri operasyonları, API mühendisliği ve iş geliştirme rollerini kapsayan 5-10 kişilik spin-off hedefi; ekosistemde 10-20 dolaylı istihdam potansiyeli. | 18-36 ay |
