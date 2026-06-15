@@ -42,7 +42,7 @@ Bu soruna çözüm olarak, küresel ölçekte yeni bir Aşamalı Olarak Otonom V
 
 Currently, Turkish exporters often face a choice: pay high fees for private laboratory analysis (a full nutritional panel typically ranges from ~$200 to over $1,000 per sample; e.g., Great Lakes Scientific 2023 price list) or risk EU border rejection by using generic foreign data.
 
-Türk ihracatçıları genellikle bir seçimle karşı karşıya kalmaktadır: özel laboratuvar analizleri için yüksek ücretler ödemek veya yabancı verileri kullanarak AB sınırında reddedilme riskini göze almak. Bu soruna yönelik OpenNutri, Türk ürünleri için doğrulanmış, araştırmalarla desteklenen bir "Referans Standardı" sağlamayı hedeflemektedir. OpenNutri, bu maliyeti önemli ölçüde düşürerek üreticilerin AB Yönetmeliği 1169/2011 ve Yeşil Mutabakat izlenebilirlik standartlarını anında ve laboratuvar ücreti ödemeden karşılamalarını sağlamakta, böylece Türk ihracatının finansal rekabet gücünü doğrudan artırmaktadır.
+Türk ihracatçıları genellikle bir seçimle karşı karşıya kalmaktadır: özel laboratuvar analizleri için yüksek ücretler ödemek (tam bir besin paneli numune başına genellikle ~200 ABD dolarından 1.000 ABD dolarının üzerine kadar değişmektedir; örn. Great Lakes Scientific 2023 fiyat listesi) veya yabancı verileri kullanarak AB sınırında reddedilme riskini göze almak. Bu soruna yönelik OpenNutri, Türk ürünleri için doğrulanmış, araştırmalarla desteklenen bir "Referans Standardı" sağlamayı hedeflemektedir. OpenNutri, bu maliyeti önemli ölçüde düşürerek üreticilerin AB Yönetmeliği 1169/2011 ve Yeşil Mutabakat izlenebilirlik standartlarını anında ve laboratuvar ücreti ödemeden karşılamalarını sağlamakta, böylece Türk ihracatının finansal rekabet gücünü doğrudan artırmaktadır.
 
 |  |  |
 | --- | --- |
@@ -115,7 +115,7 @@ Build an end-to-end AI pipeline that takes scientific papers as input and output
 
 - Food science validation rules designed by domain experts
 
-**Hedef**** 1**: Hibrit Zeka Veri Çıkarma Motorunu Geliştirmek
+**Hedef 1**: Hibrit Zeka Veri Çıkarma Motorunu Geliştirmek
 
 Bilimsel makaleleri girdi olarak alan, yapılandırılmış ve doğrulanmış beslenme verileri üreten uçtan uca bir yapay zeka işlem hattı oluşturmak hedeflenmektedir. Sistem şunları birleştirecektir: 
 
@@ -138,7 +138,7 @@ The baseline reflects a leading general-purpose commercial LLM applied without a
 
 Başarı Ölçütleri:
 
-| **Ölçüt** | **Referans**** (GPT-4o)** | **Hedef**** (Başlangıç ****OpenNutri****)** |
+| **Ölçüt** | **Referans (GPT-4o)** | **Hedef (Başlangıç OpenNutri)** |
 | --- | --- | --- |
 | Otomatik onay doğruluğu | N/A (doğrulama hattı yok) | ≥%95 |
 | Otomatik onay oranı | N/A (güven puanlaması yok) | ≥%60 |
@@ -157,7 +157,7 @@ Automatically discover, filter, and analyze nutritional research papers from maj
 
 - Index ≥5,000 uniquely Turkish food items currently absent from international databases (USDA, EFSA)
 
-**Hedef**** 2: Büyük ****Ölçekli**** ****Bilimsel**** ****Literatürü**** ****İşleme**
+**Hedef 2: Büyük Ölçekli Bilimsel Literatürü İşleme**
 
 Büyük bilimsel veri tabanlarından (PubMed Central, DergiPark, Google Scholar) hem İngilizce hem de Türkçe olarak beslenme araştırma makalelerini otomatik olarak keşfetmek, filtrelemek ve analiz etmek hedeflenmektedir.
 
@@ -183,7 +183,7 @@ Create a high-quality, citation-backed nutritional database through systematic e
 
 - Final database error rate: <0.5%
 
-**Hedef**** 3:** Uzmanlar Tarafından Doğrulanmış Standart Veri Tabanı Oluşturma
+**Hedef 3:** Uzmanlar Tarafından Doğrulanmış Standart Veri Tabanı Oluşturma
 
 Sistematik uzman doğrulaması ile hem temel ürün hem de model iyileştirme için kullanılacak yüksek kaliteli ve bilimsel araştırmalarla desteklenmiş bir beslenme veri tabanı oluşturmak hedeflenmektedir.
 
@@ -212,13 +212,13 @@ Use the expert-verified dataset to continuously improve the AI extraction models
 
 **Auto-approved accuracy** = of records the system accepts without human review, what % are correct (measured by periodic random audit). **Auto-approval rate** = what % of papers bypass human review entirely. The <0.5% database error target is a hard constraint maintained across both auto-approved and human-verified records.
 
-**Hedef**** 4: ****Uzman**** Geri Bildirimi Kullanarak (RLHF) ****Geliştirilmiş**** ****Modelleri**** ****Eğitmek**
+**Hedef 4: Uzman Geri Bildirimi Kullanarak (RLHF) Geliştirilmiş Modelleri Eğitmek**
 
 Uzmanlar tarafından doğrulanmış verileri kullanarak, İnsan Geri Bildiriminden Pekiştirmeli Öğrenme (RLHF) yoluyla yapay zeka veri çıkarma modellerini sürekli olarak geliştirmek ve kendi kendini geliştiren bir sistem oluşturmak hedeflenmektedir.
 
 Başarı Ölçütleri:
 
-| **Ölçüt** | **RLHF ****Öncesi**** (Başlangıç)** | **RLHF ****Sonrası**** (Nihai)** |
+| **Ölçüt** | **RLHF Öncesi (Başlangıç)** | **RLHF Sonrası (Nihai)** |
 | --- | --- | --- |
 | Otomatik onay doğruluğu | ~%95 | ≥ %99,5 |
 | Otomatik onay oranı | ~%60 | ≥ %90 |
@@ -245,11 +245,11 @@ Deploy the complete OpenNutri infrastructure for public use and validate scienti
 
 - ≥3 peer-reviewed academic publications submitted
 
-**Hedef**** 5: ****Sistem**** ****Dağıtımı**** ****ve**** ****Bilimsel**** ****Yayılım**
+**Hedef 5: Sistem Dağıtımı ve Bilimsel Yayılım**
 
 OpenNutri altyapısının tamamını kamu kullanımına sunmak ve bilimsel katkıyı yayın yoluyla doğrulamak hedeflenmektedir.
 
-**Başarı**** ****Ölçütleri****:**
+**Başarı Ölçütleri:**
 
 - 200ms’den kısa yanıt süresi ve en az 100 eş zamanlı istek/saniye kapasitesiyle üretim REST API'sini dağıtmak
 
@@ -312,7 +312,7 @@ Aramalar üç veri tabanında gerçekleştirilmiştir:
 
 **Conclusion:** The proposed project does not infringe upon any identified third-party intellectual or industrial property rights.
 
-**Ticari**** ****rakipler****:** Edamam, FatSecret ve Nutritionix, platformlarını ticari sırlar ve lisanslama yoluyla koruyor (patent bulunamadı). Hiçbiri bilimsel literatürden gıda bileşimi verisi çıkarmıyor; etiket/tarif ayrıştırması için lisanslı devlet verilerini (USDA), kitle kaynak kullanımını ve NLP'yi kullanıyorlar.
+**Ticari rakipler:** Edamam, FatSecret ve Nutritionix, platformlarını ticari sırlar ve lisanslama yoluyla koruyor (patent bulunamadı). Hiçbiri bilimsel literatürden gıda bileşimi verisi çıkarmıyor; etiket/tarif ayrıştırması için lisanslı devlet verilerini (USDA), kitle kaynak kullanımını ve NLP'yi kullanıyorlar.
 
 Aşağıdakiler için mevcut patent bulunmamaktadır:
 
@@ -353,9 +353,9 @@ OpenNutri, birbirinden bağımsız olarak ticarileştirilebilir iki çıktı ür
 | 1 | Gıda bileşimi veri tabanı | %99,5'in üzerinde doğrulukla 500.000'den fazla gıda-besin kaydı. Manuel veri tabanlarına göre kat kat daha düşük maliyetle ölçeklenebilir ve bu maliyet zamanla azalır. | Kademeli API erişimi (ücretli, hacme göre ölçeklendirilmiş). Aylık güncellemelerle ücretsiz akademik erişim. |
 | 2 | Kademeli Hibrit Zeka doğrulama motoru | Çıkarma + doğrulama işlem hattı, ulusal gıda bileşimi veri tabanları oluşturmak veya yeni alanlara genişlemek için lisanslanabilir bir teknoloji olarak geliştirilir. | Motor lisanslaması (ülke veya alan adı bazında). Uyarlama ve dağıtım hizmetleri. |
 
-**Doğrudan**** ****bir**** ****rakip**** ****bulunmamaktadır**. Ticari gıda veri tabanları (Edamam, FatSecret, Nutritionix) mevcut devlet verilerini (USDA, EFSA) toplayıp yeniden satmaktadır. Hiçbiri bilimsel literatürden yeni veri üretmemektedir.
+**Doğrudan bir rakip bulunmamaktadır**. Ticari gıda veri tabanları (Edamam, FatSecret, Nutritionix) mevcut devlet verilerini (USDA, EFSA) toplayıp yeniden satmaktadır. Hiçbiri bilimsel literatürden yeni veri üretmemektedir.
 
-**Pazar ****Büyümesi**
+**Pazar Büyümesi**
 
 • Veri tabanı için: Dijital sağlık platformları, beslenme uygulamaları ve kişiselleştirilmiş diyet hizmetleri yoğun bir talep yaratmaktadır. TürKomp, 2014'ten beri sistematik olarak güncellenmemiştir; bu, yıllık 27 milyar dolardan fazla ihracat yapan bir sektör için on yıllık bir veri açığıdır.
 
@@ -367,14 +367,14 @@ Değer önerisi olarak veri bağımsızlığı: Çoğu ülke şu anda gıda bile
 
 Hesaplama açısından yoğun aşamalar (model eğitimi, RLHF, uzman doğrulaması) fonlanan proje süresi içinde tamamlanır. Proje sonrasında, tüm çıkarım ve barındırma işlemleri bu hibe aracılığıyla edinilen donanım üzerinde (GPU sunucusu, NAS depolama) gerçekleştirilir.
 
-| **Proje**** ****Sonrası**** ****Tekrarlayan**** ****Unsur** | **Tahmini**** ****Yıllık**** ****Maliyet** |
+| **Proje Sonrası Tekrarlayan Unsur** | **Tahmini Yıllık Maliyet** |
 | --- | --- |
 | Bulut yedekleme (~3 TB) | ~6.000 TL |
 | Yazılım araçları / izleme | ~2.000 TL |
 | Ticari API yedekleme (L4, yeni makalelerin ~%5'i) | ~1.000 TL |
 | Alan adı, SSL, çeşitli | ~500 TL |
 | Depolama genişletme (ek sürücüler) | ~3.000 TL |
-| Toplam | **~12.500 TL/****yıl** |
+| Toplam | **~12.500 TL/yıl** |
 
 Güç, ağ ve fiziksel altyapı ev sahibi kurum tarafından sağlanmaktadır. Ticari geçişin ardından (Bölüm 6.3), eşdeğer altyapı, TÜBİTAK 1512 BİGG tohum fonundan tek seferlik bir yatırım olarak sağlanmaktadır.
 
@@ -558,9 +558,9 @@ Yöntem:
 
 Amaç: Birincil veri çıkarma motoru ve merkezi bilimsel katkı. Yapılandırılmamış araştırma içeriğini yapılandırılmış gıda-besin kayıtlarına dönüştürür.
 
-**Yöntem**** — Veri ****çıkarma**** ****işlemini**** ****uzmanlaşmış**** alt ****görevlere**** ****ayıran**** ****modüler**** ****tasarım****:**
+**Yöntem — Veri çıkarma işlemini uzmanlaşmış alt görevlere ayıran modüler tasarım:**
 
-| **Alt ****Görevler** | **Açıklama** | **Model ****Türü** |
+| **Alt Görevler** | **Açıklama** | **Model Türü** |
 | --- | --- | --- |
 | Tablo Algılama ve Ayrıştırma | PDF'lerden tablo halindeki verileri bulma ve çıkarma | Görsel-dil modeli veya özel tablo çıkarıcı (örneğin, ince ayarlı Tablo Dönüştürücü; Smock vd., 2022) |
 | Tablo Anlamsal Yorumlama | Sütun başlıklarını, birimleri, dipnotları anlama ve standart besin kodlarına eşleme | LoRA adaptörlü ince ayarlı LLM (Hu vd., 2022) |
@@ -572,15 +572,15 @@ Within L3, models are organized into sub-tiers of increasing size. The Learned R
 
 L3 katmanı içinde modeller, artan boyutta alt katmanlara ayrılır. Öğrenilmiş Yönlendirici, her alt görev için en ucuz alt katmanı seçer. Modeller başlangıçta, parametre açısından verimli yöntemler (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023) kullanılarak doğrulama platformunun ürettiği uzman onaylı altın standart kayıtlar (Bölüm 4.6) üzerinde ince ayar yapılır, ardından L4/L5 doğrulanmış çıktılar ek eğitim verisi haline geldikçe sürekli olarak iyileştirilir. Bu tür alana özgü ince ayarın bilimsel bilgi çıkarımındaki etkinliği literatürde gösterilmiştir (Li vd., 2023).
 
-**Çıktı****:** Alan bazında güvenilirlik puanları ve verilerin kaynağı hakkında bilgi içeren yapılandırılmış gıda-besin kayıtları.
+**Çıktı:** Alan bazında güvenilirlik puanları ve verilerin kaynağı hakkında bilgi içeren yapılandırılmış gıda-besin kayıtları.
 
-**Doğrulama**** ****kuralları**** (Prof. Dr. Servet ****Gülüm**** ****Şumnu**** ****ile**** ****birlikte**** ****tasarlanmıştır****):**
+**Doğrulama kuralları (Prof. Dr. Servet Gülüm Şumnu ile birlikte tasarlanmıştır):**
 
-**Makro Besin ****Kütle**** ****Dengesi**** ****Kontrolü****:** Protein, yağ, karbonhidrat, nem, kül toplamının, 100 g numune başına yaklaşık 100 g olması beklenir (Food and Agriculture Organization / International Network of Food Data Systems, 2012).
+**Makro Besin Kütle Dengesi Kontrolü:** Protein, yağ, karbonhidrat, nem, kül toplamının, 100 g numune başına yaklaşık 100 g olması beklenir (Food and Agriculture Organization / International Network of Food Data Systems, 2012).
 
-- **Fizyolojik**** ****Referans**** ****Aralık**** ****Kontrolleri**: Ürün bileşenlerinin kompozisyon değerleri, referans veri tabanlarından ve literatürden türetilmiş aralıklara göre kontrol edilir. Örneğin, bir tahıl ürününün protein içeriği, belirlenmiş referans aralıkları içinde olmalıdır (USDA SR Legacy, TürKomp).
+- **Fizyolojik Referans Aralık Kontrolleri**: Ürün bileşenlerinin kompozisyon değerleri, referans veri tabanlarından ve literatürden türetilmiş aralıklara göre kontrol edilir. Örneğin, bir tahıl ürününün protein içeriği, belirlenmiş referans aralıkları içinde olmalıdır (USDA SR Legacy, TürKomp).
 
-- **Besinler**** Arası ****Tutarlılık**: Bileşenler arası ilişkiler kontrol edilir. Örneğin, toplam yağ değerinin bireysel yağ asitleri toplamına eşit veya ondan büyük olması.
+- **Besinler Arası Tutarlılık**: Bileşenler arası ilişkiler kontrol edilir. Örneğin, toplam yağ değerinin bireysel yağ asitleri toplamına eşit veya ondan büyük olması.
 
 - **Ek Kurallar:** Nem içeriği tutarlılığı, vitamin stabilitesi ve mineral oranı sınırları gibi ek fiziko-kimyasal kontroller.
 
@@ -670,7 +670,7 @@ Kalibrasyon sırasında (~500 makale) her iki bursiyer de her makaleyi bağıms�
 
 Çıktı: Tam kaynak ve hata açıklamalarıyla altın standart kayıtlar.
 
-**Tüm**** ****katmanlara**** ****eğitim**** ****katkısı****:**
+**Tüm katmanlara eğitim katkısı:**
 
 | Katman | Sinyal |
 | --- | --- |
@@ -696,13 +696,13 @@ The Router uses document features (journal, language, table count, text complexi
 
 **Training objective:** The Router minimizes a composite cost function:
 
-**Loss = α · ****ProcessingCost**** + β · (1 − Accuracy) + γ · Latency**
+**Loss = α · ProcessingCost + β · (1 − Accuracy) + γ · Latency**
 
 where ProcessingCost includes computational/API costs summed across all layers invoked, Accuracy is measured against the final verified output, and Latency is wall-clock time per paper. Accuracy is treated as a hard constraint (<0.5% error); cost and latency are optimized subject to that constraint.
 
 The Router is trained via contextual bandit methods (Li et al., 2010; Agarwal et al., 2014) and updates incrementally after each paper (online learning), adapting as L3 models improve through fine-tuning.
 
-**4.3. Öğrenilmiş Yönlendirici (Uyarlanabilir ****Orkestratör****)**
+**4.3. Öğrenilmiş Yönlendirici (Uyarlanabilir Orkestratör)**
 
 Amaç: Her makaleyi (ve her bir alt görevi) doğru çıkarım yapabilen en ucuz işlem katmanına dinamik olarak yönlendirmek.
 
@@ -720,7 +720,7 @@ Yönlendirici, bağlamsal bandit yöntemleri (Li vd., 2010; Agarwal vd., 2014) k
 
 Önemli bir yenilik: her katman, altındaki tüm katmanlara eğitim verir. Sadece belirli bir makaleyi işleyen en üst katman, tüm alt katmanlar için eğitim sinyali üretir:
 
-| **Son ****İşleme**** ****Katmanı** | **Eğitim**** Sinyalini Alan ****Katmanlar** | **Sinyal**** ****Türü** |
+| **Son İşleme Katmanı** | **Eğitim Sinyalini Alan Katmanlar** | **Sinyal Türü** |
 | --- | --- | --- |
 | L2 (alakasız) | L1 | Olumsuz alaka düzeyi etiketi |
 | L3 (kabul edilen çıktı) | L1, L2 | Olumlu alaka düzeyi etiketi |
@@ -729,7 +729,7 @@ Yönlendirici, bağlamsal bandit yöntemleri (Li vd., 2010; Agarwal vd., 2014) k
 
 Higher-layer examples receive greater training weight via focal loss (Lin et al., 2017), prioritizing cases where lower layers failed. This creates a compounding economic effect: training is a one-time cost, but once L3 absorbs the capabilities of L4 (commercial APIs, ~$0.01–$0.05/call) and L5 (human experts, ~$2–4/paper), every subsequently handled paper is a permanent cost reduction. At the target volume of 100,000+ papers, even a modest improvement in auto-approval rate (e.g., from 60% to 90%) eliminates tens of thousands of L4/L5 invocations — producing savings that exceed the total training compute budget by an order of magnitude.
 
-Üst katmanlardan gelen örnekler, **focal**** ****loss** (Lin vd., 2017) kullanılarak daha yüksek eğitim ağırlığı alır. Böylece alt katmanların başarısız olduğu durumlar önceliklendirilir. Bu yapı birikimli bir ekonomik** **etki yaratır: eğitim tek seferlik bir maliyettir; ancak L3, L4’ün (ticari API’ler, ~$0,01–$0,05/çağrı) ve L5’in (insan uzmanlar, ~$2–4/makale) yeteneklerini öğrendikten sonra, sistemin işlediği her yeni makale kalıcı bir maliyet düşüşü sağlar. Hedeflenen 100.000’den fazla makale hacminde, otomatik onay oranındaki mütevazı bir artış bile (örneğin %60’tan %90’a) on binlerce L4/L5 çağrısını ortadan kaldırır. Bu da toplam eğitim hesaplama bütçesini kat kat aşan tasarruflar sağlar.
+Üst katmanlardan gelen örnekler, **focal loss** (Lin vd., 2017) kullanılarak daha yüksek eğitim ağırlığı alır. Böylece alt katmanların başarısız olduğu durumlar önceliklendirilir. Bu yapı birikimli bir ekonomik** **etki yaratır: eğitim tek seferlik bir maliyettir; ancak L3, L4’ün (ticari API’ler, ~$0,01–$0,05/çağrı) ve L5’in (insan uzmanlar, ~$2–4/makale) yeteneklerini öğrendikten sonra, sistemin işlediği her yeni makale kalıcı bir maliyet düşüşü sağlar. Hedeflenen 100.000’den fazla makale hacminde, otomatik onay oranındaki mütevazı bir artış bile (örneğin %60’tan %90’a) on binlerce L4/L5 çağrısını ortadan kaldırır. Bu da toplam eğitim hesaplama bütçesini kat kat aşan tasarruflar sağlar.
 
 4. YÖNTEM (METHOD) —Part B: Veriler, Ön Çalışmalar ve İstatistikler
 
@@ -774,7 +774,7 @@ Elde edilen tüm beslenme verileri, TÜBİTAK'ın Açık Bilim politikalarına u
 
 - **Version control** on all records to track changes from model improvements
 
-- **Storage:** ~2–3 TB (100,000 PDFs, extraction records, model checkpoints, embeddings). Institutional servers for primary operations; cloud backup for disaster recovery. Budget line and proforma invoices for the dedicated NAS are detailed in **EK-2 ****Bütçe**** ****ve**** ****Gerekçesi**.
+- **Storage:** ~2–3 TB (100,000 PDFs, extraction records, model checkpoints, embeddings). Institutional servers for primary operations; cloud backup for disaster recovery. Budget line and proforma invoices for the dedicated NAS are detailed in **EK-2 Bütçe ve Gerekçesi**.
 
 **Expected yield:** We estimate an average of ~5 extractable food-nutrient records per relevant paper (e.g., a study reporting macronutrients, minerals, and vitamins for one food yields multiple standardized records). 
 
@@ -964,8 +964,6 @@ Yönlendirici performansı:
 
 **Ethics:** This project processes only open-access or institutionally licensed scientific publications; no personally identifiable data is collected and no human subjects are involved. Ethics committee approval is not required. Data extraction targets only factual nutrient composition values, which are not subject to copyright protection, operating strictly within academic Text and Data Mining (TDM) exceptions.
 
-Not: Zaman aralıklarını, Bölüm 5.1 İş-Zaman Çizelgesi ile tam olarak eşleşecek şekilde ayarlayın.
-
 Etik: Bu proje yalnızca açık erişimli veya kurumsal lisanslı bilimsel yayınları işler; kişisel olarak tanımlanabilir hiçbir veri toplanmaz ve insan denekleri dahil edilmez. Etik kurul onayı gerekli değildir. Veri çıkarma, yalnızca telif hakkı korumasına tabi olmayan, akademik Metin ve Veri Madenciliği (TDM) istisnaları dahilinde çalışan, olgusal besin bileşimi değerlerini hedeflemektedir.
 
 **References:** See EK-1 Kaynaklar.
@@ -976,11 +974,11 @@ Etik: Bu proje yalnızca açık erişimli veya kurumsal lisanslı bilimsel yayı
 
 | İP No | İş Paketlerinin Adı ve Hedefleri | Kim(ler) Tarafından Gerçekleştirileceği | Zaman Aralığı | Başarı Ölçütü ve Projenin Başarısına Katkısı |
 | --- | --- | --- | --- | --- |
-| 1 | Altyapı ve Veri Toplama — (1) L1 Akıllı Tarayıcıyı geliştirmek. (2) L2 Sınıflandırıcıyı oluşturmak ve eğitmek. (3) Veri tabanı şemasını oluşturmak. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacı****:** Prof. Dr. Servet Gülüm Şumnu · **Bursiyerler****:** Arciel Aliognis, Alijon Alimov | 1–4 Ay | Çok kaynaklı tarayıcı çalışır durumda. L2 sınıflandırıcı F1 ≥ 0,92. Aday veri tabanı >300.000 makale (L2 filtrelemesinden sonra ≥100.000 ilgili sonuç elde etmek için yeterli). |
-| 2 | Çekirdek Çıkarma Motoru (L3) Geliştirme — (1) Altın standart temel veri kümesini oluşturmak. (2) Alt göreve özgü modellere ince ayar yapmak (tablo ayrıştırma, varlık bağlama). (3) Doğrulama kural motorunu tasarlamak. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacılar****:** Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu · **Bursiyerler****:** Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3–8 Ay | Kıyaslamada L3 doğruluğu ≥ %75. 5+ modüler alt görev entegre edildi. 10+ doğrulama kuralı aktif. Maliyet, ticari API tabanlı temel maliyete göre ≥ %30 daha düşük. |
-| 3 | Basamaklı Entegrasyon ve Yönlendirici Optimizasyonu — (1) L4'ü (Ticari API'ler) entegre etmek. (2) Dinamik prompt mühendisliği geliştirmek. (3) Öğrenilmiş Yönlendiriciyi eğitmek. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacı****:** Dr. Engin Esme · **Bursiyerler****:** Arciel Aliognis, Alijon Alimov | 5–10 Ay | Tam L1–L4 uçtan uca kademeli. Yönlendirici, rastgele yönlendirmeye kıyasla ≥ %20 maliyet düşüşü sağlıyor. Modüler yükseltme çalışır durumda. Uçtan uca gecikme < 60s/makale (L5 hariç). Makale başına maliyet < 0,03$. |
-| 4 | Uzman Doğrulama ve Katmanlar Arası Öğrenme — (1) Doğrulama arayüzü geliştirmek. (2) Kalibrasyon: Referans oluşturmak için ~500 makalenin çift incelemesi. (3) Üretim: Kalan makaleler için uyarlanabilir protokol. (4) RLHF/ince ayar uygulamak. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacılar****:** Prof. Dr. Servet Gülüm Şumnu, Dr. Engin Esme · **Bursiyerler****:** Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 4–16 Ay | ≥25.000 altın standart kayıt (~5.000 doğrulanmış makaleden). Hata oranı < %0,5. Otomatik onay oranı ≥ %90 (uzman düzeltmesi olmadan kabul edilen makaleler). Maliyet < 0,01$/makale. |
-| 5 | Sistem Dağıtımı, Doğrulama ve Yaygınlaştırma — (1) Üretim REST API'sini dağıtmak. (2) Açık erişimli veri setini yayınlamak. (3) Son kıyaslama. (4) Bilimsel yayınlar. | **Yürütücü****:** Prof. Dr. Murat Ceylan · **Araştırmacılar****:** Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu · **Bursiyerler****:** Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 14–18 Ay | Son sistem doğruluğu ≥ %95 (bootstrap güven aralığı). ≥500.000 gıda-besin kaydı çıkarıldı. REST API devreye alındı ​​(<200ms, ≥100 eşzamanlı istek/sn). Veri tabanı ve kıyaslama açık erişim platformunda yayınlandı. ≥3 makale hakemli dergilere gönderildi. |
+| 1 | Altyapı ve Veri Toplama — (1) L1 Akıllı Tarayıcıyı geliştirmek. (2) L2 Sınıflandırıcıyı oluşturmak ve eğitmek. (3) Veri tabanı şemasını oluşturmak. | **Yürütücü:** Prof. Dr. Murat Ceylan · **Araştırmacı:** Prof. Dr. Servet Gülüm Şumnu · **Bursiyerler:** Arciel Aliognis, Alijon Alimov | 1–4 Ay | Çok kaynaklı tarayıcı çalışır durumda. L2 sınıflandırıcı F1 ≥ 0,92. Aday veri tabanı >300.000 makale (L2 filtrelemesinden sonra ≥100.000 ilgili sonuç elde etmek için yeterli). |
+| 2 | Çekirdek Çıkarma Motoru (L3) Geliştirme — (1) Altın standart temel veri kümesini oluşturmak. (2) Alt göreve özgü modellere ince ayar yapmak (tablo ayrıştırma, varlık bağlama). (3) Doğrulama kural motorunu tasarlamak. | **Yürütücü:** Prof. Dr. Murat Ceylan · **Araştırmacılar:** Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu · **Bursiyerler:** Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3–8 Ay | Kıyaslamada L3 doğruluğu ≥ %75. 5+ modüler alt görev entegre edildi. 10+ doğrulama kuralı aktif. Maliyet, ticari API tabanlı temel maliyete göre ≥ %30 daha düşük. |
+| 3 | Basamaklı Entegrasyon ve Yönlendirici Optimizasyonu — (1) L4'ü (Ticari API'ler) entegre etmek. (2) Dinamik prompt mühendisliği geliştirmek. (3) Öğrenilmiş Yönlendiriciyi eğitmek. | **Yürütücü:** Prof. Dr. Murat Ceylan · **Araştırmacı:** Dr. Engin Esme · **Bursiyerler:** Arciel Aliognis, Alijon Alimov | 5–10 Ay | Tam L1–L4 uçtan uca kademeli. Yönlendirici, rastgele yönlendirmeye kıyasla ≥ %20 maliyet düşüşü sağlıyor. Modüler yükseltme çalışır durumda. Uçtan uca gecikme < 60s/makale (L5 hariç). Makale başına maliyet < 0,03$. |
+| 4 | Uzman Doğrulama ve Katmanlar Arası Öğrenme — (1) Doğrulama arayüzü geliştirmek. (2) Kalibrasyon: Referans oluşturmak için ~500 makalenin çift incelemesi. (3) Üretim: Kalan makaleler için uyarlanabilir protokol. (4) RLHF/ince ayar uygulamak. | **Yürütücü:** Prof. Dr. Murat Ceylan · **Araştırmacılar:** Prof. Dr. Servet Gülüm Şumnu, Dr. Engin Esme · **Bursiyerler:** Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 4–16 Ay | ≥25.000 altın standart kayıt (~5.000 doğrulanmış makaleden). Hata oranı < %0,5. Otomatik onay oranı ≥ %90 (uzman düzeltmesi olmadan kabul edilen makaleler). Maliyet < 0,01$/makale. |
+| 5 | Sistem Dağıtımı, Doğrulama ve Yaygınlaştırma — (1) Üretim REST API'sini dağıtmak. (2) Açık erişimli veri setini yayınlamak. (3) Son kıyaslama. (4) Bilimsel yayınlar. | **Yürütücü:** Prof. Dr. Murat Ceylan · **Araştırmacılar:** Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu · **Bursiyerler:** Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 14–18 Ay | Son sistem doğruluğu ≥ %95 (bootstrap güven aralığı). ≥500.000 gıda-besin kaydı çıkarıldı. REST API devreye alındı ​​(<200ms, ≥100 eşzamanlı istek/sn). Veri tabanı ve kıyaslama açık erişim platformunda yayınlandı. ≥3 makale hakemli dergilere gönderildi. |
 
 **İş-Zaman Çizelgesi (Gantt) — Aylar 1–18**
 
@@ -1015,45 +1013,45 @@ WP1: Altyapı ve Veri Toplama · WP2: Çekirdek Çıkarım Motoru (L3) · WP3: B
 
 \newpage
 
-# 6.YAYGIN ETKİ
+# 6. YAYGIN ETKİ
 
 *Proje başarıyla gerçekleştirildiği takdirde projeden elde edilmesi öngörülen çıktı(**lar**) ve etki(**ler**) ile bu çıktı ve etkilerin paylaşımı ve yayılımına yönelik faaliyet(**ler**)/ürün(**ler**)/hizmet(**ler**) kısa ve net cümlelerle ilgili bölümde belirtilmelidir.*
 
 **6.1. Projeden Elde Edilmesi Öngörülen Çıktılara İlişkin Bilgiler**
 
-| **Çıktı**** ****Türü** | **Çıktı** | **Çıktının**** Elde ****Edilmesi**** ****Öngörülen**** Zaman ****Aralığı** |
+| **Çıktı Türü** | **Çıktı** | **Çıktının Elde Edilmesi Öngörülen Zaman Aralığı** |
 | --- | --- | --- |
-| **Bilimsel****/Akademik ****Çıktılar**** (****Bildiri****, Makale, Kitap ****Bölümü****, Kitap ****vb****.):** |
+| **Bilimsel/Akademik Çıktılar (Bildiri, Makale, Kitap Bölümü, Kitap vb.):** |
 |  | Referans makalesi: Büyük ölçekli gıda bileşimi veri çıkarma referansı — önemli bir test seti üzerinde çoklu model karşılaştırması (lider ticari ve açık ağırlıklı LLM'ler [örn. GPT, Claude, Gemini, Llama, Mistral] ile OpenNutri). Referans veri seti ve değerlendirme kodu Zenodo/HuggingFace'te yayınlanması. (Hedef: NeurIPS Veri Setleri ve Referanslar bölümü veya ACL) | 12–18 ay |
 |  | Mimari makale: Kademeli Hibrit Zeka (Cascaded Hybrid Intelligence) sistemine teknik derinlemesine bakış (L1-L5 işlem hattı, Öğrenilmiş Yönlendirici, Katmanlar Arası Öğrenme), ablasyon çalışmaları ve maliyet analizi ile birlikte. (Hedef: Expert Systems with Applications, or Computers and Electronics in Agriculture) | 12–18 ay |
 |  | Veri seti makalesi: OpenNutri-DB — tanım, metodoloji, Türk gıda veri açığı analizi ve USDA/EFSA/TürKomp ile karşılaştırma. (Hedef: JFCA, Food Chemistry, or Nature Scientific Data) | 12–18 ay |
-| **Ekonomik****/****Ticari****/****Sosyal**** ****Çıktılar**** (****Ürün****, ****Prototip****, Patent, ****Faydalı**** Model, ****Üretim**** ****İzni****, ****Tescil****, vb.):** |
-|  | OpenNutri Veri Tabanı: Küresel gıdalar genelinde en az 100.000 gıda-besin kaydı (en az 5.000 özgün Türk gıda ürünü ve her ürün için 181’e kadar besin ögesi dahil), tam kaynak izlenebilirliği ile (her kayıt için DOI). Rastgele denetim yoluyla doğrulanmış kalite (%0.5’den az hata oranı). Akademik/araştırma kullanım için ücretsiz (Zenodo’da aylık güncellenen statik veri seti). Ticari kullanım için lisans gerektirir. | 6–12 ay (ilk sürüm), 12–18 ay (tam ölçek) |
+| **Ekonomik/Ticari/Sosyal Çıktılar (Ürün, Prototip, Patent, Faydalı Model, Üretim İzni, Tescil, vb.):** |
+|  | OpenNutri Veri Tabanı: Küresel gıdalar genelinde en az 500.000 gıda-besin kaydı (en az 5.000 özgün Türk gıda ürünü ve her ürün için 181’e kadar besin ögesi dahil), tam kaynak izlenebilirliği ile (her kayıt için DOI). Rastgele denetim yoluyla doğrulanmış kalite (%0,5’ten az hata oranı). Akademik/araştırma kullanım için ücretsiz (Zenodo’da aylık güncellenen statik veri seti). Ticari kullanım için lisans gerektirir. | 6–12 ay (ilk sürüm), 12–18 ay (tam ölçek) |
 |  | OpenNutri API: Sürekli güncellemelerle veri tabanına gerçek zamanlı erişim sağlayan, 200 ms'den kısa yanıt süresine sahip, saniyede en az 100'den fazla eşzamanlı istek, geliştirici dokümantasyonu ve SDK sunan üretim amaçlı REST API. Teknik destek ile lisanslı ticari kullanıcılara sunulur. Potansiyel kullanıcılar: sağlık teknolojisi şirketleri, beslenme ve diyet takibi uygulamaları, gıda ihracatçıları, gıda üreticileri, diyetisyenler ve klinik beslenme uzmanları. | 12–18 ay |
 |  | Doğrulama Motoru: Kademeli Hibrit Zeka işlem hattı (L1–L5 + Öğrenilmiş Yönlendirici) — diğer ülkelerin gıda bileşimi dijitalleştirmesi için lisanslanabilir altyapı. Potansiyel kullanıcılar: ulusal gıda güvenliği ajansları (MENA, Orta Asya, Doğu Avrupa), FAO üye devletleri. | 12–18 ay |
-| **Araştırmacı**** ****Yetiştirilmesine**** ****Yönelik**** ****Çıktılar**** (Yüksek ****Lisans****/****Doktora****/****Tıpta**** ****Uzmanlık**** ****Tezleri****):** |
+| **Araştırmacı Yetiştirilmesine Yönelik Çıktılar (Yüksek Lisans/Doktora/Tıpta Uzmanlık Tezleri):** |
 |  | Yazılım/Yapay Zeka ekibi (2 bursiyer): LLM ince ayar (fine-tuning), RLHF, kademeli mimari tasarımı, rota optimizasyonu ve API geliştirme konularında temel eğitim. Besinsel veri standartları (INFOODS, FoodEx2) ve bilimsel literatür yapısı konularında Gıda Bilimi ekibiyle çapraz eğitim. Yürütücü tarafından haftalık denetim. Bursiyerlerin yapay zeka ve gıda bilimi kesişiminde yüksek lisans tezleri yürütmeleri beklenmektedir. | 0–18 ay |
 |  | Gıda Bilimi ekibi (2 bursiyer): Gıda bileşimi analizi, Türk gıdalarının besinsel profillenmesi, kalite kontrol protokolleri ve uluslararası veri tabanlarıyla (USDA, EFSA, TürKomp) çapraz referanslama konularında temel eğitim. Yapay zeka ekibiyle yapay zeka destekli doğrulama iş akışları ve model güven puanı yorumlama konusunda çapraz eğitim. Araştırmacı (Prof. Dr. Şumnu) tarafından haftalık denetim. Bursiyerlerin gıda bilimi ve yapay zeka kesişiminde yüksek lisans tezleri yürütmeleri beklenmektedir. | 0–18 ay |
 
 ## 6.2. Projeden Elde Edilmesi Öngörülen Etkilere İlişkin Bilgiler
 
-| **Etki**** ****Türü** | **Etki** | **Etkinin**** Elde Edilmesi Öngörülen Zaman** |
+| **Etki Türü** | **Etki** | **Etkinin Elde Edilmesi Öngörülen Zaman** |
 | --- | --- | --- |
-| **Toplumsal****/****Kültürel**** ****Etki****:** |
+| **Toplumsal/Kültürel Etki:** |
 | Yaşam Kalitesine Katkı | OpenNutri veri tabanı, Türk yemek kültürüne uyarlanmış kanıta dayalı beslenme rehberliği sağlar. Sağlık teknolojisi uygulamaları, Türk diyetleri (simit, lahmacun, yöresel yemekler) için doğru beslenme takibi sağlayabilir; bu, söz konusu gıdaları kapsamayan yabancı veri tabanlarıyla şu an için mümkün değildir. Hedef: Proje tamamlandıktan sonraki 2 yıl içinde OpenNutri verilerini kullanan en az 5 yerli beslenme uygulaması. | 18–36 ay |
 | Sürdürülebilir Çevre ve Enerjiye Katkı | Bileşimsel izlenebilirlik aracılığıyla sağlanan gıda tedarik zinciri şeffaflığı, Yeşil Mutabakat (Green Deal) uyumluluğunu ve sürdürülebilir gıda üretiminin izlenmesini destekler. | 18–42 ay |
 | Refah veya Eğitim Seviyesinin İyileştirilmesine Katkı | Sağlık Bakanlığı, obezite ve bulaşıcı olmayan hastalıklara (diyabet, hipertansiyon) karşı kanıta dayalı halk sağlığı politikalarını desteklemek için dinamik bir ulusal beslenme izleme aracı (Bölüm 1.3) kazanacaktır. Bölgesel besinsel bileşim haritaları, hedef odaklı okul beslenme programlarını ve bölgesel diyet müdahalelerini mümkün kılmaktadır. | 18–36 ay |
-| **Akademik ****Etki****:** |
+| **Akademik Etki:** |
 | Yeni Ar-Ge Kararları | Açık kıyaslama (benchmark) ve metodoloji, yeni bir araştırma alanı yaratmaktadır: Yapay zeka destekli gıda bileşimi çıkarımı. Modüler kademeli mimari, diğer bilimsel veri çıkarımı alanlarına (farmakoloji, çevre bilimi, malzeme bilimi) aktarılabilir niteliktedir. | 12–24 ay |
 | Ulusal/Uluslararası Ar-Ge İşbirlikleri | OpenNutri'nin açık erişimli veri tabanı ve standartlaştırılmış formatı (INFOODS/FoodEx2), USDA FoodData Central, EFSA ve FAO/INFOODS girişimleriyle doğrudan entegrasyon sağlar. Hedef: 2 yıl içinde uluslararası bir gıda bileşimi kuruluşuyla en az 1 resmi iş birliği anlaşması. | 18–36 ay |
 | Araştırmacı Sayısındaki ve Niteliğindeki Değişim | Yapay zeka ve gıda bilimi kesişiminde eğitim almış 4 lisans araştırmacısı - nadir bulunan disiplinler arası bir yetkinlik seti. Öğrenciler, LLM ince ayar (fine-tuning), RLHF, kademeli mimariler ve gıda bileşimi standartları konularında uygulamalı deneyim kazanmakta olup ilgili konularda yüksek lisans tezleri yürütmeleri beklenmektedir. | 0–18 ay |
 | Üniversite-Sanayi İşbirliklerine Katkı | OpenNutri API ve veri tabanı, üniversite-sanayi ortaklıklarının kurulabileceği somut ürünler sunmaktadır (Bölüm 6.3'e bakınız). Gıda ihracatçıları ve sağlık teknolojisi şirketleri, akademik araştırma çıktılarının doğrudan paydaşları haline gelir. | 12–36 ay |
-| **Ekonomik**** ****Etki****:** |
+| **Ekonomik Etki:** |
 | Potansiyel Sektörel Uygulama Alanları | Gıda ihracat uyumluluğu (AB Yönetmeliği 1169/2011), sağlık teknolojisi/diyetisyen uygulamaları, gıda üretiminde kalite kontrolü, tarımsal ürünlerin pazarlaması, sigorta/aktüeryal besinsel risk modellemesi. | 18–36 ay |
 | Küresel Pazar Öngörüleri | Küresel gıda bileşimi veri tabanı pazarı, gıda sistemlerinin dijitalleşmesiyle birlikte büyümektedir. OpenNutri iki gelir akışını hedeflemektedir: (1) Gıda holdinglerine ve sağlık teknolojisi şirketlerine veri lisanslama, (2) Gıda bileşimi verilerini dijitalleştirmek isteyen diğer ülkelere altyapı lisanslama. Türkiye'nin büyük bir tarım ihracatçısı (dünya çapında ilk 10'da) olması, doğrulanmış Türk gıda verilerine doğal bir talep yaratmaktadır. | 24–48 ay |
 | İstihdam Katkısı | OpenNutri'nin ticarileşme yolu (Bölüm 6.3), proje sonrası 2 yıl içinde 5-10 çalışanı olan (veri operasyonları, API mühendisliği, iş geliştirme) bir spin-off şirket kurulmasını hedeflemektedir. Ayrıca veri tabanı ve API, yerli sağlık teknolojisi şirketleri için sağlayıcı bir altyapı oluşturarak ekosistemde potansiyel olarak 10-20 dolaylı istihdam yaratacaktır. | 18–36 ay |
 | Rekabetçilik | İthal ikamesi: Yabancı besinsel veri tabanlarına (USDA, NCCDB, Nutritionix) olan bağımlılığı, Türk gıdalarını kapsayan bağımsız bir ulusal alternatifle değiştirir. İhracat etkisi: Doğrulanmış besinsel veriler, Türk gıda ihracatçıları için uyumluluk maliyetlerini düşürür (Bölüm 1.1). Yeni şirket oluşumu: OpenNutri altyapısı, yabancı beslenme uygulamalarına (MyFitnessPal, Yazio) karşı Türk diyetleri için üstün doğruluğa sahip yerli alternatifler sağlar. | 18–48 ay |
-| **Ulusal**** ****Güvenlik**** Etkisi:** |
+| **Ulusal Güvenlik Etkisi:** |
 | Gıda Güvenliği | Ulusal besinsel veri altyapısı üzerindeki egemen kontrol, Türkiye'nin erişimini kısıtlayabilen, fiyatları değiştirebilen veya Türk ürünlerini kapsam dışı bırakabilen yabancı veri tabanlarına bağımlı olmamasını sağlar. Gerçek zamanlı gıda tedarik bileşimi izlenmesi, krizlere yönelik beslenme planlamasını destekler. | 12–24 ay |
 | Ekonomik Güvenlik | Veri ticaret açığını tersine çevirme (Bölüm 1.5): Türkiye, gıda bileşimi verisi ve doğrulama altyapısında alıcı konumundan satıcı konumuna geçerek yeni bir bilgi ihracatı kategorisi oluşturur. Yabancı veri tabanlarındaki fiyat değişikliklerine veya erişim kısıtlamalarına karşı kırılganlığı azaltır. | 24–48 ay |
 | Siber Güvenlik | Tüm veri işleme ve depolama işlemleri ulusal kontrol altındadır (kurumsal sunucular + TRUBA). Temel veri tabanı için yabancı bulut altyapısına bağımlılık yoktur. Açık kaynaklı yazılım yığını, tedarikçi bağımlılığı (vendor lock-in) riskini ortadan kaldırır. | 0–18 ay |
@@ -1062,7 +1060,7 @@ WP1: Altyapı ve Veri Toplama · WP2: Çekirdek Çıkarım Motoru (L3) · WP3: B
 
 OpenNutri'nin ticari olarak pazarlanabilir üç çıktısı – doğrulanmış gıda bileşimi veri tabanı, üretim REST API'si ve kademeli hibrit zeka doğrulama motoru – endüstriyel kullanıma hazır eksiksiz bir ürün yığını oluşturmaktadır. Aşağıdaki yol haritası, bu çıktıların ulusal destek programlarının stratejik kullanımı yoluyla akademik bir prototipten ticari olarak sürdürülebilir bir platforma nasıl dönüştürüleceğini açıklamaktadır.
 
-**1. ****Aşama**** — ****Doğrulama**** ****ve**** ****Ortak**** ****Edinimi**** (12-18. Aylar, WP5 ****ile**** ****eş**** ****zamanlı****)**
+**1. Aşama — Doğrulama ve Ortak Edinimi (12-18. Aylar, WP5 ile eş zamanlı)**
 
 1005 projesinin son aşamasında ekip, ticarileştirmeye hazırlanmak için üç paralel faaliyet yürütecektir:
 
@@ -1072,7 +1070,7 @@ OpenNutri'nin ticari olarak pazarlanabilir üç çıktısı – doğrulanmış g
 
 • *İş** **modelinin** **resmileştirilmesi**:* Kademeli API fiyatlandırması (ücretsiz akademik kademe / ücretli ticari kademe), veri tabanı lisanslama koşulları ve pilot verilerle doğrulanmış birim ekonomisi de dahil olmak üzere ayrıntılı bir iş planı hazırlanacaktır.
 
-**2. ****Aşama**** — TÜBİTAK 1512 ****BiGG**** + KOSGEB ****Aracılığıyla**** ****Şirket**** ****Kurulumu**** (18-30. Aylar)**
+**2. Aşama — TÜBİTAK 1512 BiGG + KOSGEB Aracılığıyla Şirket Kurulumu (18-30. Aylar)**
 
 Birincil ticarileşme yolu girişimciliktir. OpenNutri platformunu işletmek üzere bir spin-off şirket kurulacaktır:
 
@@ -1080,7 +1078,7 @@ Birincil ticarileşme yolu girişimciliktir. OpenNutri platformunu işletmek üz
 
 • KOSGEB Teknoloji Odaklı Sanayi Hamlesi / TEKNOYATIRIM: Platformun ölçeklendirilmesi için gerekli olan ekipman ve altyapı yatırımı (çıkarım [inference] için özel GPU sunucuları, yüksek erişilebilirlik dağıtımı için veri tabanı altyapısı) için paralel olarak başvurulmuştur.
 
-**3. ****Aşama**** — TEYDEB 1507 ****ve**** TEYDEB 1505 ****ile**** ****Ölçeklendirme**** (30-48. Aylar)**
+**3. Aşama — TEYDEB 1507 ve TEYDEB 1505 ile Ölçeklendirme (30-48. Aylar)**
 
 Spin-off şirket ilk gelirleriyle faaliyete geçtiğinde:
 
@@ -1088,13 +1086,13 @@ Spin-off şirket ilk gelirleriyle faaliyete geçtiğinde:
 
 • TÜBİTAK TEYDEB 1505 (Üniversite-Sanayi İşbirliği): İkinci büyük gelir akışını geliştirmek için, kaynak üniversite ile ortaklaşa bir 1505 projesi önerilecektir: Doğrulama Motoru’nun diğer ülkelerin gıda güvenliği ajanslarına lisanslanması. Gıda bileşimi altyapısının az gelişmiş olduğu ve Türkiye'nin güçlü kurumsal ilişkilere sahip olduğu MENA bölgesi ve Orta Asya Türk devletleri birincil hedeflerdir. Bu adaptasyon süreci hem akademik araştırma (çok dilli model ince ayarı, yeni gıda ontolojisi eşlemesi) hem de ticari uygulama kapasitesi gerektirdiği için 1505 programı bu durum için idealdir.
 
-**Beklenen**** ****Sonuç****: **Proje tamamlandıktan sonraki 3 yıl içinde spin-off şirketinin 5-10 çalışana sahip olması, API aboneliklerinden ve veri tabanı lisanslamasından düzenli gelir elde etmesi ve en az bir uluslararası motor lisanslama anlaşması yapması hedeflenmektedir. Böylece Türkiye’nin gıda bileşimi veri altyapısını satın alan bir ülkeden bu altyapıyı satan bir ülkeye dönüşmesi amaçlanmaktadır.
+**Beklenen Sonuç: **Proje tamamlandıktan sonraki 3 yıl içinde spin-off şirketinin 5-10 çalışana sahip olması, API aboneliklerinden ve veri tabanı lisanslamasından düzenli gelir elde etmesi ve en az bir uluslararası motor lisanslama anlaşması yapması hedeflenmektedir. Böylece Türkiye’nin gıda bileşimi veri altyapısını satın alan bir ülkeden bu altyapıyı satan bir ülkeye dönüşmesi amaçlanmaktadır.
 
-## **6.4. ****Proje**** ****Çıktılarının**** ****Paylaşımı**** ****ve**** ****Yayılımı**
+## **6.4. Proje Çıktılarının Paylaşımı ve Yayılımı**
 
 Proje faaliyetleri boyunca elde edilecek çıktıların ve ulaşılacak sonuçların ilgili paydaşlar ve olası kullanıcılara ulaştırılması ve yayılmasına yönelik yapılacak olan etkinlikler aşağıdaki tabloda verilmiştir.
 
-| **Etkinlik**** ****Türü** | **Paydaş**** / ****Olası**** ****Kullanıcılar** | **Etkinliğin**** ****Zamanı**** ****ve**** ****Süresi** |
+| **Etkinlik Türü** | **Paydaş / Olası Kullanıcılar** | **Etkinliğin Zamanı ve Süresi** |
 | --- | --- | --- |
 | Dokümantasyon portalı, ilerleme güncellemeleri ve API erken erişim kaydı içeren proje web sitesi. | Araştırmacılar, geliştiriciler, gıda endüstrisi profesyonelleri, genel halk | 1. aydan itibaren (proje süresince ve sonrasında sürdürülecektir) |
 | Sosyal medya ve akademik ağlar (ResearchGate, Google Scholar, LinkedIn, X) | Genel akademik ve profesyonel kitle | 6. aydan itibaren (devamlı) |
