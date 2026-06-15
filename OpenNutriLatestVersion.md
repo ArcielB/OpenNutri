@@ -305,13 +305,13 @@ L3 tek bir monolitik model yerine alt görevlere ayrılmış modüler bir tasar�
 | Tablo anlamsal yorumlama | Sütun başlığı, birim, dipnot ve ölçüm bağlamını anlama. | LoRA/QLoRA ile ince ayarlı LLM. |
 | Bağlam çıkarımı | Gıda adı, numune kaynağı, hazırlama yöntemi, analiz yöntemi ve baz bilgisini çıkarma. | Alt göreve özgü ince ayarlı LLM. |
 | Birim normalizasyonu | mg/100 g, µg/100 g, %, ppm, porsiyon gibi birimleri standart baza dönüştürme. | Kural tabanlı motor + denetimli yardımcı sınıflandırıcı. |
-| Varlık bağlama | Gıda ve besin adlarını LanguaL, FoodEx2, INFOODS ve yerel kataloglarla eşleme. | Gömme tabanlı benzerlik, takma ad eşlemesi ve uzman onaylı özel kayıtlar. |
+| Varlık bağlama | Gıda ve besin adlarını LanguaL, FoodEx2, INFOODS ve yerel kataloglarla eşleme (FAO/INFOODS, 2012). | Gömme tabanlı benzerlik, takma ad eşlemesi ve uzman onaylı özel kayıtlar. |
 
 Modeller, doğrulama platformunda üretilen altın standart kayıtlar ile parametre-verimli ince ayar yöntemleri kullanılarak eğitilir (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023). Alana özgü ince ayarın bilimsel bilgi çıkarımındaki etkinliği literatürde gösterilmiştir (Li vd., 2023). Başlangıçta altın standart veri henüz sınırlıyken L3, WP4 kalibrasyon aşamasının ürettiği ilk çift incelemeli küme (~500 makale), doğrulanmış L4 çıktıları ve mevcut prototipin ürettiği çıkarımlarla başlatılır; bu nedenle L3 ince ayarı (WP2, 3-8. Aylar) ile uzman doğrulamasının (WP4, 4. Aydan itibaren) zaman çizelgeleri kasıtlı olarak örtüşür. L4/L5 doğrulanmış çıktıları ve hata etiketleri eğitim verisine eklendikçe L3'ün kapsama alanı genişler. L3'ün tek başına nihai <%0,5 hata hedefine ulaşması beklenmez; bu hedef, L3 + doğrulama kuralları + L4/L5 yükseltme ve rastgele denetimden oluşan tüm sistem için tanımlıdır.
 
-**Gıda bilimi doğrulama kuralları:** Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği ekibiyle birlikte tasarlanacak bu kurallar, standart dil modeli güven puanından bağımsız bir doğrulama katmanı oluşturur.
+**Gıda bilimi doğrulama kuralları:** Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği ekibiyle birlikte tasarlanacak bu kurallar, standart dil modeli güven puanından bağımsız bir doğrulama katmanı oluşturur ve gıda bileşimi verisi üretimine ilişkin yerleşik kalite ilkelerine dayanır (Greenfield ve Southgate, 2003).
 
-- **Makro besin / kütle dengesi:** Protein, yağ, karbonhidrat, nem ve kül toplamının 100 g yenilebilir kısım için fiziksel olarak makul aralıkta olup olmadığı kontrol edilir (FAO/INFOODS, 2012).
+- **Makro besin / kütle dengesi:** Protein, yağ, karbonhidrat, nem ve kül toplamının 100 g yenilebilir kısım için fiziksel olarak makul aralıkta olup olmadığı kontrol edilir.
 
 - **Enerji dengesi:** Atwater faktörleriyle hesaplanan enerji değeri, bildirilen enerji ile karşılaştırılır.
 
@@ -612,6 +612,8 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 - Fedus, W., et al. (2022). Switch Transformers: Scaling to trillion parameter models. *JMLR*, 23(120), 1–39.
 
 - Google Data API Team. (2007). *Scholar API discussion*. Google Groups. https://groups.google.com/g/google-help-dataapi/c/lraJZ9qPeFc
+
+- Greenfield, H., & Southgate, D.A.T. (2003). *Food Composition Data: Production, Management and Use* (2nd ed.). Rome: FAO.
 
 - Hestness, J., et al. (2017). Deep learning scaling is predictable, empirically. *arXiv:1712.01208*.
 
