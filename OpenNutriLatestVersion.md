@@ -131,14 +131,7 @@ Uzman düzeltmeleri; denetimli ince ayar, tercih temelli öğrenme/RLHF ve hata 
 
 **Başarı ölçütleri:**
 
-| Ölçüt | Başlangıç | Nihai Hedef |
-| --- | --- | --- |
-| Otomatik onay doğruluğu | ~%95 | ≥%99,5 |
-| Otomatik onay oranı | ~%60 | ≥%90 |
-| Veri tabanı hata oranı | <%0,5 | <%0,5 |
-| Makale başına otomatik işlem maliyeti | <$0,03 | <$0,01 |
-
-**Otomatik onay doğruluğu**, sistemin insan incelemesi olmadan kabul ettiği kayıtların periyodik rastgele denetimde doğru bulunma oranıdır. **Otomatik onay oranı**, insan incelemesine gitmeden tamamlanan makale oranıdır. <%0,5 veri tabanı hata hedefi, hem otomatik onaylanan hem de insan tarafından doğrulanan kayıtlar için geçerli katı kalite kısıtıdır. Makale başına maliyet hedefleri (<$0,03 → <$0,01) otomatik işlenen makalelerin hesaplama ve API maliyetini ifade eder; uzman doğrulama emeği WP4 kapsamında ayrıca bütçelenir ve ayrı raporlanır.
+Hedef 1'de tanımlanan dört ölçüt (otomatik onay doğruluğu ≥%99,5, otomatik onay oranı ≥%90, veri tabanı hata oranı <%0,5, makale başına maliyet <$0,01), uzman geri bildirimiyle eğitilen alt katmanların zaman içinde iyileşmesiyle hedeflenir. Maliyet hedefleri otomatik işleme maliyetini ifade eder; uzman doğrulama emeği WP4'te ayrıca bütçelenir. Ölçütlerin tam tanımları Bölüm 4.7.1'dedir.
 
 ### Hedef 5: Sistemi Yayına Almak ve Bilimsel Yayılımı Sağlamak
 
@@ -157,16 +150,6 @@ OpenNutri altyapısı araştırma ve ürünleşme kullanımına açılacak; meto
 - Sistem performans karşılaştırma raporunu yayımlamak (doğruluk, maliyet, hız; ticari ve açık ağırlıklı model referanslarıyla karşılaştırma).
 
 - En az 3 hakemli akademik yayını değerlendirmeye göndermek.
-
-## 2.3. Hedefler Özet Tablosu
-
-| No. | Hedef | Ana Başarı Ölçütleri |
-| --- | --- | --- |
-| 1 | Hibrit Zekâ Motoru | Başlangıçta ≥%95, nihai sistemde ≥%99,5 otomatik onay doğruluğu; makale başına maliyette lider ticari tekil modele göre ≥%90 düşüş |
-| 2 | Literatür İşleme | ≥100.000 ilgili makale; ≥500.000 gıda-besin kaydı; ≥5.000 özgün Türk gıda ürünü/varyantı |
-| 3 | Altın Standart Veri Tabanı | ≥5.000 uzman doğrulamalı makale; ≥25.000 altın standart kayıt; <%0,5 hata |
-| 4 | Uzman Geri Bildirimli Öğrenme | ≥%90 otomatik onay oranı; <$0,01/makale işlem maliyeti |
-| 5 | Dağıtım ve Yayılım | API, SDK ve dokümantasyon yayında; açık araştırma veri seti; performans kıyaslaması; ≥3 yayın başvurusu |
 
 \newpage
 
