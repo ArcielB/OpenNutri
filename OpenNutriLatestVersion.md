@@ -14,7 +14,7 @@ Bu durum Türkiye için dört somut kayıp üretmektedir:
 
 - Türk gıda ihracatçıları, AB etiketleme ve ürün belgelendirme süreçlerinde yerel ürünü temsil eden, kaynaklı ve doğrulanmış besin verisine sınırlı erişmektedir.
 
-Akademik literatürde yer alan birçok belirgin Türk gıdası, hem USDA hem de EFSA veri tabanlarında bulunmamaktadır; proje bu açığı kapatmak üzere tasarlanmıştır (Bölüm 4.6.3).
+Akademik literatürde yer alan birçok belirgin Türk gıdası, hem USDA hem de EFSA veri tabanlarında bulunmamaktadır; proje bu açığı kapatmak üzere tasarlanmıştır (Bölüm 4.6.1).
 
 ## Çözüm: OpenNutri
 
@@ -196,7 +196,7 @@ Ek metodolojik yenilik olarak sistem, standart NLP metriklerinin ötesinde alana
 
 ## 3.3. Ticarileştirme Potansiyeli
 
-OpenNutri, birbirinden bağımsız olarak ticarileştirilebilecek iki ana çıktı üretir:
+OpenNutri, birbirinden bağımsız olarak ticarileştirilebilecek iki ana ürün hattı sunar (veri ürünü ve doğrulama motoru):
 
 | No. | Çıktı | Açıklama | Gelir Modeli |
 | --- | --- | --- | --- |
@@ -404,6 +404,8 @@ Proje ekibi, önerilen OpenNutri işlem hattının uçtan uca çalışan bir pro
 | Gösterge metrikleri | ~17.700 aday makale taranmış, ~4.300 kayıt sisteme alınmış, ~5.000 AI çıkarımı üretilmiş, 339 makale uzman inceleme kuyruğuna yönlendirilmiştir. |
 
 Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem entegrasyonunu fiilen çalışır hale getirerek fizibilite riskini düşürmektedir. Proje desteği, prototipin eksik kalan araştırma bileşenlerini tamamlayacaktır: (1) tarama ve çıkarımın hazır modellerden ince ayarlı açık ağırlıklı modellere taşınması; (2) gıda bilimi doğrulama kural motorunun sistematik olarak geliştirilmesi; (3) statik yönlendirme eşiklerinin yerine Öğrenilmiş Yönlendirici kurulması; (4) uzman düzeltmelerinin alt katmanları sürekli yeniden eğittiği öğrenme döngüsünün kapatılması.
+
+**Ekip yetkinliği:** Proje ekibi, gıda bilimi doğrulama kural katmanını tasarlamak ve denetlemek için gereken gıda mühendisliği alan uzmanlığını (Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği araştırmacıları) ile yazılım mühendisliği ve uygulamalı yapay zekâ yetkinliğini (Prof. Dr. Murat Ceylan, Dr. Engin Esme ve bursiyer ekibi) bir araya getiren disiplinler arası bir yapıdadır. [EKİP: buraya eklenecek 1-2 somut yetkinlik/başarı son aşamada onaylanacaktır.]
 
 ### 4.6.1. Türk Gıda Veri Açığı Ön Değerlendirmesi
 
