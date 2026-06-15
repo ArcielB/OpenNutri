@@ -271,7 +271,7 @@ Yenilik, bu paradigmaların tekil kullanımında değil; her katmanın çıktıs
 
 **Amaç:** Gıda bileşimi verisi içerme olasılığı yüksek bilimsel yayınları sistematik olarak keşfetmek.
 
-**Yöntem:** Başlangıç sorgu seti, LanguaL, FoodOn ve MeSH terimleri gibi kontrollü sözlüklerden ve gıda mühendisliği alan uzmanlarının belirlediği örüntülerden oluşturulur. Tarayıcı, açık API ve kurumsal erişim kaynaklarından meta veri, özet ve mümkün olduğunda tam metin/PDF bağlantısı toplar. Etiketlenmiş sonuçlar, sorgu terimlerini ve kaynak önceliklerini zamanla iyileştiren alaka geri bildirim döngüsüne beslenir.
+**Yöntem:** Başlangıç sorgu seti, LanguaL, FoodOn (Dooley vd., 2018) ve MeSH terimleri gibi kontrollü sözlüklerden ve gıda mühendisliği alan uzmanlarının belirlediği örüntülerden oluşturulur. Tarayıcı, açık API ve kurumsal erişim kaynaklarından meta veri, özet ve mümkün olduğunda tam metin/PDF bağlantısı toplar. Etiketlenmiş sonuçlar, sorgu terimlerini ve kaynak önceliklerini zamanla iyileştiren alaka geri bildirim döngüsüne beslenir (hafif bir bandit yaklaşımı, Thompson örneklemesi; Chapelle & Li, 2011).
 
 **Kaynak kapsamı:** Europe PMC/PubMed Central, OpenAlex, Semantic Scholar, Crossref, DergiPark ve EKUAL kapsamında erişilen Scopus/Web of Science/ScienceDirect bağlantıları. Google Scholar, resmi API'si bulunmadığı için yalnızca yardımcı arama ve eksik DOI/doğrulama adımlarında yasal/kurumsal sınırlar içinde kullanılır.
 
@@ -281,7 +281,7 @@ Yenilik, bu paradigmaların tekil kullanımında değil; her katmanın çıktıs
 
 **Amaç:** Aday makaleleri düşük hesaplama maliyetiyle “gıda bileşimi verisi içeriyor” veya “ilgili değil” olarak sınıflandırmak.
 
-**Yöntem:** Başlık, özet, bölüm başlıkları ve anahtar kelime örüntüleri kullanılarak DistilBERT/BERT-Tiny benzeri küçük dil modelleri veya eşdeğer verimli sınıflandırıcılar eğitilir. Pozitif örnekler “proximate composition”, “g/100 g”, “mineral composition”, “fatty acid profile” gibi örüntüler ve doğrulanmış OpenNutri sonuçlarından; negatif örnekler aynı dergi ve alanlardan ancak bileşim verisi içermeyen yayınlardan seçilir. Model düzenli olarak, aşağı katman sonuçlarıyla yeniden eğitilir.
+**Yöntem:** Başlık, özet, bölüm başlıkları ve anahtar kelime örüntüleri kullanılarak DistilBERT/BERT-Tiny benzeri küçük dil modelleri veya eşdeğer verimli sınıflandırıcılar eğitilir (Sanh vd., 2019; Turc vd., 2019). Pozitif örnekler “proximate composition”, “g/100 g”, “mineral composition”, “fatty acid profile” gibi örüntüler ve doğrulanmış OpenNutri sonuçlarından; negatif örnekler aynı dergi ve alanlardan ancak bileşim verisi içermeyen yayınlardan seçilir. Model düzenli olarak, aşağı katman sonuçlarıyla yeniden eğitilir.
 
 **Hedef:** Yinelemeli iyileştirme sonrasında en az 0,92 F1 skoru. Güven eşiğinin üstündeki yayınlar L3'e ilerler; düşük güvenli veya sınırdaki yayınlar aktif öğrenme kuyruğuna alınabilir.
 
@@ -293,17 +293,17 @@ L3 tek bir monolitik model yerine alt görevlere ayrılmış modüler bir tasar�
 
 | Alt Görev | Açıklama | Model / Yöntem |
 | --- | --- | --- |
-| Tablo algılama ve ayrıştırma | PDF'lerde tablo, satır, sütun ve başlıkları bulma. | Görsel-dil modeli veya özel tablo çıkarıcı; gerektiğinde Tablo Dönüştürücü benzeri modeller. |
+| Tablo algılama ve ayrıştırma | PDF'lerde tablo, satır, sütun ve başlıkları bulma. | Görsel-dil modeli veya özel tablo çıkarıcı; gerektiğinde Tablo Dönüştürücü benzeri modeller (Smock vd., 2022). |
 | Tablo anlamsal yorumlama | Sütun başlığı, birim, dipnot ve ölçüm bağlamını anlama. | LoRA/QLoRA ile ince ayarlı LLM. |
 | Bağlam çıkarımı | Gıda adı, numune kaynağı, hazırlama yöntemi, analiz yöntemi ve baz bilgisini çıkarma. | Alt göreve özgü ince ayarlı LLM. |
 | Birim normalizasyonu | mg/100 g, µg/100 g, %, ppm, porsiyon gibi birimleri standart baza dönüştürme. | Kural tabanlı motor + denetimli yardımcı sınıflandırıcı. |
 | Varlık bağlama | Gıda ve besin adlarını LanguaL, FoodEx2, INFOODS ve yerel kataloglarla eşleme. | Gömme tabanlı benzerlik, takma ad eşlemesi ve uzman onaylı özel kayıtlar. |
 
-Modeller, doğrulama platformunda üretilen altın standart kayıtlar ile parametre-verimli ince ayar yöntemleri kullanılarak eğitilir (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023). L4/L5 doğrulanmış çıktıları ve hata etiketleri eğitim verisine eklendikçe L3'ün kapsama alanı genişler. L3'ün tek başına nihai <%0,5 hata hedefine ulaşması beklenmez; bu hedef, L3 + doğrulama kuralları + L4/L5 yükseltme ve rastgele denetimden oluşan tüm sistem için tanımlıdır.
+Modeller, doğrulama platformunda üretilen altın standart kayıtlar ile parametre-verimli ince ayar yöntemleri kullanılarak eğitilir (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023). Alana özgü ince ayarın bilimsel bilgi çıkarımındaki etkinliği literatürde gösterilmiştir (Li vd., 2023). L4/L5 doğrulanmış çıktıları ve hata etiketleri eğitim verisine eklendikçe L3'ün kapsama alanı genişler. L3'ün tek başına nihai <%0,5 hata hedefine ulaşması beklenmez; bu hedef, L3 + doğrulama kuralları + L4/L5 yükseltme ve rastgele denetimden oluşan tüm sistem için tanımlıdır.
 
 **Gıda bilimi doğrulama kuralları:** Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği ekibiyle birlikte tasarlanacak bu kurallar, standart dil modeli güven puanından bağımsız bir doğrulama katmanı oluşturur.
 
-- **Makro besin / kütle dengesi:** Protein, yağ, karbonhidrat, nem ve kül toplamının 100 g yenilebilir kısım için fiziksel olarak makul aralıkta olup olmadığı kontrol edilir.
+- **Makro besin / kütle dengesi:** Protein, yağ, karbonhidrat, nem ve kül toplamının 100 g yenilebilir kısım için fiziksel olarak makul aralıkta olup olmadığı kontrol edilir (FAO/INFOODS, 2012).
 
 - **Enerji dengesi:** Atwater faktörleriyle hesaplanan enerji değeri, bildirilen enerji ile karşılaştırılır.
 
@@ -319,7 +319,7 @@ Kuralları geçen ve güven eşiğini aşan kayıtlar kabul edilir; başarısız
 
 **Amaç:** L3'ün güvenle çözemediği alt görevleri, proje dönemindeki en güçlü ticari veya kapalı kaynak modellerle çözmek; ancak maliyeti kontrol etmek için yalnızca gerekli parçayı yükseltmek.
 
-**Yöntem:** Makalenin tamamı yerine başarısız olan alt görev L4'e gönderilir. Örneğin tablo yapısı doğru ayrıştırılmış ancak dipnot/birim yorumu belirsizse yalnızca o bağlam modele verilir. Model listesi maliyet ve yeteneğe göre güncellenir; değerlendirme tarihinde erişilebilir GPT, Claude, Gemini veya eşdeğer güçlü modellerden en ucuz yeterli seçenek seçilir. Dinamik istem dosyası, sistematik hatalar ve uzman düzeltmeleriyle güncellenir. RAG bileşeni, her çağrı öncesinde doğrulanmış veri tabanından ilgili gıda/besin referanslarını getirir.
+**Yöntem:** Makalenin tamamı yerine başarısız olan alt görev L4'e gönderilir. Örneğin tablo yapısı doğru ayrıştırılmış ancak dipnot/birim yorumu belirsizse yalnızca o bağlam modele verilir. Model listesi maliyet ve yeteneğe göre güncellenir; değerlendirme tarihinde erişilebilir GPT, Claude, Gemini veya eşdeğer güçlü modellerden en ucuz yeterli seçenek seçilir. Dinamik istem dosyası, sistematik hatalar ve uzman düzeltmeleriyle güncellenir. RAG bileşeni (Lewis vd., 2020), her çağrı öncesinde doğrulanmış veri tabanından ilgili gıda/besin referanslarını getirir.
 
 **Çıktı:** Ele alınan alt görev için yapılandırılmış kayıt veya düzeltme. L4 çıktıları nihai veri tabanına yalnızca doğrulama kurallarını geçtikten veya L5 tarafından onaylandıktan sonra girer; doğrulanmış L4 çıktıları L3 için eğitim verisine dönüşür.
 
@@ -327,7 +327,7 @@ Kuralları geçen ve güven eşiğini aşan kayıtlar kabul edilir; başarısız
 
 **Amaç:** Sistem güvenle karar veremediğinde nihai kalite güvencesi sağlamak ve tüm yapay zekâ katmanları için en güçlü eğitim sinyalini üretmek.
 
-**Yöntem:** Gıda mühendisliği bursiyerleri ve alan uzmanları, yan yana PDF görüntüleyici ve yapılandırılmış düzeltme formu içeren doğrulama arayüzünde yapay zekâ ön çıkarımlarını sıfırdan veri girmek yerine inceler ve düzeltir. Her düzeltme; düzeltilen değer, hata kategorisi, zorluk derecesi, kaynak tablo/sayfa ve açıklama olarak kaydedilir.
+**Yöntem:** Gıda mühendisliği bursiyerleri ve alan uzmanları, yan yana PDF görüntüleyici ve yapılandırılmış düzeltme formu içeren doğrulama arayüzünde yapay zekâ ön çıkarımlarını sıfırdan veri girmek yerine inceler ve düzeltir (Monarch, 2021). Her düzeltme; düzeltilen değer, hata kategorisi, zorluk derecesi, kaynak tablo/sayfa ve açıklama olarak kaydedilir.
 
 **Uyarlanabilir çift inceleme protokolü:** Kalibrasyon aşamasında yaklaşık 500 makale iki bursiyer tarafından bağımsız olarak doğrulanır. Uzmanlar arası uyum, verinin doğruluğunun tek garantisi olarak değil, yönergelerin açıklığını ölçen süreç sağlığı göstergesi olarak izlenir. Üretim aşamasında düşük güvenli makaleler çift incelemeye; yüksek güvenli ve kurallar ile uyumlu makaleler tek incelemeye alınır. Buna periyodik rastgele çift inceleme ve kabul edilen kayıtların kaynak PDF'e karşı rastgele denetimi eklenir. Anlaşmazlıklar Prof. Dr. Şumnu tarafından karara bağlanır; çözülemeyen kayıt tahmin edilmez, işaretlenir ve üst incelemeye alınır.
 
@@ -335,7 +335,7 @@ Kuralları geçen ve güven eşiğini aşan kayıtlar kabul edilir; başarısız
 
 ## 4.3. Öğrenilmiş Yönlendirici
 
-Öğrenilmiş Yönlendirici, her makale ve alt görev için hangi katmanın yeterli olacağını tahmin eder. Girdi özellikleri arasında dergi/kaynak, dil, metin uzunluğu, tablo sayısı, tablo karmaşıklığı, L2 güven puanı, önceki model belirsizliği, varlık bağlama güçlüğü ve doğrulama kuralı ihlalleri bulunur.
+Öğrenilmiş Yönlendirici, her makale ve alt görev için hangi katmanın yeterli olacağını tahmin eder. Girdi özellikleri arasında dergi/kaynak, dil, metin uzunluğu, tablo sayısı, tablo karmaşıklığı, L2 güven puanı, önceki model belirsizliği, varlık bağlama güçlüğü ve doğrulama kuralı ihlalleri bulunur. Birden çok katman aynı makaleyi işlediğinde çıktıları arasındaki uyum, ek bir kabul sinyali olarak değerlendirilir (Seung vd., 1992).
 
 Yönlendirici şu bileşik hedefi optimize eder:
 
@@ -443,7 +443,7 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 
 - **Öğrenme eğrileri:** Ek doğrulama verisinin marjinal katkısı güç yasası öğrenme eğrileriyle incelenecektir (Hestness vd., 2017).
 
-- **Uzmanlar arası uyum:** Kategorik doğruluk kararları için Cohen'in κ'sı, sürekli besin değerleri için sınıf içi korelasyon katsayısı izlenecektir. Bu ölçütler veri doğruluğunun tek garantisi değil, açıklama yönergelerinin kalibrasyon göstergesidir.
+- **Uzmanlar arası uyum:** Kategorik doğruluk kararları için Cohen'in κ'sı (McHugh, 2012), sürekli besin değerleri için sınıf içi korelasyon katsayısı (Shrout & Fleiss, 1979) izlenecektir. Bu ölçütler veri doğruluğunun tek garantisi değil, açıklama yönergelerinin kalibrasyon göstergesidir.
 
 - **Yönlendirici performansı:** Oracle yönlendiriciye karşı kümülatif pişmanlık analizi yapılacak; işlenen makale başına normalize pişmanlığın zamanla azalması beklenmektedir (Lattimore & Szepesvári, 2020).
 
