@@ -10,13 +10,13 @@
 
 ## Güncel Problem ve İhtiyaç
 
-Güncel ve güvenilir veriler içeren bir besin veri tabanı, diyet alımlarının doğru hesaplanması için kritik önem arz etmektedir (Schakel ve diğerleri, 1988). Çoğu besin veri tabanı, USDA FoodData Central ve EuroFIR gibi güvenilir kaynaklardan alınan verilerle ve uzman kürasyonu ile hazırlanmakta; bu süreç, bilimsel literatürdeki verilerin hızla artmasına rağmen hâlâ büyük ölçüde manuel yürütülmektedir. Sınırlı kaynaklar nedeniyle küresel kurumlar yaygın ürünlere öncelik vermekte; Türkçe literatürde, yerel tarım ürünlerinde ve bölgesel gıdalarda üretilen bilimsel veri uluslararası besin veri altyapılarına yeterince yansımamaktadır.
+Güncel ve güvenilir veriler içeren bir besin veri tabanı, diyet alımlarının doğru hesaplanması için kritik önem arz etmektedir (Schakel ve diğerleri, 1988). Çoğu besin veri tabanı, USDA FoodData Central ve EuroFIR (EuroFIR AISBL, 2024) gibi güvenilir kaynaklardan alınan verilerle ve uzman kürasyonu ile hazırlanmakta; bu süreç, bilimsel literatürdeki verilerin hızla artmasına rağmen hâlâ büyük ölçüde manuel yürütülmektedir. Sınırlı kaynaklar nedeniyle küresel kurumlar yaygın ürünlere öncelik vermekte; Türkçe literatürde, yerel tarım ürünlerinde ve bölgesel gıdalarda üretilen bilimsel veri uluslararası besin veri altyapılarına yeterince yansımamaktadır.
 
 Bu durum Türkiye için dört somut kayıp üretmektedir:
 
 - Türkiye'nin bilimsel araştırmaları yapılandırılmamış PDF arşivlerinde kalmakta; küresel standart belirleyici kurumlar için erişilebilir ve yeniden kullanılabilir hale gelememektedir.
 
-- Türkiye'nin ulusal veri tabanı TürKomp, 500'den fazla gıdaya ait yaklaşık 63.000 bileşen verisiyle kritik ve yüksek kaliteli bir temel oluşturmuş (TÜBİTAK MAM Gıda Enstitüsü, KAMAG 1007), ancak kuruluşundan bu yana sistematik ve büyük ölçekli bir genişlemeye tabi tutulmamıştır. Manuel laboratuvar analizine dayanan bu yaklaşımın, ülkenin geniş tarımsal ve kültürel gıda çeşitliliğini kapsayacak biçimde ölçeklendirilmesi yüksek maliyetlidir.
+- Türkiye'nin ulusal veri tabanı TürKomp, 500'den fazla gıdaya ait yaklaşık 63.000 bileşen verisiyle kritik ve yüksek kaliteli bir temel oluşturmuş (TÜBİTAK MAM Gıda Enstitüsü, 2014; KAMAG 1007), ancak kuruluşundan bu yana sistematik ve büyük ölçekli bir genişlemeye tabi tutulmamıştır. Manuel laboratuvar analizine dayanan bu yaklaşımın, ülkenin geniş tarımsal ve kültürel gıda çeşitliliğini kapsayacak biçimde ölçeklendirilmesi yüksek maliyetlidir.
 
 - Türk kurumları, sağlık teknolojisi girişimleri ve araştırmacılar, yabancı veri tabanlarına erişmek için lisanslama veya abonelik maliyetleriyle karşılaşmakta; bu da yerel gıdaları eksik temsil eden altyapılara bağımlılık yaratmaktadır.
 
@@ -32,7 +32,7 @@ OpenNutri, bilimsel yayınlardan gıda bileşimi verisi çıkaran, doğrulayan v
 
 ### 1.1. Gıda İhracatçıları: AB Etiketleme Uyumu İçin Güvenilir Referans Veri
 
-Türk ihracatçıları, ürün bazında besin değerlerini kanıtlamak için çoğu zaman pahalı özel laboratuvar analizlerine veya yerel ürünü yeterince temsil etmeyen yabancı veri tabanlarına başvurmak zorunda kalmaktadır. AB Yönetmeliği 1169/2011, beslenme beyanı değerlerinin analiz yanında kabul görmüş ve yerleşik verilerden hesaplanmasına da imkân tanıdığı için, kaynaklı ve doğrulanmış bir ulusal veri altyapısı ihracatçıların teknik dosya hazırlama, ön değerlendirme ve ürün formülasyonu süreçlerinde doğrudan maliyet azaltıcı rol oynayabilir.
+Türk ihracatçıları, ürün bazında besin değerlerini kanıtlamak için çoğu zaman pahalı özel laboratuvar analizlerine veya yerel ürünü yeterince temsil etmeyen yabancı veri tabanlarına başvurmak zorunda kalmaktadır. AB Yönetmeliği 1169/2011 (European Parliament and Council, 2011), beslenme beyanı değerlerinin analiz yanında kabul görmüş ve yerleşik verilerden hesaplanmasına da imkân tanıdığı için, kaynaklı ve doğrulanmış bir ulusal veri altyapısı ihracatçıların teknik dosya hazırlama, ön değerlendirme ve ürün formülasyonu süreçlerinde doğrudan maliyet azaltıcı rol oynayabilir.
 
 OpenNutri, Antep fıstığı, yerel buğday çeşitleri, geleneksel ürünler ve bölgesel gıdalar gibi Türk ürünleri için DOI ile kaynaklandırılmış, denetlenebilir bir referans standardı sağlayarak laboratuvar analizinin zorunlu olduğu durumların yerine geçmeyi değil, analiz ihtiyacını azaltabilecek ve belgelendirme kalitesini yükseltecek karar süreçlerini hedefler. Böylece ihracatçılar, yabancı veri tabanlarına bağımlı genel tahminler yerine yerel ürüne ait bilimsel kanıtla çalışabilir.
 
@@ -357,7 +357,7 @@ Alt katmanların başarısız olduğu örneklere eğitimde daha yüksek ağırl�
 | Europe PMC / PubMed Central | Açık erişimli biyomedikal ve gıda bilimi yayınları | İngilizce | API/OAI-PMH ve açık tam metin | Ana açık literatür kaynağı |
 | DergiPark | Türk dergileri | Türkçe / İngilizce | OAI-PMH meta veri + açık tam metin | Türkçe literatür ve yerel gıdalar |
 | OpenAlex | Açık akademik meta veri | Çok dilli | REST API | Tekilleştirme, atıf grafiği ve keşif |
-| Semantic Scholar | Akademik grafik ve PDF bağlantıları | Çok dilli | REST API ve açık veri setleri | Anlamsal arama ve meta veri zenginleştirme |
+| Semantic Scholar | Akademik grafik ve PDF bağlantıları | Çok dilli | REST API ve açık veri setleri (Semantic Scholar, 2026) | Anlamsal arama ve meta veri zenginleştirme |
 | Crossref | DOI meta verileri | Çok dilli | REST API | DOI doğrulama ve kaynak bağlantısı |
 | Scopus / Web of Science / ScienceDirect | Kurumsal erişimli yayınlar | Çok dilli | EKUAL ve üniversite kütüphanesi erişimi | Lisans koşullarına uygun tam metin doğrulama |
 | Google Scholar | Geniş akademik arama | Çok dilli | Manuel/kurumsal keşif; resmi API yok | Eksik kaynakların doğrulanması, temel otomasyon değil |
@@ -501,7 +501,7 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | Altyapı / Erişim Kanalı | Projede Kullanım Amacı |
 | --- | --- |
 | Ev sahibi kurum sunucuları ve proje kapsamında alınacak GPU/NAS donanımı | Birincil veri tabanı, çıkarım servisleri, model kontrol noktaları, PDF/tam metin önbelleği ve yedekleme. |
-| TRUBA yüksek başarımlı hesaplama kaynakları (TÜBİTAK ULAKBİM; desteklenen projenin yürütücü tahsisi üzerinden proje ekibine erişim) | Büyük ölçekli LLM ince ayarı, RLHF/tercih temelli eğitim süreçleri ve model kıyaslaması. |
+| TRUBA yüksek başarımlı hesaplama kaynakları (TÜBİTAK ULAKBİM, 2026; desteklenen projenin yürütücü tahsisi üzerinden proje ekibine erişim) | Büyük ölçekli LLM ince ayarı, RLHF/tercih temelli eğitim süreçleri ve model kıyaslaması. |
 | Üniversite kütüphanesi ve EKUAL erişimi | Web of Science, Scopus, ScienceDirect ve diğer lisanslı kaynaklarda literatür keşfi ve yasal tam metin erişimi. |
 | Mevcut OpenNutri prototip altyapısı | Crawler, model kademesi, normalizasyon, uzman doğrulama arayüzü ve operasyonel veri tabanı için başlangıç platformu. |
 
