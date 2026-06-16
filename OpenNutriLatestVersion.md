@@ -157,7 +157,7 @@ OpenNutri altyapısı araştırma ve ürünleşme kullanımına açılacak; meto
 
 ## 3.1. Patent, Faydalı Model ve Tescil Ön Taraması
 
-Proje kapsamı için başvuru hazırlık döneminde (2026) TURKPATENT, Espacenet ve Google Patents üzerinde Türkçe ve İngilizce anahtar kelimelerle ön tarama yapılmıştır. Kullanılan örnek terimler şunlardır: “gıda kompozisyon veri tabanı”, “besin değeri yapay zeka”, “otomatik gıda analizi”, “food composition database artificial intelligence”, “nutritional data extraction NLP”, “cascade model LLM routing”, “food ontology automated construction”.
+Proje kapsamı için 16 Haziran 2026 tarihinde TURKPATENT, Espacenet ve Google Patents üzerinde Türkçe ve İngilizce anahtar kelimelerle ön tarama yapılmıştır. Kullanılan örnek terimler şunlardır: “gıda kompozisyon veri tabanı”, “besin değeri yapay zeka”, “otomatik gıda analizi”, “food composition database artificial intelligence”, “nutritional data extraction NLP”, “cascade model LLM routing”, “food ontology automated construction”.
 
 Bu ön taramada, OpenNutri'nin önerdiği bütünleşik yapıyla doğrudan örtüşen bir patent, faydalı model veya tescil bulunmamıştır. TürKomp, TÜBİTAK KAMAG 1007 kapsamında geliştirilmiş ulusal bir gıda kompozisyon veri tabanıdır; OpenNutri ise laboratuvar temelli tekil veri üretiminden farklı olarak bilimsel literatürden otomatik çıkarım, çok katmanlı doğrulama, uzman geri bildirimi ve öğrenilmiş yönlendirme mimarisini hedeflemektedir.
 
@@ -166,9 +166,10 @@ Nihai başvuru ve ürünleşme aşamasında bu ön taramanın Teknoloji Transfer
 | Patent / Sistem | Kapsam | OpenNutri ile Farkı |
 | --- | --- | --- |
 | US20190295440A1 | Web verileri, gıda ontolojisi, sağlık önerileri ve kişiselleştirilmiş tavsiyeler. | Tüketici tavsiye platformudur; bilimsel literatürden DOI kaynaklı 100 g bazlı bileşim verisi çıkarmaz, gıda bilimi doğrulama kademesi ve uzman geri bildirimli öğrenme içermez. |
-| US9286290B2, CN110532834A, WO2025107898A1 | Genel belge/tablo çıkarma ve düzen analizi. | Alan bağımsız tablo çıkarma araçlarıdır; besin bileşimi standardizasyonu, fiziko-kimyasal doğrulama, maliyet optimizasyonlu model yönlendirme ve kaynak düzeyinde besin kaydı üretimi içermez. |
+| US9286290B2, CN110532834A, WO2025107898A1 | Genel belge/tablo çıkarma, düzen analizi ve tablolardan bilgi üretimi. | Alan bağımsız tablo çıkarma araçlarıdır; besin bileşimi standardizasyonu, fiziko-kimyasal doğrulama, maliyet optimizasyonlu model yönlendirme ve kaynak düzeyinde besin kaydı üretimi içermez. |
 | FoodMine (Hooton vd., 2020) | PubMed üzerinden gıdaların kimyasal bileşenlerini arayan akademik NLP sistemi. | Flavonoid/fenolik gibi kimyasal bileşikleri hedefler; standart besin bileşimi değerlerini (enerji, makro besinler, vitaminler, mineraller/100 g) doğrulanmış veri tabanına dönüştürmez. Tek modelli ve pilot ölçeklidir. |
 | P-NUT / gıda bilgi grafiği çalışmaları (Ispirova vd., 2020; Cenikj vd., 2023) | Kısa metin açıklamalarından besin içeriği tahmini veya gıda/biyomedikal bilgi grafikleri. | Ölçülmüş bileşim değerlerini kaynağıyla çıkarmaz; tahmin veya ilişki grafiği üretir. OpenNutri'nin hedefi kaynaklı, denetlenebilir ve standardize edilmiş gıda-besin kayıtlarıdır. |
+| FoodAtlas (Youn vd., 2024); NutriMatch (Jankelow vd., 2026) | FoodAtlas literatürden gıda-kimyasal ilişkilerini çıkarır; NutriMatch büyük dil modelleriyle mevcut gıda bileşimi veri tabanlarını uyumlulaştırır/eşleştirir. | FoodAtlas standart 100 g besin bileşimi değerleri yerine gıda-kimyasal varlık ilişkileri üretir; NutriMatch yeni veri üretmeyip var olan veri tabanlarını hizalar. OpenNutri ise literatürden doğrulanmış, kaynaklı ve standardize 100 g bileşim kayıtlarını çok katmanlı doğrulama ve uzman geri bildirimiyle üretir. |
 | Ticari veri tabanları (Edamam, FatSecret, Nutritionix vb.) | Lisanslı veri, kitle kaynaklı veri, etiket/tarif ayrıştırma ve API hizmetleri. | Bilimsel literatürden yeni gıda bileşimi verisi üretmez; çok katmanlı doğrulama ve uzman geri bildirimli model iyileştirme mimarisi sunmaz. |
 
 ## 3.2. Projenin Yenilikçi Yönleri
@@ -614,6 +615,8 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Ispirova, G., Eftimov, T., & Koroušić Seljak, B. (2020). P-NUT: Predicting NUTrient content from short text descriptions. *Mathematics*, 8(10), 1811.
 
+- Jankelow, A., Godneva, A., Rein, M., Samocha-Bonet, D., Weissglas-Volkov, D., Zohar, S., Shor, T., & Segal, E. (2026). NutriMatch: harmonizing food composition databases with large language models for enhanced nutritional prediction. *npj Digital Public Health*, 1, 1. https://doi.org/10.1038/s44482-025-00001-7
+
 - Klensin, J.C., et al. (1989). *Identification of Food Components for INFOODS Data Interchange*. Tokyo: UNU Press.
 
 - Lattimore, T., & Szepesvári, C. (2020). *Bandit Algorithms*. Cambridge University Press.
@@ -659,5 +662,7 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 - Viola, P., & Jones, M. (2001). Rapid object detection using a boosted cascade. *CVPR*, 1, 511–518.
 
 - Wang, M., et al. (2011). Classifier cascade for minimizing feature evaluation cost. *AISTATS*, 218–226.
+
+- Youn, J., Li, F., Simmons, G., Kim, S., & Tagkopoulos, I. (2024). FoodAtlas: Automated knowledge extraction of food and chemicals from literature. *Computers in Biology and Medicine*, 109072. https://doi.org/10.1016/j.compbiomed.2024.109072
 
 - Yue, X., et al. (2024). Large language model cascades with mixture of thoughts representations. *ICLR*.
