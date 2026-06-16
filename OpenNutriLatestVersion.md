@@ -86,7 +86,7 @@ Proje sıfırdan başlamamaktadır. Bölüm 4.6'da özetlenen prototip hâlihaz�
 
 ### Hedef 1: Hibrit Zekâ Veri Çıkarma Motorunu Geliştirmek
 
-Bilimsel makaleleri girdi olarak alan, yapılandırılmış ve doğrulanmış gıda-besin kayıtları üreten uçtan uca bir yapay zekâ işlem hattı geliştirilecektir. Sistem; ince ayarlanmış açık ağırlıklı modelleri, gerektiğinde ticari model desteğini, geri getirmeyle güçlendirilmiş üretimi (RAG), gıda bilimi doğrulama kurallarını ve kaynak izlenebilirliğini birlikte kullanacaktır.
+Bilimsel makaleleri girdi olarak alan, yapılandırılmış ve doğrulanmış gıda-besin kayıtları üreten uçtan uca bir yapay zekâ işlem hattı geliştirilecektir. Sistem; ince ayarlanmış ağırlıkları açık modelleri, gerektiğinde ticari model desteğini, bilgi getirme destekli üretimi (RAG), gıda bilimi doğrulama kurallarını ve kaynak izlenebilirliğini birlikte kullanacaktır.
 
 **Başarı ölçütleri:**
 
@@ -97,7 +97,7 @@ Bilimsel makaleleri girdi olarak alan, yapılandırılmış ve doğrulanmış g�
 | Veri tabanı hata oranı | Sistematik denetim yok | Tüm kabul edilen kayıtlar için <%0,5 |
 | Makale başına otomatik işlem maliyeti | Lider ticari LLM tekil kullanımı | Başlangıçta <$0,03; proje sonunda <$0,01 |
 
-Referans değerler, doğrulama hattı olmadan uygulanan lider genel amaçlı ticari LLM yaklaşımını temsil eder. Tablodaki başlangıç değerleri ölçülmüş prototip sonuçları değil, ilk kalibrasyon hedefleridir; gerçek otomatik onay doğruluğu WP4 doğrulama günlükleriyle ölçülecektir. Nihai kıyaslama, değerlendirme tarihinde mevcut en güçlü ticari ve açık ağırlıklı modellerle yapılacaktır.
+Referans değerler, doğrulama hattı olmadan uygulanan, güçlü bir genel amaçlı ticari LLM'nin tek başına kullanıldığı yaklaşımı temsil eder. Tablodaki başlangıç değerleri ölçülmüş prototip sonuçları değil, ilk kalibrasyon hedefleridir; gerçek otomatik onay doğruluğu WP4 doğrulama günlükleriyle ölçülecektir. Nihai kıyaslama, değerlendirme tarihinde mevcut en güçlü ticari ve ağırlıkları açık modellerle yapılacaktır.
 
 ### Hedef 2: Büyük Ölçekli Bilimsel Literatürü İşlemek
 
@@ -147,7 +147,7 @@ OpenNutri altyapısı araştırma ve ürünleşme kullanımına açılacak; meto
 
 - Açık araştırma veri setini tam dokümantasyonla yayımlamak.
 
-- Sistem performans karşılaştırma raporunu yayımlamak (doğruluk, maliyet, hız; ticari ve açık ağırlıklı model referanslarıyla karşılaştırma).
+- Sistem performans karşılaştırma raporunu yayımlamak (doğruluk, maliyet, hız; ticari ve ağırlıkları açık model referanslarıyla karşılaştırma).
 
 - En az 3 hakemli akademik yayını değerlendirmeye göndermek.
 
@@ -178,8 +178,8 @@ OpenNutri'nin yeniliği tek bir algoritmadan değil, gıda bileşimi veri altyap
 
 | No. | Yenilik | Nedir? | Neden Yeni? |
 | --- | --- | --- | --- |
-| 1 | Bilimsel literatürden aşamalı olarak otonom veri çıkarma | Bilimsel makalelerden uluslararası standartlara uygun, 100 g bazlı ve kaynaklı gıda-besin kayıtları üretir. | Mevcut veri tabanları çoğunlukla manuel laboratuvar analizi ve uzman kürasyonuna dayanır; literatürdeki dağınık veriyi ulusal ölçekte otomatik veri tabanına dönüştürmez. |
-| 2 | Kademeli Hibrit Zekâ mimarisi (L1-L5) | Tarama, filtreleme, açık ağırlıklı çıkarım, ticari model yükseltme ve uzman doğrulamasını maliyet/kalite dengesiyle birleştirir. | Tek model yaklaşımlarından farklı olarak hem maliyet optimizasyonu hem de çok katmanlı doğrulama sağlar. |
+| 1 | Bilimsel literatürden aşamalı olarak otonom veri çıkarma | Bilimsel makalelerden uluslararası standartlara uygun, 100 g bazlı ve kaynağı izlenebilir gıda-besin kayıtları üretir. | Mevcut veri tabanları çoğunlukla manuel laboratuvar analizi ve uzman kürasyonuna dayanır; literatürdeki dağınık veriyi ulusal ölçekte otomatik veri tabanına dönüştürmez. |
+| 2 | Kademeli Hibrit Zekâ mimarisi (L1-L5) | Tarama, filtreleme, ağırlıkları açık çıkarım, ticari model yükseltme ve uzman doğrulamasını maliyet/kalite dengesiyle birleştirir. | Tek model yaklaşımlarından farklı olarak hem maliyet optimizasyonu hem de çok katmanlı doğrulama sağlar. |
 | 3 | Öğrenilmiş Yönlendirici | Belge ve alt görev özelliklerine göre en ucuz yeterli katmanı seçen eğitilebilir karar mekanizmasıdır. | Statik eşiklere dayalı kademelerin yerine, proje boyunca doğrulama sonuçlarından öğrenen bir rota optimizasyonu kullanır. |
 | 4 | Uzman geri bildirimiyle katmanlar arası öğrenme | L4/L5 çıktıları ve uzman düzeltmeleri L1-L3 modellerini yeniden eğiten yapılandırılmış sinyale dönüşür. | Doğrulamayı yalnızca kalite kontrol maliyeti olmaktan çıkarır; alt katmanların zaman içinde daha fazla görevi otomatik çözmesini sağlayan eğitim yatırımına dönüştürür. |
 | 5 | Kayıt düzeyinde kaynak izlenebilirliği ve Türk gıdaları kapsamı | Her besin kaydı DOI, sayfa, tablo/satır ve çıkarım katmanı bilgisiyle saklanır; özellikle Türkçe literatür ve yerel gıdalar hedeflenir. | Mevcut veri tabanlarında kaynaklar çoğu zaman gıda maddesi veya veri seti düzeyindedir; OpenNutri kayıt düzeyinde makine tarafından okunabilir kaynak izi hedefler. |
@@ -192,12 +192,12 @@ OpenNutri, birbirinden bağımsız olarak ticarileştirilebilecek iki ana ürün
 
 | No. | Çıktı | Açıklama | Gelir Modeli |
 | --- | --- | --- | --- |
-| 1 | Gıda bileşimi veri tabanı ve API | 500.000'den fazla kaynaklı gıda-besin kaydı; Türk gıdaları ve uluslararası literatür kapsamı; düzenli güncellenen veri altyapısı. | Ücretsiz akademik erişim, ticari API aboneliği, veri lisansı ve kurumsal entegrasyon. |
+| 1 | Gıda bileşimi veri tabanı ve API | 500.000'den fazla kaynağı izlenebilir gıda-besin kaydı; Türk gıdaları ve uluslararası literatür kapsamı; düzenli güncellenen veri altyapısı. | Ücretsiz akademik erişim, ticari API aboneliği, veri lisansı ve kurumsal entegrasyon. |
 | 2 | Kademeli Hibrit Zekâ doğrulama motoru | Literatürden veri çıkarma, normalizasyon, doğrulama ve uzman geri bildirimi iş akışı. | Ülke/kurum/alan bazlı motor lisanslama, uyarlama ve dağıtım hizmetleri. |
 
-**Doğrudan aynı kapsamda çalışan bir rakip tespit edilmemiştir.** Ticari gıda veri tabanları mevcut devlet verilerini, kitle kaynaklı kayıtları veya etiket/tarif ayrıştırmasını kullanır. Akademik sistemler ise genellikle tek görevli, pilot ölçekli veya tahmin odaklıdır. OpenNutri'nin ticari değeri, doğrulanmış veri üretimini ve veri üretme motorunu birlikte sunmasından kaynaklanır.
+**Doğrudan aynı kapsamda çalışan bir rakip tespit edilmemiştir.** Ticari gıda veri tabanları mevcut devlet verilerini, kitle kaynaklı kayıtları veya etiket/tarif ayrıştırmasını kullanır. Akademik sistemler ise genellikle tek görevli, pilot ölçekli veya tahmin odaklıdır. OpenNutri'nin ticari değeri, doğrulanmış veri üretimini ve veri üretim motorunu birlikte sunmasından kaynaklanır.
 
-**Pazar büyümesi ve ihtiyaç:** Güvenilir gıda bileşimi verisi, hızla büyüyen birçok dijital sağlık pazarının ortak girdisidir. Kişiselleştirilmiş beslenme pazarının 2025'teki ~15,8 milyar dolarlık büyüklüğünden 2030'da ~30,9 milyar dolara, yıllık ortalama %14 büyümeyle ulaşması beklenmektedir (MarketsandMarkets, 2025); diyet ve beslenme uygulamaları pazarının da 2025'te ~5,8 milyar dolardan 2030'da ~10,2 milyar dolara çıkması öngörülmektedir (Mordor Intelligence, 2025). Bu uygulamaların tümü doğru ve kaynaklı gıda-besin verisine bağımlıdır. FAO/INFOODS ulusal gıda bileşimi programlarını desteklese de birçok ülke manuel veri tabanı oluşturma için yeterli kaynağa sahip değildir. OpenNutri motoru, bu maliyeti düşüren ve yerel veriyi ulusal kontrol altında üreten bir çözüm olarak konumlanır; hem yurt içi sağlık ve gıda teknolojisi sağlayıcılarına hem de benzer açığı yaşayan ülkelere yönelik veri ve motor lisanslama fırsatı sunar.
+**Pazar büyümesi ve ihtiyaç:** Güvenilir gıda bileşimi verisi, hızla büyüyen birçok dijital sağlık pazarının ortak girdisidir. Kişiselleştirilmiş beslenme pazarının 2025'teki ~15,8 milyar dolarlık büyüklüğünden 2030'da ~30,9 milyar dolara, yıllık ortalama %14 büyümeyle ulaşması beklenmektedir (MarketsandMarkets, 2025); diyet ve beslenme uygulamaları pazarının da 2025'te ~5,8 milyar dolardan 2030'da ~10,2 milyar dolara çıkması öngörülmektedir (Mordor Intelligence, 2025). Bu uygulamaların tümü doğru ve kaynağı izlenebilir gıda-besin verisine bağımlıdır. FAO/INFOODS ulusal gıda bileşimi programlarını desteklese de birçok ülke manuel veri tabanı oluşturma için yeterli kaynağa sahip değildir. OpenNutri motoru, bu maliyeti düşüren ve yerel veriyi ulusal kontrol altında üreten bir çözüm olarak konumlanır; hem yurt içi sağlık ve gıda teknolojisi sağlayıcılarına hem de benzer açığı yaşayan ülkelere yönelik veri ve motor lisanslama fırsatı sunar.
 
 ## 3.4. Proje Sonrası Sürdürülebilirlik ve Olası Maliyet Hesabı
 
@@ -224,7 +224,7 @@ Proje, **Kademeli Hibrit Zekâ İşlem Hattı** geliştirmektedir. Bu mimari, me
 
 - **L2:** Hafif makale sınıflandırıcısı ve alaka filtreleme katmanı.
 
-- **L3:** İnce ayarlanmış açık ağırlıklı çıkarım modelleri ve deterministik normalizasyon/doğrulama katmanı.
+- **L3:** İnce ayarlanmış ağırlıkları açık çıkarım modelleri ve deterministik normalizasyon/doğrulama katmanı.
 
 - **L4:** L3'ün güvenle çözemediği alt görevler için ticari model destekli yükseltme katmanı.
 
@@ -236,7 +236,7 @@ Mimari dört yerleşik araştırma paradigmasını gıda bileşimi alanına özg
 
 | Paradigma | Temel Referanslar | OpenNutri'deki Rolü |
 | --- | --- | --- |
-| Kademeli sınıflandırıcılar | Viola ve Jones, 2001; Wang vd., 2011; Chen vd., 2023; Yue vd., 2024 | Girdileri giderek daha pahalı ve yetenekli katmanlara yalnızca gerektiğinde taşır. |
+| Kademeli sınıflandırıcılar | Viola ve Jones, 2001; Chen vd., 2012; Chen vd., 2023; Yue vd., 2024 | Girdileri giderek daha pahalı ve yetenekli katmanlara yalnızca gerektiğinde taşır. |
 | Uzman karışımı / yönlendirme | Shazeer vd., 2017; Fedus vd., 2022 | Her alt görev için en uygun model veya kural bileşenini seçer. |
 | Uzman geri bildirimli öğrenme | Ouyang vd., 2022 | Uzman düzeltmelerini model iyileştirme sinyaline dönüştürür. |
 | Aktif öğrenme | Settles, 2012 | İnsan doğrulamasını en yüksek eğitim değeri taşıyan örneklere önceliklendirir. |
@@ -248,7 +248,7 @@ Yenilik, bu paradigmaların tekil kullanımında değil; her katmanın çıktıs
          (makale/alt görev için en düşük maliyetli yeterli katmanı seçer)
                                   │
                                   ▼
- L1 Tarama ─► L2 Filtre ─► L3 Açık Ağırlıklı Çıkarım ─► L4 Ticari Model ─► L5 Uzman
+ L1 Tarama ─► L2 Filtre ─► L3 Ağırlıkları Açık Çıkarım ─► L4 Ticari Model ─► L5 Uzman
     │             │                  │                         │              │
     └─────────────┴──────────────────┴─────────────────────────┴──────────────┘
                          doğrulama çıktıları ve düzeltmeler
@@ -273,11 +273,11 @@ Yenilik, bu paradigmaların tekil kullanımında değil; her katmanın çıktıs
 
 **Amaç:** Aday makaleleri düşük hesaplama maliyetiyle “gıda bileşimi verisi içeriyor” veya “ilgili değil” olarak sınıflandırmak.
 
-**Yöntem:** Başlık, özet, bölüm başlıkları ve anahtar kelime örüntüleri kullanılarak DistilBERT/BERT-Tiny benzeri küçük dil modelleri veya eşdeğer verimli sınıflandırıcılar eğitilir (Sanh vd., 2019; Turc vd., 2019). Pozitif örnekler “proximate composition”, “g/100 g”, “mineral composition”, “fatty acid profile” gibi örüntüler ve doğrulanmış OpenNutri sonuçlarından; negatif örnekler aynı dergi ve alanlardan ancak bileşim verisi içermeyen yayınlardan seçilir. Model düzenli olarak, aşağı katman sonuçlarıyla yeniden eğitilir.
+**Yöntem:** Başlık, özet, bölüm başlıkları ve anahtar kelime örüntüleri kullanılarak DistilBERT/BERT-Tiny benzeri küçük dil modelleri veya eşdeğer verimli sınıflandırıcılar eğitilir (Sanh vd., 2019; Turc vd., 2019). Pozitif örnekler “proximate composition”, “g/100 g”, “mineral composition”, “fatty acid profile” gibi örüntüler ve doğrulanmış OpenNutri sonuçlarından; negatif örnekler aynı dergi ve alanlardan ancak bileşim verisi içermeyen yayınlardan seçilir. Model düzenli olarak, üst katmanlardan gelen sonuçlarla yeniden eğitilir.
 
 **Hedef:** Yinelemeli iyileştirme sonrasında en az 0,92 F1 skoru. Güven eşiğinin üstündeki yayınlar L3'e ilerler; düşük güvenli veya sınırdaki yayınlar aktif öğrenme kuyruğuna alınabilir.
 
-### 4.2.3. Katman 3 — Açık Ağırlıklı Çıkarım Modelleri ve Doğrulama (L3)
+### 4.2.3. Katman 3 — Ağırlıkları Açık Çıkarım Modelleri ve Doğrulama (L3)
 
 **Amaç:** Yapılandırılmamış araştırma içeriğini standart gıda-besin kayıtlarına dönüştüren birincil veri çıkarma motorunu geliştirmek.
 
@@ -291,7 +291,7 @@ L3 tek bir monolitik model yerine alt görevlere ayrılmış modüler bir tasar�
 | Birim normalizasyonu | mg/100 g, µg/100 g, %, ppm, porsiyon gibi birimleri standart baza dönüştürme. | Kural tabanlı motor + denetimli yardımcı sınıflandırıcı. |
 | Varlık bağlama | Gıda ve besin adlarını LanguaL, FoodEx2, INFOODS ve yerel kataloglarla eşleme (FAO/INFOODS, 2012). | Gömme tabanlı benzerlik, takma ad eşlemesi ve uzman onaylı özel kayıtlar. |
 
-Modeller, doğrulama platformunda üretilen altın standart kayıtlar ile parametre-verimli ince ayar yöntemleri kullanılarak eğitilir (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023). Alana özgü ince ayarın bilimsel bilgi çıkarımındaki etkinliği literatürde gösterilmiştir (Li vd., 2023). Başlangıçta altın standart veri henüz sınırlıyken L3, WP4 kalibrasyon aşamasının ürettiği ilk çift incelemeli küme (~500 makale), doğrulanmış L4 çıktıları ve mevcut prototipin ürettiği çıkarımlarla başlatılır; bu nedenle L3 ince ayarı (WP2, 3-8. Aylar) ile uzman doğrulamasının (WP4, 4. Aydan itibaren) zaman çizelgeleri kasıtlı olarak örtüşür. L4/L5 doğrulanmış çıktıları ve hata etiketleri eğitim verisine eklendikçe L3'ün kapsama alanı genişler. L3'ün tek başına nihai <%0,5 hata hedefine ulaşması beklenmez; bu hedef, L3 + doğrulama kuralları + L4/L5 yükseltme ve rastgele denetimden oluşan tüm sistem için tanımlıdır.
+Modeller, doğrulama platformunda üretilen altın standart kayıtlar ile parametre-verimli ince ayar yöntemleri kullanılarak eğitilir (LoRA, QLoRA; Hu vd., 2022; Dettmers vd., 2023). Alana özgü ince ayarın bilimsel bilgi çıkarımındaki etkinliği literatürde gösterilmiştir (Dagdelen vd., 2024). Başlangıçta altın standart veri henüz sınırlıyken L3, WP4 kalibrasyon aşamasının ürettiği ilk çift incelemeli küme (~500 makale), doğrulanmış L4 çıktıları ve mevcut prototipin ürettiği çıkarımlarla başlatılır; bu nedenle L3 ince ayarı (WP2, 3-8. Aylar) ile uzman doğrulamasının (WP4, 4. Aydan itibaren) zaman çizelgeleri kasıtlı olarak örtüşür. L4/L5 doğrulanmış çıktıları ve hata etiketleri eğitim verisine eklendikçe L3'ün kapsama alanı genişler. L3'ün tek başına nihai <%0,5 hata hedefine ulaşması beklenmez; bu hedef, L3 + doğrulama kuralları + L4/L5 yükseltme ve rastgele denetimden oluşan tüm sistem için tanımlıdır.
 
 **Gıda bilimi doğrulama kuralları:** Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği ekibiyle birlikte tasarlanacak bu kurallar, standart dil modeli güven puanından bağımsız bir doğrulama katmanı oluşturur ve gıda bileşimi verisi üretimine ilişkin yerleşik kalite ilkelerine dayanır (Greenfield ve Southgate, 2003).
 
@@ -395,11 +395,11 @@ Proje ekibi, önerilen OpenNutri işlem hattının uçtan uca çalışan bir pro
 | Operasyon | Zamanlanmış otomasyonla tara → çıkar → yönlendir → incele döngüsü çalışır durumdadır. |
 | Gösterge metrikleri | ~17.700 aday makale taranmış, ~4.300 kayıt sisteme alınmış, ~5.000 yapay zekâ çıkarımı üretilmiş, 339 makale uzman inceleme kuyruğuna yönlendirilmiştir. |
 
-Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem entegrasyonunu fiilen çalışır hale getirerek fizibilite riskini düşürmektedir. Proje desteği, prototipin eksik kalan araştırma bileşenlerini tamamlayacaktır: (1) tarama ve çıkarımın hazır modellerden ince ayarlı açık ağırlıklı modellere taşınması; (2) gıda bilimi doğrulama kural motorunun sistematik olarak geliştirilmesi; (3) statik yönlendirme eşiklerinin yerine Öğrenilmiş Yönlendirici kurulması; (4) uzman düzeltmelerinin alt katmanları sürekli yeniden eğittiği öğrenme döngüsünün kapatılması.
+Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem entegrasyonunu fiilen çalışır hale getirerek fizibilite riskini düşürmektedir. Proje desteği, prototipin eksik kalan araştırma bileşenlerini tamamlayacaktır: (1) tarama ve çıkarımın hazır modellerden ince ayarlı ağırlıkları açık modellere taşınması; (2) gıda bilimi doğrulama kural motorunun sistematik olarak geliştirilmesi; (3) statik yönlendirme eşiklerinin yerine Öğrenilmiş Yönlendirici kurulması; (4) uzman düzeltmelerinin alt katmanları sürekli yeniden eğittiği öğrenme döngüsünün kapatılması.
 
-**Ölçek fizibilitesi:** Prototipin günlük ~1.500 aday makale tarama kapasitesi, 18 aylık süre boyunca yüz binlerce adayın taranıp önceliklendirilmesine olanak tanır; bu nedenle Hedef 2'deki ≥100.000 ilgili makale işleme hedefi tarama tarafında bağlayıcı kısıt değildir. Asıl ölçek kısıtı çıkarım ve doğrulama hattıdır: çıkarım, açık ağırlıklı model kademesi ve toplu işleme ile yatay olarak ölçeklenir; en pahalı kaynak olan uzman doğrulaması (Hedef 3'te ≥5.000 makale) aktif öğrenme kuyruğuyla en yüksek değerli makalelere yönlendirilerek verimli kullanılır.
+**Ölçek fizibilitesi:** Prototipin günlük ~1.500 aday makale tarama kapasitesi, 18 aylık süre boyunca yüz binlerce adayın taranıp önceliklendirilmesine olanak tanır; bu nedenle Hedef 2'deki ≥100.000 ilgili makale işleme hedefi tarama tarafında bağlayıcı kısıt değildir. Asıl ölçek kısıtı çıkarım ve doğrulama hattıdır: çıkarım, ağırlıkları açık model kademesi ve toplu işleme ile yatay olarak ölçeklenir; en pahalı kaynak olan uzman doğrulaması (Hedef 3'te ≥5.000 makale) aktif öğrenme kuyruğuyla en yüksek değerli makalelere yönlendirilerek verimli kullanılır.
 
-**Ekip yetkinliği:** Proje ekibi, gıda bilimi doğrulama kural katmanını tasarlamak ve denetlemek için gereken gıda mühendisliği alan uzmanlığını (Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği araştırmacıları) ile yazılım mühendisliği ve uygulamalı yapay zekâ yetkinliğini (Prof. Dr. Murat Ceylan, Dr. Engin Esme ve bursiyer ekibi) bir araya getiren disiplinler arası bir yapıdadır. Gıda mühendisliği bursiyerlerinden ikisi, proje süresince yüksek lisans düzeyine geçerek doğrulama ve tez çalışmalarını bu düzeyde sürdürür. [EKİP: buraya eklenecek 1-2 somut yetkinlik/başarı son aşamada onaylanacaktır.]
+**Ekip yetkinliği:** Proje ekibi, gıda bilimi doğrulama kural katmanını tasarlamak ve denetlemek için gereken gıda mühendisliği alan uzmanlığını (Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği araştırmacıları) ve yazılım mühendisliği ve uygulamalı yapay zekâ yetkinliğini (Prof. Dr. Murat Ceylan, Dr. Engin Esme ve bursiyer ekibi) bir araya getiren disiplinler arası bir yapıdadır. Gıda mühendisliği bursiyerlerinden ikisi, proje süresince yüksek lisans düzeyine geçerek doğrulama ve tez çalışmalarını bu düzeyde sürdürür. [EKİP: buraya eklenecek 1-2 somut yetkinlik/başarı son aşamada onaylanacaktır.]
 
 ### 4.6.1. Türk Gıda Veri Açığı Ön Değerlendirmesi
 
@@ -439,7 +439,7 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 
 - **Öğrenme eğrileri:** Ek doğrulama verisinin marjinal katkısı güç yasası öğrenme eğrileriyle incelenecektir (Hestness vd., 2017).
 
-- **Uzmanlar arası uyum:** Kategorik doğruluk kararları için Cohen'in κ'sı (McHugh, 2012), sürekli besin değerleri için sınıf içi korelasyon katsayısı (Shrout & Fleiss, 1979) izlenecektir. Bu ölçütler veri doğruluğunun tek garantisi değil, açıklama yönergelerinin kalibrasyon göstergesidir.
+- **Uzmanlar arası uyum:** Kategorik doğruluk kararları için Cohen'in κ'sı (McHugh, 2012), sürekli besin değerleri için sınıf içi korelasyon katsayısı (Shrout & Fleiss, 1979) izlenecektir. Bu ölçütler veri doğruluğunun tek garantisi değil, doğrulama/etiketleme yönergelerinin kalibrasyon göstergesidir.
 
 - **Yönlendirici performansı:** Oracle yönlendiriciye karşı kümülatif pişmanlık analizi yapılacak; işlenen makale başına normalize pişmanlığın zamanla azalması beklenmektedir (Lattimore & Szepesvári, 2020).
 
@@ -448,7 +448,7 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 | Yöntem Bileşeni | Birincil Çalışma Paketi | Zaman Aralığı | Rolü |
 | --- | --- | --- | --- |
 | L1 tarayıcı + L2 sınıflandırıcı | WP1 | 1-4. Aylar | Altyapı ve veri toplama. |
-| L3 açık ağırlıklı çıkarım + doğrulama kuralları | WP2 | 3-8. Aylar | Çekirdek veri çıkarma motoru. |
+| L3 ağırlıkları açık çıkarım + doğrulama kuralları | WP2 | 3-8. Aylar | Çekirdek veri çıkarma motoru. |
 | L4 entegrasyon + Öğrenilmiş Yönlendirici | WP3 | 5-10. Aylar | Sistem entegrasyonu ve maliyet optimizasyonu. |
 | L5 uzman doğrulaması + katmanlar arası öğrenme | WP4 | 4-16. Aylar | Altın standart veri ve model iyileştirme. |
 | API, kıyaslama, açık veri ve yayınlar | WP5 | 14-18. Aylar | Dağıtım, doğrulama ve yayılım. |
@@ -464,7 +464,7 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 | İP No | İş Paketinin Adı ve Hedefleri | Sorumlu Ekip | Zaman Aralığı | Başarı Ölçütü ve Katkısı |
 | --- | --- | --- | --- | --- |
 | 1 | **Altyapı ve Veri Toplama:** L1 akıllı tarayıcı, L2 sınıflandırıcı, veri tabanı şeması ve kaynak erişim hattı. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Alijon Alimov | 1-4. Aylar | Çok kaynaklı tarayıcı çalışır durumda; L2 F1 ≥0,92; ≥100.000 ilgili makaleye ulaşabilecek aday havuz ve tekilleştirme hattı. |
-| 2 | **Çekirdek Çıkarma Motoru (L3):** Alt göreve özgü açık ağırlıklı modeller, normalizasyon, varlık bağlama ve gıda bilimi doğrulama kuralları. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3-8. Aylar | L3 alt görevleri entegre; ≥10 doğrulama kuralı aktif; ticari API tabanlı referansa göre en az %30 maliyet düşüşü; düşük güvenli kayıtların L4/L5'e güvenli yönlendirilmesi. |
+| 2 | **Çekirdek Çıkarma Motoru (L3):** Alt göreve özgü ağırlıkları açık modeller, normalizasyon, varlık bağlama ve gıda bilimi doğrulama kuralları. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3-8. Aylar | L3 alt görevleri entegre; ≥10 doğrulama kuralı aktif; ticari API tabanlı referansa göre en az %30 maliyet düşüşü; düşük güvenli kayıtların L4/L5'e güvenli yönlendirilmesi. |
 | 3 | **Kademeli Entegrasyon ve Yönlendirici:** L4 ticari model yükseltmesi, RAG/istem dosyası, Öğrenilmiş Yönlendirici ve maliyet optimizasyonu. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Dr. Engin Esme; Bursiyerler: Arciel Aliognis, Alijon Alimov | 5-10. Aylar | L1-L4 uçtan uca çalışır; yönlendirici rastgele/statik yönlendirmeye göre ≥%20 maliyet düşüşü sağlar; L5 hariç uçtan uca gecikme <60 sn/makale hedeflenir. |
 | 4 | **Uzman Doğrulama ve Katmanlar Arası Öğrenme:** Kalibrasyon, uyarlanabilir doğrulama protokolü, altın standart veri üretimi ve uzman geri bildirimli model iyileştirme. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Prof. Dr. Servet Gülüm Şumnu, Dr. Engin Esme; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 4-16. Aylar | ≥5.000 uzman doğrulamalı makale; ≥25.000 altın standart kayıt; kabul edilen kayıtların rastgele denetiminde hata <%0,5; otomatik onay oranı ≥%90. |
 | 5 | **Sistem Dağıtımı, Kıyaslama ve Yaygınlaştırma:** REST API, açık araştırma veri seti, performans kıyaslaması, dokümantasyon ve yayınlar. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 14-18. Aylar | ≥500.000 gıda-besin kaydı; API yayında (<200 ms p95 yanıt süresi, ≥100 istek/saniye); açık veri ve kıyaslama raporu yayımlanır; ≥3 makale hakemli dergilere gönderilir. |
@@ -489,7 +489,7 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | WP2 | Karmaşık veya taranmış tablolarda düzen/OCR hataları çıkarımı bozabilir. | Tablo yapısı ayrıştırma ve düzen analizi modülleri kullanılır; düşük güvenli tablo çıkarımları otomatik kabul edilmeden L5'e yönlendirilir; gıda bilimi doğrulama kuralları (kütle ve enerji dengesi) tutarsız değerleri yakalar. |
 | WP2 | İlk L3 modelleri beklenen doğruluğa ulaşamaz. | Alt görevleri daha dar uzman modellere bölmek, L4 kullanımını geçici artırmak, doğrulama kurallarını sıkılaştırmak ve düşük güvenli kayıtları otomatik kabul etmeden L5'e yönlendirmek. |
 | WP3 | Öğrenilmiş Yönlendirici yeterince hızlı yakınsamaz veya pahalı katmanlara fazla yönlendirir. | FrugalGPT tarzı statik eşik kademesi yedek olarak kullanılır; katman başına maliyet tavanları ve API bütçe alarmı uygulanır. |
-| WP3 | Ticari API fiyatları veya erişim koşulları proje süresince değişir. | Çoklu sağlayıcı listesi tutulur; L4 yalnızca başarısız alt görev için kullanılır; açık ağırlıklı model seçenekleri ve L3 iyileştirme döngüsü L4 bağımlılığını azaltır. |
+| WP3 | Ticari API fiyatları veya erişim koşulları proje süresince değişir. | Çoklu sağlayıcı listesi tutulur; L4 yalnızca başarısız alt görev için kullanılır; ağırlıkları açık model seçenekleri ve L3 iyileştirme döngüsü L4 bağımlılığını azaltır. |
 | WP4 | Doğrulama kapasitesi 5.000 makale hedefine yetişmez. | Aktif öğrenme kuyruğu en yüksek değerli makaleleri önceliklendirir; yönergeler sadeleştirilir; Prof. Dr. Şumnu gözetiminde eğitim/kalibrasyon artırılır; kalite hedefi korunarak hacim riski erken raporlanır. |
 | WP3/WP4 | TRUBA hesaplama tahsisi gecikebilir veya beklenenden düşük olabilir. | Ağır ince ayar işleri PEFT (LoRA/QLoRA) ile küçük donanıma sığacak biçimde tasarlanır; proje kapsamındaki GPU iş istasyonu yedek hesaplama sağlar; iş yükü gerektiğinde kısa süreli bulut GPU'ya taşınır. |
 | WP5 | Nihai kıyaslama beklenen otomatik onay oranına ulaşamaz. | Veri tabanı hata hedefi L5 doğrulama ve rastgele denetimle korunur; otomatik onay oranı düşük kalırsa sistem daha fazla kaydı L5'e yönlendirir ve sonuçlar sınırlılık olarak raporlanır. |
@@ -513,10 +513,10 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 
 | Çıktı Türü | Çıktı | Öngörülen Zaman Aralığı |
 | --- | --- | --- |
-| Bilimsel/Akademik | Büyük ölçekli gıda bileşimi veri çıkarma kıyaslaması: ticari ve açık ağırlıklı LLM'ler ile OpenNutri'nin doğruluk, maliyet ve hız karşılaştırması; değerlendirme veri seti ve kodunun yayımlanması. | 12-18 ay |
+| Bilimsel/Akademik | Büyük ölçekli gıda bileşimi veri çıkarma kıyaslaması: ticari ve ağırlıkları açık LLM'ler ile OpenNutri'nin doğruluk, maliyet ve hız karşılaştırması; değerlendirme veri seti ve kodunun yayımlanması. | 12-18 ay |
 | Bilimsel/Akademik | Kademeli Hibrit Zekâ mimarisi makalesi: L1-L5 işlem hattı, Öğrenilmiş Yönlendirici, katmanlar arası öğrenme, ablasyon çalışmaları ve maliyet analizi. | 12-18 ay |
 | Bilimsel/Akademik | OpenNutri-DB veri seti makalesi: veri tabanı tanımı, metodoloji, Türk gıda veri açığı analizi ve USDA/EuroFIR/TürKomp karşılaştırması. | 12-18 ay |
-| Ekonomik/Ticari/Sosyal | OpenNutri Veri Tabanı: en az 500.000 kaynak izlenebilir gıda-besin kaydı, en az 5.000 özgün Türk gıda ürünü/varyantı ve kaynakta mevcut olduğunda 181'e kadar besin öğesi. | 6-12 ay ilk sürüm; 12-18 ay tam ölçek |
+| Ekonomik/Ticari/Sosyal | OpenNutri Veri Tabanı: en az 500.000 kaynağı izlenebilir gıda-besin kaydı, en az 5.000 özgün Türk gıda ürünü/varyantı ve kaynakta mevcut olduğunda 181'e kadar besin öğesi. | 6-12 ay ilk sürüm; 12-18 ay tam ölçek |
 | Ekonomik/Ticari/Sosyal | OpenNutri API: sürekli güncellenen veri tabanına erişim sağlayan, dokümantasyon ve SDK içeren üretim REST API. | 12-18 ay |
 | Ekonomik/Ticari/Sosyal | Kademeli doğrulama motoru: başka ülkelerin veya kurumların gıda bileşimi dijitalleştirme süreçlerine uyarlanabilir veri çıkarma/doğrulama motoru. | 12-18 ay |
 | Araştırmacı Yetiştirme | Yazılım/Yapay Zekâ ekibi: LLM ince ayarı, RAG, RLHF/tercih temelli öğrenme, rota optimizasyonu, API geliştirme ve gıda veri standartları konularında uygulamalı eğitim. | 0-18 ay |
@@ -544,9 +544,9 @@ Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) önceliklerinden gıda ve
 
 ## 6.3. Sanayi İşbirliğine Yönelik Programlara Geçiş Yol Haritası
 
-OpenNutri'nin ticarileştirilebilir üç çıktısı — doğrulanmış gıda bileşimi veri tabanı, üretim REST API'si ve kademeli doğrulama motoru — endüstriyel kullanıma hazır bir ürün yığını oluşturur. Yol haritası, akademik prototipten sürdürülebilir platforma geçişi üç aşamada planlamaktadır.
+OpenNutri'nin ticarileştirilebilir üç çıktısı — doğrulanmış gıda bileşimi veri tabanı, üretim REST API'si ve kademeli doğrulama motoru — endüstriyel kullanıma hazır bir ürün ailesi oluşturur. Yol haritası, akademik prototipten sürdürülebilir platforma geçişi üç aşamada planlamaktadır.
 
-**1. Aşama — Doğrulama ve Ortak Edinimi (12-18. Aylar, WP5 ile eş zamanlı)**
+**1. Aşama — Doğrulama ve Pilot Ortaklıkların Kurulması (12-18. Aylar, WP5 ile eş zamanlı)**
 
 - **Pilot ortaklıklar:** API, üç hedef sektörü temsil eden 2-3 kuruluşa ücretsiz pilot olarak sunulacaktır: AB 1169/2011 uyum verisine ihtiyaç duyan bir gıda ihracatçısı, yerel gıda veri altyapısına ihtiyaç duyan bir sağlık teknolojisi/beslenme uygulaması şirketi ve halk sağlığı veya gıda güvenliği odaklı bir kurum.
 
@@ -583,19 +583,23 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Agarwal, A., et al. (2014). Taming the monster: A fast and simple algorithm for contextual bandits. *ICML*, 1638–1646.
 
-- Cenikj, G., Strojnik, L., Angelski, R., Ogrinc, N., Koroušić Seljak, B., & Eftimov, T. (2023). From language models to large-scale food and biomedical knowledge graphs. *Scientific Reports*, 13, 7815.
+- Cenikj, G., Strojnik, L., Angelski, R., Ogrinc, N., Koroušić Seljak, B., & Eftimov, T. (2023). From language models to large-scale food and biomedical knowledge graphs. *Scientific Reports*, 13, 7815. https://doi.org/10.1038/s41598-023-34981-4
 
 - Chapelle, O., & Li, L. (2011). An empirical evaluation of Thompson sampling. *NeurIPS*, 24.
 
-- Chen, L., et al. (2023). FrugalGPT: How to use large language models while reducing cost and improving performance. *arXiv:2305.05176*.
+- Chen, L., et al. (2023). FrugalGPT: How to use large language models while reducing cost and improving performance. *arXiv:2305.05176*. https://doi.org/10.48550/arXiv.2305.05176
 
-- Dettmers, T., et al. (2023). QLoRA: Efficient finetuning of quantized language models. *NeurIPS*, 36.
+- Chen, M., Xu, Z., Weinberger, K. Q., Chapelle, O., & Kedem, D. (2012). Classifier cascade for minimizing feature evaluation cost. *AISTATS (PMLR)*, 218–226. https://proceedings.mlr.press/v22/chen12c.html
 
-- Dooley, D.M., et al. (2018). FoodOn: A harmonized food ontology to increase global food traceability. *npj Science of Food*, 2(1), 1-10.
+- Dagdelen, J., Dunn, A., Lee, S., Walker, N., Rosen, A. S., Ceder, G., Persson, K. A., & Jain, A. (2024). Structured information extraction from scientific text with large language models. *Nature Communications*, 15, 1418. https://doi.org/10.1038/s41467-024-45563-x
 
-- EFSA (2015). The food classification and description system FoodEx2 (revision 2). *EFSA Supporting Publications*, 12(5), EN-804.
+- Dettmers, T., et al. (2023). QLoRA: Efficient finetuning of quantized language models. *NeurIPS*, 36. https://doi.org/10.48550/arXiv.2305.14314
 
-- Efron, B., & Tibshirani, R.J. (1993). *An Introduction to the Bootstrap*. Chapman & Hall/CRC.
+- Dooley, D.M., et al. (2018). FoodOn: A harmonized food ontology to increase global food traceability. *npj Science of Food*, 2(1), 1-10. https://doi.org/10.1038/s41538-018-0032-6
+
+- EFSA (2015). The food classification and description system FoodEx2 (revision 2). *EFSA Supporting Publications*, 12(5), EN-804. https://doi.org/10.2903/sp.efsa.2015.EN-804
+
+- Efron, B., & Tibshirani, R.J. (1993). *An Introduction to the Bootstrap*. Chapman & Hall/CRC. https://doi.org/10.1201/9780429246593
 
 - EuroFIR AISBL. (2024). *European Food Information Resource (EuroFIR) food composition platform*. https://www.eurofir.org
 
@@ -607,62 +611,62 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Greenfield, H., & Southgate, D.A.T. (2003). *Food Composition Data: Production, Management and Use* (2nd ed.). Rome: FAO.
 
-- Hestness, J., et al. (2017). Deep learning scaling is predictable, empirically. *arXiv:1712.01208*.
+- Hestness, J., et al. (2017). Deep learning scaling is predictable, empirically. *arXiv:1712.00409*. https://doi.org/10.48550/arXiv.1712.00409
 
-- Hooton, F., Menichetti, G., & Barabási, A.-L. (2020). Exploring food contents in scientific literature with FoodMine. *Scientific Reports*, 10, 16191.
+- Hooton, F., Menichetti, G., & Barabási, A.-L. (2020). Exploring food contents in scientific literature with FoodMine. *Scientific Reports*, 10, 16191. https://doi.org/10.1038/s41598-020-73105-0
 
-- Hu, E.J., et al. (2022). LoRA: Low-rank adaptation of large language models. *ICLR*.
+- Hu, E.J., et al. (2022). LoRA: Low-rank adaptation of large language models. *ICLR*. https://doi.org/10.48550/arXiv.2106.09685
 
-- Ispirova, G., Eftimov, T., & Koroušić Seljak, B. (2020). P-NUT: Predicting NUTrient content from short text descriptions. *Mathematics*, 8(10), 1811.
+- Ispirova, G., Eftimov, T., & Koroušić Seljak, B. (2020). P-NUT: Predicting NUTrient content from short text descriptions. *Mathematics*, 8(10), 1811. https://doi.org/10.3390/math8101811
 
 - Jankelow, A., Godneva, A., Rein, M., Samocha-Bonet, D., Weissglas-Volkov, D., Zohar, S., Shor, T., & Segal, E. (2026). NutriMatch: harmonizing food composition databases with large language models for enhanced nutritional prediction. *npj Digital Public Health*, 1, 1. https://doi.org/10.1038/s44482-025-00001-7
 
 - Klensin, J.C., et al. (1989). *Identification of Food Components for INFOODS Data Interchange*. Tokyo: UNU Press.
 
-- Lattimore, T., & Szepesvári, C. (2020). *Bandit Algorithms*. Cambridge University Press.
+- Lattimore, T., & Szepesvári, C. (2020). *Bandit Algorithms*. Cambridge University Press. https://doi.org/10.1017/9781108571401
 
-- Lewis, P., et al. (2020). Retrieval-augmented generation for knowledge-intensive NLP tasks. *NeurIPS*, 33, 9459–9474.
+- Lewis, P., et al. (2020). Retrieval-augmented generation for knowledge-intensive NLP tasks. *NeurIPS*, 33, 9459–9474. https://doi.org/10.48550/arXiv.2005.11401
 
-- Li, L., et al. (2010). A contextual-bandit approach to personalized news article recommendation. *WWW*, 661–670.
+- Li, L., et al. (2010). A contextual-bandit approach to personalized news article recommendation. *WWW*, 661–670. https://doi.org/10.1145/1772690.1772758
 
-- Li, Y., et al. (2023). Domain-specific fine-tuning of LLMs for scientific information extraction. *arXiv:2307.02738*.
+- Lin, T.-Y., et al. (2017). Focal loss for dense object detection. *ICCV*, 2980–2988. https://doi.org/10.1109/ICCV.2017.324
 
-- Lin, T.-Y., et al. (2017). Focal loss for dense object detection. *ICCV*, 2980–2988.
+- MarketsandMarkets. (2025). *Personalized Nutrition Market — Global Forecast to 2030*. https://www.marketsandmarkets.com/PressReleases/personalized-nutrition.asp
 
-- McHugh, M.L. (2012). Interrater reliability: The kappa statistic. *Biochemia Medica*, 22(3), 276-282.
+- McHugh, M.L. (2012). Interrater reliability: The kappa statistic. *Biochemia Medica*, 22(3), 276-282. https://doi.org/10.11613/BM.2012.031
 
 - Monarch, R.M. (2021). *Human-in-the-Loop Machine Learning*. Manning Publications.
 
-- Møller, A., et al. (2008). LanguaL 2006 – the LanguaL thesaurus. *European Journal of Clinical Nutrition*, 62, S272–S275.
+- Møller, A., et al. (2008). LanguaL 2006 – the LanguaL thesaurus. *European Journal of Clinical Nutrition*, 62, S272–S275. https://doi.org/10.1038/ejcn.2008.50
 
-- Ouyang, L., et al. (2022). Training language models to follow instructions with human feedback. *NeurIPS*, 35, 27730–27744.
+- Mordor Intelligence. (2025). *Diet and Nutrition Apps Market — Size, Share & Growth Trends*. https://www.mordorintelligence.com/industry-reports/diet-and-nutrition-apps-market
 
-- Sanh, V., et al. (2019). DistilBERT: Smaller, faster, cheaper and lighter. *arXiv:1910.01108*.
+- Ouyang, L., et al. (2022). Training language models to follow instructions with human feedback. *NeurIPS*, 35, 27730–27744. https://doi.org/10.48550/arXiv.2203.02155
 
-- Schakel, S.F., Sievert, Y.A., & Buzzard, I.M. (1988). Sources of data for developing and maintaining a nutrient database. *Journal of the American Dietetic Association*, 88(10), 1268–1271.
+- Sanh, V., et al. (2019). DistilBERT: Smaller, faster, cheaper and lighter. *arXiv:1910.01108*. https://doi.org/10.48550/arXiv.1910.01108
+
+- Schakel, S.F., Sievert, Y.A., & Buzzard, I.M. (1988). Sources of data for developing and maintaining a nutrient database. *Journal of the American Dietetic Association*, 88(10), 1268–1271. https://doi.org/10.1016/S0002-8223(21)07997-9
 
 - Semantic Scholar. (2026). *Semantic Scholar Academic Graph API*. https://www.semanticscholar.org/product/api
 
-- Settles, B. (2012). *Active Learning*. Morgan & Claypool Publishers.
+- Settles, B. (2012). *Active Learning*. Morgan & Claypool Publishers. https://doi.org/10.2200/S00429ED1V01Y201207AIM018
 
-- Seung, H.S., et al. (1992). Query by committee. *COLT*, 287–294.
+- Seung, H.S., et al. (1992). Query by committee. *COLT*, 287–294. https://doi.org/10.1145/130385.130417
 
-- Shazeer, N., et al. (2017). Outrageously large neural networks: The sparsely-gated MoE layer. *ICLR*.
+- Shazeer, N., et al. (2017). Outrageously large neural networks: The sparsely-gated MoE layer. *ICLR*. https://doi.org/10.48550/arXiv.1701.06538
 
-- Shrout, P.E., & Fleiss, J.L. (1979). Intraclass correlations: Uses in assessing rater reliability. *Psychological Bulletin*, 86(2), 420–428.
+- Shrout, P.E., & Fleiss, J.L. (1979). Intraclass correlations: Uses in assessing rater reliability. *Psychological Bulletin*, 86(2), 420–428. https://doi.org/10.1037/0033-2909.86.2.420
 
-- Smock, B., et al. (2022). PubTables-1M: Towards comprehensive table extraction. *CVPR*, 4634–4642.
+- Smock, B., et al. (2022). PubTables-1M: Towards comprehensive table extraction. *CVPR*, 4634–4642. https://doi.org/10.1109/CVPR52688.2022.00459
 
-- Turc, I., et al. (2019). Well-read students learn better: On the importance of pre-training compact models. *arXiv:1908.08962*.
+- Turc, I., et al. (2019). Well-read students learn better: On the importance of pre-training compact models. *arXiv:1908.08962*. https://doi.org/10.48550/arXiv.1908.08962
 
 - TÜBİTAK MAM Gıda Enstitüsü (2014). *Türkiye'nin Ulusal Gıda Kompozisyon Veri Tabanı (TürKomp)*. TÜBİTAK Marmara Araştırma Merkezi. https://mam.tubitak.gov.tr/turkiyenin-ulusal-gida-kompozisyon-veri-tabani/
 
 - TÜBİTAK ULAKBİM. (2026). *TRUBA Başvuru ve yüksek başarımlı hesaplama altyapısı*. https://www.truba.gov.tr/
 
-- Viola, P., & Jones, M. (2001). Rapid object detection using a boosted cascade. *CVPR*, 1, 511–518.
-
-- Wang, M., et al. (2011). Classifier cascade for minimizing feature evaluation cost. *AISTATS*, 218–226.
+- Viola, P., & Jones, M. (2001). Rapid object detection using a boosted cascade. *CVPR*, 1, 511–518. https://doi.org/10.1109/CVPR.2001.990517
 
 - Youn, J., Li, F., Simmons, G., Kim, S., & Tagkopoulos, I. (2024). FoodAtlas: Automated knowledge extraction of food and chemicals from literature. *Computers in Biology and Medicine*, 109072. https://doi.org/10.1016/j.compbiomed.2024.109072
 
-- Yue, X., et al. (2024). Large language model cascades with mixture of thoughts representations. *ICLR*.
+- Yue, M., et al. (2024). Large language model cascades with mixture of thought representations for cost-efficient reasoning. *ICLR*. https://doi.org/10.48550/arXiv.2310.03094
