@@ -21,9 +21,9 @@ Veriler büyük ölçüde **yeniden üretilen ikincil veridir** (yayımlanmış 
 ## 2. Belgeleme, Üst Veri ve Veri Kalitesi
 
 - **Kayıt düzeyinde köken (provenance):** Her besin kaydı; kaynak DOI/tanımlayıcı, sayfa, tablo/satır ve hangi katmanda (L3/L4/L5) üretildiği bilgisiyle saklanır.
-- **Standartlar ve birlikte çalışabilirlik:** FoodEx2 (EFSA) sınıflandırması; INFOODS etiket adlarıyla 181'e kadar besin bileşeni; LanguaL/FoodOn ontolojik hizalama; USDA FoodData Central, EuroFIR ve TürKomp ile çapraz referans.
+- **Standartlar ve birlikte çalışabilirlik:** FoodEx2 (EFSA) sınıflandırması; INFOODS etiket adlarıyla hizalanan ve USDA FoodData Central'dan türetilen proje şemasındaki 181'e kadar besin bileşeni; LanguaL/FoodOn ontolojik hizalama; USDA FoodData Central, EuroFIR ve TürKomp ile çapraz referans.
 - **Şema ve sözlük:** Veri tabanı şeması, alan tanımları ve birim sözlüğü (g/mg/µg/kcal per 100 g) belgelenir ve veri setiyle birlikte yayımlanır.
-- **Veri kalitesi:** Gıda bilimi doğrulama kuralları (Atwater enerji-makro dengesi, 100 g kütle dengesi, fizyolojik referans aralıkları, birim/baz tutarlılığı) + uzman doğrulaması + periyodik rastgele denetim. Hedef veri tabanı hata oranı <%0,5.
+- **Veri kalitesi:** Gıda bilimi doğrulama kuralları (Atwater enerji-makro dengesi, 100 g kütle dengesi, fizyolojik referans aralıkları, birim/baz tutarlılığı) + uzman doğrulaması + tabakalı periyodik rastgele denetim. Hedef veri tabanı hata oranı <%0,5.
 
 ## 3. Depolama, Yedekleme ve Güvenlik
 

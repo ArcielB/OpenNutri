@@ -111,6 +111,8 @@ Europe PMC/PubMed Central, OpenAlex, Semantic Scholar, Crossref, DergiPark ve EK
 
 - Uluslararası veri tabanlarında yeterince temsil edilmeyen en az 5.000 özgün Türk gıda ürünü veya yerel ürün varyantını indekslemek.
 
+Bu ölçek hedefleri aynı doğrulama düzeyini ifade etmez: ≥100.000 ilgili makale L1-L3 hattında işlenerek aday/çıkarım havuzuna alınacak; otomatik kayıt hedefi faydalı bileşim verisi içeren alt kümeden üretilecek; ≥5.000 makale ve ≥25.000 kayıt ise uzman doğrulamalı altın standart bölümü oluşturacaktır.
+
 ### Hedef 3: Uzmanlar Tarafından Doğrulanmış Altın Standart Veri Tabanı Oluşturmak
 
 Sistematik uzman doğrulaması ile hem projenin temel ürünü olacak hem de model iyileştirme için kullanılacak yüksek kaliteli, kaynaklı ve denetlenebilir bir veri tabanı oluşturulacaktır.
@@ -121,9 +123,9 @@ Sistematik uzman doğrulaması ile hem projenin temel ürünü olacak hem de mod
 
 - Uzman doğrulamasıyla en az 25.000 altın standart gıda-besin kaydı üretmek.
 
-- Kaynak metinde mevcut olduğunda uluslararası standartlarca izlenen 181'e kadar temel besin bileşenini kapsamak.
+- Kaynak metinde mevcut olduğunda USDA FoodData Central'dan türetilen proje besin şemasındaki 181'e kadar besin bileşenini kapsamak.
 
-- Nihai veri tabanı hata oranını periyodik rastgele denetimlerle <%0,5 düzeyinde tutmak.
+- Nihai veri tabanı hata oranını tabakalı periyodik rastgele denetimlerle <%0,5 düzeyinde tutmak.
 
 ### Hedef 4: Uzman Geri Bildirimiyle Modelleri İyileştirmek
 
@@ -418,6 +420,8 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 | Çıkarma gecikmesi | Veri alımından yapılandırılmış çıktıya kadar geçen süre. | Gerçek zaman ölçümü. | saniye |
 | Geri çağırma | Çıkarılabilir veriler arasında sistemin yakaladığı oran. | Uzman oluşturulmuş referansla karşılaştırma. | % |
 
+Veri tabanı hata oranı denetimi, kabul edilmiş kayıtlar içinden gıda kategorisi, besin grubu, kaynak türü ve çıkarım katmanına göre tabakalı rastgele örnekleme ile yürütülecektir. Denetimde hedefin üzerinde hata örüntüsü görülürse ilgili sınıf için otomatik kabul eşiği yükseltilecek ve etkilenen kayıtlar L5 uzman doğrulamasına yönlendirilecektir.
+
 ### 4.7.2. Bağımsız Değişkenler
 
 | Değişken | Seviyeler / Aralık | Doğrulama Hedefi |
@@ -433,6 +437,8 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 
 - **Performans:** Besin kategorileri genelinde makro ortalamalı kesinlik, geri çağırma ve F1 skoru raporlanacaktır. %95 güven aralıkları bootstrap yeniden örnekleme ile hesaplanacaktır (Efron & Tibshirani, 1993).
 
+- **Test kümesi:** Nihai kıyaslamalar, model eğitimi, istem ayarı ve yönlendirici optimizasyonunda kullanılmayan kilitli bir test kümesi üzerinde raporlanacaktır.
+
 - **Model karşılaştırmaları:** İkili doğru/yanlış kararlar için eşleştirilmiş McNemar testi; sürekli besin değerleri için Wilcoxon işaretli sıralar testi kullanılacaktır (p < 0,05).
 
 - **Maliyet-doğruluk dengesi:** Yönlendirme konfigürasyonları için Pareto sınırı analizi yapılacak; maliyet projeksiyonları karma etkili regresyonla modellenerek makale özellikleri sabit etki, makale kimliği rastgele etki olarak ele alınacaktır.
@@ -447,11 +453,11 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 
 | Yöntem Bileşeni | Birincil Çalışma Paketi | Zaman Aralığı | Rolü |
 | --- | --- | --- | --- |
-| L1 tarayıcı + L2 sınıflandırıcı | WP1 | 1-4. Aylar | Altyapı ve veri toplama. |
+| L1 tarayıcı + L2 sınıflandırıcı | WP1 | 1-4. Aylar | Akıllı tarama ve aday havuz oluşturma. |
 | L3 ağırlıkları açık çıkarım + doğrulama kuralları | WP2 | 3-8. Aylar | Çekirdek veri çıkarma motoru. |
 | L4 entegrasyon + Öğrenilmiş Yönlendirici | WP3 | 5-10. Aylar | Sistem entegrasyonu ve maliyet optimizasyonu. |
 | L5 uzman doğrulaması + katmanlar arası öğrenme | WP4 | 4-16. Aylar | Altın standart veri ve model iyileştirme. |
-| API, kıyaslama, açık veri ve yayınlar | WP5 | 14-18. Aylar | Dağıtım, doğrulama ve yayılım. |
+| Üretim API'si, kıyaslama doğrulaması ve açık araştırma çıktıları | WP5 | 14-18. Aylar | Ürünleşme hazırlığı, nihai kıyaslama ve açık çıktılar. |
 
 **Etik ve yasal çerçeve:** Proje kişisel veri veya insan denek verisi toplamamaktadır; çalışma konusu açık erişimli veya kurumsal lisanslı bilimsel yayınlardaki olgusal gıda bileşimi değerleridir. Tam metin/PDF içerikleri yeniden yayımlanmayacak; veri tabanında yalnızca kaynak gösterimli olgusal değerler, kısa kaynak atıfları ve bibliyografik bağlantılar tutulacaktır. Kurumsal lisans koşulları, yayıncı kullanım şartları ve metin/veri madenciliği sınırları gözetilecektir. Etik kurul gerekliliği beklenmemekle birlikte, başvuru sürecinde kurumun etik kurul/TTO görüşü alınarak başvuru dosyasında sunulacaktır.
 
@@ -463,11 +469,11 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 
 | İP No | İş Paketinin Adı ve Hedefleri | Sorumlu Ekip | Zaman Aralığı | Başarı Ölçütü ve Katkısı |
 | --- | --- | --- | --- | --- |
-| 1 | **Altyapı ve Veri Toplama:** L1 akıllı tarayıcı, L2 sınıflandırıcı, veri tabanı şeması ve kaynak erişim hattı. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Alijon Alimov | 1-4. Aylar | Çok kaynaklı tarayıcı çalışır durumda; L2 F1 ≥0,92; ≥100.000 ilgili makaleye ulaşabilecek aday havuz ve tekilleştirme hattı. |
+| 1 | **Akıllı Literatür Tarama ve L2 Sınıflandırma Hattı:** L1 akıllı tarayıcı, L2 sınıflandırıcı, veri tabanı şeması ve kaynak erişim hattı. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Alijon Alimov | 1-4. Aylar | Çok kaynaklı tarayıcı çalışır durumda; L2 F1 ≥0,92; ≥100.000 ilgili makaleye ulaşabilecek aday havuz ve tekilleştirme hattı. |
 | 2 | **Çekirdek Çıkarma Motoru (L3):** Alt göreve özgü ağırlıkları açık modeller, normalizasyon, varlık bağlama ve gıda bilimi doğrulama kuralları. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3-8. Aylar | L3 alt görevleri entegre; ≥10 doğrulama kuralı aktif; ticari API tabanlı referansa göre en az %30 maliyet düşüşü; düşük güvenli kayıtların L4/L5'e güvenli yönlendirilmesi. |
 | 3 | **Kademeli Entegrasyon ve Yönlendirici:** L4 ticari model yükseltmesi, RAG/istem dosyası, Öğrenilmiş Yönlendirici ve maliyet optimizasyonu. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Dr. Engin Esme; Bursiyerler: Arciel Aliognis, Alijon Alimov | 5-10. Aylar | L1-L4 uçtan uca çalışır; yönlendirici rastgele/statik yönlendirmeye göre ≥%20 maliyet düşüşü sağlar; L5 hariç uçtan uca gecikme <60 sn/makale hedeflenir. |
 | 4 | **Uzman Doğrulama ve Katmanlar Arası Öğrenme:** Kalibrasyon, uyarlanabilir doğrulama protokolü, altın standart veri üretimi ve uzman geri bildirimli model iyileştirme. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Prof. Dr. Servet Gülüm Şumnu, Dr. Engin Esme; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 4-16. Aylar | ≥5.000 uzman doğrulamalı makale; ≥25.000 altın standart kayıt; kabul edilen kayıtların rastgele denetiminde hata <%0,5; otomatik onay oranı ≥%90. |
-| 5 | **Sistem Dağıtımı, Kıyaslama ve Yaygınlaştırma:** REST API, açık araştırma veri seti, performans kıyaslaması, dokümantasyon ve yayınlar. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 14-18. Aylar | ≥500.000 gıda-besin kaydı; API yayında (<200 ms p95 yanıt süresi, ≥100 istek/saniye); açık veri ve kıyaslama raporu yayımlanır; ≥3 makale hakemli dergilere gönderilir. |
+| 5 | **Üretim API'si, Kıyaslama Doğrulaması ve Açık Araştırma Çıktıları:** REST API, açık araştırma veri seti, performans kıyaslaması, dokümantasyon ve yayınlar. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 14-18. Aylar | ≥500.000 gıda-besin kaydı; API yayında (<200 ms p95 yanıt süresi, ≥100 istek/saniye); açık veri ve kıyaslama raporu yayımlanır; ≥3 makale hakemli dergilere gönderilir. |
 
 **İş-Zaman Çizelgesi (Gantt) — Aylar 1-18**
 
@@ -516,7 +522,7 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | Bilimsel/Akademik | Büyük ölçekli gıda bileşimi veri çıkarma kıyaslaması: ticari ve ağırlıkları açık LLM'ler ile OpenNutri'nin doğruluk, maliyet ve hız karşılaştırması; değerlendirme veri seti ve kodunun yayımlanması. | 12-18 ay |
 | Bilimsel/Akademik | Kademeli Hibrit Zekâ mimarisi makalesi: L1-L5 işlem hattı, Öğrenilmiş Yönlendirici, katmanlar arası öğrenme, ablasyon çalışmaları ve maliyet analizi. | 12-18 ay |
 | Bilimsel/Akademik | OpenNutri-DB veri seti makalesi: veri tabanı tanımı, metodoloji, Türk gıda veri açığı analizi ve USDA/EuroFIR/TürKomp karşılaştırması. | 12-18 ay |
-| Ekonomik/Ticari/Sosyal | OpenNutri Veri Tabanı: en az 500.000 kaynağı izlenebilir gıda-besin kaydı, en az 5.000 özgün Türk gıda ürünü/varyantı ve kaynakta mevcut olduğunda 181'e kadar besin öğesi. | 6-12 ay ilk sürüm; 12-18 ay tam ölçek |
+| Ekonomik/Ticari/Sosyal | OpenNutri Veri Tabanı: en az 500.000 kaynağı izlenebilir gıda-besin kaydı, en az 5.000 özgün Türk gıda ürünü/varyantı ve kaynakta mevcut olduğunda USDA FoodData Central'dan türetilen proje şemasındaki 181'e kadar besin bileşeni. | 6-12 ay ilk sürüm; 12-18 ay tam ölçek |
 | Ekonomik/Ticari/Sosyal | OpenNutri API: sürekli güncellenen veri tabanına erişim sağlayan, dokümantasyon ve SDK içeren üretim REST API. | 12-18 ay |
 | Ekonomik/Ticari/Sosyal | Kademeli doğrulama motoru: başka ülkelerin veya kurumların gıda bileşimi dijitalleştirme süreçlerine uyarlanabilir veri çıkarma/doğrulama motoru. | 12-18 ay |
 | Araştırmacı Yetiştirme | Yazılım/Yapay Zekâ ekibi: LLM ince ayarı, RAG, RLHF/tercih temelli öğrenme, rota optimizasyonu, API geliştirme ve gıda veri standartları konularında uygulamalı eğitim. | 0-18 ay |
