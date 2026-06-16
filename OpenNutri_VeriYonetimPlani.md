@@ -28,15 +28,15 @@ Veriler büyük ölçüde **yeniden üretilen ikincil veridir** (yayımlanmış 
 ## 3. Depolama, Yedekleme ve Güvenlik
 
 - **Birincil depolama:** Ev sahibi kurum sunucuları ve proje kapsamındaki NAS donanımı (veri tabanı, PDF/tam metin önbelleği, model kontrol noktaları).
-- **Hesaplama verisi:** Ağır ince ayar ve eğitim işlerine ait geçici veri TRUBA (TÜBİTAK ULAKBİM) üzerinde tutulur; nihai çıktılar kurum altyapısına geri alınır.
+- **Hesaplama verisi:** TRUBA (TÜBİTAK ULAKBİM) tahsisi kullanıldığında ağır ince ayar ve eğitim işlerine ait geçici veri TRUBA üzerinde tutulur; nihai çıktılar kurum altyapısına geri alınır. Tahsis gecikirse PEFT ölçeğindeki işler proje GPU'su ve kurum altyapısında yürütülür.
 - **Yedekleme:** 3-2-1 ilkesine yakın yapı — yerel NAS + ikinci kopya + şifreli bulut yedeği (felaket kurtarma). Kod ve şema sürüm kontrolünde (git) tutulur.
-- **Güvenlik ve egemenlik:** Çekirdek veri ve model altyapısı kurum/TRUBA/proje donanımında yürütülür; bulut yalnızca yedekleme ve dağıtımla sınırlandırılır. Bu, verinin yurt içinde tutulmasını ve yabancı tedarikçi bağımlılığının azaltılmasını sağlar.
+- **Güvenlik ve egemenlik:** Çekirdek veri ve model altyapısı kurum/proje donanımı ve tahsis alınan TRUBA kaynakları üzerinde yürütülür; bulut yalnızca yedekleme ve dağıtımla sınırlandırılır. Bu, verinin yurt içinde tutulmasını ve yabancı tedarikçi bağımlılığının azaltılmasını sağlar.
 
 ## 4. Yasal, Etik ve Fikri Mülkiyet Hususları
 
 - **Kişisel veri (KVKK):** Proje insan deneği içermez ve kişisel veri toplamaz. Tek istisna, uzman doğrulayıcıların iş kayıtlarıdır; bunlar yalnızca proje içi kalite ve eğitim amacıyla, kimliği açığa çıkarmayacak biçimde tutulur.
 - **Telif ve metin-veri madenciliği (TDM):** Telifli tam metinler yeniden dağıtılmaz. Yayımlanan çıktı, kaynağına atıf yapılan **sayısal bileşim kayıtlarıdır** (korunan ifade değil, olgusal veri). Erişim, kurumsal/EKUAL lisans kapsamı ve ilgili TDM istisnaları dahilinde yürütülür; açık erişim ve TDM-uyumlu kaynaklar önceliklendirilir. Belirsiz durumlarda kurum hukuk birimi/TTO görüşü alınır.
-- **Çıktı lisanslama (ikili model):** Açık araştırma veri seti ve kod, açık lisansla (ör. veri için CC BY 4.0, kod için izin verici açık kaynak lisansı) yayımlanır; ticari kullanım için ayrıca API aboneliği ve veri/motor lisanslaması sunulur.
+- **Çıktı lisanslama (ikili model):** Kıyaslama/akademik alt küme niteliğindeki açık araştırma veri seti ve kod, açık lisansla (ör. veri için CC BY 4.0, kod için izin verici açık kaynak lisansı) yayımlanır; sürekli güncellenen üretim API'si, tam operasyonel veri tabanı ve motor uyarlamaları için ayrıca ticari API aboneliği ve veri/motor lisanslaması sunulur.
 
 ## 5. Erişim, Paylaşım ve Yeniden Kullanım (FAIR)
 
@@ -51,7 +51,7 @@ Veriler büyük ölçüde **yeniden üretilen ikincil veridir** (yayımlanmış 
 - **Genel sorumluluk / veri yönetimi:** Yürütücü Prof. Dr. Murat Ceylan.
 - **Veri kalitesi ve doğrulama protokolü:** Prof. Dr. Servet Gülüm Şumnu (nihai tahkim) ve gıda mühendisliği bursiyerleri.
 - **Altyapı, depolama ve yedekleme:** Dr. Engin Esme ve yazılım/yapay zekâ bursiyerleri.
-- **Kaynaklar:** Veri yönetimi maliyetleri proje kapsamındaki donanım (NAS, iş istasyonu), TRUBA tahsisi ve kurum altyapısı ile karşılanır; ayrıca bir maliyet öngörülmemektedir.
+- **Kaynaklar:** Veri yönetimi maliyetleri proje kapsamındaki donanım (NAS, iş istasyonu), kurum altyapısı ve tahsis alınması halinde TRUBA kaynakları ile karşılanır; ayrıca bir maliyet öngörülmemektedir.
 
 ## 7. Teyit Edilecek Hususlar
 

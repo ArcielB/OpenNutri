@@ -197,7 +197,7 @@ OpenNutri, birbirinden bağımsız olarak ticarileştirilebilecek iki ana ürün
 | 1 | Gıda bileşimi veri tabanı ve API | 500.000'den fazla kaynağı izlenebilir gıda-besin kaydı; Türk gıdaları ve uluslararası literatür kapsamı; düzenli güncellenen veri altyapısı. | Ücretsiz akademik erişim, ticari API aboneliği, veri lisansı ve kurumsal entegrasyon. |
 | 2 | Kademeli Hibrit Zekâ doğrulama motoru | Literatürden veri çıkarma, normalizasyon, doğrulama ve uzman geri bildirimi iş akışı. | Ülke/kurum/alan bazlı motor lisanslama, uyarlama ve dağıtım hizmetleri. |
 
-**Doğrudan aynı kapsamda çalışan bir rakip tespit edilmemiştir.** Ticari gıda veri tabanları mevcut devlet verilerini, kitle kaynaklı kayıtları veya etiket/tarif ayrıştırmasını kullanır. Akademik sistemler ise genellikle tek görevli, pilot ölçekli veya tahmin odaklıdır. OpenNutri'nin ticari değeri, doğrulanmış veri üretimini ve veri üretim motorunu birlikte sunmasından kaynaklanır.
+**Doğrudan aynı kapsamda çalışan bir rakip tespit edilmemiştir.** Ticari gıda veri tabanları mevcut devlet verilerini, kitle kaynaklı kayıtları veya etiket/tarif ayrıştırmasını kullanır. Akademik sistemler ise genellikle tek görevli, pilot ölçekli veya tahmin odaklıdır. OpenNutri'nin ticari değeri, doğrulanmış veri üretimini ve veri üretim motorunu birlikte sunmasından kaynaklanır. Açık bilim çıktısı, kıyaslama/akademik veri alt kümesi, kod ve dokümantasyonla sınırlı tutulacak; sürekli güncellenen üretim API'si, tam operasyonel veri tabanı, entegrasyon desteği ve doğrulama motoru uyarlamaları ticari değer taşıyan hizmet katmanı olarak konumlandırılacaktır.
 
 **Pazar büyümesi ve ihtiyaç:** Güvenilir gıda bileşimi verisi, hızla büyüyen birçok dijital sağlık pazarının ortak girdisidir. Kişiselleştirilmiş beslenme pazarının 2025'teki ~15,8 milyar dolarlık büyüklüğünden 2030'da ~30,9 milyar dolara, yıllık ortalama %14 büyümeyle ulaşması beklenmektedir (MarketsandMarkets, 2025); diyet ve beslenme uygulamaları pazarının da 2025'te ~5,8 milyar dolardan 2030'da ~10,2 milyar dolara çıkması öngörülmektedir (Mordor Intelligence, 2025). Bu uygulamaların tümü doğru ve kaynağı izlenebilir gıda-besin verisine bağımlıdır. FAO/INFOODS ulusal gıda bileşimi programlarını desteklese de birçok ülke manuel veri tabanı oluşturma için yeterli kaynağa sahip değildir. OpenNutri motoru, bu maliyeti düşüren ve yerel veriyi ulusal kontrol altında üreten bir çözüm olarak konumlanır; hem yurt içi sağlık ve gıda teknolojisi sağlayıcılarına hem de benzer açığı yaşayan ülkelere yönelik veri ve motor lisanslama fırsatı sunar.
 
@@ -395,7 +395,7 @@ Proje ekibi, önerilen OpenNutri işlem hattının uçtan uca çalışan bir pro
 | Temel veri katmanı | USDA FoodData Central referans verisi sisteme alınmıştır. |
 | Uzman doğrulama platformu | Kimlik doğrulamalı web arayüzü; PDF görüntüleyici, kaynak vurgulama, yapılandırılmış düzeltme ve hata farkı (diff) kaydı. |
 | Operasyon | Zamanlanmış otomasyonla tara → çıkar → yönlendir → incele döngüsü çalışır durumdadır. |
-| Gösterge metrikleri | ~17.700 aday makale taranmış, ~4.300 kayıt sisteme alınmış, ~5.000 yapay zekâ çıkarımı üretilmiş, 339 makale uzman inceleme kuyruğuna yönlendirilmiştir. |
+| Gösterge metrikleri | 16 Haziran 2026 itibarıyla 23.561 arama sonucu/hit kaydedilmiş, 4.733 benzersiz makale kaydı sisteme alınmış, 4.999 yapay zekâ çıkarım denemesi üretilmiş ve 339 makale uzman inceleme kuyruğuna yönlendirilmiştir. |
 
 Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem entegrasyonunu fiilen çalışır hale getirerek fizibilite riskini düşürmektedir. Proje desteği, prototipin eksik kalan araştırma bileşenlerini tamamlayacaktır: (1) tarama ve çıkarımın hazır modellerden ince ayarlı ağırlıkları açık modellere taşınması; (2) gıda bilimi doğrulama kural motorunun sistematik olarak geliştirilmesi; (3) statik yönlendirme eşiklerinin yerine Öğrenilmiş Yönlendirici kurulması; (4) uzman düzeltmelerinin alt katmanları sürekli yeniden eğittiği öğrenme döngüsünün kapatılması.
 
@@ -491,7 +491,7 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | İP No | Risk | B Planı / Yönetim Yaklaşımı |
 | --- | --- | --- |
 | WP1 | Yayıncı API hız sınırları veya lisans kısıtları hedef literatür hacmini düşürür. | OpenAlex, Semantic Scholar açık veri setleri ve Europe PMC/PubMed Central toplu erişimleri önceliklendirilir; DergiPark ve kurumsal erişim kanalları ayrı izlenir; Google Scholar temel otomasyon kaynağı yapılmaz. |
-| WP1 | GPU/NAS donanımının kurumsal satın alma süreci uzayabilir. | Kritik geliştirme erken dönemde mevcut prototip donanımı ve TRUBA üzerinde sürdürülür; satın alma proje başında başlatılır; gerekirse kısa süreli bulut GPU köprü olarak kullanılır. |
+| WP1 | GPU/NAS donanımının kurumsal satın alma süreci uzayabilir. | Kritik geliştirme erken dönemde mevcut prototip donanımı, kurum kaynakları ve uygun olduğunda TRUBA üzerinde sürdürülür; satın alma proje başında başlatılır; gerekirse kısa süreli bulut GPU köprü olarak kullanılır. |
 | WP2 | Karmaşık veya taranmış tablolarda düzen/OCR hataları çıkarımı bozabilir. | Tablo yapısı ayrıştırma ve düzen analizi modülleri kullanılır; düşük güvenli tablo çıkarımları otomatik kabul edilmeden L5'e yönlendirilir; gıda bilimi doğrulama kuralları (kütle ve enerji dengesi) tutarsız değerleri yakalar. |
 | WP2 | İlk L3 modelleri beklenen doğruluğa ulaşamaz. | Alt görevleri daha dar uzman modellere bölmek, L4 kullanımını geçici artırmak, doğrulama kurallarını sıkılaştırmak ve düşük güvenli kayıtları otomatik kabul etmeden L5'e yönlendirmek. |
 | WP3 | Öğrenilmiş Yönlendirici yeterince hızlı yakınsamaz veya pahalı katmanlara fazla yönlendirir. | FrugalGPT tarzı statik eşik kademesi yedek olarak kullanılır; katman başına maliyet tavanları ve API bütçe alarmı uygulanır. |
@@ -507,7 +507,7 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | Altyapı / Erişim Kanalı | Projede Kullanım Amacı |
 | --- | --- |
 | Ev sahibi kurum sunucuları ve proje kapsamında alınacak GPU/NAS donanımı | Birincil veri tabanı, çıkarım servisleri, model kontrol noktaları, PDF/tam metin önbelleği ve yedekleme. |
-| TRUBA yüksek başarımlı hesaplama kaynakları (TÜBİTAK ULAKBİM, 2026; desteklenen projenin yürütücü tahsisi üzerinden proje ekibine erişim) | Büyük ölçekli LLM ince ayarı, RLHF/tercih temelli eğitim süreçleri ve model kıyaslaması. |
+| TRUBA yüksek başarımlı hesaplama kaynakları (TÜBİTAK ULAKBİM, 2026; proje kabulü sonrası uygunluk ve kaynak tahsisi başvurusu yapılacak hesaplama kanalı) | Büyük ölçekli LLM ince ayarı, RLHF/tercih temelli eğitim süreçleri ve model kıyaslaması; tahsis gecikirse PEFT ölçeğindeki işler proje GPU'su ve kurum kaynaklarıyla yürütülür. |
 | Üniversite kütüphanesi ve EKUAL erişimi | Web of Science, Scopus, ScienceDirect ve diğer lisanslı kaynaklarda literatür keşfi ve yasal tam metin erişimi. |
 | Mevcut OpenNutri prototip altyapısı | Crawler, model kademesi, normalizasyon, uzman doğrulama arayüzü ve operasyonel veri tabanı için başlangıç platformu. |
 
@@ -525,9 +525,9 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | Ekonomik/Ticari/Sosyal | OpenNutri Veri Tabanı: en az 500.000 kaynağı izlenebilir gıda-besin kaydı, en az 5.000 özgün Türk gıda ürünü/varyantı ve kaynakta mevcut olduğunda USDA FoodData Central'dan türetilen proje şemasındaki 181'e kadar besin bileşeni. | 6-12 ay ilk sürüm; 12-18 ay tam ölçek |
 | Ekonomik/Ticari/Sosyal | OpenNutri API: sürekli güncellenen veri tabanına erişim sağlayan, dokümantasyon ve SDK içeren üretim REST API. | 12-18 ay |
 | Ekonomik/Ticari/Sosyal | Kademeli doğrulama motoru: başka ülkelerin veya kurumların gıda bileşimi dijitalleştirme süreçlerine uyarlanabilir veri çıkarma/doğrulama motoru. | 12-18 ay |
-| Araştırmacı Yetiştirme | Yazılım/Yapay Zekâ ekibi: LLM ince ayarı, RAG, RLHF/tercih temelli öğrenme, rota optimizasyonu, API geliştirme ve gıda veri standartları konularında uygulamalı eğitim. | 0-18 ay |
-| Araştırmacı Yetiştirme | Gıda Bilimi ekibi: gıda bileşimi analizi, Türk gıda profillemesi, kalite kontrol protokolleri, USDA/EuroFIR/TürKomp çapraz referanslama ve yapay zekâ destekli doğrulama iş akışları. | 0-18 ay |
-| Araştırmacı Yetiştirme | İki yüksek lisans tezi: gıda mühendisliği bursiyerlerinin doğrulama metodolojisi, Türk gıda veri açığı ve yapay zekâ destekli gıda bileşimi doğrulaması üzerine tez çalışmaları. | 6-18 ay |
+| Araştırmacı Yetiştirme | Yazılım/Yapay Zekâ ekibi: LLM ince ayarı, RAG, RLHF/tercih temelli öğrenme, rota optimizasyonu, API geliştirme ve gıda veri standartları konularında uygulamalı eğitim. | 0-6 / 6-12 / 12-18 ay boyunca sürekli |
+| Araştırmacı Yetiştirme | Gıda Bilimi ekibi: gıda bileşimi analizi, Türk gıda profillemesi, kalite kontrol protokolleri, USDA/EuroFIR/TürKomp çapraz referanslama ve yapay zekâ destekli doğrulama iş akışları. | 0-6 / 6-12 / 12-18 ay boyunca sürekli |
+| Araştırmacı Yetiştirme | İki yüksek lisans tezi: gıda mühendisliği bursiyerlerinin doğrulama metodolojisi, Türk gıda veri açığı ve yapay zekâ destekli gıda bileşimi doğrulaması üzerine tez çalışmaları. | 6-12 / 12-18 ay |
 
 ## 6.2. Projeden Elde Edilmesi Öngörülen Etkiler
 
@@ -546,7 +546,7 @@ Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) önceliklerinden gıda ve
 | İstihdam | Proje sonrası 2 yıl içinde veri operasyonları, API mühendisliği ve iş geliştirme rollerini kapsayan 5-10 kişilik spin-off hedefi; ekosistemde 10-20 dolaylı istihdam potansiyeli. | 18-36 ay |
 | Rekabetçilik | Yabancı besin veri tabanlarına bağımlılığı azaltan, Türk gıdalarını kapsayan ulusal alternatif; ihracat ve yerli sağlık teknolojileri için doğruluk avantajı. | 18-48 ay |
 | Ulusal Güvenlik | Gıda bileşimi verisi üzerinde ulusal kontrol, yabancı veri tabanı fiyat/erişim değişikliklerine karşı dayanıklılık ve kriz dönemlerinde beslenme planlaması desteği. | 12-48 ay |
-| Veri Egemenliği / Siber Dayanıklılık | Çekirdek veri ve model altyapısının kurum/TRUBA/proje donanımında yürütülmesi, bulut kullanımının yedekleme ve dağıtımla sınırlandırılması ve açık kaynaklı yığın sayesinde verinin yurt içinde tutulması; yabancı bulut/tedarikçi bağımlılığının ve buna bağlı erişim/fiyat risklerinin azaltılması. | 12-48 ay |
+| Veri Egemenliği / Siber Dayanıklılık | Çekirdek veri ve model altyapısının kurum/proje donanımı ve tahsis alınan TRUBA kaynakları üzerinde yürütülmesi, bulut kullanımının yedekleme ve dağıtımla sınırlandırılması ve açık kaynaklı yığın sayesinde verinin yurt içinde tutulması; yabancı bulut/tedarikçi bağımlılığının ve buna bağlı erişim/fiyat risklerinin azaltılması. | 12-48 ay |
 
 ## 6.3. Sanayi İşbirliğine Yönelik Programlara Geçiş Yol Haritası
 
