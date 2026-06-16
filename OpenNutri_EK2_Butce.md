@@ -43,12 +43,12 @@ Ekip 4 bursiyerden oluşur. İki gıda mühendisliği bursiyeri, doğrulama (WP4
 
 | Kalem | Adet | Birim (tahmini, TL) | Toplam (TL) | Gerekçe |
 | --- | --- | --- | --- | --- |
-| GPU iş istasyonu (tek güçlü GPU, ≥32 GB VRAM; çok çekirdekli CPU; 128–256 GB RAM; 2–4 TB NVMe) | 1 | 170.000 | 170.000 | L3 ağırlıkları açık modellerin geliştirilmesi ve PEFT/LoRA-QLoRA ölçeğinde ince ayarı, çıkarım servisleri, Öğrenilmiş Yönlendirici eğitimi ve geliştirme/test. Büyük ölçekli ince ayar için TRUBA tahsisine başvurulur; tahsis gecikirse iş yükü PEFT ölçeğine indirilerek bu donanımda yürütülür. |
+| GPU iş istasyonu (tek GPU, 16–24 GB VRAM sınıfı; çok çekirdekli CPU; 64–128 GB RAM; 1–2 TB NVMe) | 1 | 170.000 | 170.000 | L3 ağırlıkları açık modellerin geliştirme/testi, çıkarım servisleri, Öğrenilmiş Yönlendirici eğitimi ve PEFT/LoRA-QLoRA ölçeğinde yerel ince ayar. Büyük ölçekli ince ayar ve kapsamlı kıyaslama için TRUBA tahsisine başvurulur; tahsis gecikirse kapsam PEFT ölçeğinde tutulur ve gerekirse kısa süreli bulut GPU ile desteklenir. |
 | NAS depolama + diskler (yedekli, ~8–12 TB ham) | 1 | 55.000 | 55.000 | Birincil veri tabanı, PDF/tam metin önbelleği, model kontrol noktaları ve yedekleme. |
 | Kesintisiz güç kaynağı (KGK) + ağ donanımı | 1 | 17.000 | 17.000 | Kesintisiz operasyon ve veri bütünlüğü. |
 | **Ara toplam** | | | **242.000** | |
 
-**Gerekçe:** "Yeni ürün/yöntem" odaklı bu projede donanım, mevcut prototipi tamamlayacak ölçüde sınırlı tutulmuştur. Hesaplama yoğun eğitim işleri için proje kabulünden sonra TRUBA (TÜBİTAK ULAKBİM) uygunluk ve kaynak tahsisi başvurusu yapılacak; satın alınacak GPU iş istasyonu ise geliştirme, çıkarım servisi, PEFT ölçeğinde ince ayar ve TRUBA tahsisinin gecikmesi durumunda yürütülebilir B planı olarak kullanılacaktır. Bu yaklaşım, makine-teçhizatın toplam bütçeyle dengeli olması kuralıyla doğrudan uyumludur.
+**Gerekçe:** "Yeni ürün/yöntem" odaklı bu projede donanım, mevcut prototipi tamamlayacak ölçüde sınırlı tutulmuştur. Hesaplama yoğun eğitim işleri için proje kabulünden sonra TRUBA (TÜBİTAK ULAKBİM) uygunluk ve kaynak tahsisi başvurusu yapılacak; satın alınacak GPU iş istasyonu ise geliştirme, çıkarım servisi, PEFT ölçeğinde ince ayar ve TRUBA tahsisinin gecikmesi durumunda yerel olarak yürütülebilecek işler için B planı olarak kullanılacaktır. Bu yaklaşım, makine-teçhizatın toplam bütçeyle dengeli olması kuralıyla doğrudan uyumludur.
 
 ## 4. Hizmet Alımı — 60.000 TL
 
@@ -80,7 +80,7 @@ Ekip 4 bursiyerden oluşur. İki gıda mühendisliği bursiyeri, doğrulama (WP4
 
 1. **Burs durumu:** İki yüksek lisans bursiyeri, 22.500 TL oranının uygulanabilmesi için yüksek lisans döneminde *çalışmayan* (başka bir işte sigortalı olmayan, tam zamanlı) statüde olmalıdır. Çalışan statüsünde oran 6.000 TL'ye düşer ve bütçe yeniden hesaplanır.
 2. **Yüksek lisansa geçiş ayı:** ~7. ay varsayılmıştır; gerçek kayıt takvimi WP4 doğrulama penceresiyle (4–16. ay) uyumlu olacak şekilde teyit edilmelidir.
-3. **Donanım fiyatları:** GPU iş istasyonu, NAS ve KGK tutarları tahminîdir; güncel piyasa teklifleriyle (döviz/ithalat etkisi dahil) güncellenecektir. Tek "güçlü GPU"nun kesin modeli (ör. ≥32 GB VRAM sınıfı) teklif aşamasında belirlenecektir.
+3. **Donanım fiyatları:** GPU iş istasyonu, NAS ve KGK tutarları tahminîdir; güncel piyasa teklifleriyle (döviz/ithalat etkisi dahil) güncellenecektir. Tek GPU'lu iş istasyonunun kesin modeli, 16–24 GB VRAM sınıfında kalacak biçimde teklif aşamasında belirlenecektir; daha büyük eğitim işleri TRUBA veya gerekirse kısa süreli bulut GPU ile yürütülecektir.
 4. **TRUBA tahsisi:** Ağır ince ayar iş yükü için proje kabulü sonrası TRUBA uygunluk/kaynak tahsisi başvurusu yapılacaktır; tahsisin gecikmesi/düşüklüğü riski ve B planı ana belgenin Risk Yönetimi bölümünde (WP3/WP4 satırı) ele alınmıştır.
 5. **Bursiyer-ad eşleştirmesi:** B1–B4 rolleri ana belgedeki iş paketi görev dağılımıyla eşleştirilecektir; iki gıda mühendisliği bursiyeri yüksek lisansa geçen bursiyerlerdir.
 6. **Kalem sınıflandırması:** Ticari API/bulut giderlerinin "Hizmet Alımı" altında sınıflandırılması PBS kalem tanımlarına göre teyit edilecektir.
