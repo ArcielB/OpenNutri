@@ -568,11 +568,6 @@ def set_table_row_values(
 
 
 def style_document(doc: Document) -> None:
-    for section in doc.sections:
-        section.top_margin = Cm(1.6)
-        section.bottom_margin = Cm(1.6)
-        section.left_margin = Cm(1.6)
-        section.right_margin = Cm(1.6)
     for style_name in ["Normal", "Body Text"]:
         if style_name in doc.styles:
             style = doc.styles[style_name]
