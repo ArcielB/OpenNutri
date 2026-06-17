@@ -627,31 +627,31 @@ def build_application(
     section_5 = sections.get("5", "")
     section_51 = strip_first_heading(subsection(section_5, "5.1"))
     wp_table_part, gantt = split_gantt(section_51)
-    set_table_rows(doc.tables[5], first_markdown_table(wp_table_part), font_size=7.1)
+    set_table_rows(doc.tables[5], first_markdown_table(wp_table_part), font_size=9)
     if gantt:
-        add_merged_row(doc.tables[5], gantt, font_size=7.0)
+        add_merged_row(doc.tables[5], gantt, font_size=9)
 
     section_52 = strip_first_heading(subsection(section_5, "5.2"))
-    set_table_rows(doc.tables[6], first_markdown_table(section_52), font_size=7.0)
+    set_table_rows(doc.tables[6], first_markdown_table(section_52), font_size=9)
 
     section_53 = strip_first_heading(subsection(section_5, "5.3"))
-    set_table_rows(doc.tables[7], first_markdown_table(section_53), font_size=7.2)
+    set_table_rows(doc.tables[7], first_markdown_table(section_53), font_size=9)
 
     section_6 = sections.get("6", "")
     section_61 = strip_first_heading(subsection(section_6, "6.1"))
-    set_table_rows(doc.tables[8], first_markdown_table(section_61), font_size=7.1)
+    set_table_rows(doc.tables[8], first_markdown_table(section_61), font_size=9)
 
     section_62 = strip_first_heading(subsection(section_6, "6.2"))
     impact_intro = markdown_without_first_table(section_62).strip()
     if impact_intro:
         insert_paragraph_before_table(doc.tables[9], impact_intro)
-    set_table_rows(doc.tables[9], first_markdown_table(section_62), font_size=7.0)
+    set_table_rows(doc.tables[9], first_markdown_table(section_62), font_size=9)
 
     section_63 = strip_first_heading(subsection(section_6, "6.3"))
     add_markdown_to_cell(doc.tables[10].cell(0, 0), section_63, allow_tables=False)
 
     section_64 = strip_first_heading(subsection(section_6, "6.4"))
-    set_table_rows(doc.tables[11], first_markdown_table(section_64), font_size=7.0)
+    set_table_rows(doc.tables[11], first_markdown_table(section_64), font_size=9)
 
     add_markdown_to_cell(doc.tables[12].cell(0, 0), "Ek bilgi yoktur.")
 
