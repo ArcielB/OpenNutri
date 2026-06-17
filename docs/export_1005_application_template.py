@@ -289,6 +289,7 @@ def add_markdown_to_cell(
     clear: bool = True,
     compact: bool = False,
     font_size: float = 9,
+    allow_tables: bool = True,
 ) -> None:
     if clear:
         clear_cell(cell)
@@ -349,7 +350,28 @@ def add_markdown_to_cell(
         if parsed_table:
             flush_paragraph()
             rows, end = parsed_table
-            append_docx_table(cell, rows, font_size=7.5 if not compact else 7)
+            if allow_tables:
+                append_docx_table(cell, rows, font_size=7.5 if not compact else 7)
+            else:
+                table_header = rows[0] if rows else []
+                for row in rows[1:] if len(rows) > 1 else rows:
+                    parts = []
+                    for c_index, value in enumerate(row):
+                        if not value.strip():
+                            continue
+                        label = table_header[c_index].strip() if c_index < len(table_header) else ""
+                        if label:
+                            parts.append(f"{label}: {value}")
+                        else:
+                            parts.append(value)
+                    if parts:
+                        paragraph = cell.add_paragraph()
+                        paragraph.paragraph_format.left_indent = Cm(0.35)
+                        paragraph.paragraph_format.first_line_indent = Cm(-0.2)
+                        run = paragraph.add_run("• ")
+                        set_run_font(run, size=font_size)
+                        add_inline(paragraph, "; ".join(parts), size=font_size)
+                        format_paragraph(paragraph, size=font_size)
             i = end
             continue
 
@@ -501,7 +523,14 @@ def find_paragraph(doc: Document, exact_text: str) -> Paragraph | None:
     return None
 
 
-def build_application(template: Path, proposal: Path, budget: Path, output: Path) -> None:
+def build_application(
+    template: Path,
+    proposal: Path,
+    budget: Path,
+    output: Path,
+    *,
+    include_budget_annex: bool = False,
+) -> None:
     proposal_text = proposal.read_text(encoding="utf-8")
     budget_text = budget.read_text(encoding="utf-8") if budget.exists() else ""
     sections = split_top_sections(proposal_text)
@@ -513,7 +542,11 @@ def build_application(template: Path, proposal: Path, budget: Path, output: Path
     fill_cover_table(doc.tables[0], extract_cover(proposal_text))
 
     for table_index, section_key in [(1, "1"), (2, "2"), (3, "3"), (4, "4")]:
-        add_markdown_to_cell(doc.tables[table_index].cell(0, 0), sections.get(section_key, ""))
+        add_markdown_to_cell(
+            doc.tables[table_index].cell(0, 0),
+            sections.get(section_key, ""),
+            allow_tables=False,
+        )
 
     section_5 = sections.get("5", "")
     section_51 = strip_first_heading(subsection(section_5, "5.1"))
@@ -539,7 +572,7 @@ def build_application(template: Path, proposal: Path, budget: Path, output: Path
     set_table_rows(doc.tables[9], first_markdown_table(section_62), font_size=7.0)
 
     section_63 = strip_first_heading(subsection(section_6, "6.3"))
-    add_markdown_to_cell(doc.tables[10].cell(0, 0), section_63)
+    add_markdown_to_cell(doc.tables[10].cell(0, 0), section_63, allow_tables=False)
 
     section_64 = strip_first_heading(subsection(section_6, "6.4"))
     set_table_rows(doc.tables[11], first_markdown_table(section_64), font_size=7.0)
@@ -551,7 +584,7 @@ def build_application(template: Path, proposal: Path, budget: Path, output: Path
         insert_markdown_after_paragraph(ek1_paragraph, sections["EK-1"])
 
     ek2_paragraph = find_paragraph(doc, "EK-2: BÜTÇE VE GEREKÇESİ")
-    if ek2_paragraph is not None and budget_text:
+    if include_budget_annex and ek2_paragraph is not None and budget_text:
         insert_markdown_after_paragraph(ek2_paragraph, strip_first_heading(budget_text))
 
     style_document(doc)
@@ -565,8 +598,19 @@ def main(argv: Iterable[str] | None = None) -> None:
     parser.add_argument("--proposal", type=Path, default=DEFAULT_PROPOSAL)
     parser.add_argument("--budget", type=Path, default=DEFAULT_BUDGET)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--include-budget-annex",
+        action="store_true",
+        help="Append EK-2 budget text after the template's EK-2 heading.",
+    )
     args = parser.parse_args(argv)
-    build_application(args.template, args.proposal, args.budget, args.output)
+    build_application(
+        args.template,
+        args.proposal,
+        args.budget,
+        args.output,
+        include_budget_annex=args.include_budget_annex,
+    )
     print(f"Created {args.output}")
 
 
