@@ -269,6 +269,7 @@ def append_docx_table(cell: _Cell, rows: list[list[str]], *, font_size: float = 
     except KeyError:
         # Older localized templates may not carry the English table style name.
         pass
+    set_explicit_table_borders(table)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     for r_index, row in enumerate(rows):
         for c_index in range(len(table.columns)):
@@ -280,6 +281,24 @@ def append_docx_table(cell: _Cell, rows: list[list[str]], *, font_size: float = 
                 format_paragraph(paragraph, size=font_size, bold=(r_index == 0))
             target.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
     return table
+
+
+def set_explicit_table_borders(table: Table) -> None:
+    tbl_pr = table._tbl.tblPr
+    borders = tbl_pr.first_child_found_in("w:tblBorders")
+    if borders is None:
+        borders = OxmlElement("w:tblBorders")
+        tbl_pr.append(borders)
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        tag = f"w:{edge}"
+        element = borders.find(qn(tag))
+        if element is None:
+            element = OxmlElement(tag)
+            borders.append(element)
+        element.set(qn("w:val"), "single")
+        element.set(qn("w:sz"), "4")
+        element.set(qn("w:space"), "0")
+        element.set(qn("w:color"), "000000")
 
 
 def add_markdown_to_cell(
@@ -529,7 +548,7 @@ def build_application(
     budget: Path,
     output: Path,
     *,
-    include_budget_annex: bool = False,
+    include_budget_annex: bool = True,
 ) -> None:
     proposal_text = proposal.read_text(encoding="utf-8")
     budget_text = budget.read_text(encoding="utf-8") if budget.exists() else ""
@@ -599,9 +618,9 @@ def main(argv: Iterable[str] | None = None) -> None:
     parser.add_argument("--budget", type=Path, default=DEFAULT_BUDGET)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument(
-        "--include-budget-annex",
+        "--no-budget-annex",
         action="store_true",
-        help="Append EK-2 budget text after the template's EK-2 heading.",
+        help="Leave EK-2 as an empty template heading instead of appending the budget text.",
     )
     args = parser.parse_args(argv)
     build_application(
@@ -609,7 +628,7 @@ def main(argv: Iterable[str] | None = None) -> None:
         args.proposal,
         args.budget,
         args.output,
-        include_budget_annex=args.include_budget_annex,
+        include_budget_annex=not args.no_budget_annex,
     )
     print(f"Created {args.output}")
 
