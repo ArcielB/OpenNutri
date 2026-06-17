@@ -25,9 +25,13 @@ from docx.text.paragraph import Paragraph
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEMPLATE = ROOT / "1005_basvuru_formu (7).doc"
+DEFAULT_EK1_TEMPLATE = ROOT / "1005_basvuru_formu_ek1_kaynaklar_31.07.2018 (4).doc"
+DEFAULT_EK2_TEMPLATE = ROOT / "ek-2_butce_ve_gerekcesi_tablosu_1005.docx"
 DEFAULT_PROPOSAL = ROOT / "OpenNutriLatestVersion.md"
 DEFAULT_BUDGET = ROOT / "OpenNutri_EK2_Butce.md"
 DEFAULT_OUTPUT = ROOT / "docs" / "OpenNutri_1005_Application_Filled_Template.docx"
+DEFAULT_EK1_OUTPUT = ROOT / "docs" / "OpenNutri_1005_EK1_Kaynaklar.docx"
+DEFAULT_EK2_OUTPUT = ROOT / "docs" / "OpenNutri_1005_EK2_Butce_ve_Gerekcesi.docx"
 
 
 MAIN_SECTION_TITLES = {
@@ -506,6 +510,63 @@ def insert_markdown_after_paragraph(paragraph: Paragraph, markdown: str) -> None
         anchor.addnext(element)
 
 
+def append_markdown_to_document(doc: Document, markdown: str) -> None:
+    holder = Document()
+    cell = holder.add_table(rows=1, cols=1).cell(0, 0)
+    add_markdown_to_cell(cell, markdown, clear=True)
+    body = doc.element.body
+    sect_pr = body.sectPr
+    insert_index = list(body).index(sect_pr) if sect_pr is not None else len(body)
+    for child in cell._tc:
+        if child.tag not in {qn("w:p"), qn("w:tbl")}:
+            continue
+        body.insert(insert_index, deepcopy(child))
+        insert_index += 1
+
+
+def remove_body_after_first_heading(doc: Document) -> None:
+    body = doc.element.body
+    non_empty_seen = False
+    for child in list(body):
+        if child.tag == qn("w:sectPr"):
+            continue
+        text = ""
+        if child.tag == qn("w:p"):
+            text = "".join(node.text or "" for node in child.iter(qn("w:t"))).strip()
+        if not non_empty_seen and text:
+            non_empty_seen = True
+            continue
+        if non_empty_seen:
+            body.remove(child)
+
+
+def set_cell_markdown(cell: _Cell, markdown: str, *, font_size: float = 8, bold: bool = False) -> None:
+    clear_cell(cell)
+    add_markdown_to_cell(cell, markdown, clear=False, compact=True, font_size=font_size, allow_tables=False)
+    for paragraph in cell.paragraphs:
+        format_paragraph(paragraph, size=font_size, bold=bold)
+
+
+def set_table_row_values(
+    table: Table,
+    row_index: int,
+    values: Sequence[str],
+    *,
+    font_size: float = 8,
+    bold_columns: set[int] | None = None,
+) -> None:
+    bold_columns = bold_columns or set()
+    for col_index, value in enumerate(values):
+        if col_index >= len(table.columns):
+            break
+        set_cell_markdown(
+            table.cell(row_index, col_index),
+            value,
+            font_size=font_size,
+            bold=col_index in bold_columns,
+        )
+
+
 def style_document(doc: Document) -> None:
     for section in doc.sections:
         section.top_margin = Cm(1.6)
@@ -548,7 +609,8 @@ def build_application(
     budget: Path,
     output: Path,
     *,
-    include_budget_annex: bool = True,
+    include_references_annex: bool = False,
+    include_budget_annex: bool = False,
 ) -> None:
     proposal_text = proposal.read_text(encoding="utf-8")
     budget_text = budget.read_text(encoding="utf-8") if budget.exists() else ""
@@ -599,12 +661,163 @@ def build_application(
     add_markdown_to_cell(doc.tables[12].cell(0, 0), "Ek bilgi yoktur.")
 
     ek1_paragraph = find_paragraph(doc, "EK-1: KAYNAKLAR")
-    if ek1_paragraph is not None and sections.get("EK-1"):
+    if include_references_annex and ek1_paragraph is not None and sections.get("EK-1"):
         insert_markdown_after_paragraph(ek1_paragraph, sections["EK-1"])
 
     ek2_paragraph = find_paragraph(doc, "EK-2: BÜTÇE VE GEREKÇESİ")
     if include_budget_annex and ek2_paragraph is not None and budget_text:
         insert_markdown_after_paragraph(ek2_paragraph, strip_first_heading(budget_text))
+
+    style_document(doc)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(output)
+
+
+def build_ek1(template: Path, proposal: Path, output: Path) -> None:
+    proposal_text = proposal.read_text(encoding="utf-8")
+    references = split_top_sections(proposal_text).get("EK-1", "")
+    if not references:
+        raise RuntimeError("No EK-1 references section found in proposal markdown.")
+    with tempfile.TemporaryDirectory(prefix="opennutri_ek1_") as tmp:
+        converted = convert_template_to_docx(template, Path(tmp))
+        doc = Document(converted)
+    remove_body_after_first_heading(doc)
+    append_markdown_to_document(doc, references)
+    style_document(doc)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(output)
+
+
+def build_ek2(template: Path, budget: Path, output: Path) -> None:
+    if not template.exists():
+        raise FileNotFoundError(f"EK-2 template not found: {template}")
+    if not budget.exists():
+        raise FileNotFoundError(f"Budget markdown not found: {budget}")
+    doc = Document(template)
+
+    # General budget table.
+    set_table_row_values(
+        doc.tables[0],
+        1,
+        ["TÜBİTAK'tan Talep Edilen Katkı", "242.000", "25.000", "60.000", "0", "45.000", "828.000", "0", "1.200.000"],
+        font_size=6.3,
+        bold_columns={0, 8},
+    )
+    set_table_row_values(
+        doc.tables[0],
+        2,
+        ["Öneren Kuruluş Katkısı", "0", "0", "0", "0", "0", "0", "0", "0"],
+        font_size=6.3,
+        bold_columns={0},
+    )
+    set_table_row_values(
+        doc.tables[0],
+        3,
+        ["Destekleyen Diğer Kuruluş Katkısı", "0", "0", "0", "0", "0", "0", "0", "0"],
+        font_size=6.3,
+        bold_columns={0},
+    )
+    set_table_row_values(
+        doc.tables[0],
+        4,
+        ["TOPLAM", "242.000", "25.000", "60.000", "0", "45.000", "828.000", "0", "1.200.000"],
+        font_size=6.3,
+        bold_columns={0, 8},
+    )
+
+    # Machine/equipment.
+    equipment_rows = [
+        [
+            "GPU iş istasyonu / 1 adet",
+            "L3 ağırlıkları açık modellerin geliştirme/testi, çıkarım servisleri, Öğrenilmiş Yönlendirici eğitimi ve PEFT/LoRA-QLoRA ölçeğinde yerel ince ayar.",
+            "Tek GPU, 16-24 GB VRAM sınıfı; çok çekirdekli CPU; 64-128 GB RAM; 1-2 TB NVMe. Kesin model proforma aşamasında belirlenecektir.",
+            "170.000",
+        ],
+        [
+            "NAS depolama + diskler / 1 adet",
+            "Birincil veri tabanı, PDF/tam metin önbelleği, model kontrol noktaları ve yedekleme.",
+            "Yedekli NAS, yaklaşık 8-12 TB ham depolama kapasitesi.",
+            "55.000",
+        ],
+        [
+            "Kesintisiz güç kaynağı (KGK) + ağ donanımı / 1 set",
+            "Kesintisiz operasyon ve veri bütünlüğü.",
+            "İş istasyonu ve NAS için uygun kapasiteli KGK; temel ağ bağlantı donanımı.",
+            "17.000",
+        ],
+    ]
+    for offset, row in enumerate(equipment_rows, start=2):
+        set_table_row_values(doc.tables[1], offset, row, font_size=6.1)
+
+    # Consumables.
+    set_table_row_values(
+        doc.tables[2],
+        2,
+        [
+            "SSD/HDD yedekleri, bileşenler, kablolar ve küçük donanım",
+            "Depolama genişletme, yedek parça ve laboratuvar/altyapı sarf ihtiyaçları.",
+            "25.000",
+        ],
+        font_size=6.5,
+    )
+    set_table_row_values(doc.tables[2], 4, ["TOPLAM", "", "25.000"], font_size=6.5, bold_columns={0, 2})
+
+    # Services.
+    service_rows = [
+        [
+            "Ticari LLM API kullanımı",
+            "Model sağlayıcıları",
+            "L4 yükseltme katmanı, maliyet-kalite kıyaslaması ve yalnızca başarısız alt görevlerde sınırlı ticari API çağrıları.",
+            "35.000",
+        ],
+        [
+            "Bulut yedekleme / dağıtım",
+            "Bulut hizmet sağlayıcıları",
+            "Felaket kurtarma, yedekleme ve API dağıtım esnekliği.",
+            "10.000",
+        ],
+        [
+            "TTO patent taraması güncelleme + akademik redaksiyon/çeviri",
+            "Kurum TTO / dış hizmet sağlayıcı",
+            "Patent ön taramasının ürünleşme aşamasında güncellenmesi ve yayın redaksiyonu.",
+            "15.000",
+        ],
+    ]
+    for offset, row in enumerate(service_rows, start=2):
+        set_table_row_values(doc.tables[3], offset, row, font_size=6.4)
+    set_table_row_values(doc.tables[3], 4, service_rows[2], font_size=6.4)
+
+    # Representation/promotion: no requested budget in the current draft.
+    set_table_row_values(doc.tables[4], 7, ["Toplam", "", "", "0"], font_size=6.5, bold_columns={0, 3})
+
+    # Field work and field-work travel are not planned.
+    set_table_row_values(doc.tables[5], 4, ["TOPLAM", "", "", "", "", "", "", "", "", "0"], font_size=5.5, bold_columns={0, 9})
+    set_table_row_values(doc.tables[6], 7, ["TOPLAM (TL)", "", "", "", "", "", "0"], font_size=6.2, bold_columns={0, 6})
+    set_cell_markdown(doc.tables[7].cell(0, 0), "Yurt içi saha çalışması planlanmamaktadır.", font_size=8)
+    set_table_row_values(doc.tables[8], 4, ["TOPLAM", "", "", "", "", "", "", "", "", "0"], font_size=5.5, bold_columns={0, 9})
+    set_table_row_values(doc.tables[9], 7, ["TOPLAM (TL)", "", "", "", "", "", "0"], font_size=6.2, bold_columns={0, 6})
+
+    # Non-field travel.
+    set_table_row_values(doc.tables[10], 2, ["Yurt İçi / Yurt Dışı Seyahat", "45.000"], font_size=7, bold_columns={0})
+    set_table_row_values(doc.tables[10], 3, ["Yurt Dışı Uçak Bileti (TÜBİTAK'tan talep edilen)", "0"], font_size=7, bold_columns={0})
+
+    # Scholarships, aggregated by level because two food-engineering students move from undergraduate to MSc.
+    set_table_row_values(
+        doc.tables[11],
+        2,
+        ["Lisans Öğrencisi", "48", "6.000", "288.000"],
+        font_size=7,
+    )
+    set_table_row_values(
+        doc.tables[11],
+        3,
+        ["Yüksek Lisans Öğrencisi (çalışmayan)", "24", "22.500", "540.000"],
+        font_size=7,
+    )
+    set_table_row_values(doc.tables[11], 4, ["TOPLAM", "", "", "828.000"], font_size=7, bold_columns={0, 3})
+
+    # Temporary workers are not requested.
+    set_table_row_values(doc.tables[13], 4, ["TOPLAM", "", "", "", "0"], font_size=7, bold_columns={0, 4})
 
     style_document(doc)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -617,10 +830,19 @@ def main(argv: Iterable[str] | None = None) -> None:
     parser.add_argument("--proposal", type=Path, default=DEFAULT_PROPOSAL)
     parser.add_argument("--budget", type=Path, default=DEFAULT_BUDGET)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--ek1-template", type=Path, default=DEFAULT_EK1_TEMPLATE)
+    parser.add_argument("--ek1-output", type=Path, default=DEFAULT_EK1_OUTPUT)
+    parser.add_argument("--ek2-template", type=Path, default=DEFAULT_EK2_TEMPLATE)
+    parser.add_argument("--ek2-output", type=Path, default=DEFAULT_EK2_OUTPUT)
     parser.add_argument(
-        "--no-budget-annex",
+        "--single-file-annexes",
         action="store_true",
-        help="Leave EK-2 as an empty template heading instead of appending the budget text.",
+        help="Append EK-1/EK-2 content inside the main form instead of producing separate annex files.",
+    )
+    parser.add_argument(
+        "--main-only",
+        action="store_true",
+        help="Only write the main form; do not generate separate EK-1/EK-2 files.",
     )
     args = parser.parse_args(argv)
     build_application(
@@ -628,9 +850,15 @@ def main(argv: Iterable[str] | None = None) -> None:
         args.proposal,
         args.budget,
         args.output,
-        include_budget_annex=not args.no_budget_annex,
+        include_references_annex=args.single_file_annexes,
+        include_budget_annex=args.single_file_annexes,
     )
     print(f"Created {args.output}")
+    if not args.single_file_annexes and not args.main_only:
+        build_ek1(args.ek1_template, args.proposal, args.ek1_output)
+        print(f"Created {args.ek1_output}")
+        build_ek2(args.ek2_template, args.budget, args.ek2_output)
+        print(f"Created {args.ek2_output}")
 
 
 if __name__ == "__main__":
