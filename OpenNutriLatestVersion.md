@@ -22,7 +22,7 @@ Bu durum Türkiye için dört somut kayıp üretmektedir:
 
 - Türk gıda ihracatçıları, AB etiketleme ve ürün belgelendirme süreçlerinde yerel ürünü temsil eden, kaynaklı ve doğrulanmış besin verisine sınırlı erişmektedir.
 
-Akademik literatürde yer alan birçok belirgin Türk gıdası, USDA FoodData Central ve EuroFIR gibi uluslararası gıda bileşimi veri tabanlarında bulunmamaktadır; proje bu açığı kapatmak üzere tasarlanmıştır (Bölüm 4.6.1).
+Akademik literatürde yer alan birçok belirgin Türk gıdası, USDA FoodData Central gibi uluslararası gıda bileşimi veri altyapılarında yeterince temsil edilmemektedir; proje bu açığı kapatmak üzere tasarlanmıştır (Bölüm 4.6.1).
 
 ## Çözüm: OpenNutri
 
@@ -133,7 +133,7 @@ Uzman düzeltmeleri; denetimli ince ayar, tercih temelli öğrenme/RLHF ve hata 
 
 **Başarı ölçütleri:**
 
-Hedef 1'de tanımlanan dört ölçüt (otomatik onay doğruluğu ≥%99,5, otomatik onay oranı ≥%90, veri tabanı hata oranı <%0,5, makale başına maliyet <$0,01), uzman geri bildirimiyle eğitilen alt katmanların zaman içinde iyileşmesiyle hedeflenir. Maliyet hedefleri otomatik işleme maliyetini ifade eder; uzman doğrulama emeği WP4'te ayrıca bütçelenir. Ölçütlerin tam tanımları Bölüm 4.7.1'dedir. Katmanlar arası öğrenmenin etkisi ayrıca makale başına maliyetin düşmesi ve otomatik onay oranının artmasıyla, ek olarak Bölüm 4.7.3'teki öğrenme eğrileri ve yönlendirici pişmanlık analizleriyle izlenecektir.
+Hedef 1'de tanımlanan dört ölçüt (otomatik onay doğruluğu ≥%99,5, otomatik onay oranı ≥%90, veri tabanı hata oranı <%0,5, makale başına maliyet <$0,01), uzman geri bildirimiyle eğitilen alt katmanların zaman içinde iyileşmesiyle hedeflenir. Maliyet hedefleri otomatik işleme maliyetini ifade eder; uzman doğrulama emeği WP4'te ayrıca bütçelenir. Ölçütlerin tam tanımları Bölüm 4.7.1'dedir. Katmanlar arası öğrenmenin etkisi ayrıca makale başına maliyetin düşmesi, otomatik onay oranının artması ve aynı hata kısıtı korunurken L4/L5'e yönlendirilmesi gereken makale payının değerlendirme döngüleri boyunca azalmasıyla izlenecektir; bu analiz Bölüm 4.7.3'teki öğrenme eğrileri ve yönlendirici pişmanlık ölçümleriyle raporlanacaktır.
 
 ### Hedef 5: Sistemi Yayına Almak ve Bilimsel Yayılımı Sağlamak
 
@@ -201,7 +201,7 @@ OpenNutri, birbirinden bağımsız olarak ticarileştirilebilecek iki ana ürün
 
 **Pazar büyümesi ve ihtiyaç:** Güvenilir gıda bileşimi verisi, hızla büyüyen birçok dijital sağlık pazarının ortak girdisidir. Kişiselleştirilmiş beslenme pazarının 2025'teki ~15,8 milyar dolarlık büyüklüğünden 2030'da ~30,9 milyar dolara, yıllık ortalama %14 büyümeyle ulaşması beklenmektedir (MarketsandMarkets, 2025); diyet ve beslenme uygulamaları pazarının da 2025'te ~5,8 milyar dolardan 2030'da ~10,2 milyar dolara çıkması öngörülmektedir (Mordor Intelligence, 2025). Bu uygulamaların tümü doğru ve kaynağı izlenebilir gıda-besin verisine bağımlıdır. FAO/INFOODS ulusal gıda bileşimi programlarını desteklese de birçok ülke manuel veri tabanı oluşturma için yeterli kaynağa sahip değildir. OpenNutri motoru, bu maliyeti düşüren ve yerel veriyi ulusal kontrol altında üreten bir çözüm olarak konumlanır; hem yurt içi sağlık ve gıda teknolojisi sağlayıcılarına hem de benzer açığı yaşayan ülkelere yönelik veri ve motor lisanslama fırsatı sunar.
 
-**Birim ekonomisi ve başabaş (gösterge niteliğinde):** Ticarileşmenin maliyet temeli iki kalemden oluşur: makale başına bir defalık otomatik işleme maliyeti (Hedef 1'de proje sonunda <$0,01 hedeflenir) ve API'yi ayakta tutan tekrarlayan altyapı maliyeti (Bölüm 3.4'te proje sonrası ~12.500 TL/yıl). Çıkarım maliyeti bir kayıt için yalnızca bir kez oluşur; üretilen kayıt çok sayıda API çağrısına neredeyse maliyetsiz biçimde yeniden sunulabildiğinden çağrı başına marjinal sunum maliyeti çok düşüktür. Bu yapı kademeli bir gelir modeline olanak tanır: ücretsiz akademik erişim, kullanım hacmine göre fiyatlanan ticari API abonelikleri ve toplu veri/lisans anlaşmaları. Gösterge niteliğindeki bir değerlendirmeyle, yıllık tekrarlayan işletme maliyetinin karşılanması yalnızca birkaç orta ölçekli kurumsal aboneliği gerektirir; bu nedenle başabaş noktasının düşük bir müşteri sayısında ulaşılabilir olduğu öngörülmektedir. Kesin fiyat kademeleri, çağrı başına sunum maliyeti ve ayrıntılı başabaş analizi; pilot sonuçlarına ve değerlendirme dönemindeki güncel model ve altyapı fiyatlarına göre Bölüm 6.3'teki ürünleşme yol haritasında nihaileştirilecektir.
+**Birim ekonomisi ve başabaş (gösterge niteliğinde):** Ticarileşmenin maliyet temeli iki kalemden oluşur: makale başına bir defalık otomatik işleme maliyeti (Hedef 1'de proje sonunda <$0,01 hedeflenir) ve API'yi ayakta tutan tekrarlayan altyapı maliyeti (Bölüm 3.4'te proje sonrası ~12.500 TL/yıl). Bu düşük tutar, proje donanımı edinildikten sonraki değişken işleme/sunum maliyetini ifade eder; personel, satış, destek ve donanım amortismanı ticari fiyatlandırmada ayrıca dikkate alınacaktır. Çıkarım maliyeti bir kayıt için yalnızca bir kez oluşur; üretilen kayıt çok sayıda API çağrısına neredeyse maliyetsiz biçimde yeniden sunulabildiğinden çağrı başına marjinal sunum maliyeti çok düşüktür. Bu yapı kademeli bir gelir modeline olanak tanır: ücretsiz akademik erişim, kullanım hacmine göre fiyatlanan ticari API abonelikleri ve toplu veri/lisans anlaşmaları. Gösterge niteliğindeki bir değerlendirmeyle, yıllık tekrarlayan işletme maliyetinin karşılanması yalnızca birkaç orta ölçekli kurumsal aboneliği gerektirir; bu nedenle başabaş noktasının düşük bir müşteri sayısında ulaşılabilir olduğu öngörülmektedir. Kesin fiyat kademeleri, çağrı başına sunum maliyeti ve ayrıntılı başabaş analizi; pilot sonuçlarına ve değerlendirme dönemindeki güncel model ve altyapı fiyatlarına göre Bölüm 6.3'teki ürünleşme yol haritasında nihaileştirilecektir.
 
 ## 3.4. Proje Sonrası Sürdürülebilirlik ve Olası Maliyet Hesabı
 
@@ -407,7 +407,7 @@ Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem ent
 
 ### 4.6.1. Türk Gıda Veri Açığı Ön Değerlendirmesi
 
-TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da Türkiye'nin tarımsal ve kültürel gıda çeşitliliği çok daha geniştir. Bilimsel literatürde belgelenen birçok yerel gıda, yöresel ürün ve ürün varyantı USDA FoodData Central veya EuroFIR gibi uluslararası gıda bileşimi veri tabanlarında bulunmamaktadır. Bu açığın kesin ölçümü projenin erken çıktılarından biridir: Türkçe ve Türkiye kaynaklı literatür sistematik olarak indekslenecek, uluslararası veri tabanlarında bulunmayan gıda öğeleri makine tarafından okunabilir biçimde sayılacak ve en az 5.000 özgün Türk gıda ürünü veya varyantı hedeflenecektir. OpenNutri'nin TürKomp karşısındaki konumu rekabet değil tamamlayıcılıktır: amaç, TürKomp'un yüksek kaliteyle analiz ettiği temel gıdaları yeniden üretmek değil; bu ulusal veriyi uluslararası altyapılarla birlikte çalışabilir kılmak ve TürKomp'un manuel laboratuvar yöntemiyle henüz ulaşamadığı geniş literatür kuyruğunu (yöresel ürünler, ürün varyantları ve hazır yemekler) ölçeklenebilir biçimde kapsamaktır.
+TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da Türkiye'nin tarımsal ve kültürel gıda çeşitliliği çok daha geniştir. Bilimsel literatürde belgelenen birçok yerel gıda, yöresel ürün ve ürün varyantı uluslararası gıda bileşimi veri altyapılarında yeterince temsil edilmemektedir. Bu açığın kesin ölçümü projenin erken çıktılarından biridir: Türkçe ve Türkiye kaynaklı literatür sistematik olarak indekslenecek, uluslararası veri tabanlarında bulunmayan gıda öğeleri makine tarafından okunabilir biçimde sayılacak ve en az 5.000 özgün Türk gıda ürünü veya varyantı hedeflenecektir. OpenNutri'nin TürKomp karşısındaki konumu rekabet değil tamamlayıcılıktır: amaç, TürKomp'un yüksek kaliteyle analiz ettiği temel gıdaları yeniden üretmek değil; bu ulusal veriyi uluslararası altyapılarla birlikte çalışabilir kılmak ve TürKomp'un manuel laboratuvar yöntemiyle henüz ulaşamadığı geniş literatür kuyruğunu (yöresel ürünler, ürün varyantları ve hazır yemekler) ölçeklenebilir biçimde kapsamaktır.
 
 **Ön kontrol bulgusu:** Açığın yönünü göstermek için Türkiye'nin ulusal referans verisi TürKomp ile USDA FoodData Central'ın referans bileşim veri setleri (SR Legacy ve FNDDS) karşılaştırmalı olarak kontrol edilmiştir. Birinci grup somut bir uluslararası temsil açığını doğrulamaktadır: simit (İzmir), tarhana (Uşak), kaşar peyniri, Erzurum sucuğu ve ayran gibi ürünler TürKomp'ta 100 g bazlı bileşim kaydıyla yer aldığı hâlde, USDA'nın bu referans setlerinde — alternatif İngilizce yazımları (örneğin kaşar için "kashkaval/kasseri", sucuk için "sujuk/soudjouk") dâhil — bulunmamaktadır. Başka bir deyişle, ulusal verimizde belgelenmiş Türk gıdaları dahi uluslararası besin veri altyapılarına yansımamaktadır. İkinci grup, TürKomp'un yaklaşık 580 gıdalık kapsamının dışında kalan ve bilimsel literatürde belgelenmesine karşın ön kontrolde ne TürKomp'ta ne de USDA'da karşılığına rastlanan hazır/yöresel yemekleri (örneğin lahmacun, mantı, künefe) içerir; bunlar OpenNutri'nin literatürden özgün biçimde ekleyebileceği aday gıdalardır. Karşıtlık için, bulgur ve Antep fıstığı gibi daha geniş biçimde ihraç edilen ürünlerin her iki altyapıda da temsil edildiği görülmüştür; bu da açığın genel değil ürün düzeyinde seçici olduğunu gösterir. Bu ön kontrol İngilizce/Latin harfli anahtar kelimelere dayanır ve markalı ürün veri setlerini kapsamaz; ikinci gruptaki örnekler kanıtlanmış değil, sistematik indekslemeyle doğrulanacak aday boşluklardır.
 
@@ -424,7 +424,7 @@ TürKomp 500'den fazla analiz edilmiş gıda için güçlü bir temel sunsa da T
 | Çıkarma gecikmesi | Veri alımından yapılandırılmış çıktıya kadar geçen süre. | Gerçek zaman ölçümü. | saniye |
 | Geri çağırma | Çıkarılabilir veriler arasında sistemin yakaladığı oran. | Uzman oluşturulmuş referansla karşılaştırma. | % |
 
-Veri tabanı hata oranı denetimi, kabul edilmiş kayıtlar içinden gıda kategorisi, besin grubu, kaynak türü, dil ve çıkarım katmanına göre tabakalı rastgele örnekleme ile yürütülecektir. <%0,5 hata hedefinin istatistiksel olarak desteklenebilmesi için her denetim döngüsünde bir taban örneklem büyüklüğü uygulanır: binom güven aralığı mantığıyla, sıfır hatalı gözlemde %95 üst güven sınırı yaklaşık 3/n'dir ("üçler kuralı"); dolayısıyla küresel hata oranını %95 güvenle %0,5'in altında tutmak yaklaşık 600 kaydın hatasız denetlenmesini gerektirir; birkaç hatalı gözleme tolerans tanımak için döngü başına taban örneklem ~600-1.000 kayda çıkarılır. Bu taban örneklem küresel orana ilişkindir; tabakalandırma, örneklemi sınıflara dağıtmak ve sınıflar arası farklılıkları saptamak için kullanılır, her tabakaya ayrı bir %0,5 garantisi vermez. Yüksek riskli tabakalarda (karmaşık tablolar, taranmış PDF'ler, düşük kaynaklı diller gibi) hedefli aşırı örnekleme yapılır. Sayısal yükseltme kuralı: bir tabakanın gözlemlenen hata oranına ait %95 güven aralığının üst sınırı %0,5'i aştığında, o tabaka için otomatik kabul eşiği yükseltilir ve etkilenen kayıtlar L5 uzman doğrulamasına yönlendirilir.
+Veri tabanı hata oranı denetimi, kabul edilmiş kayıtlar içinden gıda kategorisi, besin grubu, kaynak türü, dil ve çıkarım katmanına göre tabakalı rastgele örnekleme ile yürütülecektir. <%0,5 hata hedefinin istatistiksel olarak desteklenebilmesi için her denetim döngüsünde bir taban örneklem büyüklüğü uygulanır: binom güven aralığı mantığıyla, sıfır hatalı gözlemde %95 üst güven sınırı yaklaşık 3/n'dir ("üçler kuralı"); dolayısıyla küresel hata oranını %95 güvenle %0,5'in altında tutmak yaklaşık 600 kaydın hatasız denetlenmesini gerektirir; birkaç hatalı gözleme tolerans tanımak için döngü başına taban örneklem ~600-1.000 kayda çıkarılır. Bu taban örneklem küresel orana ilişkindir; tabakalandırma, örneklemi sınıflara dağıtmak ve sınıflar arası farklılıkları saptamak için kullanılır, her tabakaya ayrı bir %0,5 garantisi vermez. Yüksek riskli tabakalarda (karmaşık tablolar, taranmış/OCR gerektiren PDF'ler, Türkçe yayınlar ve yeni model sürümleri gibi) hedefli aşırı örnekleme yapılır. Sayısal yükseltme kuralı: bir tabakanın gözlemlenen hata oranına ait %95 güven aralığının üst sınırı %0,5'i aştığında, o tabaka için otomatik kabul eşiği yükseltilir ve etkilenen kayıtlar L5 uzman doğrulamasına yönlendirilir.
 
 ### 4.7.2. Bağımsız Değişkenler
 
@@ -471,7 +471,7 @@ Veri tabanı hata oranı denetimi, kabul edilmiş kayıtlar içinden gıda kateg
 
 ## 5.1. İş Paketleri, Görev Dağılımı ve Süreleri
 
-| İP No | İş Paketinin Adı ve Hedefleri | Sorumlu Ekip | Zaman Aralığı | Başarı Ölçütü ve Katkısı |
+| İP No | İş Paketlerinin Adı ve Hedefleri | Kim(ler) Tarafından Gerçekleştirileceği | Zaman Aralığı (..-.. Ay) | Başarı Ölçütü ve Projenin Başarısına Katkısı |
 | --- | --- | --- | --- | --- |
 | 1 | **Akıllı Literatür Tarama ve L2 Sınıflandırma Hattı:** L1 akıllı tarayıcı, L2 sınıflandırıcı, veri tabanı şeması ve kaynak erişim hattı. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Alijon Alimov | 1-4. Aylar | Çok kaynaklı tarayıcı çalışır durumda; L2 F1 ≥0,92; ≥100.000 ilgili makaleye ulaşabilecek aday havuz ve tekilleştirme hattı. |
 | 2 | **Çekirdek Çıkarma Motoru (L3):** Alt göreve özgü ağırlıkları açık modeller, normalizasyon, varlık bağlama ve gıda bilimi doğrulama kuralları. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3-8. Aylar | L3 alt görevleri entegre; ≥10 doğrulama kuralı aktif; ticari API tabanlı referansa göre en az %30 maliyet düşüşü; düşük güvenli kayıtların L4/L5'e güvenli yönlendirilmesi. |
@@ -492,7 +492,7 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 
 ## 5.2. Risk Yönetimi
 
-| İP No | Risk | B Planı / Yönetim Yaklaşımı |
+| İP No | En Önemli Riskler | Risk Yönetimi (B Planı) |
 | --- | --- | --- |
 | WP1 | Yayıncı API hız sınırları veya lisans kısıtları hedef literatür hacmini düşürür. | OpenAlex, Semantic Scholar açık veri setleri ve Europe PMC/PubMed Central toplu erişimleri önceliklendirilir; DergiPark ve kurumsal erişim kanalları ayrı izlenir; Google Scholar temel otomasyon kaynağı yapılmaz. |
 | WP1 | GPU/NAS donanımının kurumsal satın alma süreci uzayabilir. | Kritik geliştirme erken dönemde mevcut prototip donanımı, kurum kaynakları ve uygun olduğunda TRUBA üzerinde sürdürülür; satın alma proje başında başlatılır; gerekirse kısa süreli bulut GPU köprü olarak kullanılır. |
@@ -509,7 +509,7 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 
 ## 5.3. Araştırma Olanakları
 
-| Altyapı / Erişim Kanalı | Projede Kullanım Amacı |
+| Kuruluşta Bulunan Altyapı/Ekipman Türü, Modeli | Projede Kullanım Amacı |
 | --- | --- |
 | Ev sahibi kurum sunucuları ve proje kapsamında alınacak GPU/NAS donanımı | Birincil veri tabanı, çıkarım servisleri, model kontrol noktaları, PDF/tam metin önbelleği ve yedekleme. |
 | TRUBA yüksek başarımlı hesaplama kaynakları (TÜBİTAK ULAKBİM, 2026; proje kabulü sonrası uygunluk ve kaynak tahsisi başvurusu yapılacak hesaplama kanalı) | Büyük ölçekli LLM ince ayarı, RLHF/tercih temelli eğitim süreçleri ve model kıyaslaması; tahsis gecikirse PEFT ölçeğindeki işler proje GPU'su ve kurum kaynaklarıyla yürütülür. |
@@ -522,7 +522,7 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 
 ## 6.1. Projeden Elde Edilmesi Öngörülen Çıktılar
 
-| Çıktı Türü | Çıktı | Öngörülen Zaman Aralığı |
+| Çıktı Türü | Çıktı | Zaman Aralığı |
 | --- | --- | --- |
 | Bilimsel/Akademik | Büyük ölçekli gıda bileşimi veri çıkarma kıyaslaması: ticari ve ağırlıkları açık LLM'ler ile OpenNutri'nin doğruluk, maliyet ve hız karşılaştırması; değerlendirme veri seti ve kodunun yayımlanması. | 12-18 ay |
 | Bilimsel/Akademik | Kademeli Hibrit Zekâ mimarisi makalesi: L1-L5 işlem hattı, Öğrenilmiş Yönlendirici, katmanlar arası öğrenme, ablasyon çalışmaları ve maliyet analizi. | 12-18 ay |
@@ -530,15 +530,15 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 | Ekonomik/Ticari/Sosyal | OpenNutri Veri Tabanı: en az 500.000 kaynağı izlenebilir gıda-besin kaydı, en az 5.000 özgün Türk gıda ürünü/varyantı ve kaynakta mevcut olduğunda USDA FoodData Central'dan türetilen proje şemasındaki 181'e kadar besin bileşeni. | 6-12 ay ilk sürüm; 12-18 ay tam ölçek |
 | Ekonomik/Ticari/Sosyal | OpenNutri API: sürekli güncellenen veri tabanına erişim sağlayan, dokümantasyon ve SDK içeren üretim REST API. | 12-18 ay |
 | Ekonomik/Ticari/Sosyal | Kademeli doğrulama motoru: başka ülkelerin veya kurumların gıda bileşimi dijitalleştirme süreçlerine uyarlanabilir veri çıkarma/doğrulama motoru. | 12-18 ay |
-| Araştırmacı Yetiştirme | Yazılım/Yapay Zekâ ekibi: LLM ince ayarı, RAG, RLHF/tercih temelli öğrenme, rota optimizasyonu, API geliştirme ve gıda veri standartları konularında uygulamalı eğitim. | 0-6 / 6-12 / 12-18 ay boyunca sürekli |
-| Araştırmacı Yetiştirme | Gıda Bilimi ekibi: gıda bileşimi analizi, Türk gıda profillemesi, kalite kontrol protokolleri, USDA/EuroFIR/TürKomp çapraz referanslama ve yapay zekâ destekli doğrulama iş akışları. | 0-6 / 6-12 / 12-18 ay boyunca sürekli |
-| Araştırmacı Yetiştirme | İki yüksek lisans tezi: gıda mühendisliği bursiyerlerinin doğrulama metodolojisi, Türk gıda veri açığı ve yapay zekâ destekli gıda bileşimi doğrulaması üzerine tez çalışmaları. | 6-12 / 12-18 ay |
+| Araştırmacı Yetiştirilmesi | Yazılım/Yapay Zekâ ekibi: LLM ince ayarı, RAG, RLHF/tercih temelli öğrenme, rota optimizasyonu, API geliştirme ve gıda veri standartları konularında uygulamalı eğitim. | 0-6 / 6-12 / 12-18 ay boyunca sürekli |
+| Araştırmacı Yetiştirilmesi | Gıda Bilimi ekibi: gıda bileşimi analizi, Türk gıda profillemesi, kalite kontrol protokolleri, USDA/EuroFIR/TürKomp çapraz referanslama ve yapay zekâ destekli doğrulama iş akışları. | 0-6 / 6-12 / 12-18 ay boyunca sürekli |
+| Araştırmacı Yetiştirilmesi | İki yüksek lisans tezi: gıda mühendisliği bursiyerlerinin doğrulama metodolojisi, Türk gıda veri açığı ve yapay zekâ destekli gıda bileşimi doğrulaması üzerine tez çalışmaları. | 6-12 / 12-18 ay |
 
 ## 6.2. Projeden Elde Edilmesi Öngörülen Etkiler
 
 Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) önceliklerinden gıda ve tarımın öncelikli gelişme alanı olarak güçlendirilmesi, gıda güvencesi, dijital dönüşüm, yerli ve milli teknoloji geliştirme ve yeşil dönüşüm hedefleriyle doğrudan ilişkilidir. Hedef kitle ve alanlar; kamu sağlık ve gıda güvenliği kurumları, gıda sanayisi ve ihracatçıları, sağlık teknolojisi geliştiricileri ile akademik araştırma topluluğudur. Beklenen etkiler aşağıda doğrulanabilir göstergelerle özetlenmiştir.
 
-| Etki Türü | Etki | Öngörülen Zaman |
+| Etki Türü | Etki | Etkinin Elde Edilmesi Öngörülen Zaman |
 | --- | --- | --- |
 | Toplumsal/Kültürel | Türk yemek kültürüne uyarlanmış kanıta dayalı beslenme rehberliği; yerel gıdalar için daha doğru beslenme takibi ve diyet uygulamaları. | 18-36 ay |
 | Toplumsal/Kültürel | Halk sağlığı politikaları için bölgesel ve ürün bazlı besin bileşimi referansı; okul beslenmesi ve bölgesel müdahalelerde yerel veri kullanımı. | 18-36 ay |
@@ -547,7 +547,7 @@ Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) önceliklerinden gıda ve
 | Akademik | USDA FoodData Central, EFSA ve FAO/INFOODS gibi veri ekosistemleriyle uyumlu format sayesinde ulusal/uluslararası iş birliği zemini. | 18-36 ay |
 | Akademik | Yapay zekâ ve gıda bilimi kesişiminde eğitim almış 4 bursiyer; ikisi yüksek lisans düzeyine geçerek tez üretir, ekipte disiplinler arası uzmanlık kazanılır. | 0-18 ay |
 | Ekonomik | Gıda ihracatı, sağlık teknolojisi, diyetisyen uygulamaları, gıda üretim kalite kontrolü ve tarımsal ürün pazarlaması için veri altyapısı. | 18-36 ay |
-| Ekonomik | Veri lisanslama, API aboneliği ve doğrulama motoru uyarlamasıyla iki ana gelir kanalı. | 24-48 ay |
+| Ekonomik | Veri lisanslama, API aboneliği ve doğrulama motoru uyarlamasıyla çeşitlendirilmiş gelir kanalları. | 24-48 ay |
 | İstihdam | Proje sonrası 2 yıl içinde veri operasyonları, API mühendisliği ve iş geliştirme rollerini kapsayan 5-10 kişilik spin-off hedefi; ekosistemde 10-20 dolaylı istihdam potansiyeli. | 18-36 ay |
 | Rekabetçilik | Yabancı besin veri tabanlarına bağımlılığı azaltan, Türk gıdalarını kapsayan ulusal alternatif; ihracat ve yerli sağlık teknolojileri için doğruluk avantajı. | 18-48 ay |
 | Ulusal Güvenlik | Gıda bileşimi verisi üzerinde ulusal kontrol, yabancı veri tabanı fiyat/erişim değişikliklerine karşı dayanıklılık ve kriz dönemlerinde beslenme planlaması desteği. | 12-48 ay |
@@ -579,7 +579,7 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 ## 6.4. Proje Çıktılarının Paylaşımı ve Yayılımı
 
-| Etkinlik Türü | Paydaş / Olası Kullanıcılar | Zaman ve Süre |
+| Etkinlik Türü | Paydaş / Olası Kullanıcılar | Etkinliğin Zamanı ve Süresi |
 | --- | --- | --- |
 | Proje web sitesi: dokümantasyon, ilerleme güncellemeleri, API erken erişim kaydı | Araştırmacılar, geliştiriciler, gıda endüstrisi profesyonelleri, genel kamuoyu | 1. aydan itibaren; proje süresince ve sonrasında |
 | Akademik/profesyonel duyurular (ResearchGate, Google Scholar profili, LinkedIn, X) | Akademik ve profesyonel kitle | 6. aydan itibaren sürekli |
