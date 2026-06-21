@@ -10,18 +10,18 @@
 - **Proje destek üst limiti:** 1.200.000 TL — *burslar dahil; Proje Teşvik İkramiyesi (PTİ) ve kurum hissesi hariç.*
 - **Proje süresi:** 18 ay.
 - **2026 burs aylık üst limitleri:** Lisans 6.000 TL; Yüksek Lisans 22.500 TL (çalışmayan); Doktora 32.500 TL.
-- **Kural:** "Makine-teçhizat taleplerinin toplam bütçe ile dengeli olması gözetilir." Bu nedenle bütçe, ağırlıklı olarak araştırmacı emeği (burs) ve sınırlı, gerekçeli donanım üzerine kuruludur; ağır hesaplama için proje GPU'su garanti edilen yerel yürütme/PEFT zeminidir, TRUBA ise başvuruya bağlı (garanti edilmeyen) fırsatçı bir hızlandırıcıdır. TRUBA'da öncelikli/ölçekli kullanım ücretli bir hizmettir ve gerekirse hizmet alımı olarak ayrıca talep edilebilir; bu bütçe, garanti edilen hedefleri ek bir TRUBA kalemi olmadan karşılayacak biçimde kurulmuştur.
+- **Kural:** "Makine-teçhizat taleplerinin toplam bütçe ile dengeli olması gözetilir." Bu nedenle bütçe ağırlıklı olarak araştırmacı emeği (burs) üzerine kuruludur ve donanım talebi düşük tutulmuştur (makine-teçhizat toplam bütçenin ~%8'i). Ağır hesaplama (toplu çıkarım ve model eğitimi/ince ayarı), en uygun maliyetli yol olan TRUBA üzerinde, proje kabulünde imzalanacak sözleşmeyle tahsis edilen ücretli hizmet alımı (HSB/VSB) kalemiyle karşılanır — 2026 ARDEB akademik tarifesi H100/H200 için ~13,28 TL/GPU-saattir (KDV hariç) ve bu, ticari bulut GPU'ya göre kat kat ucuzdur. TRUBA yazılım geliştirme amacıyla kullanılamadığından, geliştirme/servis ve TRUBA erişiminin gecikmesi durumunda yedek yürütme için sınırlı kapasiteli yerel bir GPU iş istasyonu bulundurulur. Üretim veri barındırma ve yedekleme bulut hizmetiyle sağlanır; ayrı bir NAS talep edilmez. Toplam talep üst limitin (~64.000 TL) altındadır.
 
 ## 1. Özet Bütçe
 
 | Bütçe Kalemi | Tutar (TL) | Pay |
 | --- | --- | --- |
-| Burs (Bursiyer) | 828.000 | %69,0 |
-| Makine-Teçhizat | 242.000 | %20,2 |
-| Hizmet Alımı | 60.000 | %5,0 |
-| Sarf Malzemesi | 25.000 | %2,1 |
-| Seyahat | 45.000 | %3,75 |
-| **TOPLAM (üst limit dahilinde)** | **1.200.000** | %100 |
+| Burs (Bursiyer) | 828.000 | %72,9 |
+| Hizmet Alımı | 155.000 | %13,6 |
+| Makine-Teçhizat | 96.000 | %8,5 |
+| Seyahat | 45.000 | %4,0 |
+| Sarf Malzemesi | 12.000 | %1,1 |
+| **TOPLAM (üst limitin altında)** | **1.136.000** | %100 |
 
 *PTİ ve kurum hissesi üst limit dışındadır ve TÜBİTAK tarafından ayrıca hesaplanır; bu tabloya dahil değildir.*
 
@@ -39,31 +39,30 @@ Ekip 4 bursiyerden oluşur. İki gıda mühendisliği bursiyeri, doğrulama (WP4
 
 **Gerekçe:** Bursiyer emeği projenin temel araştırma girdisidir; mevcut prototip üzerine eksik araştırma bileşenleri (ağırlıkları açık modellere geçiş, gıda bilimi doğrulama kural motoru, Öğrenilmiş Yönlendirici, katmanlar arası öğrenme döngüsü) bursiyerler tarafından geliştirilir. İki gıda mühendisliği bursiyerinin yüksek lisansa geçişi, WP4 uzman doğrulamasının Prof. Dr. Şumnu gözetiminde yüksek lisans düzeyinde yürütülmesini ve iki yüksek lisans tezinin (yaygın etki çıktısı) üretilmesini sağlar.
 
-## 3. Makine-Teçhizat — 242.000 TL
+## 3. Makine-Teçhizat — 96.000 TL
 
 | Kalem | Adet | Birim (tahmini, TL) | Toplam (TL) | Gerekçe |
 | --- | --- | --- | --- | --- |
-| GPU iş istasyonu (tek GPU, 16–24 GB VRAM sınıfı; çok çekirdekli CPU; 64–128 GB RAM; 1–2 TB NVMe) | 1 | 170.000 | 170.000 | L3 ağırlıkları açık modellerin geliştirme/testi, çıkarım servisleri, Öğrenilmiş Yönlendirici eğitimi ve PEFT/LoRA-QLoRA ölçeğinde yerel ince ayar. Bu sınıf, garanti edilen 1–13B model deneylerini ve LoRA/QLoRA ince ayarını karşılar; 30–70B sınıfı ve tam ince ayar, donanım gereksinimi nedeniyle TRUBA'ya (sağlanırsa) bağlı koşullu deneylerdir. TRUBA sağlanmazsa kapsam PEFT ölçeğinde tutulur ve gerekirse kısa süreli bulut GPU ile desteklenir. |
-| NAS depolama + diskler (yedekli, ~8–12 TB ham) | 1 | 55.000 | 55.000 | Birincil veri tabanı, PDF/tam metin önbelleği, model kontrol noktaları ve yedekleme. |
-| Kesintisiz güç kaynağı (KGK) + ağ donanımı | 1 | 17.000 | 17.000 | Kesintisiz operasyon ve veri bütünlüğü. |
-| **Ara toplam** | | | **242.000** | |
+| GPU geliştirme/servis iş istasyonu (16 GB VRAM sınıfı GPU; çok çekirdekli CPU; 64–128 GB RAM; 2 TB NVMe + yerel çalışma/yedek diski) | 1 | 90.000 | 90.000 | Yerel geliştirme, prototip iterasyonu, çıkarım servisi ve PEFT/LoRA-QLoRA ölçeğinde deneme. TRUBA yazılım geliştirme amacıyla kullanılamadığından geliştirme/hata ayıklama bu istasyonda yürütülür; ağır toplu çıkarım ve model eğitimi/ince ayarı (30–70B tam ince ayar dâhil) sözleşmeyle tahsis edilen TRUBA H100/H200 kaynaklarında çalıştırılır. İstasyon ayrıca TRUBA erişimi gecikirse öncelikli alt küme için yedek kaynaktır. |
+| Kesintisiz güç kaynağı (KGK) | 1 | 6.000 | 6.000 | Yerel iş istasyonunun güç kesintilerine karşı korunması ve veri bütünlüğü. Ağ donanımı talep edilmez; kurum ağı kullanılır. |
+| **Ara toplam** | | | **96.000** | |
 
-**Gerekçe:** "Yeni ürün/yöntem" odaklı bu projede donanım, mevcut prototipi tamamlayacak ölçüde sınırlı tutulmuştur. Satın alınacak GPU iş istasyonu; geliştirme, çıkarım servisi ve PEFT ölçeğinde ince ayar için garanti edilen birincil kaynaktır. TRUBA yazılım geliştirme amacıyla kullanılamadığından ve tahsisi garanti olmadığından, garanti edilen proje hedefleri bu iş istasyonu ve kurum kaynaklarıyla karşılanır; TRUBA yalnızca ağır eğitim işlerini hızlandıran, başvuruya bağlı fırsatçı bir kanaldır. Bu yaklaşım, makine-teçhizatın toplam bütçeyle dengeli olması kuralıyla doğrudan uyumludur.
+**Gerekçe:** "Yeni ürün/yöntem" odaklı bu projede donanım, mevcut prototipi tamamlayacak ölçüde asgari tutulmuştur (toplam bütçenin ~%8'i). Ağır hesaplamanın TRUBA'ya taşınması sayesinde yerel donanım yalnızca geliştirme, çıkarım servisi ve PEFT ölçeğinde denemeyi karşılayan tek bir iş istasyonuna indirgenmiştir. Bu yaklaşım, makine-teçhizatın toplam bütçeyle dengeli olması kuralıyla doğrudan uyumludur ve donanım maliyetini ticari bulut GPU yerine sübvansiyonlu TRUBA hesaplamasına kaydırarak maliyet etkinliği sağlar.
 
-## 4. Hizmet Alımı — 60.000 TL
-
-| Kalem | Tutar (TL) | Gerekçe |
-| --- | --- | --- |
-| Ticari LLM API kullanımı (L4 yükseltme + kıyaslama) | 35.000 | Yalnızca başarısız alt görevlerde L4 katmanı için sınırlı ticari API çağrıları ve maliyet-kalite kıyaslaması. Tahmini temel: işlenen makalelerin ~%10–15'inde, çağrı başına ~3–5K token ve değerlendirme tarihindeki ticari model fiyatlarıyla yükseltme maliyeti, artı kilitli kıyaslama test kümesinin token bütçesi; toplam ~35.000 TL mertebesindedir. Kısa süreli bulut GPU köprüsü gerekirse aynı kalem içindeki esneklikten karşılanır. |
-| Bulut yedekleme / dağıtım | 10.000 | Felaket kurtarma, yedekleme ve API dağıtım esnekliği. |
-| TTO patent taraması güncelleme + akademik redaksiyon/çeviri | 15.000 | Patent ön taramasının ürünleşme aşamasında güncellenmesi (~7.000 TL) ve hakemli yayınlar için redaksiyon/çeviri (~8.000 TL). |
-| **Ara toplam** | **60.000** | |
-
-## 5. Sarf Malzemesi — 25.000 TL
+## 4. Hizmet Alımı — 155.000 TL
 
 | Kalem | Tutar (TL) | Gerekçe |
 | --- | --- | --- |
-| SSD/HDD yedekleri, bileşenler, kablolar ve küçük donanım | 25.000 | Depolama genişletme, yedek parça ve sarf ihtiyaçları (Makine-Teçhizat kalemindeki NAS depolamadan ayrıdır; bunlar tüketilebilir/yedek bileşenlerdir). |
+| TRUBA yüksek başarımlı hesaplama (HSB/VSB) hizmet alımı | 100.000 | Toplu model çıkarımı ve model eğitimi/ince ayarı (30–70B tam ince ayar dâhil) için sözleşmeyle tahsis edilen H100/H200 GPU hesaplama ve depolama hizmeti. 2026 ARDEB akademik tarifesi (~13,28 TL/GPU-saat, KDV hariç) temelinde yaklaşık 6.000 GPU-saat + depolama; KDV dâhil ~100.000 TL. Proje kabulünde TÜBİTAK ULAKBİM ile imzalanacak sözleşmeyle kesinleşir; yazılım geliştirme yerel iş istasyonunda yapılır. |
+| Ticari LLM API kullanımı (L4 yükseltme + kıyaslama) | 35.000 | Yalnızca başarısız alt görevlerde L4 katmanı için sınırlı ticari API çağrıları ve maliyet-kalite kıyaslaması. Tahmini temel: işlenen makalelerin ~%10–15'inde, çağrı başına ~3–5K token ve değerlendirme tarihindeki ticari model fiyatları, artı kilitli kıyaslama test kümesinin token bütçesi. |
+| Bulut depolama / yedekleme / dağıtım | 20.000 | Üretim veri tabanı ve PDF/tam metin önbelleğinin bulut barındırması, felaket kurtarma yedeklemesi ve API dağıtım esnekliği. Ayrı bir NAS yerine mevcut bulut altyapısı (Supabase/nesne depolama) kullanılır. |
+| **Ara toplam** | **155.000** | |
+
+## 5. Sarf Malzemesi — 12.000 TL
+
+| Kalem | Tutar (TL) | Gerekçe |
+| --- | --- | --- |
+| SSD/HDD yedekleri, kablolar, bileşenler ve küçük donanım | 12.000 | Yedek depolama diski, yedek parça, kablolar ve küçük donanım/sarf ihtiyaçları (tüketilebilir/yedek bileşenler). |
 
 ## 6. Seyahat — 45.000 TL
 
@@ -80,7 +79,7 @@ Ekip 4 bursiyerden oluşur. İki gıda mühendisliği bursiyeri, doğrulama (WP4
 
 1. **Burs durumu:** İki yüksek lisans bursiyeri, 22.500 TL oranının uygulanabilmesi için yüksek lisans döneminde *çalışmayan* (başka bir işte sigortalı olmayan, tam zamanlı) statüde olmalıdır. Çalışan statüsünde oran 6.000 TL'ye düşer ve bütçe yeniden hesaplanır.
 2. **Yüksek lisansa geçiş ayı:** ~7. ay varsayılmıştır; gerçek kayıt takvimi WP4 doğrulama penceresiyle (4–16. ay) uyumlu olacak şekilde teyit edilmelidir.
-3. **Donanım fiyatları:** GPU iş istasyonu, NAS ve KGK tutarları tahminîdir; güncel piyasa teklifleriyle (döviz/ithalat etkisi dahil) güncellenecektir. Tek GPU'lu iş istasyonunun kesin modeli, 16–24 GB VRAM sınıfında kalacak biçimde teklif aşamasında belirlenecektir; daha büyük eğitim işleri TRUBA veya gerekirse kısa süreli bulut GPU ile yürütülecektir.
-4. **TRUBA tahsisi (garanti değil):** TRUBA tahsisi başvuruya ve uygunluğa bağlıdır; standart akademik hesaplar ücretsiz, öncelikli/ölçekli kullanım ise hizmet bedeli karşılığıdır ve gerekirse hizmet alımı olarak ayrıca talep edilebilir. Garanti edilen hedefler proje GPU iş istasyonuyla karşılanacak biçimde tasarlanmıştır; tahsisin gecikmesi/sağlanamaması riski ve B planı ana belgenin Risk Yönetimi bölümünde (WP3/WP4 satırı) ele alınmıştır.
+3. **Donanım fiyatları:** GPU iş istasyonu ve KGK tutarları tahminîdir ve güncel piyasa teklifleriyle (döviz/ithalat etkisi dahil) güncellenecektir; iş istasyonunun kesin modeli 16 GB VRAM sınıfında kalacak biçimde teklif aşamasında belirlenecektir. Ayrı NAS ve ağ donanımı talep edilmemektedir; toplu veri TRUBA depolamasında ve bulut hizmetinde tutulur.
+4. **TRUBA hizmet alımı (HSB/VSB):** Tutar, 2026 ARDEB akademik tarifesi (H100/H200 için ~13,28 TL/GPU-saat, KDV hariç) ve yaklaşık 6.000 GPU-saat + depolama temelinde tahminîdir. Kesin çekirdek-saat/depolama miktarı ve sözleşme, proje kabulünde Proje Yürütücüsü ile TÜBİTAK ULAKBİM arasında imzalanır; gerekirse proforma öncesi `ardeb@ulakbim.gov.tr` ile teyit edilir. TRUBA yazılım geliştirme amacıyla kullanılamaz; geliştirme ve olası erişim gecikmesinde yedek yürütme yerel iş istasyonuyla karşılanır (ana belge Risk Yönetimi, WP3/WP4 satırı).
 5. **Bursiyer-ad eşleştirmesi:** B1–B4 rolleri ana belgedeki iş paketi görev dağılımıyla eşleştirilecektir; iki gıda mühendisliği bursiyeri yüksek lisansa geçen bursiyerlerdir.
-6. **Kalem sınıflandırması:** Ticari API/bulut giderlerinin "Hizmet Alımı" altında sınıflandırılması PBS kalem tanımlarına göre teyit edilecektir.
+6. **Kalem sınıflandırması:** TRUBA hizmet alımı, ticari API ve bulut giderlerinin "Hizmet Alımı (03.5)" altında sınıflandırılması PBS kalem tanımlarına göre teyit edilecektir.

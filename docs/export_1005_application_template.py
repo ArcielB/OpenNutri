@@ -694,7 +694,7 @@ def build_ek2(template: Path, budget: Path, output: Path) -> None:
     set_table_row_values(
         doc.tables[0],
         1,
-        ["TÜBİTAK'tan Talep Edilen Katkı", "242.000", "25.000", "60.000", "0", "45.000", "828.000", "0", "1.200.000"],
+        ["TÜBİTAK'tan Talep Edilen Katkı", "96.000", "12.000", "155.000", "0", "45.000", "828.000", "0", "1.136.000"],
         font_size=6.3,
         bold_columns={0, 8},
     )
@@ -715,7 +715,7 @@ def build_ek2(template: Path, budget: Path, output: Path) -> None:
     set_table_row_values(
         doc.tables[0],
         4,
-        ["TOPLAM", "242.000", "25.000", "60.000", "0", "45.000", "828.000", "0", "1.200.000"],
+        ["TOPLAM", "96.000", "12.000", "155.000", "0", "45.000", "828.000", "0", "1.136.000"],
         font_size=6.3,
         bold_columns={0, 8},
     )
@@ -723,42 +723,43 @@ def build_ek2(template: Path, budget: Path, output: Path) -> None:
     # Machine/equipment.
     equipment_rows = [
         [
-            "GPU iş istasyonu / 1 adet",
-            "L3 ağırlıkları açık modellerin geliştirme/testi, çıkarım servisleri, Öğrenilmiş Yönlendirici eğitimi ve PEFT/LoRA-QLoRA ölçeğinde yerel ince ayar. Garanti edilen 1-13B model deneylerini ve LoRA/QLoRA ince ayarını karşılar; 30-70B ve tam ince ayar TRUBA'ya bağlı koşullu deneylerdir.",
-            "Tek GPU, 16-24 GB VRAM sınıfı; çok çekirdekli CPU; 64-128 GB RAM; 1-2 TB NVMe. Kesin model proforma aşamasında belirlenecektir.",
-            "170.000",
+            "GPU geliştirme/servis iş istasyonu / 1 adet",
+            "Yerel geliştirme, prototip iterasyonu, çıkarım servisi ve PEFT/LoRA-QLoRA ölçeğinde deneme için iş istasyonu. TRUBA yazılım geliştirme amacıyla kullanılamadığından geliştirme ve hata ayıklama bu istasyonda yürütülür; ağır toplu çıkarım ile model eğitimi/ince ayarı (30-70B tam ince ayar dâhil) sözleşmeyle tahsis edilen TRUBA H100/H200 kaynaklarında çalıştırılır. İstasyon ayrıca TRUBA erişimi gecikirse öncelikli alt küme için yedek kaynaktır.",
+            "16 GB VRAM sınıfı GPU; çok çekirdekli CPU; 64-128 GB RAM; 2 TB NVMe ve yerel çalışma/yedek diski. Kesin model proforma aşamasında belirlenecektir.",
+            "90.000",
         ],
         [
-            "NAS depolama + diskler / 1 adet",
-            "Birincil veri tabanı, PDF/tam metin önbelleği, model kontrol noktaları ve yedekleme.",
-            "Yedekli NAS, yaklaşık 8-12 TB ham depolama kapasitesi.",
-            "55.000",
-        ],
-        [
-            "Kesintisiz güç kaynağı (KGK) + ağ donanımı / 1 set",
-            "Kesintisiz operasyon ve veri bütünlüğü.",
-            "İş istasyonu ve NAS için uygun kapasiteli KGK; temel ağ bağlantı donanımı.",
-            "17.000",
+            "Kesintisiz güç kaynağı (KGK) / 1 adet",
+            "Yerel iş istasyonunun güç kesintilerine karşı korunması ve veri bütünlüğü.",
+            "İş istasyonu için uygun kapasiteli çevrim içi/hat etkileşimli KGK. Ağ donanımı talep edilmemektedir; kurum ağı kullanılacaktır.",
+            "6.000",
         ],
     ]
     for offset, row in enumerate(equipment_rows, start=2):
         set_table_row_values(doc.tables[1], offset, row, font_size=6.1)
+    set_table_row_values(doc.tables[1], 4, ["TOPLAM", "", "", "96.000"], font_size=6.1, bold_columns={0, 3})
 
     # Consumables.
     set_table_row_values(
         doc.tables[2],
         2,
         [
-            "SSD/HDD yedekleri, bileşenler, kablolar ve küçük donanım",
-            "Depolama genişletme, yedek parça ve altyapı sarf ihtiyaçları; Makine-Teçhizat kalemindeki NAS depolamadan ayrı, tüketilebilir/yedek bileşenlerdir.",
-            "25.000",
+            "SSD/HDD yedekleri, kablolar, bileşenler ve küçük donanım",
+            "Yedek depolama diski, yedek parça, kablolar ve küçük donanım/sarf ihtiyaçları (tüketilebilir/yedek bileşenler).",
+            "12.000",
         ],
         font_size=6.5,
     )
-    set_table_row_values(doc.tables[2], 4, ["TOPLAM", "", "25.000"], font_size=6.5, bold_columns={0, 2})
+    set_table_row_values(doc.tables[2], 4, ["TOPLAM", "", "12.000"], font_size=6.5, bold_columns={0, 2})
 
     # Services.
     service_rows = [
+        [
+            "TRUBA yüksek başarımlı hesaplama (HSB/VSB) hizmet alımı",
+            "TÜBİTAK ULAKBİM (TRUBA)",
+            "Toplu model çıkarımı ve model eğitimi/ince ayarı (30-70B tam ince ayar dâhil) için sözleşmeyle tahsis edilen H100/H200 GPU hesaplama ve depolama hizmeti. 2026 ARDEB akademik tarifesi (~13,28 TL/GPU-saat, KDV hariç) temelinde yaklaşık 6.000 GPU-saat + depolama; KDV dâhil. Proje kabulünde ULAKBİM ile imzalanacak sözleşmeyle kesinleşir; yazılım geliştirme yerel iş istasyonunda yapılır.",
+            "100.000",
+        ],
         [
             "Ticari LLM API kullanımı",
             "Model sağlayıcıları",
@@ -766,16 +767,10 @@ def build_ek2(template: Path, budget: Path, output: Path) -> None:
             "35.000",
         ],
         [
-            "Bulut yedekleme / dağıtım",
+            "Bulut depolama / yedekleme / dağıtım",
             "Bulut hizmet sağlayıcıları",
-            "Felaket kurtarma, yedekleme ve API dağıtım esnekliği.",
-            "10.000",
-        ],
-        [
-            "TTO patent taraması güncelleme + akademik redaksiyon/çeviri",
-            "Kurum TTO / dış hizmet sağlayıcı",
-            "Patent ön taramasının ürünleşme aşamasında güncellenmesi (~7.000 TL) ve hakemli yayınlar için redaksiyon/çeviri (~8.000 TL).",
-            "15.000",
+            "Üretim veri tabanı ve PDF/tam metin önbelleğinin bulut barındırması, felaket kurtarma yedeklemesi ve API dağıtım esnekliği. Ayrı bir NAS yerine mevcut bulut altyapısı (Supabase/nesne depolama) kullanılır.",
+            "20.000",
         ],
     ]
     for offset, row in enumerate(service_rows, start=2):
