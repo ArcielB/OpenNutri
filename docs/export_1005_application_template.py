@@ -724,7 +724,7 @@ def build_ek2(template: Path, budget: Path, output: Path) -> None:
     equipment_rows = [
         [
             "GPU iş istasyonu / 1 adet",
-            "L3 ağırlıkları açık modellerin geliştirme/testi, çıkarım servisleri, Öğrenilmiş Yönlendirici eğitimi ve PEFT/LoRA-QLoRA ölçeğinde yerel ince ayar.",
+            "L3 ağırlıkları açık modellerin geliştirme/testi, çıkarım servisleri, Öğrenilmiş Yönlendirici eğitimi ve PEFT/LoRA-QLoRA ölçeğinde yerel ince ayar. Garanti edilen 1-13B model deneylerini ve LoRA/QLoRA ince ayarını karşılar; 30-70B ve tam ince ayar TRUBA'ya bağlı koşullu deneylerdir.",
             "Tek GPU, 16-24 GB VRAM sınıfı; çok çekirdekli CPU; 64-128 GB RAM; 1-2 TB NVMe. Kesin model proforma aşamasında belirlenecektir.",
             "170.000",
         ],
@@ -750,7 +750,7 @@ def build_ek2(template: Path, budget: Path, output: Path) -> None:
         2,
         [
             "SSD/HDD yedekleri, bileşenler, kablolar ve küçük donanım",
-            "Depolama genişletme, yedek parça ve laboratuvar/altyapı sarf ihtiyaçları.",
+            "Depolama genişletme, yedek parça ve altyapı sarf ihtiyaçları; Makine-Teçhizat kalemindeki NAS depolamadan ayrı, tüketilebilir/yedek bileşenlerdir.",
             "25.000",
         ],
         font_size=6.5,
@@ -762,7 +762,7 @@ def build_ek2(template: Path, budget: Path, output: Path) -> None:
         [
             "Ticari LLM API kullanımı",
             "Model sağlayıcıları",
-            "L4 yükseltme katmanı, maliyet-kalite kıyaslaması ve yalnızca başarısız alt görevlerde sınırlı ticari API çağrıları.",
+            "L4 yükseltme katmanı ve maliyet-kalite kıyaslaması; yalnızca başarısız alt görevlerde sınırlı ticari API çağrıları. Tahmini temel: makalelerin ~%10-15'inde, çağrı başına ~3-5K token ve güncel ticari model fiyatları, artı kilitli kıyaslama test kümesinin token bütçesi.",
             "35.000",
         ],
         [
@@ -774,7 +774,7 @@ def build_ek2(template: Path, budget: Path, output: Path) -> None:
         [
             "TTO patent taraması güncelleme + akademik redaksiyon/çeviri",
             "Kurum TTO / dış hizmet sağlayıcı",
-            "Patent ön taramasının ürünleşme aşamasında güncellenmesi ve yayın redaksiyonu.",
+            "Patent ön taramasının ürünleşme aşamasında güncellenmesi (~7.000 TL) ve hakemli yayınlar için redaksiyon/çeviri (~8.000 TL).",
             "15.000",
         ],
     ]
