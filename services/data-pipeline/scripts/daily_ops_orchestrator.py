@@ -59,6 +59,7 @@ TERMINAL_STOP_REASONS = {
     "extraction_daily_quota_exhausted",
     "max_wallclock_reached",
     "no_extraction_candidates",
+    "screening_failure_circuit_open",
     "source_exhausted",
 }
 
@@ -189,6 +190,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=150,
         help="Controller-only target for active Gemma tasks, counting queued plus non-stale processing rows.",
+    )
+    parser.add_argument(
+        "--screening-failure-window-hours",
+        type=int,
+        default=6,
+        help="Recent window used by the controller's systemic Gemma failure circuit; 0 disables it.",
+    )
+    parser.add_argument(
+        "--screening-failure-circuit-min-failures",
+        type=int,
+        default=20,
+        help="Stop crawler refill when this many Gemma tasks failed in the window and none completed; 0 disables it.",
     )
     parser.add_argument(
         "--extraction-daily-target",
@@ -337,6 +350,7 @@ def _count_stage_tasks_by_status(
     stage_key: str,
     status: str,
     started_at_gte: str | None = None,
+    updated_at_gte: str | None = None,
 ) -> int | None:
     if not hasattr(client, "table"):
         return None
@@ -348,6 +362,8 @@ def _count_stage_tasks_by_status(
     )
     if started_at_gte is not None:
         query = query.gte("started_at", started_at_gte)
+    if updated_at_gte is not None:
+        query = query.gte("updated_at", updated_at_gte)
     response = query.limit(1).execute()
     count = getattr(response, "count", None)
     if count is None:
@@ -546,6 +562,40 @@ def _count_completed_stage_tasks_since(client: Any, *, stage_key: str, since_iso
     if count is None:
         return 0
     return int(count)
+
+
+def _recent_stage_failure_health(
+    client: Any,
+    *,
+    stage_key: str,
+    window_hours: int,
+) -> dict[str, Any]:
+    hours = max(0, int(window_hours))
+    since_iso = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    if hours <= 0 or not hasattr(client, "table"):
+        return {
+            "window_hours": hours,
+            "since": since_iso,
+            "failed": 0,
+            "completed": 0,
+        }
+    failed = _count_stage_tasks_by_status(
+        client,
+        stage_key=stage_key,
+        status="failed",
+        updated_at_gte=since_iso,
+    )
+    completed = _count_completed_stage_tasks_since(
+        client,
+        stage_key=stage_key,
+        since_iso=since_iso,
+    )
+    return {
+        "window_hours": hours,
+        "since": since_iso,
+        "failed": int(failed or 0),
+        "completed": int(completed or 0),
+    }
 
 
 def _optional_triage_stage_key(args: argparse.Namespace) -> str | None:
@@ -1389,6 +1439,12 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
     triage_daily_target = max(0, int(getattr(args, "triage_daily_target", 500)))
     extraction_daily_target = max(0, int(getattr(args, "extraction_daily_target", 20)))
     screening_active_target = max(0, int(getattr(args, "screening_active_target", 150)))
+    screening_failure_window_hours = max(
+        0, int(getattr(args, "screening_failure_window_hours", 6))
+    )
+    screening_failure_circuit_min_failures = max(
+        0, int(getattr(args, "screening_failure_circuit_min_failures", 20))
+    )
     stale_after_minutes = max(0, int(getattr(args, "stage_task_stale_minutes", 120)))
     quota_day_starts, quota_timezones = _stage_quota_day_starts(
         args,
@@ -1419,6 +1475,8 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         "triage_daily_target": triage_daily_target,
         "extraction_daily_target": extraction_daily_target,
         "screening_active_target": screening_active_target,
+        "screening_failure_window_hours": screening_failure_window_hours,
+        "screening_failure_circuit_min_failures": screening_failure_circuit_min_failures,
         "extraction_candidate_reservoir_target": extraction_reservoir_target,
         "stage_task_stale_minutes": stale_after_minutes,
         "max_wallclock_minutes": max_wallclock_minutes,
@@ -1547,6 +1605,20 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         f"{screening_stage_key} controller observation: completed_today={screening_completed_today} "
         f"active_for_stage={active_screening} active_target={controller_target}",
     )
+    failure_health = _recent_stage_failure_health(
+        client,
+        stage_key=screening_stage_key,
+        window_hours=screening_failure_window_hours,
+    )
+    failure_circuit_open = (
+        screening_failure_window_hours > 0
+        and screening_failure_circuit_min_failures > 0
+        and int(failure_health["failed"]) >= screening_failure_circuit_min_failures
+        and int(failure_health["completed"]) == 0
+    )
+    failure_health["minimum_failures"] = screening_failure_circuit_min_failures
+    failure_health["open"] = failure_circuit_open
+    screening_summary["failure_circuit"] = failure_health
 
     storage_remaining = storage_cleanup.get("remaining_bytes_after_cleanup")
     storage_over_limit = (
@@ -1559,7 +1631,15 @@ def run_daily_ops_controller(client: Any, args: argparse.Namespace) -> dict[str,
         screening_summary["storage_soft_limit_exceeded"] = True
     storage_cleanup_failed = bool(storage_cleanup.get("error"))
 
-    if remaining_today <= 0:
+    if failure_circuit_open:
+        screening_summary["stop_reason"] = "screening_failure_circuit_open"
+        summary["stopped_reason"] = "screening_failure_circuit_open"
+        _log(
+            args,
+            f"skipping refill: {failure_health['failed']} {screening_stage_key} failures and "
+            f"zero completions since {failure_health['since']}",
+        )
+    elif remaining_today <= 0:
         screening_summary["daily_target_reached"] = True
         screening_summary["stop_reason"] = "daily_target_reached"
         summary["stopped_reason"] = "screening_daily_target_reached"

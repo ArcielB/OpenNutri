@@ -16,7 +16,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from supabase import Client, create_client
 
@@ -46,6 +46,7 @@ from ai_routing import (
     stable_audit_sample,
 )
 from evaluator.unified_evaluator import UnifiedEvaluator
+from scripts import r2_storage
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -229,7 +230,7 @@ def _fetch_all_rows(client: Client, table_name: str, select: str) -> list[dict]:
 def fetch_paper(client: Client, paper_id: int) -> dict:
     response = (
         client.table("papers")
-        .select("id,title,doi,filename,pdf_url,source,source_record_id,workflow_language,current_stage_key,routing_status,route_destination,latest_ai_extraction_id")
+        .select("id,title,doi,filename,pdf_url,source_pdf_url,source,source_record_id,workflow_language,current_stage_key,routing_status,route_destination,latest_ai_extraction_id")
         .eq("id", paper_id)
         .limit(1)
         .execute()
@@ -283,10 +284,7 @@ def _normalize_pmcid(value: object) -> str:
     return text.upper()
 
 
-def source_pdf_url_for_paper(paper: dict) -> str | None:
-    explicit_url = str(paper.get("pdf_url") or "").strip()
-    if explicit_url:
-        return explicit_url
+def _derived_pmc_pdf_url(paper: dict) -> str | None:
     doi = str(paper.get("doi") or "").strip()
     pmcid = ""
     if doi.lower().startswith("pmc:"):
@@ -300,10 +298,26 @@ def source_pdf_url_for_paper(paper: dict) -> str | None:
         if filename.lower().startswith("pmcid_"):
             pmcid = _normalize_pmcid(filename.rsplit(".", 1)[0].split("_", 1)[1])
     if pmcid:
-        # Direct PDF endpoint: 200 application/pdf + CORS, no redirect, so the
-        # browser annotator can render it. ?pdf=render 302s without CORS headers.
         return f"https://europepmc.org/api/getPdf?pmcid={pmcid}"
     return None
+
+
+def source_pdf_urls_for_paper(paper: dict) -> list[str]:
+    urls: list[str] = []
+    for value in (
+        paper.get("pdf_url"),
+        paper.get("source_pdf_url"),
+        _derived_pmc_pdf_url(paper),
+    ):
+        url = str(value or "").strip()
+        if url and url not in urls:
+            urls.append(url)
+    return urls
+
+
+def source_pdf_url_for_paper(paper: dict) -> str | None:
+    urls = source_pdf_urls_for_paper(paper)
+    return urls[0] if urls else None
 
 
 PDF_PAGE_MARKER_TEMPLATE = "\n\n===== PDF PAGE {page} =====\n\n"
@@ -337,6 +351,7 @@ def extract_pdf_text_and_bytes(
     pdf_url: str | None = None,
     *,
     allow_empty_text: bool = False,
+    fallback_pdf_urls: list[str] | None = None,
 ) -> tuple[str, bytes]:
     """Download the PDF once and return ``(pdftotext_output, raw_pdf_bytes)``.
 
@@ -356,10 +371,39 @@ def extract_pdf_text_and_bytes(
             url = _public_paper_url(filename)
         else:
             raise RuntimeError("Paper is missing pdf_url and Supabase PDF storage is disabled.")
-    with urlopen(url, timeout=60) as response:
-        pdf_bytes = response.read()
+    candidate_urls = [url]
+    for fallback_url in fallback_pdf_urls or []:
+        normalized_url = str(fallback_url or "").strip()
+        if normalized_url and normalized_url not in candidate_urls:
+            candidate_urls.append(normalized_url)
+
+    download_errors: list[str] = []
+    pdf_bytes = b""
+    for candidate_url in candidate_urls:
+        try:
+            if r2_storage.is_r2_url(candidate_url) and r2_storage.r2_enabled():
+                pdf_bytes = r2_storage.download_pdf_bytes(candidate_url)
+            else:
+                request = Request(
+                    candidate_url,
+                    headers={
+                        "Accept": "application/pdf",
+                        "User-Agent": "OpenNutri/1.0 (+https://github.com/arciel/opennutri)",
+                    },
+                )
+                with urlopen(request, timeout=60) as response:
+                    pdf_bytes = response.read()
+            if not pdf_bytes.startswith(b"%PDF"):
+                raise ValueError("response did not contain a PDF payload")
+            break
+        except Exception as exc:
+            error_type = f"{type(exc).__module__}.{type(exc).__name__}"
+            error_message = str(exc).strip() or repr(exc)
+            download_errors.append(f"{candidate_url}: {error_type}: {error_message}")
+            pdf_bytes = b""
     if not pdf_bytes:
-        raise RuntimeError(f"No PDF bytes returned for {filename}.")
+        detail = " | ".join(download_errors) or "no candidate URL returned PDF bytes"
+        raise RuntimeError(f"Unable to download PDF for {filename}: {detail}")
 
     with tempfile.NamedTemporaryFile(suffix=".pdf") as pdf_file:
         pdf_file.write(pdf_bytes)
@@ -1119,10 +1163,12 @@ def process_one_task(
 
     try:
         pdf_input_mode = (stage_config.model_input_mode or "text").lower() == "pdf"
+        paper_pdf_urls = source_pdf_urls_for_paper(paper)
         full_text, pdf_bytes = extract_pdf_text_and_bytes(
             str(paper.get("filename") or ""),
-            source_pdf_url_for_paper(paper),
+            paper_pdf_urls[0] if paper_pdf_urls else None,
             allow_empty_text=pdf_input_mode,
+            fallback_pdf_urls=paper_pdf_urls[1:],
         )
         stage_full_text = stage_text_for_model(
             annotate_pdf_page_breaks(full_text), stage_config=stage_config

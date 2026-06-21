@@ -18,6 +18,13 @@ except ImportError:
     HAS_GEMINI = False
 
 
+def _format_extraction_exception(exc: BaseException) -> str:
+    exc_type = f"{type(exc).__module__}.{type(exc).__name__}"
+    message = str(exc).strip()
+    representation = repr(exc).strip()
+    return f"{exc_type}: {message or representation or '<empty exception message>'}"
+
+
 @dataclass
 class NutrientRecord:
     """Single food-nutrient data point with verification"""
@@ -411,11 +418,12 @@ Full Text:
             )
             
         except Exception as e:
-            print(f"   ⚠️ Extraction error for {paper.get('pmc_id')}: {e}")
+            error_text = _format_extraction_exception(e)
+            print(f"   ⚠️ Extraction error for {paper.get('pmc_id')}: {error_text}")
             return ExtractionResult(
                 pmc_id=paper.get("pmc_id", ""),
                 is_useful=False,
-                reasoning=f"Extraction error: {str(e)}",
+                reasoning=f"Extraction error: {error_text}",
                 overall_confidence=0.0,
                 data=[],
                 decision_kind="no_usable_data",

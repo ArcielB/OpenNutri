@@ -1,7 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -38,6 +38,12 @@ class R2StorageTests(unittest.TestCase):
             self.assertEqual(r2_storage.object_key("/tmp/x/p1.pdf"), "papers/p1.pdf")
             self.assertTrue(r2_storage.is_r2_url("https://pub-test.r2.dev/papers/p1.pdf"))
             self.assertFalse(r2_storage.is_r2_url("https://europepmc.org/api/getPdf?pmcid=PMC1"))
+            self.assertEqual(
+                r2_storage.object_key_from_public_url(
+                    "https://pub-test.r2.dev/papers/folder%20name.pdf?download=1"
+                ),
+                "papers/folder name.pdf",
+            )
 
     def test_upload_refuses_non_pdf(self) -> None:
         with patch.dict("os.environ", FULL_ENV, clear=True):
@@ -48,6 +54,24 @@ class R2StorageTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(RuntimeError):
                 r2_storage.upload_pdf_bytes(b"%PDF-1.4 ...", "p1.pdf")
+
+    @patch("scripts.r2_storage._client")
+    def test_download_uses_authenticated_object_api(self, client_mock: Mock) -> None:
+        body = Mock()
+        body.read.return_value = b"%PDF-1.4 authenticated"
+        client_mock.return_value.get_object.return_value = {"Body": body}
+
+        with patch.dict("os.environ", FULL_ENV, clear=True):
+            result = r2_storage.download_pdf_bytes(
+                "https://pub-test.r2.dev/papers/p1.pdf"
+            )
+
+        self.assertEqual(result, b"%PDF-1.4 authenticated")
+        client_mock.return_value.get_object.assert_called_once_with(
+            Bucket=r2_storage.DEFAULT_BUCKET,
+            Key="papers/p1.pdf",
+        )
+        body.close.assert_called_once()
 
 
 if __name__ == "__main__":

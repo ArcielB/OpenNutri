@@ -70,6 +70,31 @@ Add a safe threshold-tuning workflow that uses only papers which eventually rece
 - thresholds stay scoped per stage/model
 - every automatic threshold change is explainable from stored routing provenance
 
+## 11. Add provider-capacity monitoring and search-audit retention
+
+### Problem
+The 2026-06-21 health audit found two medium-term capacity risks:
+- R2 held about 1.71 GiB and had recently grown by about 136 MiB/day, which would approach the 10 GB free allowance in roughly two months if sustained
+- `paper_search_hits` plus `paper_search_batch_hits` used about 125 MB and were the main live database-growth source
+
+### Goal
+Make capacity drift visible before it interrupts ingestion:
+- record daily R2 object count/bytes and Supabase database size
+- alert before R2 reaches 8 GB or the database reaches 400 MB
+- design a reviewed retention/compaction policy for old search-batch audit rows without weakening benchmark or provenance requirements
+- track expensive recurring RPC temp usage, especially cockpit and general-queue projections
+
+### Likely technical area
+- `services/data-pipeline/scripts/`
+- `.github/workflows/`
+- `paper_search_hits` / `paper_search_batch_hits`
+- Supabase provider metrics
+
+### Done when
+- capacity measurements are automated and retained
+- warning thresholds produce a visible failed check or notification
+- any audit-row retention policy is documented and validated before deletion
+
 ## 3. Train and integrate the L2 classifier (depends on label volume)
 
 ### Problem

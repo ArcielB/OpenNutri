@@ -38,6 +38,7 @@ from scripts.backfill_ai_routing import (
 from scripts.process_stage_queue import (
     claim_stage_tasks,
     drain_stage_queue,
+    extract_pdf_text_and_bytes,
     format_exception_for_storage,
     is_non_retryable_model_error,
     is_quota_error,
@@ -956,6 +957,18 @@ class UnifiedEvaluatorParsingTests(unittest.TestCase):
         evaluator.model.generate_content.return_value = Mock(text=text)
         return evaluator
 
+    def test_blank_model_exception_preserves_exception_type(self) -> None:
+        evaluator = UnifiedEvaluator.__new__(UnifiedEvaluator)
+        evaluator.model = Mock()
+        evaluator.model.generate_content.side_effect = RuntimeError()
+
+        result = evaluator.evaluate_and_extract(
+            {"pmc_id": "paper-error", "title": "Paper", "full_text": "body"}
+        )
+
+        self.assertIn("builtins.RuntimeError", result.reasoning)
+        self.assertNotEqual(result.reasoning, "Extraction error: ")
+
     def test_top_level_array_response_is_treated_as_candidate_rows(self) -> None:
         evaluator = self.evaluator_with_response(
             [
@@ -1414,6 +1427,33 @@ class QueueAndBackfillTests(unittest.TestCase):
         self.assertEqual(
             client.rpc_calls,
             [("claim_paper_stage_tasks", {"p_stage_key": "gemini_flash_triage_v1", "p_limit": 3})],
+        )
+
+    @patch("scripts.process_stage_queue.subprocess.run")
+    @patch("scripts.process_stage_queue.shutil.which", return_value="/usr/bin/pdftotext")
+    @patch("scripts.process_stage_queue.r2_storage.download_pdf_bytes")
+    @patch("scripts.process_stage_queue.r2_storage.r2_enabled", return_value=True)
+    @patch("scripts.process_stage_queue.r2_storage.is_r2_url", return_value=True)
+    def test_pdf_download_uses_authenticated_r2_for_r2_urls(
+        self,
+        _is_r2_mock: Mock,
+        _enabled_mock: Mock,
+        download_mock: Mock,
+        _which_mock: Mock,
+        run_mock: Mock,
+    ) -> None:
+        download_mock.return_value = b"%PDF-1.4 authenticated"
+        run_mock.return_value = Mock(returncode=0, stdout="paper text", stderr="")
+
+        text, pdf_bytes = extract_pdf_text_and_bytes(
+            "paper.pdf",
+            "https://pub-test.r2.dev/papers/paper.pdf",
+        )
+
+        self.assertEqual(text, "paper text")
+        self.assertEqual(pdf_bytes, b"%PDF-1.4 authenticated")
+        download_mock.assert_called_once_with(
+            "https://pub-test.r2.dev/papers/paper.pdf"
         )
 
     def test_is_quota_error_detects_gemini_quota_without_treating_generic_429_as_ai_limit(self) -> None:

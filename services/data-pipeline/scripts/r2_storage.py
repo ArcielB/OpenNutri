@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 
 DEFAULT_BUCKET = "open-nutri"
@@ -69,6 +70,25 @@ def is_r2_url(url: object, config: dict | None = None) -> bool:
     return str(url or "").startswith(cfg["public_base"] + "/")
 
 
+def object_key_from_public_url(url: str, config: dict | None = None) -> str:
+    cfg = config or r2_config()
+    if cfg is None:
+        raise RuntimeError("R2 is not configured (missing R2_* environment variables).")
+    parsed_base = urlparse(cfg["public_base"])
+    parsed_url = urlparse(str(url or "").strip())
+    base_path = parsed_base.path.rstrip("/") + "/"
+    if (
+        parsed_url.scheme != parsed_base.scheme
+        or parsed_url.netloc != parsed_base.netloc
+        or not parsed_url.path.startswith(base_path)
+    ):
+        raise ValueError(f"URL is not under the configured R2 public base: {url!r}")
+    key = unquote(parsed_url.path[len(base_path):]).lstrip("/")
+    if not key:
+        raise ValueError(f"R2 public URL has no object key: {url!r}")
+    return key
+
+
 def _client(cfg: dict):
     # Imported lazily so workers without boto3 can import this module freely.
     import boto3
@@ -99,6 +119,27 @@ def upload_pdf_bytes(data: bytes, filename: str, config: dict | None = None) -> 
         CacheControl="public, max-age=31536000, immutable",
     )
     return public_url(filename, cfg)
+
+
+def download_pdf_bytes(url: str, config: dict | None = None) -> bytes:
+    """Read an R2-hosted PDF through the authenticated S3 endpoint."""
+    cfg = config or r2_config()
+    if cfg is None:
+        raise RuntimeError("R2 is not configured (missing R2_* environment variables).")
+    response = _client(cfg).get_object(
+        Bucket=cfg["bucket"],
+        Key=object_key_from_public_url(url, cfg),
+    )
+    body = response["Body"]
+    try:
+        data = body.read()
+    finally:
+        close = getattr(body, "close", None)
+        if callable(close):
+            close()
+    if not data.startswith(b"%PDF"):
+        raise ValueError(f"R2 object is not a PDF: {url!r}")
+    return data
 
 
 def upload_pdf_file(file_path: Path | str, filename: str | None = None, config: dict | None = None) -> str:

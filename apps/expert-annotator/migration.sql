@@ -1644,8 +1644,7 @@ BEGIN
         status = 'processing',
         attempt_count = task.attempt_count + 1,
         started_at = NOW(),
-        updated_at = NOW(),
-        last_error = NULL
+        updated_at = NOW()
     FROM next_tasks
     WHERE task.id = next_tasks.id
     RETURNING task.*;

@@ -35,6 +35,8 @@ def build_args(**overrides):
         "screening_daily_target": 1500,
         "screening_tick_tasks": 15,
         "screening_active_target": 75,
+        "screening_failure_window_hours": 6,
+        "screening_failure_circuit_min_failures": 20,
         "extraction_daily_target": 20,
         "extraction_tick_tasks": 15,
         "interleave_extraction": False,
@@ -513,6 +515,12 @@ orchestrator.build_parser()
 
         self.assertIn("services/data-pipeline/requirements-worker.txt", workflow)
         self.assertIn("--screening-active-target 150", workflow)
+        self.assertIn("--screening-failure-window-hours 6", workflow)
+        self.assertIn("R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}", workflow)
+        worker_requirements = (
+            Path(__file__).resolve().parents[1] / "requirements-worker.txt"
+        ).read_text()
+        self.assertIn("boto3", worker_requirements)
         self.assertIn("--max-wallclock-minutes 75", workflow)
         self.assertIn("--crawler-max-wallclock-seconds 2400", workflow)
         self.assertIn("--screening-refill-batch-en 30", workflow)
@@ -582,6 +590,7 @@ orchestrator.build_parser()
         self.assertEqual(counts["total"], 4)
 
     @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
+    @patch("scripts.daily_ops_orchestrator._recent_stage_failure_health")
     @patch("scripts.daily_ops_orchestrator._fetch_active_stage_counts")
     @patch("scripts.daily_ops_orchestrator._run_controller_storage_cleanup")
     @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
@@ -592,9 +601,16 @@ orchestrator.build_parser()
         crawl_mock: Mock,
         storage_mock: Mock,
         active_counts_mock: Mock,
+        failure_health_mock: Mock,
         count_completed_mock: Mock,
     ) -> None:
         storage_mock.return_value = {"remaining_bytes_after_cleanup": 100}
+        failure_health_mock.return_value = {
+            "window_hours": 6,
+            "since": "2026-06-21T00:00:00+00:00",
+            "failed": 0,
+            "completed": 0,
+        }
         count_completed_mock.side_effect = [0, 0]
         active_counts_mock.side_effect = [
             {"total": 21, SCREENING_STAGE: 20, EXTRACTION_STAGE: 1},
@@ -617,6 +633,43 @@ orchestrator.build_parser()
         crawl_mock.assert_called_once()
         self.assertEqual(crawl_mock.call_args.kwargs["deficits"], {"en": 55, "tr": 0})
         drain_mock.assert_not_called()
+
+    @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
+    @patch("scripts.daily_ops_orchestrator._recent_stage_failure_health")
+    @patch("scripts.daily_ops_orchestrator._fetch_active_stage_counts")
+    @patch("scripts.daily_ops_orchestrator._run_controller_storage_cleanup")
+    @patch("scripts.daily_ops_orchestrator.ensure_paper_stock.run_refill_cycle")
+    def test_controller_failure_circuit_stops_refill(
+        self,
+        crawl_mock: Mock,
+        storage_mock: Mock,
+        active_counts_mock: Mock,
+        failure_health_mock: Mock,
+        count_completed_mock: Mock,
+    ) -> None:
+        storage_mock.return_value = {}
+        count_completed_mock.side_effect = [0, 0]
+        active_counts_mock.side_effect = [
+            {"total": 0, SCREENING_STAGE: 0, EXTRACTION_STAGE: 0},
+            {"total": 0, SCREENING_STAGE: 0, EXTRACTION_STAGE: 0},
+        ]
+        failure_health_mock.return_value = {
+            "window_hours": 6,
+            "since": "2026-06-21T00:00:00+00:00",
+            "failed": 24,
+            "completed": 0,
+        }
+
+        summary = daily_ops_orchestrator.run_daily_ops_controller(
+            object(),
+            build_args(controller_only=True),
+        )
+
+        self.assertEqual(summary["stopped_reason"], "screening_failure_circuit_open")
+        self.assertTrue(
+            summary["stage_summaries"][SCREENING_STAGE]["failure_circuit"]["open"]
+        )
+        crawl_mock.assert_not_called()
 
     @patch("scripts.daily_ops_orchestrator._count_completed_stage_tasks_since")
     @patch("scripts.daily_ops_orchestrator._fetch_active_stage_counts")
