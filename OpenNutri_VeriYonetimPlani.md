@@ -11,7 +11,7 @@ Proje, mevcut bilimsel literatürden gıda bileşimi verisi üreten bir işlem h
 | --- | --- | --- | --- |
 | Bibliyografik üst veri | Europe PMC/PubMed Central, OpenAlex, Semantic Scholar, Crossref, DergiPark | JSON / CSV | Yüz binlerce kayıt |
 | Tam metin / PDF önbelleği | Kurumsal/EKUAL lisansı ve açık erişim kapsamında erişilen yayınlar | PDF / metin | İşlenen makaleyle orantılı |
-| Çıkarılan gıda-besin kayıtları | İşlem hattı çıktısı (100 g bazlı, kaynağa atıflı) | JSON / CSV / Parquet | ≥500.000 kayıt |
+| Çıkarılan gıda-besin kayıtları | İşlem hattı çıktısı (100 g bazlı, kaynağa atıflı) | JSON / CSV / Parquet | ≥250.000 kayıt (üst senaryoda 500.000) |
 | Uzman doğrulama günlükleri | Doğrulama arayüzü (düzeltme, hata kategorisi, kaynak tablo/sayfa, diff) | JSON / ilişkisel veri tabanı | ≥5.000 makale; ≥25.000 altın standart kayıt |
 | Model kontrol noktaları ve eğitim verisi | İnce ayar ve değerlendirme süreçleri | İkili model dosyaları / veri setleri | Onlarca–yüzlerce GB |
 | Kıyaslama veri seti ve kod | Değerlendirme ve yayın | Açık veri seti / kaynak kod | Orta ölçekli |
@@ -27,9 +27,9 @@ Veriler büyük ölçüde **yeniden üretilen ikincil veridir** (yayımlanmış 
 
 ## 3. Depolama, Yedekleme ve Güvenlik
 
-- **Birincil depolama:** Ev sahibi kurum sunucuları ve proje kapsamındaki NAS donanımı (veri tabanı, PDF/tam metin önbelleği, model kontrol noktaları).
+- **Birincil depolama:** Ev sahibi kurum sunucuları ve proje kapsamındaki GPU iş istasyonunun yerel diski (veri tabanı, PDF/tam metin önbelleği, model kontrol noktaları); toplu/soğuk veri TRUBA depolaması ve bulut yedeğinde tutulur. EK-2 ile tutarlı olarak ayrı bir NAS talep edilmez.
 - **Hesaplama verisi:** TRUBA (TÜBİTAK ULAKBİM) tahsisi kullanıldığında ağır ince ayar ve eğitim işlerine ait geçici veri TRUBA üzerinde tutulur; nihai çıktılar kurum altyapısına geri alınır. Tahsis gecikirse PEFT ölçeğindeki işler proje GPU'su ve kurum altyapısında yürütülür.
-- **Yedekleme:** 3-2-1 ilkesine yakın yapı — yerel NAS + ikinci kopya + şifreli bulut yedeği (felaket kurtarma). Kod ve şema sürüm kontrolünde (git) tutulur.
+- **Yedekleme:** 3-2-1 ilkesine yakın yapı — kurum sunucusu/iş istasyonu yerel kopyası + ikinci kopya + şifreli bulut yedeği (felaket kurtarma). Kod ve şema sürüm kontrolünde (git) tutulur.
 - **Güvenlik ve egemenlik:** Çekirdek veri ve model altyapısı kurum/proje donanımı ve tahsis alınan TRUBA kaynakları üzerinde yürütülür; bulut yalnızca yedekleme ve dağıtımla sınırlandırılır. Bu, verinin yurt içinde tutulmasını ve yabancı tedarikçi bağımlılığının azaltılmasını sağlar.
 
 ## 4. Yasal, Etik ve Fikri Mülkiyet Hususları
@@ -51,7 +51,7 @@ Veriler büyük ölçüde **yeniden üretilen ikincil veridir** (yayımlanmış 
 - **Genel sorumluluk / veri yönetimi:** Yürütücü Prof. Dr. Murat Ceylan.
 - **Veri kalitesi ve doğrulama protokolü:** Prof. Dr. Servet Gülüm Şumnu (nihai tahkim) ve gıda mühendisliği bursiyerleri.
 - **Altyapı, depolama ve yedekleme:** Dr. Engin Esme ve yazılım/yapay zekâ bursiyerleri.
-- **Kaynaklar:** Veri yönetimi maliyetleri proje kapsamındaki donanım (NAS, iş istasyonu), kurum altyapısı ve tahsis alınması halinde TRUBA kaynakları ile karşılanır; ayrıca bir maliyet öngörülmemektedir.
+- **Kaynaklar:** Veri yönetimi maliyetleri proje kapsamındaki donanım (GPU iş istasyonu), kurum altyapısı, bulut yedekleme/dağıtım hizmeti ve sözleşmeyle tahsis edilen TRUBA kaynakları ile karşılanır; ayrıca bir maliyet öngörülmemektedir.
 
 ## 7. Teyit Edilecek Hususlar
 
