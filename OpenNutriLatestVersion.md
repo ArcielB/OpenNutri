@@ -366,7 +366,7 @@ Her makale, ulaştığı son katmana göre alt katmanlara eğitim sinyali üreti
 | L4'te çözülen alt görev | L1-L4 | L3 hata örneği, ticari model çözümü, istem/RAG iyileştirme sinyali. |
 | L5 uzman doğrulaması | L1-L5 ve yönlendirici | Altın standart kayıt, hata kategorisi, zorluk derecesi, maliyet/doğruluk etiketi. |
 
-Alt katmanların başarısız olduğu örneklere eğitimde daha yüksek ağırlık verilir (focal loss; Lin vd., 2017). Böylece uzman doğrulaması ve ticari model kullanımı yalnızca maliyet değil, daha düşük katmanların gelecekte aynı tür problemi çözmesini sağlayan eğitim yatırımı haline gelir. Bu etkinin ölçeği bütçe açısından belirleyicidir: hedef hacimde otomatik onay oranındaki görece küçük bir artış bile (ör. ~%60'tan ~%90'a) on binlerce L4/L5 çağrısını ortadan kaldırır; eğitim bir defalık maliyet olduğundan bu birikimli tasarruf, eğitim için harcanan hesaplama bütçesini belirgin biçimde aşar.
+Alt katmanların başarısız olduğu örneklere eğitimde daha yüksek ağırlık verilir (focal loss; Lin vd., 2017). Böylece uzman doğrulaması ve ticari model kullanımı yalnızca maliyet değil, daha düşük katmanların gelecekte aynı tür problemi çözmesini sağlayan eğitim yatırımı haline gelir. Bu etkinin ölçeği bütçe açısından belirleyicidir: hedef hacimde otomatik onay oranındaki görece küçük bir artış bile (ör. ~%60'tan ~%90'a) on binlerce L4/L5 çağrısını ortadan kaldırır; eğitim bir defalık maliyet olduğundan bu birikimli tasarruf, eğitim için harcanan hesaplama bütçesini belirgin biçimde aşar. Bu nedenle makale başına ortalama maliyet sabit değildir; başlangıçta pahalı L4 katmanına uğrayan makalelerin giderek artan bir bölümü, alt katmanlar yeniden eğitildikçe ucuz L1-L3 katmanlarında çözülür ve ortalama maliyet, otomatik onay oranı yükseldikçe proje sonu hedefi <$0,01'e doğru iner (iniş, ölçülmüş ara değerlerle değil bu oranla izlenir).
 
 Tercih temelli iyileştirme için somut yaklaşım, uzman düzeltmelerinden türetilen (düzeltilmiş ↔ ham çıktı) çiftleri üzerinde denetimli ince ayar ve doğrudan tercih optimizasyonudur (DPO). Güncellemeler toplu (batch) biçimde, kilitli bir değerlendirme kümesiyle ve sürüm dondurmayla uygulanır; böylece çevrim içi kayma denetim altında tutulur ve her güncelleme öncesi/sonrası performans karşılaştırılabilir kalır.
 
@@ -469,7 +469,7 @@ Denetim, sistemin kayıtları aşırı eleyerek yapay biçimde düşük hata ora
 
 - **Performans:** Besin kategorileri genelinde makro ortalamalı kesinlik, geri çağırma ve F1 skoru raporlanacaktır. %95 güven aralıkları bootstrap yeniden örnekleme ile hesaplanacaktır (Efron & Tibshirani, 1993).
 
-- **Test kümesi:** Nihai kıyaslamalar, model eğitimi, istem ayarı ve yönlendirici optimizasyonunda kullanılmayan kilitli bir test kümesi üzerinde raporlanacaktır.
+- **Test kümesi:** Nihai kıyaslamalar; model eğitimi, istem ayarı ve yönlendirici optimizasyonunda kullanılmayan, uzman doğrulamalı altın standarttan ayrılan kilitli bir test kümesi üzerinde, değerlendirme tarihinde erişilebilen en güçlü ticari ve ağırlıkları açık modellerle karşılaştırmalı olarak raporlanacaktır.
 
 - **Model karşılaştırmaları:** İkili doğru/yanlış kararlar için eşleştirilmiş McNemar testi; sürekli besin değerleri için Wilcoxon işaretli sıralar testi kullanılacaktır (p < 0,05).
 
