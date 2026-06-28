@@ -101,7 +101,7 @@ Hedef sütunundaki değerler ölçülmüş prototip sonuçları değil, WP4 doğ
 
 ### Hedef 2: Büyük Ölçekli Bilimsel Literatürü İşlemek
 
-Europe PMC/PubMed Central, OpenAlex, Semantic Scholar, Crossref, DergiPark ve EKUAL kapsamındaki kurumsal erişim kaynakları kullanılarak İngilizce ve Türkçe gıda bileşimi literatürü keşfedilecek, filtrelenecek ve işlenecektir. Google Scholar yalnızca yasal/kurumsal arama ve doğrulama bağlamında yardımcı keşif kaynağı olarak değerlendirilecek; resmi API bulunmadığı için temel otomasyon kaynağı olarak konumlandırılmayacaktır.
+Europe PMC/PubMed Central, OpenAlex, Semantic Scholar, Crossref, DergiPark ve EKUAL kapsamındaki kurumsal erişim kaynakları kullanılarak İngilizce ve Türkçe gıda bileşimi literatürü keşfedilecek, filtrelenecek ve işlenecektir.
 
 **Başarı ölçütleri:**
 
@@ -133,7 +133,7 @@ Uzman düzeltmeleri; denetimli ince ayar, tercih temelli öğrenme/RLHF ve hata 
 
 **Başarı ölçütleri:**
 
-Hedef 1'de tanımlanan dört ölçüt (otomatik onay doğruluğu ≥%99,5, otomatik onay oranı ≥%90, veri tabanı hata oranı <%0,5, makale başına maliyet <$0,01), uzman geri bildirimiyle eğitilen alt katmanların zaman içinde iyileşmesiyle hedeflenir. Maliyet hedefleri otomatik işleme maliyetini ifade eder; uzman doğrulama emeği WP4'te ayrıca bütçelenir. Ölçütlerin tam tanımları Bölüm 4.7.1'dedir. Katmanlar arası öğrenmenin etkisi ayrıca makale başına maliyetin düşmesi, otomatik onay oranının artması ve aynı hata kısıtı korunurken L4/L5'e yönlendirilmesi gereken makale payının değerlendirme döngüleri boyunca azalmasıyla izlenecektir; bu analiz Bölüm 4.7.3'teki öğrenme eğrileri ve yönlendirici pişmanlık ölçümleriyle raporlanacaktır.
+Hedef 1'de tanımlanan dört ölçüt, uzman geri bildirimiyle eğitilen alt katmanların zaman içinde iyileşmesiyle hedeflenir. Maliyet hedefleri otomatik işleme maliyetini ifade eder; uzman doğrulama emeği WP4'te ayrıca bütçelenir. Ölçütlerin tam tanımları Bölüm 4.7.1'dedir. Katmanlar arası öğrenmenin etkisi ayrıca makale başına maliyetin düşmesi, otomatik onay oranının artması ve aynı hata kısıtı korunurken L4/L5'e yönlendirilmesi gereken makale payının değerlendirme döngüleri boyunca azalmasıyla izlenecektir; bu analiz Bölüm 4.7.3'teki öğrenme eğrileri ve yönlendirici pişmanlık ölçümleriyle raporlanacaktır.
 
 ### Hedef 5: Sistemi Yayına Almak ve Bilimsel Yayılımı Sağlamak
 
@@ -425,7 +425,7 @@ Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem ent
 
 **Yöntem düzeyinde fizibilite:** Fizibilite yöntem düzeyinde de desteklenir: genel amaçlı büyük dil modelleri ince ayar yapılmadan dahi tablo ve metinden yapılandırılmış veriyi kullanılabilir doğrulukta çıkarabilmekte (Cenikj vd., 2023; Dagdelen vd., 2024); PEFT yöntemleri (LoRA/QLoRA) çok sayıda uzman modelin akademik ölçekli bütçeyle eğitilmesini olanaklı kılmakta; modüler mimari ise tek bir bileşendeki hatanın tüm sistemi etkilemesini sınırlamaktadır; bu nedenle fizibilite yüksek değerlendirilir.
 
-**Ölçek fizibilitesi:** Prototipin günlük ~1.500 aday makale tarama kapasitesi, 18 aylık süre boyunca yüz binlerce adayın taranıp önceliklendirilmesine olanak tanır; bu nedenle Hedef 2'deki ≥100.000 ilgili makale işleme hedefi tarama tarafında bağlayıcı kısıt değildir. Asıl ölçek kısıtı çıkarım ve doğrulama hattıdır: çıkarım, ağırlıkları açık model kademesi ve toplu işleme ile yatay olarak ölçeklenir ve sözleşmeyle tahsis edilen TRUBA H100/H200 hesaplaması üzerinde haftalık toplu işlerle yürütülür; düşük gecikme gerekmediğinden bu toplu erişim modeli yeterlidir. Sınırlı ticari API yalnızca L4 yükseltmesi, yerel iş istasyonu ise geliştirme ve yedek yürütme için kullanılır. En pahalı kaynak olan uzman doğrulaması (Hedef 3'te ≥5.000 makale) aktif öğrenme kuyruğuyla en yüksek değerli makalelere yönlendirilerek verimli kullanılır.
+**Ölçek fizibilitesi:** Prototipin günlük ~1.500 aday makale tarama kapasitesi, 18 aylık süre boyunca yüz binlerce adayın taranıp önceliklendirilmesine olanak tanır; bu nedenle Hedef 2'deki ≥100.000 ilgili makale işleme hedefi tarama tarafında bağlayıcı kısıt değildir. Asıl ölçek kısıtı çıkarım ve doğrulama hattıdır: çıkarım, ağırlıkları açık model kademesi ve toplu işleme ile yatay olarak ölçeklenir ve sözleşmeyle tahsis edilen TRUBA H100/H200 hesaplaması üzerinde haftalık toplu işlerle yürütülür; düşük gecikme gerekmediğinden bu toplu erişim modeli yeterlidir. En pahalı kaynak olan uzman doğrulaması (Hedef 3'te ≥5.000 makale) aktif öğrenme kuyruğuyla en yüksek değerli makalelere yönlendirilerek verimli kullanılır.
 
 **Ekip yetkinliği:** Proje ekibi, gıda bilimi doğrulama kural katmanını tasarlamak ve denetlemek için gereken gıda mühendisliği alan uzmanlığını (Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği araştırmacıları) ve yazılım mühendisliği ve uygulamalı yapay zekâ yetkinliğini (Prof. Dr. Murat Ceylan, Dr. Engin Esme ve bursiyer ekibi) bir araya getiren disiplinler arası bir yapıdadır. Gıda mühendisliği bursiyerlerinden ikisi, proje süresince yüksek lisans düzeyine geçerek doğrulama ve tez çalışmalarını bu düzeyde sürdürür. [EKİP — son aşamada doldurulacak: ekibin bu projeye doğrudan kanıt oluşturan 1-2 somut yetkinliği/başarısı (örneğin çalışan OpenNutri prototipinin uçtan uca geliştirilmiş olması, ilgili yayın/ödül veya önceki LLM/veri mühendisliği çıktısı) buraya eklenecektir.]
 
