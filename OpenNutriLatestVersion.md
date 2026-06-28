@@ -1,8 +1,8 @@
 **Proje Başlığı:** OpenNutri — Bilimsel Literatürden Aşamalı Olarak Otonom Gıda Bileşimi Veri Çıkarımı ve Doğrulama Sistemi (Kademeli Hibrit Zekâ)
 
-**Proje Yürütücüsü:** Prof. Dr. Murat Ceylan
+**Proje Yürütücüsü:** Dr. Öğr. Üyesi Engin Eşme
 
-**Projenin Yürütüleceği Kurum/Kuruluş:** [KURUM: ev sahibi üniversite/kurum adı son aşamada eklenecektir]
+**Projenin Yürütüleceği Kurum/Kuruluş:** Konya Teknik Üniversitesi
 
 \newpage
 
@@ -427,7 +427,7 @@ Bu prototip, projenin en yüksek riskli bileşeni olan çok parçalı sistem ent
 
 **Ölçek fizibilitesi:** Prototipin günlük ~1.500 aday makale tarama kapasitesi, 18 aylık süre boyunca yüz binlerce adayın taranıp önceliklendirilmesine olanak tanır; bu nedenle Hedef 2'deki ≥100.000 ilgili makale işleme hedefi tarama tarafında bağlayıcı kısıt değildir. Asıl ölçek kısıtı çıkarım ve doğrulama hattıdır: çıkarım, ağırlıkları açık model kademesi ve toplu işleme ile yatay olarak ölçeklenir ve sözleşmeyle tahsis edilen TRUBA H100/H200 hesaplaması üzerinde haftalık toplu işlerle yürütülür; düşük gecikme gerekmediğinden bu toplu erişim modeli yeterlidir. En pahalı kaynak olan uzman doğrulaması (Hedef 3'te ≥5.000 makale) aktif öğrenme kuyruğuyla en yüksek değerli makalelere yönlendirilerek verimli kullanılır.
 
-**Ekip yetkinliği:** Proje ekibi, gıda bilimi doğrulama kural katmanını tasarlamak ve denetlemek için gereken gıda mühendisliği alan uzmanlığını (Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği araştırmacıları) ve yazılım mühendisliği ve uygulamalı yapay zekâ yetkinliğini (Prof. Dr. Murat Ceylan, Dr. Engin Esme ve bursiyer ekibi) bir araya getiren disiplinler arası bir yapıdadır. Gıda mühendisliği bursiyerlerinden ikisi, proje süresince yüksek lisans düzeyine geçerek doğrulama ve tez çalışmalarını bu düzeyde sürdürür. [EKİP — son aşamada doldurulacak: ekibin bu projeye doğrudan kanıt oluşturan 1-2 somut yetkinliği/başarısı (örneğin çalışan OpenNutri prototipinin uçtan uca geliştirilmiş olması, ilgili yayın/ödül veya önceki LLM/veri mühendisliği çıktısı) buraya eklenecektir.]
+**Ekip yetkinliği:** Proje ekibi, gıda bilimi doğrulama kural katmanını tasarlamak ve denetlemek için gereken gıda mühendisliği alan uzmanlığını (Prof. Dr. Servet Gülüm Şumnu ve gıda mühendisliği araştırmacıları) ve yazılım mühendisliği ve uygulamalı yapay zekâ yetkinliğini (Yürütücü Dr. Öğr. Üyesi Engin Eşme ve bursiyer ekibi) bir araya getiren disiplinler arası bir yapıdadır. Gıda mühendisliği bursiyerlerinden ikisi, proje süresince yüksek lisans düzeyine geçerek doğrulama ve tez çalışmalarını bu düzeyde sürdürür. [EKİP — son aşamada doldurulacak: ekibin bu projeye doğrudan kanıt oluşturan 1-2 somut yetkinliği/başarısı (örneğin çalışan OpenNutri prototipinin uçtan uca geliştirilmiş olması, ilgili yayın/ödül veya önceki LLM/veri mühendisliği çıktısı) buraya eklenecektir.]
 
 ### 4.6.1. Türk Gıda Veri Açığı Ön Değerlendirmesi
 
@@ -503,11 +503,11 @@ Denetim, sistemin kayıtları aşırı eleyerek yapay biçimde düşük hata ora
 
 | İP No | İş Paketlerinin Adı ve Hedefleri | Kim(ler) Tarafından Gerçekleştirileceği | Zaman Aralığı (..-.. Ay) | Başarı Ölçütü ve Projenin Başarısına Katkısı |
 | --- | --- | --- | --- | --- |
-| 1 | **Akıllı Tarama Motoru ve Sınıflandırma Hattı (L1-L2):** L1 akıllı tarayıcı, L2 sınıflandırıcı, veri tabanı şeması ve kaynak erişim hattı. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Alijon Alimov | 1-4. Aylar | Çok kaynaklı tarayıcı çalışır durumda; L2 F1 ≥0,92; ≥100.000 ilgili makaleye ulaşabilecek aday havuz ve tekilleştirme hattı. |
-| 2 | **Çekirdek Çıkarma Motoru (L3):** Alt göreve özgü ağırlıkları açık modeller, normalizasyon, varlık bağlama ve gıda bilimi doğrulama kuralları. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3-8. Aylar | L3 alt görevleri entegre; ≥10 doğrulama kuralı aktif; ticari API tabanlı referansa göre ≥%50 maliyet düşüşü hedefi; düşük güvenli kayıtların L4/L5'e güvenli yönlendirilmesi. |
-| 3 | **Kademeli Entegrasyon ve Yönlendirici:** L4 ticari model yükseltmesi, RAG/istem dosyası, Öğrenilmiş Yönlendirici ve maliyet optimizasyonu. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacı: Dr. Engin Esme; Bursiyerler: Arciel Aliognis, Alijon Alimov | 5-10. Aylar | L1-L4 uçtan uca çalışır; yönlendirici rastgele/statik yönlendirmeye göre ≥%20 maliyet düşüşü sağlar; L5 hariç uçtan uca gecikme <60 sn/makale hedeflenir. |
-| 4 | **Uzman Doğrulama ve Katmanlar Arası Öğrenme:** Kalibrasyon, uyarlanabilir doğrulama protokolü, altın standart veri üretimi ve uzman geri bildirimli model iyileştirme. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Prof. Dr. Servet Gülüm Şumnu, Dr. Engin Esme; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 4-16. Aylar | ≥5.000 uzman doğrulamalı makale; ≥25.000 altın standart kayıt; kabul edilen kayıtların rastgele denetiminde hata <%0,5; otomatik onay oranı ≥%90. |
-| 5 | **Üretim API'si, Kıyaslama Doğrulaması ve Açık Araştırma Çıktıları:** REST API, açık araştırma veri seti, performans kıyaslaması, dokümantasyon ve yayınlar. | Yürütücü: Prof. Dr. Murat Ceylan; Araştırmacılar: Dr. Engin Esme, Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 14-18. Aylar | ≥250.000 (üst senaryoda 500.000'e ölçeklenen) gıda-besin kaydı; veri sunum API'si yayında (<200 ms p95 sorgu yanıt süresi, ≥100 istek/saniye); açık veri ve kıyaslama raporu yayımlanır; sistem doğruluğu kilitli test kümesinde bootstrap güven aralığıyla ölçülüp raporlanır; veri tabanı hata oranı L5 doğrulama ve rastgele denetimle <%0,5 düzeyinde tutulur; ≥3 makale hakemli dergilere gönderilir. |
+| 1 | **Akıllı Tarama Motoru ve Sınıflandırma Hattı (L1-L2):** L1 akıllı tarayıcı, L2 sınıflandırıcı, veri tabanı şeması ve kaynak erişim hattı. | Yürütücü: Dr. Öğr. Üyesi Engin Eşme; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Alijon Alimov | 1-4. Aylar | Çok kaynaklı tarayıcı çalışır durumda; L2 F1 ≥0,92; ≥100.000 ilgili makaleye ulaşabilecek aday havuz ve tekilleştirme hattı. |
+| 2 | **Çekirdek Çıkarma Motoru (L3):** Alt göreve özgü ağırlıkları açık modeller, normalizasyon, varlık bağlama ve gıda bilimi doğrulama kuralları. | Yürütücü: Dr. Öğr. Üyesi Engin Eşme; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 3-8. Aylar | L3 alt görevleri entegre; ≥10 doğrulama kuralı aktif; ticari API tabanlı referansa göre ≥%50 maliyet düşüşü hedefi; düşük güvenli kayıtların L4/L5'e güvenli yönlendirilmesi. |
+| 3 | **Kademeli Entegrasyon ve Yönlendirici:** L4 ticari model yükseltmesi, RAG/istem dosyası, Öğrenilmiş Yönlendirici ve maliyet optimizasyonu. | Yürütücü: Dr. Öğr. Üyesi Engin Eşme; Bursiyerler: Arciel Aliognis, Alijon Alimov | 5-10. Aylar | L1-L4 uçtan uca çalışır; yönlendirici rastgele/statik yönlendirmeye göre ≥%20 maliyet düşüşü sağlar; L5 hariç uçtan uca gecikme <60 sn/makale hedeflenir. |
+| 4 | **Uzman Doğrulama ve Katmanlar Arası Öğrenme:** Kalibrasyon, uyarlanabilir doğrulama protokolü, altın standart veri üretimi ve uzman geri bildirimli model iyileştirme. | Yürütücü: Dr. Öğr. Üyesi Engin Eşme; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 4-16. Aylar | ≥5.000 uzman doğrulamalı makale; ≥25.000 altın standart kayıt; kabul edilen kayıtların rastgele denetiminde hata <%0,5; otomatik onay oranı ≥%90. |
+| 5 | **Üretim API'si, Kıyaslama Doğrulaması ve Açık Araştırma Çıktıları:** REST API, açık araştırma veri seti, performans kıyaslaması, dokümantasyon ve yayınlar. | Yürütücü: Dr. Öğr. Üyesi Engin Eşme; Araştırmacı: Prof. Dr. Servet Gülüm Şumnu; Bursiyerler: Alijon Alimov, Arciel Aliognis, Aleyna Özcan, Peri Açıkgöz | 14-18. Aylar | ≥250.000 (üst senaryoda 500.000'e ölçeklenen) gıda-besin kaydı; veri sunum API'si yayında (<200 ms p95 sorgu yanıt süresi, ≥100 istek/saniye); açık veri ve kıyaslama raporu yayımlanır; sistem doğruluğu kilitli test kümesinde bootstrap güven aralığıyla ölçülüp raporlanır; veri tabanı hata oranı L5 doğrulama ve rastgele denetimle <%0,5 düzeyinde tutulur; ≥3 makale hakemli dergilere gönderilir. |
 
 Yukarıdaki performans ve maliyet ölçütleri (otomatik onay oranı, maliyet düşüşü, gecikme) kilitli kıyaslama kümesinde ölçülüp raporlanır; bunlar hedefin altında kalsa dahi <%0,5 veri tabanı hata sınırı, düşük güvenli kayıtların L5 uzman incelemesine yönlendirilmesiyle her durumda korunur. Böylece eksik performans "hatalı veri" olarak değil, daha fazla insan incelemesi olarak yansır (bkz. 5.2).
 
@@ -526,15 +526,14 @@ WP5 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 
 | Ekip Üyesi | Rol | WP1 | WP2 | WP3 | WP4 | WP5 | Yaklaşık FTE |
 | --- | --- | :-: | :-: | :-: | :-: | :-: | --- |
-| Prof. Dr. Murat Ceylan (Yürütücü) | Bilimsel/teknik koordinasyon, ileri bileşen liderliği | ✓ | ✓ | ✓ | ✓ | ✓ | ~%20 |
+| Dr. Öğr. Üyesi Engin Eşme (Yürütücü) | Bilimsel/teknik koordinasyon; ML/sistem mimarisi, yönlendirici ve RLHF liderliği | ✓ | ✓ | ✓ | ✓ | ✓ | ~%30 |
 | Prof. Dr. S. G. Şumnu (Araştırmacı) | Gıda bilimi doğrulama protokolü ve tahkim | ✓ | ✓ |  | ✓ | ✓ | ~%15 |
-| Dr. Engin Esme (Araştırmacı) | ML/sistem mimarisi; yönlendirici ve RLHF teknik liderliği |  | ✓ | ✓ | ✓ | ✓ | ~%20 |
 | Arciel Aliognis (Bursiyer, yazılım/YZ) | L1-L4, Öğrenilmiş Yönlendirici, API | ✓ | ✓ | ✓ | ✓ | ✓ | tam zamanlı |
 | Alijon Alimov (Bursiyer, yazılım/YZ) | Tarama, entegrasyon, RLHF/öğrenme döngüsü | ✓ |  | ✓ | ✓ | ✓ | tam zamanlı |
 | Aleyna Özcan (Bursiyer, gıda müh. → YL) | Uzman doğrulama, kural tasarımı, tez |  | ✓ |  | ✓ | ✓ | tam zamanlı |
 | Peri Açıkgöz (Bursiyer, gıda müh. → YL) | Uzman doğrulama, Türk gıda profili, tez |  | ✓ |  | ✓ | ✓ | tam zamanlı |
 
-İki gıda mühendisliği bursiyerinin asıl yükü, kapasitenin bağlayıcı olduğu WP4 doğrulama penceresindedir (4-16. aylar); iki yazılım bursiyeri WP1-WP3 mühendislik yükünü taşır. İleri araştırma bileşenleri (Öğrenilmiş Yönlendirici, RLHF/tercih temelli öğrenme ve katmanlar arası öğrenme), Dr. Engin Esme ve Yürütücü'nün doğrudan teknik liderliğinde, yazılım bursiyerlerinin uygulamasıyla geliştirilir; çalışan prototip bu yetkinliğin somut kanıtıdır.
+İki gıda mühendisliği bursiyerinin asıl yükü, kapasitenin bağlayıcı olduğu WP4 doğrulama penceresindedir (4-16. aylar); iki yazılım bursiyeri WP1-WP3 mühendislik yükünü taşır. İleri araştırma bileşenleri (Öğrenilmiş Yönlendirici, RLHF/tercih temelli öğrenme ve katmanlar arası öğrenme), Yürütücü'nün doğrudan teknik liderliğinde, yazılım bursiyerlerinin uygulamasıyla geliştirilir; çalışan prototip bu yetkinliğin somut kanıtıdır.
 
 ## 5.2. Risk Yönetimi
 

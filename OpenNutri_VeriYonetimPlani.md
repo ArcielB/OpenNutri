@@ -48,9 +48,9 @@ Veriler büyük ölçüde **yeniden üretilen ikincil veridir** (yayımlanmış 
 
 ## 6. Sorumluluklar ve Kaynaklar
 
-- **Genel sorumluluk / veri yönetimi:** Yürütücü Prof. Dr. Murat Ceylan.
+- **Genel sorumluluk / veri yönetimi:** Yürütücü Dr. Öğr. Üyesi Engin Eşme.
 - **Veri kalitesi ve doğrulama protokolü:** Prof. Dr. Servet Gülüm Şumnu (nihai tahkim) ve gıda mühendisliği bursiyerleri.
-- **Altyapı, depolama ve yedekleme:** Dr. Engin Esme ve yazılım/yapay zekâ bursiyerleri.
+- **Altyapı, depolama ve yedekleme:** Yürütücü ve yazılım/yapay zekâ bursiyerleri.
 - **Kaynaklar:** Veri yönetimi maliyetleri proje kapsamındaki donanım (GPU iş istasyonu), kurum altyapısı, bulut yedekleme/dağıtım hizmeti ve sözleşmeyle tahsis edilen TRUBA kaynakları ile karşılanır; ayrıca bir maliyet öngörülmemektedir.
 
 ## 7. Teyit Edilecek Hususlar
