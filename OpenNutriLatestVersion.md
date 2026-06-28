@@ -588,7 +588,7 @@ Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) hedef ve politikalarıyla
 
 | Etki Türü | Etki | Etkinin Elde Edilmesi Öngörülen Zaman |
 | --- | --- | --- |
-| Toplumsal/Kültürel | **Yaşam kalitesi:** Türk yemek kültürüne uyarlanmış kanıta dayalı beslenme rehberliği; yerel gıdalar için daha doğru beslenme takibi ve diyet uygulamaları (öngörü: proje sonrası 2 yıl içinde birden çok yerli beslenme/diyet uygulamasının OpenNutri verisini kullanması). | 18-36 ay |
+| Toplumsal/Kültürel | **Yaşam kalitesi:** Türk yemek kültürüne uyarlanmış kanıta dayalı beslenme rehberliği; yerel gıdalar için daha doğru beslenme takibi ve diyet uygulamaları (öngörü: proje sonrası 2 yıl içinde en az 2 yerli beslenme/diyet uygulamasının OpenNutri verisini kullanması). | 18-36 ay |
 | Toplumsal/Kültürel | **Refah/eğitim:** Halk sağlığı politikaları için bölgesel ve ürün bazlı besin bileşimi referansı; okul beslenmesi ve bölgesel müdahalelerde yerel veri kullanımı. | 18-36 ay |
 | Toplumsal/Kültürel | **Sürdürülebilir çevre:** Gıda tedarik zinciri izlenebilirliği ve Yeşil Mutabakat uyum süreçlerinde bileşimsel veri desteği. | 18-42 ay |
 | Akademik | **Yeni Ar-Ge kararları:** Yapay zekâ destekli gıda bileşimi çıkarımı için açık kıyaslama ve metodoloji; mimari, benzer literatür-çıkarım problemlerine ilkesel olarak aktarılabilir (proje kapsamında ayrı bir alan doğrulaması yürütülmez). | 12-24 ay |
@@ -597,7 +597,7 @@ Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) hedef ve politikalarıyla
 | Akademik | **Araştırmacı niteliği:** Yapay zekâ ve gıda bilimi kesişiminde eğitim almış 4 bursiyer; ikisi yüksek lisans düzeyine geçerek tez üretir, ekipte disiplinler arası uzmanlık kazanılır. | 0-18 ay |
 | Ekonomik | **Sektörel uygulama alanları:** Gıda ihracatı, sağlık teknolojisi, diyetisyen uygulamaları, gıda üretim kalite kontrolü ve tarımsal ürün pazarlaması için veri altyapısı. | 18-36 ay |
 | Ekonomik | **Küresel pazar:** Veri lisanslama, API aboneliği ve doğrulama motoru uyarlamasıyla çeşitlendirilmiş gelir kanalları; benzer açığı yaşayan ülkelere motor lisanslama fırsatı. | 24-48 ay |
-| Ekonomik | **İstihdam:** Proje sonrası 2 yıl içinde veri operasyonları, API mühendisliği ve iş geliştirme rollerini kapsayan 5-10 kişilik spin-off hedefi (gelir ve finansman kilometre taşlarına bağlı; muhafazakâr senaryoda daha düşük tutulur); ekosistemde 10-20 dolaylı istihdam potansiyeli. | 18-36 ay |
+| Ekonomik | **İstihdam:** Proje sonrası 2 yıl içinde veri operasyonları, API mühendisliği ve iş geliştirme rollerini kapsayan 5-10 kişilik spin-off hedefi (gelir ve finansman kilometre taşlarına bağlı; muhafazakâr senaryoda daha düşük tutulur). | 18-36 ay |
 | Ekonomik | **Rekabetçilik:** Yabancı besin veri tabanlarına bağımlılığı azaltan, Türk gıdalarını kapsayan ulusal alternatif (ithal ikamesi); ihracat ve yerli sağlık teknolojileri için doğruluk avantajı; yeni yerli firmaların önünü açma. | 18-48 ay |
 | Ulusal Güvenlik | **Ekonomik güvenlik:** Gıda bileşimi verisi üzerinde ulusal kontrol, yabancı veri tabanı fiyat/erişim değişikliklerine karşı dayanıklılık ve kriz dönemlerinde beslenme planlaması desteği. | 12-48 ay |
 | Ulusal Güvenlik | **Siber güvenlik / veri egemenliği:** Çekirdek veri ve model altyapısının kurum/proje donanımı ve sözleşmeyle tahsis edilen TRUBA kaynakları üzerinde yürütülmesi, bulut kullanımının yedekleme ve dağıtımla sınırlandırılması ve açık kaynaklı yığın sayesinde verinin yurt içinde tutulması; yabancı bulut/tedarikçi bağımlılığının ve buna bağlı erişim/fiyat risklerinin azaltılması. | 12-48 ay |
