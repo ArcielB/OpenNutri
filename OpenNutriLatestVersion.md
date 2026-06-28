@@ -582,7 +582,7 @@ Kurumun sağlayacağı somut sunucu, depolama ve ağ kaynakları ile teknik dest
 
 ## 6.2. Projeden Elde Edilmesi Öngörülen Etkiler
 
-Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) önceliklerinden gıda ve tarımın öncelikli gelişme alanı olarak güçlendirilmesi, gıda güvencesi, dijital dönüşüm, yerli ve milli teknoloji geliştirme ve yeşil dönüşüm hedefleriyle doğrudan ilişkilidir. Hedef kitle ve alanlar; kamu sağlık ve gıda güvenliği kurumları, gıda sanayisi ve ihracatçıları, sağlık teknolojisi geliştiricileri ile akademik araştırma topluluğudur. Beklenen etkiler aşağıda doğrulanabilir göstergelerle özetlenmiştir.
+Aşağıdaki etkiler, 12. Kalkınma Planı (2024-2028) hedef ve politikalarıyla doğrudan ilişkilidir (ilgili Plan paragraf numaraları parantez içinde verilmiştir): teknolojiyle güçlendirilmiş, gıda arz güvenliğini sağlayan ve risklere dayanıklı tarımsal üretim (299, 321, 489); dijitalleşme, yapay zekâ ve kritik teknolojilerde yerli ve milli yetkinlik (452, 557, 574); ulusal veri yönetişimi ve veri egemenliği (127, 584, 585); toplumun yeterli ve dengeli beslenmesinin desteklenmesi (487, 706, 739); üniversite-sanayi etkileşimi ve araştırma altyapılarının güçlendirilmesi (551, 689). Hedef kitle ve alanlar; kamu sağlık ve gıda güvenliği kurumları, gıda sanayisi ve ihracatçıları, sağlık teknolojisi geliştiricileri ile akademik araştırma topluluğudur. Beklenen etkiler aşağıda doğrulanabilir göstergelerle özetlenmiştir.
 
 | Etki Türü | Etki | Etkinin Elde Edilmesi Öngörülen Zaman |
 | --- | --- | --- |
