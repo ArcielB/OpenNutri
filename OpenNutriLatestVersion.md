@@ -394,7 +394,7 @@ Elde edilen besin verileri FAIR (Bulunabilir, Erişilebilir, Birlikte Çalışab
 | --- | --- |
 | INFOODS etiket adları (Klensin vd., 1989) | Besin bileşeni tanımlama ve birim standardizasyonu. |
 | FoodEx2 (EFSA, 2015) | Gıda sınıflandırması ve Avrupa veri altyapılarıyla uyum. |
-| LanguaL thesaurus (Møller vd., 2008) | Gıda tanımlayıcı özellikleri ve hazırlama durumu. |
+| LanguaL thesaurus (Ireland ve Møller, 2010) | Gıda tanımlayıcı özellikleri ve hazırlama durumu. |
 | 100 g yenilebilir kısım standardizasyonu | Farklı birim ve bazların karşılaştırılabilir biçime dönüştürülmesi. |
 | Kaynak izlenebilirliği | DOI, sayfa, tablo, satır, kaynak alıntısı ve çıkarım katmanı kaydı. |
 
@@ -678,6 +678,8 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 
 - Hu, E.J., et al. (2022). LoRA: Low-rank adaptation of large language models. *ICLR*. https://doi.org/10.48550/arXiv.2106.09685
 
+- Ireland, J.D., & Møller, A. (2010). LanguaL food description: a learning process. *European Journal of Clinical Nutrition*, 64(S3), S44–S48. https://doi.org/10.1038/ejcn.2010.209
+
 - Ispirova, G., Eftimov, T., & Koroušić Seljak, B. (2020). P-NUT: Predicting NUTrient content from short text descriptions. *Mathematics*, 8(10), 1811. https://doi.org/10.3390/math8101811
 
 - Jankelow, A., Godneva, A., Rein, M., Samocha-Bonet, D., Weissglas-Volkov, D., Zohar, S., Shor, T., & Segal, E. (2026). NutriMatch: harmonizing food composition databases with large language models for enhanced nutritional prediction. *npj Digital Public Health*, 1, 1. https://doi.org/10.1038/s44482-025-00001-7
@@ -697,8 +699,6 @@ Spin-off ilk gelirlerini elde ettikten sonra TEYDEB 1507 ile sektör odaklı API
 - McHugh, M.L. (2012). Interrater reliability: The kappa statistic. *Biochemia Medica*, 22(3), 276-282. https://doi.org/10.11613/BM.2012.031
 
 - Monarch, R.M. (2021). *Human-in-the-Loop Machine Learning*. Manning Publications.
-
-- Møller, A., et al. (2008). LanguaL 2006 – the LanguaL thesaurus. *European Journal of Clinical Nutrition*, 62, S272–S275. https://doi.org/10.1038/ejcn.2008.50
 
 - Mordor Intelligence. (2025). *Diet and Nutrition Apps Market — Size, Share & Growth Trends*. https://www.mordorintelligence.com/industry-reports/diet-and-nutrition-apps-market
 
