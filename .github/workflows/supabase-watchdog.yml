@@ -1,0 +1,78 @@
+name: Supabase Watchdog
+
+# Catches the failure mode from 2026-07: the live Supabase project blew the
+# free-tier egress quota (restricted, HTTP 402), then sat idle 7 days and got
+# auto-paused (DNS stopped resolving). The whole pipeline + annotator were down
+# for ~12 days before anyone noticed. This job checks the project every 30 min
+# and FAILS LOUDLY (GitHub emails the maintainer) the moment it is unhealthy, so
+# a silent multi-day outage becomes a same-hour alert. If a Management API token
+# is configured, it also auto-resumes a paused project.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe Supabase health and self-heal
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Optional: enables status diagnosis + auto-restore of a paused project.
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -uo pipefail
+
+          # 1) Probe the exact REST path the pipeline + annotator use.
+          code=$(curl -s -o /tmp/body.txt -w "%{http_code}" --max-time 25 \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            "$SUPABASE_URL/rest/v1/papers?select=id&limit=1" || echo "000")
+          echo "REST /rest/v1/papers -> HTTP $code"
+
+          if [ "$code" = "200" ]; then
+            echo "Supabase project is healthy."
+            exit 0
+          fi
+
+          echo "::error::Supabase project is UNHEALTHY (HTTP $code). Pipeline + annotator are down."
+          echo "Response body (truncated):"
+          head -c 500 /tmp/body.txt || true
+          echo
+
+          # 2) Diagnose (and self-heal a pause) via the Management API, if a token is set.
+          if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+            REF=$(printf '%s' "$SUPABASE_URL" | sed -E 's#https?://([a-z0-9]+)\.supabase\.co/?#\1#')
+            echo "Project ref: $REF"
+            status=$(curl -s --max-time 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "User-Agent: $UA" \
+              "https://api.supabase.com/v1/projects/$REF" \
+              | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            echo "Management API project status: ${status:-unknown}"
+
+            if [ "$status" = "INACTIVE" ]; then
+              echo "Project is PAUSED. Attempting auto-restore..."
+              rc=$(curl -s -o /dev/null -w "%{http_code}" -X POST --max-time 40 \
+                -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "User-Agent: $UA" \
+                -H "Content-Type: application/json" \
+                "https://api.supabase.com/v1/projects/$REF/restore" -d '{}')
+              echo "Restore request -> HTTP $rc (project takes ~3 min to come up)."
+            fi
+
+            if [ "$code" = "402" ]; then
+              echo "::error::Project is RESTRICTED (402) — over free-tier quota (egress). Auto-restore does NOT clear this. Fix: wait for the monthly billing-cycle reset, or upgrade to Pro."
+            fi
+          else
+            echo "SUPABASE_ACCESS_TOKEN not set — alert-only mode (no auto-restore). Add it as a repo secret to enable self-heal of pauses."
+          fi
+
+          # Fail so GitHub notifies the maintainer.
+          exit 1
