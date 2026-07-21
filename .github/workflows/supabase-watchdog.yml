@@ -1,16 +1,11 @@
 name: Supabase Watchdog
 
-# Catches the failure mode from 2026-07: the live Supabase project blew the
-# free-tier egress quota (restricted, HTTP 402), then sat idle 7 days and got
-# auto-paused (DNS stopped resolving). The whole pipeline + annotator were down
-# for ~12 days before anyone noticed. This job checks the project every 30 min
-# and FAILS LOUDLY (GitHub emails the maintainer) the moment it is unhealthy, so
-# a silent multi-day outage becomes a same-hour alert. If a Management API token
-# is configured, it also auto-resumes a paused project.
+# PAUSED 2026-07-21 with the research-paper pipeline. Keep this workflow
+# manual-only while the annotator/Supabase research system is dormant. Its
+# deliberate failure behavior sends GitHub email, so restoring a schedule must
+# be part of an explicit decision to resume that system.
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 concurrency:

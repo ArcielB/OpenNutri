@@ -1,10 +1,9 @@
 name: Daily OpenNutri Ops
 
+# PAUSED 2026-07-21: research-paper acquisition and model processing are not the
+# current product focus. Keep this workflow manual-only. Re-enabling its GitHub
+# workflow state or restoring a schedule requires an explicit product decision.
 on:
-  schedule:
-    # GitHub cron is UTC. Run a small resumable tick every 5 minutes.
-    # A serialized controller creates bounded Gemma work; workers only drain queued model tasks.
-    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       workers:

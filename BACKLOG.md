@@ -8,6 +8,12 @@ How to use this backlog:
 - prefer small, testable changes
 - if you discover extra edge cases, add them under the item instead of rewriting its scope silently
 
+Current operating state: research-paper crawling, AI extraction, and the Supabase
+watchdog are paused. Their GitHub workflows are disabled and have no cron triggers.
+Near-term product work is the FNDDS Core API, search benchmark, deployment, and first
+app vertical slice. Research backlog items remain preserved for a later explicit
+restart.
+
 ## 1. Decide whether to archive or drop the unused `claims` reference table
 
 ### Problem

@@ -4,7 +4,17 @@ This is the current high-signal project state after the reviewer workflow moved 
 
 ## Primary Goal
 
-- Preliminary Study 3 is skipped. The near-term goal is high-precision discovery of papers with useful direct food-composition data, accepting lower recall for now and preserving skipped candidates for a later pass.
+- As of 2026-07-21, the near-term goal is the FNDDS Core dataset/API, measured food
+  search, deployment, and the first consumer app vertical slice. Research-paper
+  acquisition and extraction are preserved but dormant.
+- GitHub workflow IDs `266228133` (`Daily OpenNutri Ops`) and `308071631`
+  (`Supabase Watchdog`) were set to `disabled_manually`; both cron triggers were
+  removed from the repository. No runs were active when they were stopped. The
+  ordinary push/PR `Tests` workflow remains active. This pause supersedes later
+  historical descriptions of scheduled research operations in this handoff.
+- Existing Supabase, Vercel, and Cloudflare R2 resources were not deleted. R2 is the
+  service with the 10 GB free storage allowance; retaining its existing objects does
+  not run the crawler or model pipeline.
 - Current acquisition mode is English-only. Turkish/DergiPark code remains available, but default refill and daily ops request `tr=0`, skip DergiPark, and use Europe PMC/OpenAlex/Semantic Scholar.
 - 2026-06-21 operational audit: paper search and registration were still active, but no `ai_extractions` had been created since 2026-06-12. The outage began when new paper URLs moved to Cloudflare R2: drain workers did not receive R2 credentials or `boto3`, so they depended on the public `r2.dev` hostname and completed with zero model calls when that path was unreachable. Workers now read R2 objects through the authenticated S3-compatible endpoint and fall back to `source_pdf_url`; task claiming preserves prior `last_error`, blank evaluator exceptions retain their exception type, and the refill controller opens a circuit after at least 20 recent Gemma failures with zero completions in 6 hours. The circuit stops crawler/R2 growth while drain workers continue attempting queued work. Scheduled final Gemini settings are a 250-call Pacific-day safety ceiling with 5 tasks per worker tick, not the older 20/day target. Live verification run `27898052908` completed successfully after the repair: controller refill was blocked by the circuit, then one drain worker processed 20 Gemma tasks with zero failures, routed 2 to Flash-Lite, processed both Flash-Lite tasks, and processed both resulting final Gemini tasks. The 24 new extraction rows were the first since June 12; all 20 source papers ultimately resolved as provisional no-data, and 5 Gemma tasks remained queued with no stuck `processing` rows.
 - Keep paper stock intentionally low and refresh feedback before crawler refill so later searches benefit from accepted human truth.
