@@ -13,6 +13,7 @@ Use this file to keep context narrow. Read this first, then open only the files 
 ## Active Surfaces
 - `apps/expert-annotator/`: React 19 + Vite labeling UI.
 - `services/data-pipeline/`: Python crawler, harvester, evaluator, ETL, and label-feedback loop.
+- `services/core-api/`: Read-only FastAPI product API over versioned OpenNutri Core SQLite releases.
 - `apps/expert-annotator/migration.sql`: current schema and RLS source of truth.
 - `BACKLOG.md`: current task list.
 - `docs/handoff_2026-03-20/STATE.md`: latest high-signal project state snapshot.
@@ -63,6 +64,10 @@ Do not spend tokens on these unless the task explicitly needs them:
 
 ## Product Truths
 - The project is a food-composition paper pipeline plus a human labeling UI.
+- The consumer food-data surface is separate from the annotator schema. The current
+  FNDDS release is built under `services/data-pipeline/opennutri_core/` and served
+  read-only by `services/core-api/`; do not route it through legacy `claims` or expose
+  the SQLite table layout as the HTTP contract.
 - The extraction target is useful OpenNutri food composition data only: real foods or food products mapped to nutrient/composition values for nutrition datasets, diet tracking, food exporters, inspection, or similar real-world use. Papers about effects of a nutrient, supplement, extract, dose, or diet on health, biomarkers, cells, animals, microbes, processing outcomes, or other responses are empty unless they also report direct food/product composition tables useful to OpenNutri. One-off experimental treatment/formulation variants are no usable data unless they represent a stable real-world food/product worth adding to the DB.
 - Relevance filtering code supports English and Turkish, but current ops are English-only. Default refill/daily crawler runs request `tr=0`, skip DergiPark, and use Europe PMC/OpenAlex/Semantic Scholar unless Turkish is explicitly re-enabled.
 - The annotator now uses a general queue:
@@ -110,6 +115,8 @@ Do not spend tokens on these unless the task explicitly needs them:
   - Peri, Aleyna, Aysegul, Daine, and the `f221229078@ktun.edu.tr` account: general-queue labelers unless access flags are changed.
 
 ## Common Commands
+- Core API run: `cd services/core-api && python3 -m uvicorn opennutri_api.main:app --reload`
+- Core API tests: `cd services/core-api && python3 -m unittest discover -s tests -p 'test_*.py' -v`
 - Frontend install/run: `cd apps/expert-annotator && npm install && npm run dev`
 - Frontend validation: `cd apps/expert-annotator && npm run build`
 - Frontend lint: `cd apps/expert-annotator && npm run lint`
@@ -133,6 +140,7 @@ Do not spend tokens on these unless the task explicitly needs them:
 - Refer to secrets by env var name only, for example `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `GEMINI_API_KEY`.
 
 ## Task Routing
+- Consumer food API/search work: start in `services/core-api/` and `docs/opennutri_core_fndds.md`
 - Annotation workflow bugs (queue/approval/cockpit data fetch + routing): start in `apps/expert-annotator/src/pages/Annotate.jsx`
 - Bugs scoped to one tab: start in the matching `apps/expert-annotator/src/views/*.jsx`
 - Helper or formatting bugs: start in `apps/expert-annotator/src/utils/annotateHelpers.js`

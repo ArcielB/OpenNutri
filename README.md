@@ -213,6 +213,13 @@ Pipeline data outputs:
 - `services/data-pipeline/opennutri_core/`: Source-aware consumer dataset builders.
   This package is intentionally separate from the annotator vocabulary schema and
   is the target for future SR Legacy and Foundation adapters.
+- `services/core-api/`: FastAPI service for read-only access to the generated Core
+  SQLite artifact. It validates the database at startup, opens request connections
+  with SQLite `mode=ro` and `query_only`, and exposes health, release metadata,
+  paginated food search, and full food details without leaking the storage schema as
+  the client contract. Run it from that directory with
+  `python3 -m uvicorn opennutri_api.main:app --reload`; see its `README.md` for
+  environment variables, endpoints, and tests.
 - `services/data-pipeline/etl_sr_legacy_to_opennutri.py`: Seed SR Legacy 2018-04 into Supabase.
 - `services/data-pipeline/etl_usda_to_opennutri.py`: Seed Foundation Foods 2025-12-18 via REST.
 - `services/data-pipeline/create_opennutri_schema.sql` + `query.json`: Legacy annotator/reference schema for ETL; not the OpenNutri Core product dataset contract.
@@ -228,6 +235,10 @@ Pipeline data outputs:
 - `docs/convert_to_docx.py`: Builds DOCX from markdown (currently expects `sections/`, may need updating to `docs/proposal-sections/`).
 - `docs/FAAP.md`: Food engineering action points.
 - `docs/draft_commercialization.txt`: Commercialization notes (TR).
+- `docs/opennutri_core_fndds.md`: FNDDS product-dataset source verification,
+  canonical table contract, build command, quality rules, and measured release.
+- `services/core-api/README.md`: Core API run instructions, endpoint contract,
+  database/CORS configuration, tests, and current deployment boundary.
 
 **Python Dependencies**
 - Full controller/crawler dependencies are listed in `services/data-pipeline/requirements.txt`.

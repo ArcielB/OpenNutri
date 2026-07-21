@@ -39,8 +39,17 @@ This is the current high-signal project state after the reviewer workflow moved 
   remains non-searchable.
 - FNDDS `food_nutrient.nutrient_id` maps through `nutrient.nutrient_nbr`, not
   `nutrient.id`. Keep this source adapter rule and its regression test intact.
-- Next product-data work is the common-query ranking benchmark, then source-separated
-  SR Legacy and Foundation adapters. Never blend their nutrient values silently.
+- `services/core-api/` now provides the first local FastAPI product surface over the
+  release: `/health`, `/v1/releases/current`, `/v1/foods/search`, and
+  `/v1/foods/{food_id}`. It validates the artifact at startup, uses read-only SQLite
+  connections, and returns source/quality metadata with nutrients and portions.
+- The API has fixture coverage plus real-release integration tests. All 5,432 food
+  profiles conform to the public response model; `Apple, raw` returns all 65
+  nutrients and eight portions. Representative search and detail requests complete
+  in roughly 2-4 ms on this machine.
+- Next product work is the reviewed common-query ranking benchmark and first app
+  vertical slice, then source-separated SR Legacy and Foundation adapters. Never
+  blend their nutrient values silently.
 
 ## Team / Roles
 
@@ -195,6 +204,10 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 
 - Build the FNDDS OpenNutri Core release:
   - `python3 services/data-pipeline/scripts/build_core_dataset.py --overwrite`
+- Run the local OpenNutri Core API:
+  - `cd services/core-api && python3 -m uvicorn opennutri_api.main:app --reload`
+- Test the OpenNutri Core API:
+  - `cd services/core-api && python3 -m unittest discover -s tests -p 'test_*.py' -v`
 - Apply schema migration:
   - `cd apps/expert-annotator && DATABASE_URL=... node run-migration.js`
 - Verify live workflow schema:

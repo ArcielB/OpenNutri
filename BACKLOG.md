@@ -47,33 +47,35 @@ Restore if ever needed (either works):
 - `psql "$POOLER_URL" -c "\copy public.claims from program 'zcat data/archives/claims_archive_2026-06-12.csv.gz' with (format csv, header)"`
 - or rerun `etl_sr_legacy_to_opennutri.py` against the repo CSVs.
 
-## 12. Complete OpenNutri Core v0.1 and expose it through the product API
+## 12. Benchmark and complete OpenNutri Core v0.1
 
 ### Problem
-The deterministic FNDDS-only `v0.0.1` release builder now publishes source-aware
-CSV/Parquet/SQLite artifacts with validated nutrients, portions, search fields, and
-quality metadata. It is enough for the first app vertical slice, but OpenNutri Core
-`v0.1` still needs the complementary USDA adapters and measured search behavior.
+The FNDDS-only release and local read-only FastAPI surface are sufficient for the
+first app vertical slice. Search quality is not yet measured, the API is not yet
+deployed, and Core `v0.1` still needs complementary USDA adapters after the FNDDS
+workflow has been tested with users.
 
 ### Goal
 - add SR Legacy and Foundation Foods adapters to the same source-record contracts
 - preserve source observations and NDB lineage without blending nutrient values
 - create reviewed food-concept grouping only for safe exact/identifier-backed matches
 - define and run a common-query search benchmark before freezing API ranking
-- expose the versioned release through documented read-only food/detail/nutrient endpoints
+- deploy the versioned read-only API with the exact tested release artifact
+- build the first search -> portion -> nutrient-calculation app workflow against it
 - keep hosted serving profiles compact instead of restoring the old Supabase `claims` shape
 
 ### Likely technical area
 - `services/data-pipeline/opennutri_core/`
 - `services/data-pipeline/scripts/build_core_dataset.py`
 - `docs/opennutri_core_fndds.md`
-- future read API package
+- `services/core-api/`
 
 ### Done when
 - one command reproducibly builds FNDDS, SR Legacy, and Foundation source records
 - every value and portion remains traceable to a source release and identifier
 - the common-query benchmark meets its documented top-result/top-five thresholds
 - the deployed API serves the same version and provenance recorded in the manifest
+- the first app workflow uses the API without depending on its SQLite table layout
 
 ## 10. Calibrate AI routing thresholds from audited human truth
 

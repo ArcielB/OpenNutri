@@ -152,12 +152,16 @@ ORDER BY sequence_number;
   a branded-product, barcode, restaurant, or global regional-food database.
 - `NFS`/`NS` records are legitimate survey fallbacks but should not outrank specific
   matches in the consumer API.
-- Search fields and FTS make the dataset queryable, but a manually reviewed common-
-  query benchmark is still required before freezing API ranking.
+- The local FastAPI service under `services/core-api/` exposes this release through
+  versioned search, food-detail, and release-metadata endpoints. Search fields and
+  FTS make the dataset queryable, but a manually reviewed common-query benchmark is
+  still required before freezing API ranking or deploying it as a public service.
 - This release does not import FNDDS ingredient recipes or silently derive new
   profiles from them.
 - No values are filled from SR Legacy, Foundation Foods, commercial sources, or the
   OpenNutri literature pipeline.
 
-The next adapters are SR Legacy and Foundation Foods. They must target these source-
-record contracts while preserving their values as distinct observations.
+The next product milestone is the common-query search benchmark and first app
+vertical slice against this FNDDS API. SR Legacy and Foundation Foods remain the
+next data adapters; they must target these source-record contracts while preserving
+their values as distinct observations.
