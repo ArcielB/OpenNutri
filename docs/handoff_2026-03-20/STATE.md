@@ -19,7 +19,28 @@ This is the current high-signal project state after the reviewer workflow moved 
 
 - `docs/reviewer_workflow_map.md`: source of truth for reviewer UI, schema, RPCs, approval, and ops behavior.
 - `docs/reviewer_sop_en.md`: worker-facing labeler SOP.
+- `docs/opennutri_core_fndds.md`: FNDDS product-dataset source verification,
+  canonical table contract, build command, quality rules, and measured `v0.0.1` release.
 - `AGENTS.md`: standing coding-agent instructions and current product truths.
+
+## OpenNutri Core Product Dataset
+
+- The consumer dataset is a separate versioned package under
+  `services/data-pipeline/opennutri_core/`; do not load it through the annotator's
+  legacy `entities` / `claims` model.
+- `scripts/build_core_dataset.py` builds FNDDS 2021-2023 `v0.0.1` into normalized
+  CSV/Parquet, SQLite with FTS5 search, `manifest.json`, and `quality_report.json`.
+  Local release output is gitignored under `services/data-pipeline/data/core/releases/`.
+- The repo source files were compared byte-for-byte with the official USDA archive.
+  Strict builds enforce the verified source-tree hash and official row counts.
+- Measured release: 5,432 source foods, 5,431 searchable foods, 65 nutrients,
+  353,015 nutrient observations, 22,045 accepted portions, and one rejected
+  zero-weight portion. The source-only `Milk, human` row has no nutrient profile and
+  remains non-searchable.
+- FNDDS `food_nutrient.nutrient_id` maps through `nutrient.nutrient_nbr`, not
+  `nutrient.id`. Keep this source adapter rule and its regression test intact.
+- Next product-data work is the common-query ranking benchmark, then source-separated
+  SR Legacy and Foundation adapters. Never blend their nutrient values silently.
 
 ## Team / Roles
 
@@ -172,6 +193,8 @@ Feedback refresh is intentionally tied to crawler refill only; queued-AI drainin
 
 ## Useful Commands
 
+- Build the FNDDS OpenNutri Core release:
+  - `python3 services/data-pipeline/scripts/build_core_dataset.py --overwrite`
 - Apply schema migration:
   - `cd apps/expert-annotator && DATABASE_URL=... node run-migration.js`
 - Verify live workflow schema:

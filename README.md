@@ -200,9 +200,22 @@ Pipeline data outputs:
 - `services/data-pipeline/data/verification_harvest/` + `harvest_full_check/`: Sample XML/JSON for checks.
 
 **USDA ETL**
+- `services/data-pipeline/scripts/build_core_dataset.py`: Builds the versioned
+  OpenNutri Core FNDDS 2021-2023 product release as normalized CSV/Parquet tables,
+  a read-only SQLite database with FTS5 food search, a source/artifact manifest, and
+  a quality report. It maps FNDDS `food_nutrient.nutrient_id` through
+  `nutrient.nutrient_nbr`, validates exact official source hashes/counts, assigns
+  deterministic IDs, retains ambiguous `NFS`/`NS` foods with a search penalty, and
+  rejects non-positive portion weights. Run
+  `python3 services/data-pipeline/scripts/build_core_dataset.py`; outputs go under
+  `services/data-pipeline/data/core/releases/`. See
+  `docs/opennutri_core_fndds.md` for the table contract and measured release.
+- `services/data-pipeline/opennutri_core/`: Source-aware consumer dataset builders.
+  This package is intentionally separate from the annotator vocabulary schema and
+  is the target for future SR Legacy and Foundation adapters.
 - `services/data-pipeline/etl_sr_legacy_to_opennutri.py`: Seed SR Legacy 2018-04 into Supabase.
 - `services/data-pipeline/etl_usda_to_opennutri.py`: Seed Foundation Foods 2025-12-18 via REST.
-- `services/data-pipeline/create_opennutri_schema.sql` + `query.json`: Universal schema for ETL.
+- `services/data-pipeline/create_opennutri_schema.sql` + `query.json`: Legacy annotator/reference schema for ETL; not the OpenNutri Core product dataset contract.
 
 **Datasets (FoodData Central)**
 - `FoodData_Central_foundation_food_csv_2025-12-18/`: Foundation Foods dataset.

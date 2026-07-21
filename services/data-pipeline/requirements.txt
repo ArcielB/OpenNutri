@@ -2,3 +2,4 @@ google-generativeai
 sentence-transformers
 supabase
 boto3
+pyarrow  # OpenNutri Core CSV/Parquet/SQLite release builder
