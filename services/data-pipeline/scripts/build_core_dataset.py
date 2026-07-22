@@ -14,12 +14,20 @@ PIPELINE_ROOT = PROJECT_ROOT / "services" / "data-pipeline"
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
-from opennutri_core import DEFAULT_OUTPUT_DIR, DEFAULT_SOURCE_DIR, build_fndds_release
+from opennutri_core import (
+    DEFAULT_FNDDS_SOURCE_DIR,
+    DEFAULT_FOUNDATION_SOURCE_DIR,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_SR_LEGACY_SOURCE_DIR,
+    build_usda_core_release,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Build the OpenNutri Core FNDDS release")
-    parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE_DIR)
+    parser = argparse.ArgumentParser(description="Build the combined OpenNutri Core USDA release")
+    parser.add_argument("--fndds-source-dir", type=Path, default=DEFAULT_FNDDS_SOURCE_DIR)
+    parser.add_argument("--foundation-source-dir", type=Path, default=DEFAULT_FOUNDATION_SOURCE_DIR)
+    parser.add_argument("--sr-legacy-source-dir", type=Path, default=DEFAULT_SR_LEGACY_SOURCE_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
         "--overwrite",
@@ -36,8 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    report = build_fndds_release(
-        source_dir=args.source_dir,
+    report = build_usda_core_release(
+        fndds_source_dir=args.fndds_source_dir,
+        foundation_source_dir=args.foundation_source_dir,
+        sr_legacy_source_dir=args.sr_legacy_source_dir,
         output_dir=args.output_dir,
         overwrite=args.overwrite,
         strict_official=not args.allow_nonofficial_counts,
@@ -47,7 +57,7 @@ def main() -> int:
             {
                 "output_dir": str(args.output_dir.resolve()),
                 "status": report["status"],
-                "measured": report["measured"],
+                "datasets": report["datasets"],
                 "output_rows": report["output_rows"],
             },
             indent=2,

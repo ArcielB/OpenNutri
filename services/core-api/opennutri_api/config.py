@@ -10,7 +10,7 @@ CORS_ORIGINS_ENV = "OPENNUTRI_API_CORS_ORIGINS"
 
 
 def bundled_database_path() -> Path:
-    return Path(__file__).resolve().parents[1] / "data" / "opennutri-fndds.sqlite"
+    return Path(__file__).resolve().parents[1] / "data" / "opennutri-core.sqlite"
 
 
 def default_database_path() -> Path:
@@ -26,8 +26,8 @@ def default_database_path() -> Path:
         / "data"
         / "core"
         / "releases"
-        / "opennutri-core-fndds-2021-2023-v0.0.1"
-        / "opennutri-fndds.sqlite"
+        / "opennutri-core-usda-v0.1.0"
+        / "opennutri-core.sqlite"
     )
 
 

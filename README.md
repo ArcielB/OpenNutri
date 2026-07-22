@@ -96,7 +96,7 @@ Supabase tables used by the UI:
 Location: `services/data-pipeline/`
 
 **Paused 2026-07-21:** research-paper acquisition, AI extraction, and the Supabase
-watchdog are dormant while product work focuses on the FNDDS dataset/API/app. GitHub
+watchdog are dormant while product work focuses on the USDA Core dataset/API/app. GitHub
 workflows `Daily OpenNutri Ops` and `Supabase Watchdog` are disabled manually, and
 their cron triggers have been removed. Do not re-enable either workflow without an
 explicit decision to resume the research system. Existing Supabase and Cloudflare R2
@@ -216,7 +216,7 @@ Pipeline data outputs:
 
 **USDA ETL**
 - `services/data-pipeline/scripts/build_core_dataset.py`: Builds the versioned
-  OpenNutri Core FNDDS 2021-2023 product release as normalized CSV/Parquet tables,
+  OpenNutri Core FNDDS + Foundation + SR Legacy product release as normalized CSV/Parquet tables,
   a read-only SQLite database with FTS5 food search, a source/artifact manifest, and
   a quality report. It maps FNDDS `food_nutrient.nutrient_id` through
   `nutrient.nutrient_nbr`, validates exact official source hashes/counts, assigns
@@ -224,10 +224,9 @@ Pipeline data outputs:
   rejects non-positive portion weights. Run
   `python3 services/data-pipeline/scripts/build_core_dataset.py`; outputs go under
   `services/data-pipeline/data/core/releases/`. See
-  `docs/opennutri_core_fndds.md` for the table contract and measured release.
+  `docs/opennutri_core_usda.md` for the combined contract and measured release.
 - `services/data-pipeline/opennutri_core/`: Source-aware consumer dataset builders.
-  This package is intentionally separate from the annotator vocabulary schema and
-  is the target for future SR Legacy and Foundation adapters.
+  This package is intentionally separate from the annotator vocabulary schema.
 - `services/core-api/`: FastAPI service for read-only access to the generated Core
   SQLite artifact. It validates the database at startup, opens request connections
   with SQLite `mode=ro` and `query_only`, and exposes health, release metadata,
@@ -251,7 +250,9 @@ Pipeline data outputs:
 - `docs/FAAP.md`: Food engineering action points.
 - `docs/draft_commercialization.txt`: Commercialization notes (TR).
 - `docs/opennutri_core_fndds.md`: FNDDS product-dataset source verification,
-  canonical table contract, build command, quality rules, and measured release.
+  canonical table contract, build command, quality rules, and historical `v0.0.1` release.
+- `docs/opennutri_core_usda.md`: Combined USDA Core `v0.1.0` sources, measured
+  coverage, quality rules, search policy, and known boundaries.
 - `services/core-api/README.md`: Core API run instructions, endpoint contract,
   database/CORS configuration, tests, and current deployment boundary.
 

@@ -267,7 +267,7 @@ class CoreApiTests(unittest.TestCase):
             health.json(),
             {
                 "status": "ok",
-                "api_version": "0.1.0",
+                "api_version": "0.2.0",
                 "artifact_version": "0.0.1-test",
                 "release_ids": ["fixture-release"],
             },
@@ -298,9 +298,20 @@ class CoreApiTests(unittest.TestCase):
             invalid = client.get("/v1/foods/search", params={"q": "---"})
 
         self.assertEqual(safe.status_code, 200)
-        self.assertEqual(safe.json()["total"], 0)
+        self.assertEqual(safe.json()["match_mode"], "partial_terms")
+        self.assertEqual(safe.json()["matched_terms"], ["apple"])
+        self.assertEqual(safe.json()["total"], 2)
         self.assertEqual(invalid.status_code, 422)
         self.assertIn("searchable", invalid.json()["detail"])
+
+    def test_search_falls_back_to_the_most_selective_available_terms(self) -> None:
+        with TestClient(self.app) as client:
+            response = client.get("/v1/foods/search", params={"q": "red apple"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["match_mode"], "partial_terms")
+        self.assertEqual(response.json()["matched_terms"], ["apple"])
+        self.assertEqual(response.json()["items"][0]["name"], "Apple, raw")
 
     def test_food_detail_returns_nutrients_portions_and_provenance(self) -> None:
         with TestClient(self.app) as client:
@@ -329,7 +340,7 @@ class CoreApiTests(unittest.TestCase):
         with TestClient(self.app) as client:
             schema = client.get("/openapi.json").json()
 
-        self.assertEqual(schema["info"]["version"], "0.1.0")
+        self.assertEqual(schema["info"]["version"], "0.2.0")
         self.assertIn("/v1/foods/search", schema["paths"])
         self.assertIn("/v1/foods/{food_id}", schema["paths"])
 
@@ -364,22 +375,33 @@ class CoreApiTests(unittest.TestCase):
     default_database_path().is_file() and os.environ.get("OPENNUTRI_SKIP_REAL_RELEASE_TEST") != "1",
     "Local FNDDS release is not present",
 )
-class RealFnddsReleaseTests(unittest.TestCase):
-    def test_real_release_serves_apple_profile(self) -> None:
+class RealCoreReleaseTests(unittest.TestCase):
+    def test_real_release_serves_red_lentils_from_sr_legacy(self) -> None:
         app = create_app(default_database_path(), cors_origins=())
         with TestClient(app) as client:
-            search = client.get("/v1/foods/search", params={"q": "apple raw", "limit": 5})
+            search = client.get("/v1/foods/search", params={"q": "red lentils", "limit": 5})
             self.assertEqual(search.status_code, 200)
-            self.assertGreater(search.json()["total"], 0)
+            self.assertEqual(search.json()["match_mode"], "all_terms")
             first = search.json()["items"][0]
-            self.assertEqual(first["name"], "Apple, raw")
+            self.assertEqual(first["name"], "Lentils, pink or red, raw")
 
             detail = client.get(f"/v1/foods/{first['food_id']}")
             self.assertEqual(detail.status_code, 200)
             payload = detail.json()
-            self.assertEqual(len(payload["nutrients"]), 65)
-            self.assertGreater(len(payload["portions"]), 0)
-            self.assertEqual(payload["source"]["release_id"], "usda-fndds-2021-2023")
+            self.assertGreater(len(payload["nutrients"]), 70)
+            self.assertEqual(payload["source"]["release_id"], "usda-sr-legacy-2018-04")
+
+    def test_real_release_prioritizes_foundation_lentils(self) -> None:
+        app = create_app(default_database_path(), cors_origins=())
+        with TestClient(app) as client:
+            search = client.get("/v1/foods/search", params={"q": "lentils", "limit": 5})
+
+        self.assertEqual(search.status_code, 200)
+        self.assertEqual(search.json()["items"][0]["name"], "Lentils, dry")
+        self.assertEqual(
+            search.json()["items"][0]["source"]["release_id"],
+            "usda-foundation-2025-12-18",
+        )
 
     def test_every_real_food_profile_conforms_to_the_response_contract(self) -> None:
         repository = CoreRepository(default_database_path())
@@ -391,7 +413,7 @@ class RealFnddsReleaseTests(unittest.TestCase):
             self.assertIsNotNone(payload)
             FoodDetailResponse.model_validate(payload)
 
-        self.assertEqual(len(food_ids), 5_432)
+        self.assertEqual(len(food_ids), 13_590)
 
 
 if __name__ == "__main__":

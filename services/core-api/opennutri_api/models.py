@@ -76,6 +76,8 @@ class FoodSearchItem(BaseModel):
 
 class FoodSearchResponse(BaseModel):
     query: str
+    match_mode: Literal["all_terms", "partial_terms"]
+    matched_terms: list[str]
     total: int = Field(ge=0)
     limit: int = Field(ge=1)
     offset: int = Field(ge=0)

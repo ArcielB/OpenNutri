@@ -5,11 +5,12 @@ import re
 import sqlite3
 import unicodedata
 from contextlib import contextmanager
+from itertools import combinations
 from pathlib import Path
 from typing import Any, Iterator
 
 
-API_VERSION = "0.1.0"
+API_VERSION = "0.2.0"
 REQUIRED_TABLES = {
     "dataset_releases",
     "foods",
@@ -131,16 +132,14 @@ class CoreRepository:
 
     def search_foods(self, query: str, *, limit: int, offset: int) -> dict[str, Any]:
         normalized_query = unicodedata.normalize("NFKC", query).strip()
-        tokens = SEARCH_TOKEN_RE.findall(normalized_query)
+        tokens = list(dict.fromkeys(SEARCH_TOKEN_RE.findall(normalized_query.casefold())))
         if not tokens:
             raise InvalidSearchQuery("Query must contain at least one searchable letter or number")
-        fts_query = " ".join(f'"{token}"*' for token in tokens)
 
         with self.connect() as connection:
-            total = connection.execute(
-                "SELECT COUNT(*) FROM food_search WHERE food_search MATCH ?",
-                (fts_query,),
-            ).fetchone()[0]
+            fts_query, matched_terms, match_mode, total = self._resolve_search_terms(
+                connection, tokens
+            )
             rows = connection.execute(
                 """
                 WITH matches AS (
@@ -190,11 +189,47 @@ class CoreRepository:
 
         return {
             "query": normalized_query,
+            "match_mode": match_mode,
+            "matched_terms": matched_terms,
             "total": total,
             "limit": limit,
             "offset": offset,
             "items": [self._search_item_payload(row) for row in rows],
         }
+
+    @staticmethod
+    def _resolve_search_terms(
+        connection: sqlite3.Connection,
+        tokens: list[str],
+    ) -> tuple[str, list[str], str, int]:
+        def query_for(terms: tuple[str, ...] | list[str]) -> str:
+            return " ".join(f'"{term}"*' for term in terms)
+
+        def count_for(terms: tuple[str, ...] | list[str]) -> int:
+            return connection.execute(
+                "SELECT COUNT(*) FROM food_search WHERE food_search MATCH ?",
+                (query_for(terms),),
+            ).fetchone()[0]
+
+        total = count_for(tokens)
+        if total or len(tokens) == 1:
+            return query_for(tokens), tokens, "all_terms", total
+
+        # Prefer the largest useful subset, then the most selective one. Limiting
+        # fallback to six terms keeps adversarially long queries inexpensive.
+        fallback_tokens = tokens[:6]
+        for size in range(len(fallback_tokens) - 1, 0, -1):
+            candidates: list[tuple[int, tuple[str, ...]]] = []
+            for terms in combinations(fallback_tokens, size):
+                count = count_for(terms)
+                if count:
+                    candidates.append((count, terms))
+            if candidates:
+                count, terms = min(candidates, key=lambda item: (item[0], item[1]))
+                selected = list(terms)
+                return query_for(selected), selected, "partial_terms", count
+
+        return query_for(tokens), tokens, "all_terms", 0
 
     def food_detail(self, food_id: str) -> dict[str, Any] | None:
         with self.connect() as connection:

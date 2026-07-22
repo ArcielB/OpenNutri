@@ -1,5 +1,8 @@
 # OpenNutri Core FNDDS Release
 
+> Historical source-specific `v0.0.1` documentation. The active combined release is
+> documented in `docs/opennutri_core_usda.md`.
+
 ## Status
 
 `v0.0.1` is the first source-specific OpenNutri Core release. It transforms USDA

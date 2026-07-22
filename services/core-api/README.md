@@ -6,7 +6,7 @@ table layout directly, so future source adapters can preserve the HTTP contract.
 
 ## Run locally
 
-Build the FNDDS release first if it is not already present:
+Build the combined USDA release first if it is not already present:
 
 ```bash
 python3 services/data-pipeline/scripts/build_core_dataset.py
@@ -23,7 +23,7 @@ python3 -m uvicorn opennutri_api.main:app --reload
 The API is available at `http://127.0.0.1:8000`. Interactive OpenAPI documentation
 is at `http://127.0.0.1:8000/docs`.
 
-The default database is the local FNDDS `v0.0.1` artifact. Override it with an
+The default database is the local USDA Core `v0.1.0` artifact. Override it with an
 absolute or relative path:
 
 ```bash
@@ -43,8 +43,8 @@ The repository's `vercel.json` runs `scripts/fetch_core_release.py` during the
 build and bundles the resulting read-only SQLite database with the FastAPI
 function.
 
-The build downloads the fixed `core-fndds-v0.0.1` asset from the
-[GitHub release](https://github.com/ArcielB/OpenNutri/releases/tag/core-fndds-v0.0.1).
+The build downloads the fixed `core-usda-v0.1.0` asset from the
+[GitHub release](https://github.com/ArcielB/OpenNutri/releases/tag/core-usda-v0.1.0).
 It verifies the compressed and expanded file sizes and SHA-256 checksums before
 installation. A changed, partial, or unavailable artifact fails the deployment
 instead of serving unverified data.
@@ -63,7 +63,9 @@ comma-separated.
 | `GET /v1/foods/{food_id}` | Food provenance, quality, per-100 g nutrients, and portions |
 
 Search input is converted to literal Unicode prefix tokens. Callers cannot inject
-FTS operators. Search returns only `is_searchable` records; known excluded records
+FTS operators. If every term has no common match, search returns the largest, most
+selective matching subset and identifies it with `match_mode=partial_terms` and
+`matched_terms`. Search returns only `is_searchable` records; known excluded records
 remain retrievable by ID for audit and provenance.
 
 The API returns USDA nutrient observations unchanged on their stored
@@ -82,12 +84,12 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 
 Fixture tests cover validation, read-only access, safe search, pagination, ranking,
 details, provenance, error behavior, and OpenAPI. When the local full release is
-present, the suite also runs a real FNDDS search/detail smoke test. Set
+present, the suite also runs combined-release search/detail smoke tests. Set
 `OPENNUTRI_SKIP_REAL_RELEASE_TEST=1` only when that local integration test must be
 suppressed.
 
 ## Current boundary
 
-This is the first product API. It has no write routes, authentication, diaries,
-user data, AI features, or rate limiting. Search ranking must pass the reviewed
-common-query benchmark before it is treated as a stable public ranking contract.
+This is a public read-only data API. It has no write routes, authentication, user
+data, or rate limiting. Search ranking must pass the reviewed common-query benchmark
+before it is treated as a stable public ranking contract.

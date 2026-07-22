@@ -879,8 +879,7 @@ CREATE TABLE nutrients (
     source_unit TEXT NOT NULL,
     sort_rank REAL,
     is_archived INTEGER NOT NULL CHECK (is_archived IN (0, 1)),
-    UNIQUE(source, source_nutrient_id),
-    UNIQUE(source, nutrient_number)
+    UNIQUE(source, source_nutrient_id)
 );
 
 CREATE TABLE source_nutrient_mappings (
@@ -1000,6 +999,9 @@ def _create_search_index(connection: sqlite3.Connection) -> None:
             CREATE INDEX idx_food_nutrients_food ON food_nutrients(food_id);
             CREATE INDEX idx_food_nutrients_nutrient ON food_nutrients(nutrient_id);
             CREATE INDEX idx_portions_food ON portions(food_id);
+            CREATE UNIQUE INDEX idx_nutrients_source_number
+                ON nutrients(source, nutrient_number)
+                WHERE nutrient_number <> '';
 
             CREATE VIRTUAL TABLE food_search USING fts5(
                 food_id UNINDEXED,
