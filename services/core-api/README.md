@@ -35,6 +35,24 @@ Browser origins default to `http://localhost:5173` and
 `http://127.0.0.1:5173`. Set a comma-separated production allowlist with
 `OPENNUTRI_API_CORS_ORIGINS`. An explicitly empty value disables CORS.
 
+## Deploy on Vercel
+
+Create a Vercel project from this repository with `services/core-api` as its
+root directory. No environment variables are required for the API-only deploy.
+The repository's `vercel.json` runs `scripts/fetch_core_release.py` during the
+build and bundles the resulting read-only SQLite database with the FastAPI
+function.
+
+The build downloads the fixed `core-fndds-v0.0.1` asset from the
+[GitHub release](https://github.com/ArcielB/OpenNutri/releases/tag/core-fndds-v0.0.1).
+It verifies the compressed and expanded file sizes and SHA-256 checksums before
+installation. A changed, partial, or unavailable artifact fails the deployment
+instead of serving unverified data.
+
+When a browser frontend is deployed, set `OPENNUTRI_API_CORS_ORIGINS` in Vercel
+to its exact origin, such as `https://app.example.com`. Multiple origins are
+comma-separated.
+
 ## Endpoints
 
 | Method and path | Purpose |
@@ -70,7 +88,6 @@ suppressed.
 
 ## Current boundary
 
-This is the first local product API, not a deployed public service. It has no write
-routes, authentication, diaries, user data, AI features, or rate limiting. Search
-ranking must pass the reviewed common-query benchmark before it is treated as a
-stable public ranking contract.
+This is the first product API. It has no write routes, authentication, diaries,
+user data, AI features, or rate limiting. Search ranking must pass the reviewed
+common-query benchmark before it is treated as a stable public ranking contract.
