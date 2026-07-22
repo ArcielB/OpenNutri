@@ -31,7 +31,7 @@ class CoreApiClient {
     ).replace(queryParameters: {'q': normalized, 'limit': '$limit'});
     final response = await _client
         .get(uri)
-        .timeout(const Duration(seconds: 15));
+        .timeout(const Duration(seconds: 30));
     final payload = _decode(response);
     return FoodSearchResults.fromJson(payload);
   }
@@ -40,7 +40,7 @@ class CoreApiClient {
     final uri = Uri.parse('$baseUrl/v1/foods/$foodId');
     final response = await _client
         .get(uri)
-        .timeout(const Duration(seconds: 15));
+        .timeout(const Duration(seconds: 30));
     return FoodDetail.fromJson(_decode(response));
   }
 
@@ -48,7 +48,7 @@ class CoreApiClient {
     final uri = Uri.parse('$baseUrl/health');
     final response = await _client
         .get(uri)
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 30));
     return _decode(response);
   }
 
