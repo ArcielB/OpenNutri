@@ -23,7 +23,7 @@ python3 -m uvicorn opennutri_api.main:app --reload
 The API is available at `http://127.0.0.1:8000`. Interactive OpenAPI documentation
 is at `http://127.0.0.1:8000/docs`.
 
-The default database is the local USDA Core `v0.1.0` artifact. Override it with an
+The default database is the local USDA Core `v0.1.1` artifact. Override it with an
 absolute or relative path:
 
 ```bash
@@ -43,8 +43,8 @@ The repository's `vercel.json` runs `scripts/fetch_core_release.py` during the
 build and bundles the resulting read-only SQLite database with the FastAPI
 function.
 
-The build downloads the fixed `core-usda-v0.1.0` asset from the
-[GitHub release](https://github.com/ArcielB/OpenNutri/releases/tag/core-usda-v0.1.0).
+The build downloads the fixed `core-usda-v0.1.1` asset from the
+[GitHub release](https://github.com/ArcielB/OpenNutri/releases/tag/core-usda-v0.1.1).
 It verifies the compressed and expanded file sizes and SHA-256 checksums before
 installation. A changed, partial, or unavailable artifact fails the deployment
 instead of serving unverified data.

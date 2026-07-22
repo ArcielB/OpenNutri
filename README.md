@@ -251,7 +251,7 @@ Pipeline data outputs:
 - `docs/draft_commercialization.txt`: Commercialization notes (TR).
 - `docs/opennutri_core_fndds.md`: FNDDS product-dataset source verification,
   canonical table contract, build command, quality rules, and historical `v0.0.1` release.
-- `docs/opennutri_core_usda.md`: Combined USDA Core `v0.1.0` sources, measured
+- `docs/opennutri_core_usda.md`: Combined USDA Core `v0.1.1` sources, measured
   coverage, quality rules, search policy, and known boundaries.
 - `services/core-api/README.md`: Core API run instructions, endpoint contract,
   database/CORS configuration, tests, and current deployment boundary.

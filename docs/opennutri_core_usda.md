@@ -2,7 +2,7 @@
 
 ## Status
 
-`v0.1.0` combines three complementary, public-domain USDA FoodData Central
+`v0.1.1` combines three complementary, public-domain USDA FoodData Central
 datasets into one source-aware product artifact:
 
 | Source | Role | Foods | Searchable |
@@ -25,12 +25,16 @@ python3 services/data-pipeline/scripts/build_core_dataset.py
 The default output is:
 
 ```text
-services/data-pipeline/data/core/releases/opennutri-core-usda-v0.1.0/
+services/data-pipeline/data/core/releases/opennutri-core-usda-v0.1.1/
 ```
 
 It contains normalized CSV and Parquet tables, `opennutri-core.sqlite`, a quality
 report, and a manifest containing source and artifact hashes. Official builds verify
 all three extracted source-tree hashes and exact source food counts.
+
+The SQLite nutrient table uses a composite `(food_id, nutrient_id)` primary key with
+`WITHOUT ROWID`. The builder validates source rows before insertion, so the runtime
+database avoids redundant indexes while retaining every accepted observation.
 
 ## Measured Output
 

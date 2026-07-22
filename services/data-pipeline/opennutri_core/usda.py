@@ -50,7 +50,7 @@ from .fndds import (
 )
 
 
-CORE_ARTIFACT_VERSION = "0.1.0"
+CORE_ARTIFACT_VERSION = "0.1.1"
 FOUNDATION_CORE_NUTRIENT_GROUPS = (
     frozenset({"203"}),
     frozenset({"204"}),

@@ -26,7 +26,7 @@ def default_database_path() -> Path:
         / "data"
         / "core"
         / "releases"
-        / "opennutri-core-usda-v0.1.0"
+        / "opennutri-core-usda-v0.1.1"
         / "opennutri-core.sqlite"
     )
 

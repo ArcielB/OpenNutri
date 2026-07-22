@@ -898,7 +898,7 @@ CREATE TABLE food_nutrients (
     amount REAL NOT NULL CHECK (amount >= 0),
     unit TEXT NOT NULL,
     basis TEXT NOT NULL,
-    source_row_id TEXT NOT NULL UNIQUE,
+    source_row_id TEXT NOT NULL,
     source_nutrient_code TEXT NOT NULL,
     derivation_id TEXT,
     data_points INTEGER,
@@ -908,7 +908,7 @@ CREATE TABLE food_nutrients (
     footnote TEXT,
     min_year_acquired TEXT,
     PRIMARY KEY (food_id, nutrient_id)
-);
+) WITHOUT ROWID;
 
 CREATE TABLE portions (
     portion_id TEXT PRIMARY KEY,
@@ -996,8 +996,6 @@ def _create_search_index(connection: sqlite3.Connection) -> None:
             CREATE INDEX idx_foods_source_food_code ON foods(source_food_code);
             CREATE INDEX idx_foods_normalized_description ON foods(normalized_description);
             CREATE INDEX idx_foods_category ON foods(category_id);
-            CREATE INDEX idx_food_nutrients_food ON food_nutrients(food_id);
-            CREATE INDEX idx_food_nutrients_nutrient ON food_nutrients(nutrient_id);
             CREATE INDEX idx_portions_food ON portions(food_id);
             CREATE UNIQUE INDEX idx_nutrients_source_number
                 ON nutrients(source, nutrient_number)

@@ -9,16 +9,16 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 
-RELEASE_TAG = "core-usda-v0.1.0"
+RELEASE_TAG = "core-usda-v0.1.1"
 ARCHIVE_NAME = "opennutri-core.sqlite.gz"
 ARCHIVE_URL = (
     "https://github.com/ArcielB/OpenNutri/releases/download/"
     f"{RELEASE_TAG}/{ARCHIVE_NAME}"
 )
-ARCHIVE_SHA256 = "2275fb0f7411f905150826b231cf1875adc89fe5b95fe3ac44c5d9c3ab1e4a04"
-ARCHIVE_SIZE = 46_244_012
-DATABASE_SHA256 = "a6659788205ccf86629b696db1a7bc058e079533090dc9dd21ae4f04982e1cfd"
-DATABASE_SIZE = 356_339_712
+ARCHIVE_SHA256 = "781c4a1c8c0454f8c0a31f89e72afe9a176461a4cdcd60b31e895e83f4dcd7ff"
+ARCHIVE_SIZE = 26_683_969
+DATABASE_SHA256 = "87df37ee0b0b397c66e185b9a31fcb3408a1b26fb09ef312adb1f36c3f39be72"
+DATABASE_SIZE = 159_404_032
 API_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE_PATH = API_ROOT / "data" / "opennutri-core.sqlite"
 CHUNK_SIZE = 1024 * 1024
