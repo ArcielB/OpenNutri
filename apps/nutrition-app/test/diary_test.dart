@@ -39,6 +39,47 @@ void main() {
     ],
     portions: [],
   );
+  const rawDrumstick = FoodDetail(
+    foodId: 'food-drumstick',
+    name: 'Chicken, broilers or fryers, drumstick, meat and skin, raw',
+    categoryName: 'Poultry Products',
+    publisher: 'USDA Agricultural Research Service',
+    datasetName: 'USDA SR Legacy',
+    sourceFoodCode: '05066',
+    qualityStatus: 'complete',
+    nutrients: [
+      FoodNutrient(
+        nutrientId: 'energy',
+        name: 'Energy',
+        amount: 161,
+        unit: 'kcal',
+      ),
+      FoodNutrient(
+        nutrientId: 'protein',
+        name: 'Protein',
+        amount: 18.08,
+        unit: 'g',
+      ),
+    ],
+    portions: [],
+    weightFactors: [
+      EdiblePortionFactor(
+        factorId: 'factor-drumstick',
+        factorType: 'as_purchased_to_edible',
+        edibleFraction: 0.67,
+        refusePercent: 33,
+        refuseDescription: 'Bone and cartilage 33%',
+        sourceDataset: 'USDA SR28',
+        sourceUrl: 'https://example.test/sr28.zip',
+        sourceFoodCode: '05066',
+        sourceRefusePercent: 66,
+        derivation: 'reviewed_component_crosscheck',
+        reviewStatus: 'reviewed',
+        isUsable: true,
+        notes: null,
+      ),
+    ],
+  );
 
   test('scales per-100 g nutrients to the logged weight', () {
     final entry = DiaryEntry.fromFood(
@@ -80,6 +121,33 @@ void main() {
 
     expect(totals.calories, closeTo(78, 0.001));
     expect(totals.carbs, closeTo(20.715, 0.001));
+  });
+
+  test('scales as-purchased weight through the reviewed edible fraction', () {
+    final factor = rawDrumstick.asPurchasedFactor!;
+    final edibleGrams = factor.edibleGramsFor(500);
+    final entry = DiaryEntry.fromFood(
+      food: rawDrumstick,
+      date: DateTime(2026, 7, 23),
+      meal: MealType.dinner,
+      grams: edibleGrams,
+      inputGrams: 500,
+      weightBasis: LoggedWeightBasis.asPurchased,
+      servingLabel: 'As purchased',
+      id: 'entry-drumstick',
+    );
+
+    expect(edibleGrams, 335);
+    expect(entry.calories, closeTo(539.35, 0.001));
+    expect(entry.protein, closeTo(60.568, 0.001));
+    expect(entry.inputGrams, 500);
+    expect(entry.grams, 335);
+    expect(entry.weightBasis, LoggedWeightBasis.asPurchased);
+
+    final restored = DiaryEntry.fromJson(entry.toJson());
+    expect(restored.inputGrams, 500);
+    expect(restored.grams, 335);
+    expect(restored.weightBasis, LoggedWeightBasis.asPurchased);
   });
 
   test('diary entries survive JSON persistence round trip', () {

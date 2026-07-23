@@ -9,16 +9,16 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 
-RELEASE_TAG = "core-usda-v0.1.1"
+RELEASE_TAG = "core-usda-v0.2.0"
 ARCHIVE_NAME = "opennutri-core.sqlite.gz"
 ARCHIVE_URL = (
     "https://github.com/ArcielB/OpenNutri/releases/download/"
     f"{RELEASE_TAG}/{ARCHIVE_NAME}"
 )
-ARCHIVE_SHA256 = "781c4a1c8c0454f8c0a31f89e72afe9a176461a4cdcd60b31e895e83f4dcd7ff"
-ARCHIVE_SIZE = 26_683_969
-DATABASE_SHA256 = "87df37ee0b0b397c66e185b9a31fcb3408a1b26fb09ef312adb1f36c3f39be72"
-DATABASE_SIZE = 159_404_032
+ARCHIVE_SHA256 = "fd006d4d67f924ef927892ec3cb36636a15dcaf213a9324a33e2fb91ebabe4a7"
+ARCHIVE_SIZE = 26_912_444
+DATABASE_SHA256 = "edc6e28de6a73ac11bb9bb041a4ba638d9d1b6e79b89ff46873652efc461789b"
+DATABASE_SIZE = 160_272_384
 API_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE_PATH = API_ROOT / "data" / "opennutri-core.sqlite"
 CHUNK_SIZE = 1024 * 1024
@@ -51,7 +51,7 @@ def verify_file(path: Path, *, expected_size: int, expected_sha256: str) -> None
 
 
 def download(url: str, destination: Path) -> None:
-    request = Request(url, headers={"User-Agent": "OpenNutri-Vercel-Build/0.1"})
+    request = Request(url, headers={"User-Agent": "OpenNutri-Vercel-Build/0.2"})
     with urlopen(request, timeout=120) as response, destination.open("wb") as output:
         shutil.copyfileobj(response, output, length=CHUNK_SIZE)
 

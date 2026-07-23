@@ -53,22 +53,21 @@ Restore if ever needed (either works):
 - `psql "$POOLER_URL" -c "\copy public.claims from program 'zcat data/archives/claims_archive_2026-06-12.csv.gz' with (format csv, header)"`
 - or rerun `etl_sr_legacy_to_opennutri.py` against the repo CSVs.
 
-## 12. Benchmark and complete OpenNutri Core v0.1
+## 12. Benchmark OpenNutri Core search and weight-factor coverage
 
 ### Problem
-The FNDDS-only release and local read-only FastAPI surface are sufficient for the
-first app vertical slice. Search quality is not yet measured, the API is not yet
-deployed, and Core `v0.1` still needs complementary USDA adapters after the FNDDS
-workflow has been tested with users.
+Combined USDA Core `v0.2.0`, API `v0.3.0`, and the Flutter diary now provide the
+first vertical slice, including source-linked as-purchased conversion for validated
+SR28 foods. Search quality and practical weight-factor coverage are not yet measured
+against a reviewed list of common user tasks.
 
 ### Goal
-- add SR Legacy and Foundation Foods adapters to the same source-record contracts
-- preserve source observations and NDB lineage without blending nutrient values
 - create reviewed food-concept grouping only for safe exact/identifier-backed matches
 - define and run a common-query search benchmark before freezing API ranking
-- deploy the versioned read-only API with the exact tested release artifact
-- build the first search -> portion -> nutrient-calculation app workflow against it
-- keep hosted serving profiles compact instead of restoring the old Supabase `claims` shape
+- define a common as-purchased benchmark across bone-in meat, fish, fruit, vegetables,
+  shellfish, and nuts
+- measure how often a searched raw food has a usable exact factor
+- review or source only the high-frequency missing/conflicting factors
 
 ### Likely technical area
 - `services/data-pipeline/opennutri_core/`
@@ -77,11 +76,9 @@ workflow has been tested with users.
 - `services/core-api/`
 
 ### Done when
-- one command reproducibly builds FNDDS, SR Legacy, and Foundation source records
-- every value and portion remains traceable to a source release and identifier
 - the common-query benchmark meets its documented top-result/top-five thresholds
-- the deployed API serves the same version and provenance recorded in the manifest
-- the first app workflow uses the API without depending on its SQLite table layout
+- the as-purchased benchmark has a documented coverage target and measured result
+- every added or corrected factor retains source values, derivation, and review status
 
 ## 10. Calibrate AI routing thresholds from audited human truth
 

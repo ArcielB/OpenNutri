@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -13,6 +14,8 @@ from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
 from typing import Any, Iterable, Iterator
+
+import pyarrow as pa
 
 from .fndds import (
     CORE_SOURCE_NUTRIENT_CODES,
@@ -31,6 +34,7 @@ from .fndds import (
     USDA_LICENSE_URL,
     DatasetValidationError,
     SourceAudit,
+    TableSpec,
     _ambiguity_flags,
     _build_source_audit,
     _canonical_unit,
@@ -50,7 +54,7 @@ from .fndds import (
 )
 
 
-CORE_ARTIFACT_VERSION = "0.1.1"
+CORE_ARTIFACT_VERSION = "0.2.0"
 FOUNDATION_CORE_NUTRIENT_GROUPS = (
     frozenset({"203"}),
     frozenset({"204"}),
@@ -59,6 +63,7 @@ FOUNDATION_CORE_NUTRIENT_GROUPS = (
 )
 DEFAULT_FOUNDATION_SOURCE_DIR = PROJECT_ROOT / "FoodData_Central_foundation_food_csv_2025-12-18"
 DEFAULT_SR_LEGACY_SOURCE_DIR = PROJECT_ROOT / "FoodData_Central_sr_legacy_food_csv_2018-04"
+DEFAULT_SR28_SOURCE_DIR = PROJECT_ROOT / "USDA_SR28_ASCII_2015-05"
 DEFAULT_OUTPUT_DIR = (
     PROJECT_ROOT
     / "services"
@@ -67,6 +72,127 @@ DEFAULT_OUTPUT_DIR = (
     / "core"
     / "releases"
     / f"opennutri-core-usda-v{CORE_ARTIFACT_VERSION}"
+)
+SR28_DOWNLOAD_URL = (
+    "https://www.ars.usda.gov/ARSUserFiles/80400525/Data/SR/SR28/dnload/sr28asc.zip"
+)
+SR28_ARCHIVE_SHA256 = "8308fd1d224ef1e5331093748007180da01a7ac713cbac6a1f5bc2a03e1ee70a"
+SR28_FOOD_DES_SHA256 = "bb2047218cdad1d830da69e760386409fde3b7afabceae604c5479f280d4fa2e"
+SR28_EXPECTED_FOOD_COUNT = 8_789
+SR28_EXPECTED_MATCHED_FOOD_COUNT = 7_754
+SR28_EXPECTED_FACTOR_COUNT = 1_943
+OVERLAPPING_BONE_COMPONENT_RE = re.compile(
+    r"bone and (?:cartilage|co+n+ective tissue)",
+    re.IGNORECASE,
+)
+
+
+SR28_FOOD_DES_COLUMNS = (
+    "NDB_No",
+    "FdGrp_Cd",
+    "Long_Desc",
+    "Shrt_Desc",
+    "ComName",
+    "ManufacName",
+    "Survey",
+    "Ref_desc",
+    "Refuse",
+    "SciName",
+    "N_Factor",
+    "Pro_Factor",
+    "Fat_Factor",
+    "CHO_Factor",
+)
+
+
+REFUSE_REVIEW_OVERRIDES = {
+    "05066": {
+        "expected_source_refuse_percent": 66.0,
+        "refuse_percent": 33.0,
+        "reference_ndb_number": "05071",
+        "reference_refuse_percent": 42.0,
+        "reference_description_fragment": "bone and cartilage 33%, skin and separable fat 9%",
+        "derivation": "reviewed_component_crosscheck",
+        "notes": (
+            "SR28 reports two overlapping 33% bone descriptions and totals them as 66%. "
+            "The corresponding raw meat-only drumstick record 05071 identifies 33% bone "
+            "plus 9% skin and separable fat; because this food includes skin and fat, only "
+            "the 33% bone component is refuse."
+        ),
+    }
+}
+
+
+EDIBLE_PORTION_FACTOR_TABLE_SPEC = TableSpec(
+    "edible_portion_factors",
+    (
+        "factor_id",
+        "food_id",
+        "factor_type",
+        "edible_fraction",
+        "refuse_percent",
+        "refuse_description",
+        "source_dataset",
+        "source_url",
+        "source_food_code",
+        "source_refuse_percent",
+        "derivation",
+        "review_status",
+        "is_usable",
+        "notes",
+    ),
+    pa.schema(
+        [
+            ("factor_id", pa.string()),
+            ("food_id", pa.string()),
+            ("factor_type", pa.string()),
+            ("edible_fraction", pa.float64()),
+            ("refuse_percent", pa.float64()),
+            ("refuse_description", pa.string()),
+            ("source_dataset", pa.string()),
+            ("source_url", pa.string()),
+            ("source_food_code", pa.string()),
+            ("source_refuse_percent", pa.float64()),
+            ("derivation", pa.string()),
+            ("review_status", pa.string()),
+            ("is_usable", pa.bool_()),
+            ("notes", pa.string()),
+        ]
+    ),
+)
+
+
+USDA_SQLITE_SCHEMA = (
+    SQLITE_SCHEMA
+    + """
+
+CREATE TABLE edible_portion_factors (
+    factor_id TEXT PRIMARY KEY,
+    food_id TEXT NOT NULL REFERENCES foods(food_id),
+    factor_type TEXT NOT NULL CHECK (factor_type = 'as_purchased_to_edible'),
+    edible_fraction REAL CHECK (edible_fraction > 0 AND edible_fraction <= 1),
+    refuse_percent REAL CHECK (refuse_percent >= 0 AND refuse_percent < 100),
+    refuse_description TEXT NOT NULL,
+    source_dataset TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    source_food_code TEXT NOT NULL,
+    source_refuse_percent REAL NOT NULL CHECK (
+        source_refuse_percent >= 0 AND source_refuse_percent < 100
+    ),
+    derivation TEXT NOT NULL,
+    review_status TEXT NOT NULL CHECK (
+        review_status IN ('source_reported', 'reviewed', 'conflict')
+    ),
+    is_usable INTEGER NOT NULL CHECK (is_usable IN (0, 1)),
+    notes TEXT,
+    CHECK (
+        (is_usable = 1 AND edible_fraction IS NOT NULL AND refuse_percent IS NOT NULL)
+        OR
+        (is_usable = 0 AND edible_fraction IS NULL AND refuse_percent IS NULL)
+    ),
+    UNIQUE(food_id)
+);
+"""
 )
 
 
@@ -173,6 +299,22 @@ class BasicSourceAudit:
     source_tree_sha256: str
 
 
+@dataclass
+class RefuseFactorAudit:
+    source_dir: Path
+    source_file_sha256: str
+    source_file_manifest: list[dict[str, Any]]
+    source_tree_sha256: str
+    source_food_count: int
+    matched_food_count: int
+    factors: list[dict[str, Any]]
+    usable_factor_count: int
+    raw_factor_count: int
+    usable_raw_factor_count: int
+    conflict_food_codes: list[str]
+    reviewed_food_codes: list[str]
+
+
 def _csv_rows(path: Path, required_columns: set[str]) -> Iterator[dict[str, str]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -212,6 +354,10 @@ def _nutrient_id(source_nutrient_id: str) -> str:
     return _stable_uuid("nutrient", "usda-fdc", source_nutrient_id)
 
 
+def _edible_portion_factor_id(source_food_code: str) -> str:
+    return _stable_uuid("edible-portion-factor", "usda-sr28", source_food_code)
+
+
 def _portion_description(row: dict[str, str], measure_name: str) -> str:
     description = row["portion_description"].strip()
     if description:
@@ -219,6 +365,188 @@ def _portion_description(row: dict[str, str], measure_name: str) -> str:
     pieces = [row["amount"].strip(), measure_name.strip(), row["modifier"].strip()]
     fallback = " ".join(piece for piece in pieces if piece)
     return fallback or "Quantity specified by USDA"
+
+
+def _sr28_food_description_rows(path: Path) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen_codes: set[str] = set()
+    with path.open("r", encoding="latin-1", newline="") as handle:
+        reader = csv.reader(handle, delimiter="^", quotechar="~")
+        for line_number, values in enumerate(reader, start=1):
+            if len(values) != len(SR28_FOOD_DES_COLUMNS):
+                raise DatasetValidationError(
+                    f"FOOD_DES.txt line {line_number} has {len(values)} fields; "
+                    f"expected {len(SR28_FOOD_DES_COLUMNS)}"
+                )
+            row = dict(zip(SR28_FOOD_DES_COLUMNS, values, strict=True))
+            source_food_code = row["NDB_No"].zfill(5)
+            if source_food_code in seen_codes:
+                raise DatasetValidationError(
+                    f"FOOD_DES.txt contains duplicate NDB_No {source_food_code}"
+                )
+            row["NDB_No"] = source_food_code
+            seen_codes.add(source_food_code)
+            rows.append(row)
+    return rows
+
+
+def _has_overlapping_bone_components(description: str) -> bool:
+    return len(OVERLAPPING_BONE_COMPONENT_RE.findall(description)) > 1
+
+
+def _build_refuse_factor_audit(
+    sr_legacy: BasicSourceAudit,
+    source_dir: Path,
+    *,
+    strict_official: bool,
+) -> RefuseFactorAudit:
+    source_dir = source_dir.resolve()
+    source_path = source_dir / "FOOD_DES.txt"
+    if not source_path.is_file():
+        raise DatasetValidationError(f"Missing USDA SR28 source file: {source_path}")
+
+    source_file_sha256 = _hash_file(source_path)
+    source_file_manifest, source_tree_sha256 = _source_file_manifest(source_dir)
+    source_rows = _sr28_food_description_rows(source_path)
+    source_rows_by_code = {row["NDB_No"]: row for row in source_rows}
+    fdc_id_by_ndb_number = {
+        row["NDB_number"].zfill(5): row["fdc_id"]
+        for row in sr_legacy.member_rows
+    }
+    matched_food_count = len(source_rows_by_code.keys() & fdc_id_by_ndb_number.keys())
+
+    factors: list[dict[str, Any]] = []
+    conflict_food_codes: list[str] = []
+    reviewed_food_codes: list[str] = []
+    raw_factor_count = 0
+    usable_raw_factor_count = 0
+    for source_food_code in sorted(source_rows_by_code):
+        fdc_id = fdc_id_by_ndb_number.get(source_food_code)
+        if fdc_id is None:
+            continue
+        source_row = source_rows_by_code[source_food_code]
+        refuse_text = source_row["Refuse"].strip()
+        if not refuse_text:
+            continue
+        source_refuse_percent = _parse_float(
+            refuse_text,
+            field="Refuse",
+            row_label=f"SR28 FOOD_DES {source_food_code}",
+        )
+        if source_refuse_percent is None or source_refuse_percent <= 0:
+            continue
+        if source_refuse_percent >= 100:
+            raise DatasetValidationError(
+                f"SR28 FOOD_DES {source_food_code} has invalid refuse percent "
+                f"{source_refuse_percent}"
+            )
+
+        is_raw = bool(re.search(r"\braw\b", source_row["Long_Desc"], re.IGNORECASE))
+        raw_factor_count += int(is_raw)
+        selected_refuse_percent: float | None = source_refuse_percent
+        derivation = "source_refuse_percent"
+        review_status = "source_reported"
+        is_usable = True
+        notes: str | None = None
+
+        if _has_overlapping_bone_components(source_row["Ref_desc"]):
+            override = REFUSE_REVIEW_OVERRIDES.get(source_food_code)
+            if override is None:
+                selected_refuse_percent = None
+                derivation = "overlapping_refuse_components"
+                review_status = "conflict"
+                is_usable = False
+                notes = (
+                    "The SR28 refuse description contains overlapping bone component "
+                    "percentages that were added together; this factor requires review."
+                )
+                conflict_food_codes.append(source_food_code)
+            else:
+                if source_refuse_percent != override["expected_source_refuse_percent"]:
+                    raise DatasetValidationError(
+                        f"Reviewed SR28 factor {source_food_code} expected source refuse "
+                        f"{override['expected_source_refuse_percent']}, got "
+                        f"{source_refuse_percent}"
+                    )
+                reference = source_rows_by_code[override["reference_ndb_number"]]
+                reference_refuse = _parse_float(
+                    reference["Refuse"],
+                    field="Refuse",
+                    row_label=f"SR28 FOOD_DES {reference['NDB_No']}",
+                )
+                if (
+                    reference_refuse != override["reference_refuse_percent"]
+                    or override["reference_description_fragment"].casefold()
+                    not in reference["Ref_desc"].casefold()
+                ):
+                    raise DatasetValidationError(
+                        f"Reviewed SR28 factor {source_food_code} reference "
+                        f"{reference['NDB_No']} changed"
+                    )
+                selected_refuse_percent = override["refuse_percent"]
+                derivation = override["derivation"]
+                review_status = "reviewed"
+                notes = override["notes"]
+                reviewed_food_codes.append(source_food_code)
+
+        edible_fraction = (
+            round((100.0 - selected_refuse_percent) / 100.0, 6)
+            if selected_refuse_percent is not None
+            else None
+        )
+        usable_raw_factor_count += int(is_raw and is_usable)
+        factors.append(
+            {
+                "factor_id": _edible_portion_factor_id(source_food_code),
+                "food_id": _food_id(SR_LEGACY.release_id, fdc_id),
+                "factor_type": "as_purchased_to_edible",
+                "edible_fraction": edible_fraction,
+                "refuse_percent": selected_refuse_percent,
+                "refuse_description": source_row["Ref_desc"].strip(),
+                "source_dataset": (
+                    "USDA National Nutrient Database for Standard Reference, Release 28"
+                ),
+                "source_url": SR28_DOWNLOAD_URL,
+                "source_food_code": source_food_code,
+                "source_refuse_percent": source_refuse_percent,
+                "derivation": derivation,
+                "review_status": review_status,
+                "is_usable": is_usable,
+                "notes": notes,
+            }
+        )
+
+    if strict_official:
+        expected_values = {
+            "source_food_count": (len(source_rows), SR28_EXPECTED_FOOD_COUNT),
+            "matched_food_count": (matched_food_count, SR28_EXPECTED_MATCHED_FOOD_COUNT),
+            "factor_count": (len(factors), SR28_EXPECTED_FACTOR_COUNT),
+        }
+        for label, (actual, expected) in expected_values.items():
+            if actual != expected:
+                raise DatasetValidationError(
+                    f"USDA SR28 {label} changed: expected {expected}, got {actual}"
+                )
+        if source_file_sha256 != SR28_FOOD_DES_SHA256:
+            raise DatasetValidationError(
+                "USDA SR28 FOOD_DES.txt hash changed: "
+                f"expected {SR28_FOOD_DES_SHA256}, got {source_file_sha256}"
+            )
+
+    return RefuseFactorAudit(
+        source_dir=source_dir,
+        source_file_sha256=source_file_sha256,
+        source_file_manifest=source_file_manifest,
+        source_tree_sha256=source_tree_sha256,
+        source_food_count=len(source_rows),
+        matched_food_count=matched_food_count,
+        factors=factors,
+        usable_factor_count=sum(int(row["is_usable"]) for row in factors),
+        raw_factor_count=raw_factor_count,
+        usable_raw_factor_count=usable_raw_factor_count,
+        conflict_food_codes=conflict_food_codes,
+        reviewed_food_codes=reviewed_food_codes,
+    )
 
 
 def _build_basic_audit(
@@ -684,6 +1012,7 @@ def _food_status_counts(rows: Iterable[dict[str, Any]]) -> dict[str, int]:
 def _quality_report(
     fndds: SourceAudit,
     basic_audits: list[BasicSourceAudit],
+    refuse_factors: RefuseFactorAudit,
     output_counts: dict[str, int],
 ) -> dict[str, Any]:
     datasets: dict[str, Any] = {}
@@ -714,6 +1043,16 @@ def _quality_report(
         "artifact_version": CORE_ARTIFACT_VERSION,
         "status": "pass",
         "datasets": datasets,
+        "edible_portion_factors": {
+            "source_foods": refuse_factors.source_food_count,
+            "matched_sr_legacy_foods": refuse_factors.matched_food_count,
+            "factor_rows": len(refuse_factors.factors),
+            "usable_factors": refuse_factors.usable_factor_count,
+            "raw_factors": refuse_factors.raw_factor_count,
+            "usable_raw_factors": refuse_factors.usable_raw_factor_count,
+            "reviewed_source_food_codes": refuse_factors.reviewed_food_codes,
+            "conflict_source_food_codes": refuse_factors.conflict_food_codes,
+        },
         "output_rows": output_counts,
         "quality_rules": {
             "nutrient_basis": "per_100g_edible_portion unless explicitly physical_property",
@@ -721,6 +1060,12 @@ def _quality_report(
             "ambiguous": "description contains NFS, NS, or not specified",
             "blank_nutrient_amount": "reject; never coerce missing values to zero",
             "portion_acceptance": "gram_weight must be greater than zero",
+            "as_purchased_conversion": (
+                "edible_weight = as_purchased_weight * edible_fraction"
+            ),
+            "refuse_conflicts": (
+                "overlapping bone component percentages are not usable without review"
+            ),
         },
     }
 
@@ -729,6 +1074,7 @@ def _artifact_manifest(
     output_dir: Path,
     fndds: SourceAudit,
     basic_audits: list[BasicSourceAudit],
+    refuse_factors: RefuseFactorAudit,
     output_counts: dict[str, int],
 ) -> dict[str, Any]:
     artifacts = [
@@ -755,8 +1101,17 @@ def _artifact_manifest(
         }
         for audit in basic_audits
     )
+    sources.append(
+        {
+            "release_id": "usda-sr28-food-description-2015",
+            "download_url": SR28_DOWNLOAD_URL,
+            "archive_sha256": SR28_ARCHIVE_SHA256,
+            "source_tree_sha256": refuse_factors.source_tree_sha256,
+            "files": refuse_factors.source_file_manifest,
+        }
+    )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "artifact_version": CORE_ARTIFACT_VERSION,
         "release_ids": [FNDDS_RELEASE_ID, *(audit.definition.release_id for audit in basic_audits)],
         "sources": sources,
@@ -769,6 +1124,7 @@ def _build_into(
     fndds_source_dir: Path,
     foundation_source_dir: Path,
     sr_legacy_source_dir: Path,
+    sr28_source_dir: Path,
     output_dir: Path,
     *,
     strict_official: bool,
@@ -786,11 +1142,16 @@ def _build_into(
         SR_LEGACY, sr_legacy_source_dir, strict_official=strict_official
     )
     basic_audits = [foundation, sr_legacy]
+    refuse_factors = _build_refuse_factor_audit(
+        sr_legacy,
+        sr28_source_dir,
+        strict_official=strict_official,
+    )
     nutrient_definitions = _canonical_nutrient_definitions(fndds, basic_audits)
 
     sqlite_path = output_dir / "opennutri-core.sqlite"
     connection = sqlite3.connect(sqlite_path)
-    connection.executescript(SQLITE_SCHEMA)
+    connection.executescript(USDA_SQLITE_SCHEMA)
     table_rows: list[tuple[str, Iterable[dict[str, Any]]]] = [
         ("dataset_releases", _release_rows(fndds, basic_audits)),
         (
@@ -817,12 +1178,17 @@ def _build_into(
             "portions",
             chain(fndds.accepted_portions, *(audit.accepted_portions for audit in basic_audits)),
         ),
+        ("edible_portion_factors", iter(refuse_factors.factors)),
     ]
+    table_specs = {
+        **TABLE_SPECS,
+        "edible_portion_factors": EDIBLE_PORTION_FACTOR_TABLE_SPEC,
+    }
     output_counts: dict[str, int] = {}
     try:
         for table_name, rows in table_rows:
             output_counts[table_name] = _write_table(
-                output_dir, connection, TABLE_SPECS[table_name], rows
+                output_dir, connection, table_specs[table_name], rows
             )
         _create_search_index(connection)
         connection.commit()
@@ -830,11 +1196,11 @@ def _build_into(
     finally:
         connection.close()
 
-    report = _quality_report(fndds, basic_audits, output_counts)
+    report = _quality_report(fndds, basic_audits, refuse_factors, output_counts)
     _write_json(output_dir / "quality_report.json", report)
     _write_json(
         output_dir / "manifest.json",
-        _artifact_manifest(output_dir, fndds, basic_audits, output_counts),
+        _artifact_manifest(output_dir, fndds, basic_audits, refuse_factors, output_counts),
     )
     return report
 
@@ -843,6 +1209,7 @@ def build_usda_core_release(
     fndds_source_dir: Path = DEFAULT_FNDDS_SOURCE_DIR,
     foundation_source_dir: Path = DEFAULT_FOUNDATION_SOURCE_DIR,
     sr_legacy_source_dir: Path = DEFAULT_SR_LEGACY_SOURCE_DIR,
+    sr28_source_dir: Path = DEFAULT_SR28_SOURCE_DIR,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     *,
     overwrite: bool = False,
@@ -852,7 +1219,12 @@ def build_usda_core_release(
 
     source_dirs = tuple(
         Path(path).resolve()
-        for path in (fndds_source_dir, foundation_source_dir, sr_legacy_source_dir)
+        for path in (
+            fndds_source_dir,
+            foundation_source_dir,
+            sr_legacy_source_dir,
+            sr28_source_dir,
+        )
     )
     output_dir = Path(output_dir).resolve()
     output_dir.parent.mkdir(parents=True, exist_ok=True)

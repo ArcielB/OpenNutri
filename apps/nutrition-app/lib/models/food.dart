@@ -8,7 +8,9 @@ class FoodSearchResults {
   factory FoodSearchResults.fromJson(Map<String, dynamic> json) {
     return FoodSearchResults(
       items: (json['items'] as List<dynamic>)
-          .map((value) => FoodSearchItem.fromJson(value as Map<String, dynamic>))
+          .map(
+            (value) => FoodSearchItem.fromJson(value as Map<String, dynamic>),
+          )
           .toList(growable: false),
       matchMode: json['match_mode'] as String,
       matchedTerms: (json['matched_terms'] as List<dynamic>).cast<String>(),
@@ -71,6 +73,7 @@ class FoodDetail {
     required this.qualityStatus,
     required this.nutrients,
     required this.portions,
+    this.weightFactors = const [],
   });
 
   factory FoodDetail.fromJson(Map<String, dynamic> json) {
@@ -91,6 +94,13 @@ class FoodDetail {
       portions: (json['portions'] as List<dynamic>)
           .map((value) => FoodPortion.fromJson(value as Map<String, dynamic>))
           .toList(growable: false),
+      weightFactors:
+          ((json['weight_factors'] as List<dynamic>?) ?? const <dynamic>[])
+              .map(
+                (value) =>
+                    EdiblePortionFactor.fromJson(value as Map<String, dynamic>),
+              )
+              .toList(growable: false),
     );
   }
 
@@ -103,6 +113,18 @@ class FoodDetail {
   final String qualityStatus;
   final List<FoodNutrient> nutrients;
   final List<FoodPortion> portions;
+  final List<EdiblePortionFactor> weightFactors;
+
+  EdiblePortionFactor? get asPurchasedFactor {
+    for (final factor in weightFactors) {
+      if (factor.factorType == 'as_purchased_to_edible' &&
+          factor.isUsable &&
+          factor.edibleFraction != null) {
+        return factor;
+      }
+    }
+    return null;
+  }
 
   double nutrientAmount(String name, String unit) {
     for (final nutrient in nutrients) {
@@ -117,7 +139,10 @@ class FoodDetail {
   double get caloriesPer100g {
     final direct = nutrientAmount('Energy', 'kcal');
     if (direct > 0) return direct;
-    final specific = nutrientAmount('Energy (Atwater Specific Factors)', 'kcal');
+    final specific = nutrientAmount(
+      'Energy (Atwater Specific Factors)',
+      'kcal',
+    );
     if (specific > 0) return specific;
     return nutrientAmount('Energy (Atwater General Factors)', 'kcal');
   }
@@ -167,4 +192,58 @@ class FoodPortion {
   final String portionId;
   final String description;
   final double gramWeight;
+}
+
+class EdiblePortionFactor {
+  const EdiblePortionFactor({
+    required this.factorId,
+    required this.factorType,
+    required this.edibleFraction,
+    required this.refusePercent,
+    required this.refuseDescription,
+    required this.sourceDataset,
+    required this.sourceUrl,
+    required this.sourceFoodCode,
+    required this.sourceRefusePercent,
+    required this.derivation,
+    required this.reviewStatus,
+    required this.isUsable,
+    required this.notes,
+  });
+
+  factory EdiblePortionFactor.fromJson(Map<String, dynamic> json) {
+    return EdiblePortionFactor(
+      factorId: json['factor_id'] as String,
+      factorType: json['factor_type'] as String,
+      edibleFraction: (json['edible_fraction'] as num?)?.toDouble(),
+      refusePercent: (json['refuse_percent'] as num?)?.toDouble(),
+      refuseDescription: json['refuse_description'] as String,
+      sourceDataset: json['source_dataset'] as String,
+      sourceUrl: json['source_url'] as String,
+      sourceFoodCode: json['source_food_code'] as String,
+      sourceRefusePercent: (json['source_refuse_percent'] as num).toDouble(),
+      derivation: json['derivation'] as String,
+      reviewStatus: json['review_status'] as String,
+      isUsable: json['is_usable'] as bool,
+      notes: json['notes'] as String?,
+    );
+  }
+
+  final String factorId;
+  final String factorType;
+  final double? edibleFraction;
+  final double? refusePercent;
+  final String refuseDescription;
+  final String sourceDataset;
+  final String sourceUrl;
+  final String sourceFoodCode;
+  final double sourceRefusePercent;
+  final String derivation;
+  final String reviewStatus;
+  final bool isUsable;
+  final String? notes;
+
+  double edibleGramsFor(double asPurchasedGrams) {
+    return asPurchasedGrams * (edibleFraction ?? 0);
+  }
 }

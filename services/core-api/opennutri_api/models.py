@@ -117,6 +117,22 @@ class FoodPortion(BaseModel):
     min_year_acquired: str | None
 
 
+class EdiblePortionFactor(BaseModel):
+    factor_id: str
+    factor_type: Literal["as_purchased_to_edible"]
+    edible_fraction: float | None = Field(default=None, gt=0, le=1)
+    refuse_percent: float | None = Field(default=None, ge=0, lt=100)
+    refuse_description: str
+    source_dataset: str
+    source_url: str
+    source_food_code: str
+    source_refuse_percent: float = Field(ge=0, lt=100)
+    derivation: str
+    review_status: Literal["source_reported", "reviewed", "conflict"]
+    is_usable: bool
+    notes: str | None
+
+
 class FoodDetailResponse(BaseModel):
     food_id: str
     name: str
@@ -128,3 +144,4 @@ class FoodDetailResponse(BaseModel):
     coverage: CoveragePeriod
     nutrients: list[NutrientValue]
     portions: list[FoodPortion]
+    weight_factors: list[EdiblePortionFactor]

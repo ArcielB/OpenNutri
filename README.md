@@ -221,7 +221,9 @@ Pipeline data outputs:
   a quality report. It maps FNDDS `food_nutrient.nutrient_id` through
   `nutrient.nutrient_nbr`, validates exact official source hashes/counts, assigns
   deterministic IDs, retains ambiguous `NFS`/`NS` foods with a search penalty, and
-  rejects non-positive portion weights. Run
+  rejects non-positive portion weights. Core `v0.2.0` also restores food-linked SR28
+  refuse percentages as audited as-purchased-to-edible factors; overlapping component
+  conflicts remain present but unusable until reviewed. Run
   `python3 services/data-pipeline/scripts/build_core_dataset.py`; outputs go under
   `services/data-pipeline/data/core/releases/`. See
   `docs/opennutri_core_usda.md` for the combined contract and measured release.
@@ -242,6 +244,8 @@ Pipeline data outputs:
 - `FoodData_Central_foundation_food_csv_2025-12-18/`: Foundation Foods dataset.
 - `FoodData_Central_sr_legacy_food_csv_2018-04/`: SR Legacy dataset.
 - `FoodData_Central_survey_food_csv_2024-10-31/`: Survey dataset.
+- `USDA_SR28_ASCII_2015-05/`: Official SR28 food descriptions used for linked
+  refuse percentages and as-purchased weight conversion.
 
 **Docs**
 - `docs/combined_application.md`: Combined proposal.
@@ -251,8 +255,8 @@ Pipeline data outputs:
 - `docs/draft_commercialization.txt`: Commercialization notes (TR).
 - `docs/opennutri_core_fndds.md`: FNDDS product-dataset source verification,
   canonical table contract, build command, quality rules, and historical `v0.0.1` release.
-- `docs/opennutri_core_usda.md`: Combined USDA Core `v0.1.1` sources, measured
-  coverage, quality rules, search policy, and known boundaries.
+- `docs/opennutri_core_usda.md`: Combined USDA Core `v0.2.0` sources, measured
+  coverage, edible-portion factors, quality rules, search policy, and known boundaries.
 - `services/core-api/README.md`: Core API run instructions, endpoint contract,
   database/CORS configuration, tests, and current deployment boundary.
 

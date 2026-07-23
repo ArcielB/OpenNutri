@@ -2,7 +2,7 @@
 
 ## Status
 
-`v0.1.1` combines three complementary, public-domain USDA FoodData Central
+`v0.2.0` combines three complementary, public-domain USDA FoodData Central
 datasets into one source-aware product artifact:
 
 | Source | Role | Foods | Searchable |
@@ -16,6 +16,11 @@ The sources remain distinct records. OpenNutri does not average values or silent
 copy nutrients between foods. Every search result and detail response identifies its
 USDA dataset, release, FDC ID, and original description.
 
+The release also restores the food-linked refuse percentages from USDA Standard
+Reference 28 `FOOD_DES.txt`. These records allow an as-purchased weight containing
+bone, shell, core, peel, or similar refuse to be converted to edible grams without
+matching the food to a separate buying-guide record.
+
 ## Build
 
 ```bash
@@ -25,7 +30,7 @@ python3 services/data-pipeline/scripts/build_core_dataset.py
 The default output is:
 
 ```text
-services/data-pipeline/data/core/releases/opennutri-core-usda-v0.1.1/
+services/data-pipeline/data/core/releases/opennutri-core-usda-v0.2.0/
 ```
 
 It contains normalized CSV and Parquet tables, `opennutri-core.sqlite`, a quality
@@ -46,12 +51,41 @@ database avoids redundant indexes while retaining every accepted observation.
 | Food nutrient observations | 1,012,681 |
 | Portions | 36,619 |
 | Food categories | 200 |
+| Edible-portion factors | 1,943 |
+
+Of the 1,943 SR28 factor records, 1,937 are usable. The source contains 885
+positive-refuse factors for raw foods, of which 883 are usable. Six poultry records
+with overlapping bone-component percentages remain auditable but are explicitly
+disabled.
 
 Thirty-seven blank or negative Foundation nutrient observations are rejected and
 recorded in `quality_report.json`; missing values are never converted to zero. One
 non-positive FNDDS portion is also rejected. Foundation specific-gravity data is
 retained with a `physical_property` basis and must not be scaled as a per-100-g
 nutrient.
+
+## As-Purchased Weight
+
+Nutrients remain stored exactly as published per 100 g edible portion. A usable
+`edible_portion_factors` row supplies the conversion:
+
+```text
+edible_weight = as_purchased_weight * edible_fraction
+nutrient_amount = nutrient_per_100g_edible * edible_weight / 100
+```
+
+For SR Legacy FDC `172373`, raw chicken drumstick meat and skin, OpenNutri uses
+an edible fraction of `0.67`. SR28's total-refuse field incorrectly adds two
+overlapping 33% bone descriptions to produce 66%. The reviewed correction is
+derived from the corresponding raw meat-only drumstick record `05071`, which
+separates 33% bone from 9% skin and separable fat. Since the selected food includes
+skin and fat, only the 33% bone component is refuse. Both the original source value
+and correction provenance remain in the factor row.
+
+This conversion does not model cooking loss, nutrient retention, or discarded
+cooking liquid. A user who knows the raw bone-in weight selects the raw food and the
+as-purchased basis. Cooked-food records require a factor describing the cooked item
+as served.
 
 ## Search Policy
 
@@ -77,5 +111,7 @@ Examples:
   the literature-extraction dataset.
 - Source records that represent the same practical food are not deduplicated yet.
   Ranking reduces clutter, but a reviewed equivalence layer remains future work.
+- Refuse coverage is limited to SR Legacy foods that still map to SR28. Foundation
+  and FNDDS records do not inherit factors from merely similar foods.
 - A common-query benchmark is required to measure coverage and ranking instead of
   inferring quality from the total row count.

@@ -78,7 +78,10 @@ class MealSection extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text(
-                '${entry.servingLabel} - ${formatAmount(entry.grams)} g',
+                entry.weightBasis == LoggedWeightBasis.asPurchased
+                    ? '${entry.servingLabel} - ${formatAmount(entry.inputGrams)} g '
+                          '(${formatAmount(entry.grams)} g edible)'
+                    : '${entry.servingLabel} - ${formatAmount(entry.grams)} g',
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,

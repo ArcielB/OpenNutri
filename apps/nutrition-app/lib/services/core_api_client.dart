@@ -14,10 +14,7 @@ class CoreApiClient {
 
   final http.Client _client;
 
-  Future<FoodSearchResults> searchFoods(
-    String query, {
-    int limit = 30,
-  }) async {
+  Future<FoodSearchResults> searchFoods(String query, {int limit = 30}) async {
     final normalized = query.trim();
     if (normalized.isEmpty) {
       return const FoodSearchResults(

@@ -2,6 +2,8 @@ import 'food.dart';
 
 enum MealType { breakfast, lunch, dinner, snacks }
 
+enum LoggedWeightBasis { edible, asPurchased }
+
 extension MealTypeLabel on MealType {
   String get label => switch (this) {
     MealType.breakfast => 'Breakfast',
@@ -49,6 +51,8 @@ class DiaryEntry {
     required this.foodId,
     required this.foodName,
     required this.grams,
+    required this.inputGrams,
+    required this.weightBasis,
     required this.servingLabel,
     required this.nutrients,
   });
@@ -59,6 +63,8 @@ class DiaryEntry {
     required MealType meal,
     required double grams,
     required String servingLabel,
+    double? inputGrams,
+    LoggedWeightBasis weightBasis = LoggedWeightBasis.edible,
     String? id,
   }) {
     final multiplier = grams / 100;
@@ -69,11 +75,11 @@ class DiaryEntry {
       foodId: food.foodId,
       foodName: food.name,
       grams: grams,
+      inputGrams: inputGrams ?? grams,
+      weightBasis: weightBasis,
       servingLabel: servingLabel,
       nutrients: food.nutrients
-          .where(
-            (nutrient) => nutrient.basis == 'per_100g_edible_portion',
-          )
+          .where((nutrient) => nutrient.basis == 'per_100g_edible_portion')
           .map(
             (nutrient) => NutrientAmount(
               nutrientId: nutrient.nutrientId,
@@ -87,13 +93,18 @@ class DiaryEntry {
   }
 
   factory DiaryEntry.fromJson(Map<String, dynamic> json) {
+    final grams = (json['grams'] as num).toDouble();
     return DiaryEntry(
       id: json['id'] as String,
       dateKey: json['date_key'] as String,
       meal: MealType.values.byName(json['meal'] as String),
       foodId: json['food_id'] as String,
       foodName: json['food_name'] as String,
-      grams: (json['grams'] as num).toDouble(),
+      grams: grams,
+      inputGrams: (json['input_grams'] as num?)?.toDouble() ?? grams,
+      weightBasis: LoggedWeightBasis.values.byName(
+        json['weight_basis'] as String? ?? LoggedWeightBasis.edible.name,
+      ),
       servingLabel: json['serving_label'] as String,
       nutrients: (json['nutrients'] as List<dynamic>)
           .map(
@@ -108,7 +119,11 @@ class DiaryEntry {
   final MealType meal;
   final String foodId;
   final String foodName;
+
+  /// Edible grams used to scale the per-100 g nutrient profile.
   final double grams;
+  final double inputGrams;
+  final LoggedWeightBasis weightBasis;
   final String servingLabel;
   final List<NutrientAmount> nutrients;
 
@@ -125,10 +140,14 @@ class DiaryEntry {
   double get calories {
     final direct = nutrientAmount('Energy', 'kcal');
     if (direct > 0) return direct;
-    final specific = nutrientAmount('Energy (Atwater Specific Factors)', 'kcal');
+    final specific = nutrientAmount(
+      'Energy (Atwater Specific Factors)',
+      'kcal',
+    );
     if (specific > 0) return specific;
     return nutrientAmount('Energy (Atwater General Factors)', 'kcal');
   }
+
   double get protein => nutrientAmount('Protein', 'g');
   double get carbs => nutrientAmount('Carbohydrate, by difference', 'g');
   double get fat => nutrientAmount('Total lipid (fat)', 'g');
@@ -140,6 +159,8 @@ class DiaryEntry {
     'food_id': foodId,
     'food_name': foodName,
     'grams': grams,
+    'input_grams': inputGrams,
+    'weight_basis': weightBasis.name,
     'serving_label': servingLabel,
     'nutrients': nutrients.map((value) => value.toJson()).toList(),
   };
@@ -198,6 +219,7 @@ class DailyTotals {
     if (specific > 0) return specific;
     return amountFor('Energy (Atwater General Factors)', 'kcal');
   }
+
   double get protein => amountFor('Protein', 'g');
   double get carbs => amountFor('Carbohydrate, by difference', 'g');
   double get fat => amountFor('Total lipid (fat)', 'g');

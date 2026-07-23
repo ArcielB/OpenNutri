@@ -18,6 +18,7 @@ from opennutri_core import (
     DEFAULT_FNDDS_SOURCE_DIR,
     DEFAULT_FOUNDATION_SOURCE_DIR,
     DEFAULT_OUTPUT_DIR,
+    DEFAULT_SR28_SOURCE_DIR,
     DEFAULT_SR_LEGACY_SOURCE_DIR,
     build_usda_core_release,
 )
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fndds-source-dir", type=Path, default=DEFAULT_FNDDS_SOURCE_DIR)
     parser.add_argument("--foundation-source-dir", type=Path, default=DEFAULT_FOUNDATION_SOURCE_DIR)
     parser.add_argument("--sr-legacy-source-dir", type=Path, default=DEFAULT_SR_LEGACY_SOURCE_DIR)
+    parser.add_argument("--sr28-source-dir", type=Path, default=DEFAULT_SR28_SOURCE_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
         "--overwrite",
@@ -48,6 +50,7 @@ def main() -> int:
         fndds_source_dir=args.fndds_source_dir,
         foundation_source_dir=args.foundation_source_dir,
         sr_legacy_source_dir=args.sr_legacy_source_dir,
+        sr28_source_dir=args.sr28_source_dir,
         output_dir=args.output_dir,
         overwrite=args.overwrite,
         strict_official=not args.allow_nonofficial_counts,

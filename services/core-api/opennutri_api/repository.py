@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-API_VERSION = "0.2.0"
+API_VERSION = "0.3.0"
 REQUIRED_TABLES = {
     "dataset_releases",
     "foods",
@@ -18,6 +18,7 @@ REQUIRED_TABLES = {
     "nutrients",
     "food_nutrients",
     "portions",
+    "edible_portion_factors",
     "food_search",
 }
 SEARCH_TOKEN_RE = re.compile(r"[^\W_]+(?:['-][^\W_]+)*", re.UNICODE)
@@ -306,6 +307,27 @@ class CoreRepository:
                 """,
                 (food_id,),
             ).fetchall()
+            weight_factors = connection.execute(
+                """
+                SELECT factor_id,
+                       factor_type,
+                       edible_fraction,
+                       refuse_percent,
+                       refuse_description,
+                       source_dataset,
+                       source_url,
+                       source_food_code,
+                       source_refuse_percent,
+                       derivation,
+                       review_status,
+                       is_usable,
+                       notes
+                FROM edible_portion_factors
+                WHERE food_id = ?
+                ORDER BY is_usable DESC, factor_id
+                """,
+                (food_id,),
+            ).fetchall()
 
         return {
             "food_id": food["food_id"],
@@ -336,6 +358,24 @@ class CoreRepository:
                     "min_year_acquired": row["min_year_acquired"],
                 }
                 for row in portions
+            ],
+            "weight_factors": [
+                {
+                    "factor_id": row["factor_id"],
+                    "factor_type": row["factor_type"],
+                    "edible_fraction": row["edible_fraction"],
+                    "refuse_percent": row["refuse_percent"],
+                    "refuse_description": row["refuse_description"],
+                    "source_dataset": row["source_dataset"],
+                    "source_url": row["source_url"],
+                    "source_food_code": row["source_food_code"],
+                    "source_refuse_percent": row["source_refuse_percent"],
+                    "derivation": row["derivation"],
+                    "review_status": row["review_status"],
+                    "is_usable": bool(row["is_usable"]),
+                    "notes": row["notes"],
+                }
+                for row in weight_factors
             ],
         }
 

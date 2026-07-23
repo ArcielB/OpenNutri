@@ -14,21 +14,24 @@ def bundled_database_path() -> Path:
 
 
 def default_database_path() -> Path:
-    bundled_path = bundled_database_path()
-    if bundled_path.is_file():
-        return bundled_path
-
     repo_root = Path(__file__).resolve().parents[3]
-    return (
+    repository_release_path = (
         repo_root
         / "services"
         / "data-pipeline"
         / "data"
         / "core"
         / "releases"
-        / "opennutri-core-usda-v0.1.1"
+        / "opennutri-core-usda-v0.2.0"
         / "opennutri-core.sqlite"
     )
+    if repository_release_path.is_file():
+        return repository_release_path
+
+    bundled_path = bundled_database_path()
+    if bundled_path.is_file():
+        return bundled_path
+    return repository_release_path
 
 
 def _cors_origins_from_env() -> tuple[str, ...]:

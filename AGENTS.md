@@ -65,9 +65,13 @@ Do not spend tokens on these unless the task explicitly needs them:
 ## Product Truths
 - The project is a food-composition paper pipeline plus a human labeling UI.
 - The consumer food-data surface is separate from the annotator schema. The current
-  FNDDS release is built under `services/data-pipeline/opennutri_core/` and served
+  combined USDA Core release is built under `services/data-pipeline/opennutri_core/` and served
   read-only by `services/core-api/`; do not route it through legacy `claims` or expose
   the SQLite table layout as the HTTP contract.
+- USDA Core nutrients remain per 100 g edible portion. As-purchased logging may use
+  only a usable, food-linked `edible_portion_factors` row. Do not infer a factor from
+  a merely similar food or apply a conflict row. Preserve source refuse values and
+  reviewed correction provenance when changing factor rules.
 - The extraction target is useful OpenNutri food composition data only: real foods or food products mapped to nutrient/composition values for nutrition datasets, diet tracking, food exporters, inspection, or similar real-world use. Papers about effects of a nutrient, supplement, extract, dose, or diet on health, biomarkers, cells, animals, microbes, processing outcomes, or other responses are empty unless they also report direct food/product composition tables useful to OpenNutri. One-off experimental treatment/formulation variants are no usable data unless they represent a stable real-world food/product worth adding to the DB.
 - Relevance filtering code supports English and Turkish, but current ops are English-only. Default refill/daily crawler runs request `tr=0`, skip DergiPark, and use Europe PMC/OpenAlex/Semantic Scholar unless Turkish is explicitly re-enabled.
 - The annotator now uses a general queue:

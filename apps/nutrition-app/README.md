@@ -5,6 +5,11 @@ daily diary, live combined USDA food search, USDA portion or gram entry, determi
 nutrient scaling, daily macro totals, a complete nutrient report, and editable
 targets.
 
+When the selected food has a validated source-linked refuse factor, gram entry can
+switch between edible and as-purchased weight. Diary entries retain the entered
+weight, basis, and converted edible weight; nutrients are always scaled from edible
+grams.
+
 ## Run
 
 ```bash

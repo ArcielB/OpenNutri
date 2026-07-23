@@ -38,28 +38,35 @@ This is the current high-signal project state after the reviewer workflow moved 
 - The consumer dataset is a separate versioned package under
   `services/data-pipeline/opennutri_core/`; do not load it through the annotator's
   legacy `entities` / `claims` model.
-- `scripts/build_core_dataset.py` builds FNDDS 2021-2023 `v0.0.1` into normalized
-  CSV/Parquet, SQLite with FTS5 search, `manifest.json`, and `quality_report.json`.
+- `scripts/build_core_dataset.py` builds combined USDA Core `v0.2.0` from FNDDS
+  2021-2023, Foundation 2025-12-18, SR Legacy 2018-04, and SR28 food descriptions
+  into normalized CSV/Parquet, SQLite with FTS5 search, `manifest.json`, and
+  `quality_report.json`.
   Local release output is gitignored under `services/data-pipeline/data/core/releases/`.
 - The repo source files were compared byte-for-byte with the official USDA archive.
   Strict builds enforce the verified source-tree hash and official row counts.
-- Measured release: 5,432 source foods, 5,431 searchable foods, 65 nutrients,
-  353,015 nutrient observations, 22,045 accepted portions, and one rejected
-  zero-weight portion. The source-only `Milk, human` row has no nutrient profile and
-  remains non-searchable.
+- Measured combined release: 13,590 foods, 13,537 searchable foods, 246 nutrients,
+  1,012,681 nutrient observations, 36,619 portions, and 1,943 SR28
+  as-purchased-to-edible factors. Of those factors, 1,937 are usable; 883 usable
+  factors apply to raw foods. Six overlapping poultry bone-component records remain
+  auditable but unusable.
 - FNDDS `food_nutrient.nutrient_id` maps through `nutrient.nutrient_nbr`, not
   `nutrient.id`. Keep this source adapter rule and its regression test intact.
-- `services/core-api/` now provides the first local FastAPI product surface over the
+- `services/core-api/` provides API `v0.3.0` over the
   release: `/health`, `/v1/releases/current`, `/v1/foods/search`, and
   `/v1/foods/{food_id}`. It validates the artifact at startup, uses read-only SQLite
-  connections, and returns source/quality metadata with nutrients and portions.
-- The API has fixture coverage plus real-release integration tests. All 5,432 food
-  profiles conform to the public response model; `Apple, raw` returns all 65
-  nutrients and eight portions. Representative search and detail requests complete
-  in roughly 2-4 ms on this machine.
-- Next product work is the reviewed common-query ranking benchmark and first app
-  vertical slice, then source-separated SR Legacy and Foundation adapters. Never
-  blend their nutrient values silently.
+  connections, and returns source/quality metadata with nutrients, portions, and
+  source-linked weight factors.
+- The Flutter diary can log edible grams or, when a usable factor exists,
+  as-purchased grams. It stores entered and converted edible weights separately and
+  scales all nutrients from edible grams.
+- Raw skin-on drumstick FDC `172373` uses a reviewed `0.67` edible fraction. SR28's
+  reported `66%` refuse double-counts overlapping 33% bone descriptions; the reviewed
+  correction uses sibling raw meat-only record `05071`, which separates 33% bone
+  from 9% skin and fat. Preserve both source and corrected values.
+- Next product work is the reviewed common-query ranking benchmark and measured
+  coverage audit for the as-purchased factors. Never blend nutrient values or copy
+  weight factors between merely similar foods silently.
 
 ## Team / Roles
 

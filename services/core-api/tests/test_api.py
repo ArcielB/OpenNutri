@@ -110,6 +110,22 @@ def create_fixture_database(path: Path) -> None:
                 footnote TEXT,
                 min_year_acquired TEXT
             );
+            CREATE TABLE edible_portion_factors (
+                factor_id TEXT PRIMARY KEY,
+                food_id TEXT NOT NULL,
+                factor_type TEXT NOT NULL,
+                edible_fraction REAL,
+                refuse_percent REAL,
+                refuse_description TEXT NOT NULL,
+                source_dataset TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                source_food_code TEXT NOT NULL,
+                source_refuse_percent REAL NOT NULL,
+                derivation TEXT NOT NULL,
+                review_status TEXT NOT NULL,
+                is_usable INTEGER NOT NULL,
+                notes TEXT
+            );
             CREATE VIRTUAL TABLE food_search USING fts5(
                 food_id UNINDEXED,
                 display_name,
@@ -242,6 +258,16 @@ def create_fixture_database(path: Path) -> None:
             """,
             (FIXTURE_FOOD_ID,),
         )
+        connection.execute(
+            """
+            INSERT INTO edible_portion_factors VALUES (
+                'factor-apple-core', ?, 'as_purchased_to_edible', 0.9, 10.0,
+                'Core and stem', 'USDA SR28', 'https://example.test/sr28.zip',
+                '09003', 10.0, 'source_refuse_percent', 'source_reported', 1, NULL
+            )
+            """,
+            (FIXTURE_FOOD_ID,),
+        )
         connection.commit()
     finally:
         connection.close()
@@ -267,7 +293,7 @@ class CoreApiTests(unittest.TestCase):
             health.json(),
             {
                 "status": "ok",
-                "api_version": "0.2.0",
+                "api_version": "0.3.0",
                 "artifact_version": "0.0.1-test",
                 "release_ids": ["fixture-release"],
             },
@@ -325,6 +351,9 @@ class CoreApiTests(unittest.TestCase):
         self.assertEqual(payload["nutrients"][0]["basis"], "per_100g_edible_portion")
         self.assertEqual(payload["portions"][0]["description"], "1 medium")
         self.assertEqual(payload["portions"][0]["gram_weight"], 182.0)
+        self.assertEqual(payload["weight_factors"][0]["edible_fraction"], 0.9)
+        self.assertEqual(payload["weight_factors"][0]["refuse_description"], "Core and stem")
+        self.assertTrue(payload["weight_factors"][0]["is_usable"])
 
     def test_unknown_food_returns_not_found_and_excluded_food_remains_auditable(self) -> None:
         with TestClient(self.app) as client:
@@ -340,7 +369,7 @@ class CoreApiTests(unittest.TestCase):
         with TestClient(self.app) as client:
             schema = client.get("/openapi.json").json()
 
-        self.assertEqual(schema["info"]["version"], "0.2.0")
+        self.assertEqual(schema["info"]["version"], "0.3.0")
         self.assertIn("/v1/foods/search", schema["paths"])
         self.assertIn("/v1/foods/{food_id}", schema["paths"])
 
