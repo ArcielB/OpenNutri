@@ -25,17 +25,20 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    final screens = [
-      TodayScreen(controller: widget.controller, apiClient: widget.apiClient),
-      NutrientsScreen(controller: widget.controller),
-      SettingsScreen(
-        controller: widget.controller,
-        apiClient: widget.apiClient,
-      ),
-    ];
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
+        final screens = [
+          TodayScreen(
+            controller: widget.controller,
+            apiClient: widget.apiClient,
+          ),
+          NutrientsScreen(controller: widget.controller),
+          SettingsScreen(
+            controller: widget.controller,
+            apiClient: widget.apiClient,
+          ),
+        ];
         return Scaffold(
           body: IndexedStack(index: _index, children: screens),
           bottomNavigationBar: NavigationBar(
