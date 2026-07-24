@@ -238,6 +238,14 @@ Pipeline data outputs:
   details without leaking the storage schema as the client contract. Run it from that directory with
   `python3 -m uvicorn opennutri_api.main:app --reload`; see its `README.md` for
   environment variables, endpoints, and tests.
+- `services/voice-api/`: separate authenticated FastAPI service for the Android
+  voice and submitted-text beta. It verifies the app-only Supabase anonymous JWT,
+  atomically reserves configurable per-user/global quotas, performs the bounded
+  Gemini extraction/embedding/selection pipeline, rejects IDs outside deterministic
+  retrieval sets, and stores only consented privacy-limited feedback. Its private
+  Supabase vector/feedback/quota schema is under
+  `services/voice-api/supabase/migrations/`; it does not use the dormant research
+  project.
 - `services/data-pipeline/etl_sr_legacy_to_opennutri.py`: Seed SR Legacy 2018-04 into Supabase.
 - `services/data-pipeline/etl_usda_to_opennutri.py`: Seed Foundation Foods 2025-12-18 via REST.
 - `services/data-pipeline/create_opennutri_schema.sql` + `query.json`: Legacy annotator/reference schema for ETL; not the OpenNutri Core product dataset contract.
@@ -271,6 +279,14 @@ Pipeline data outputs:
 Frontend:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+
+Voice beta backend:
+- `OPENNUTRI_APP_SUPABASE_URL`
+- `OPENNUTRI_APP_SUPABASE_SERVICE_ROLE_KEY`
+- `GEMINI_API_KEY`
+- `OPENNUTRI_CORE_DB_PATH` (optional; bundled Core `v0.3.0` by default)
+- `OPENNUTRI_SEMANTIC_INDEX_VERSION` (rebuild the complete index when its model or
+  dimensions change)
 
 Data pipeline and ETL:
 - `SUPABASE_URL` (required for active crawler/upload/feedback write paths)

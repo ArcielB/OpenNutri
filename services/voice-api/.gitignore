@@ -1,0 +1,5 @@
+.env*
+!.env.example
+data/*.sqlite
+__pycache__/
+.pytest_cache/

@@ -14,6 +14,8 @@ Use this file to keep context narrow. Read this first, then open only the files 
 - `apps/expert-annotator/`: React 19 + Vite labeling UI.
 - `services/data-pipeline/`: Python crawler, harvester, evaluator, ETL, and label-feedback loop.
 - `services/core-api/`: Read-only FastAPI product API over versioned OpenNutri Core SQLite releases.
+- `services/voice-api/`: Authenticated bounded voice/submitted-text resolver using
+  the separate app Supabase project. Never point it at the dormant research project.
 - `apps/expert-annotator/migration.sql`: current schema and RLS source of truth.
 - `BACKLOG.md`: current task list.
 - `docs/handoff_2026-03-20/STATE.md`: latest high-signal project state snapshot.

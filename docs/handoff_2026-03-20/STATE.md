@@ -65,6 +65,13 @@ This is the current high-signal project state after the reviewer workflow moved 
 - The Flutter diary can log edible grams or, when a usable factor exists,
   as-purchased grams. It stores entered and converted edible weights separately and
   scales all nutrients from edible grams.
+- `services/voice-api/` is the isolated authenticated resolver for the Android beta.
+  It verifies app-project anonymous JWTs through JWKS and uses an app-only Supabase
+  schema for 768-dimensional vectors, atomic quotas, and optional privacy-limited
+  feedback. Voice resolution is capped at one audio extraction, one batched
+  embedding request, and one constrained selector call; candidate IDs are validated
+  against deterministic top-12 fusion before returning. Provider/quota errors return
+  a manual-search state without a paid fallback.
 - Raw skin-on drumstick FDC `172373` uses a reviewed `0.67` edible fraction. SR28's
   reported `66%` refuse double-counts overlapping 33% bone descriptions; the reviewed
   correction uses sibling raw meat-only record `05071`, which separates 33% bone

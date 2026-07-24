@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "fastapi",
+  "buildCommand": "python scripts/fetch_core_release.py",
+  "functions": {
+    "app.py": {
+      "includeFiles": "data/opennutri-core.sqlite",
+      "excludeFiles": "{tests/**,scripts/**,requirements-dev.txt,README.md,supabase/**}"
+    }
+  }
+}
