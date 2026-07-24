@@ -221,19 +221,21 @@ Pipeline data outputs:
   a quality report. It maps FNDDS `food_nutrient.nutrient_id` through
   `nutrient.nutrient_nbr`, validates exact official source hashes/counts, assigns
   deterministic IDs, retains ambiguous `NFS`/`NS` foods with a search penalty, and
-  rejects non-positive portion weights. Core `v0.2.0` also restores food-linked SR28
+  rejects non-positive portion weights. Core `v0.3.0` also restores food-linked SR28
   refuse percentages as audited as-purchased-to-edible factors; overlapping component
-  conflicts remain present but unusable until reviewed. Run
+  conflicts remain present but unusable until reviewed. It imports filtered USDA
+  common names, useful FoodOn labels, and lower-weight additional descriptions into
+  a provenance-preserving table and dedicated FTS index. Run
   `python3 services/data-pipeline/scripts/build_core_dataset.py`; outputs go under
   `services/data-pipeline/data/core/releases/`. See
   `docs/opennutri_core_usda.md` for the combined contract and measured release.
 - `services/data-pipeline/opennutri_core/`: Source-aware consumer dataset builders.
   This package is intentionally separate from the annotator vocabulary schema.
-- `services/core-api/`: FastAPI service for read-only access to the generated Core
+- `services/core-api/`: FastAPI `v0.4.0` service for read-only access to the generated Core
   SQLite artifact. It validates the database at startup, opens request connections
   with SQLite `mode=ro` and `query_only`, and exposes health, release metadata,
-  paginated food search, and full food details without leaking the storage schema as
-  the client contract. Run it from that directory with
+  paginated food search (including optional matched-term provenance), and full food
+  details without leaking the storage schema as the client contract. Run it from that directory with
   `python3 -m uvicorn opennutri_api.main:app --reload`; see its `README.md` for
   environment variables, endpoints, and tests.
 - `services/data-pipeline/etl_sr_legacy_to_opennutri.py`: Seed SR Legacy 2018-04 into Supabase.
@@ -255,7 +257,7 @@ Pipeline data outputs:
 - `docs/draft_commercialization.txt`: Commercialization notes (TR).
 - `docs/opennutri_core_fndds.md`: FNDDS product-dataset source verification,
   canonical table contract, build command, quality rules, and historical `v0.0.1` release.
-- `docs/opennutri_core_usda.md`: Combined USDA Core `v0.2.0` sources, measured
+- `docs/opennutri_core_usda.md`: Combined USDA Core `v0.3.0` sources, measured
   coverage, edible-portion factors, quality rules, search policy, and known boundaries.
 - `services/core-api/README.md`: Core API run instructions, endpoint contract,
   database/CORS configuration, tests, and current deployment boundary.

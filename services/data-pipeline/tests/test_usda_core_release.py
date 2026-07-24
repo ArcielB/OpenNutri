@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import unittest
 
+from opennutri_core.fndds import DEFAULT_SOURCE_DIR, _build_source_audit
 from opennutri_core.usda import (
     DEFAULT_FOUNDATION_SOURCE_DIR,
     DEFAULT_OUTPUT_DIR,
@@ -13,6 +14,8 @@ from opennutri_core.usda import (
     _basic_food_rows,
     _build_basic_audit,
     _build_refuse_factor_audit,
+    _food_search_term_rows,
+    _is_useful_search_term,
 )
 
 
@@ -33,6 +36,14 @@ class UsdaSourceAdapterTests(unittest.TestCase):
             cls.sr_legacy,
             DEFAULT_SR28_SOURCE_DIR,
             strict_official=True,
+        )
+        cls.fndds = _build_source_audit(DEFAULT_SOURCE_DIR)
+        cls.search_terms = list(
+            _food_search_term_rows(
+                DEFAULT_SOURCE_DIR,
+                cls.fndds,
+                [cls.foundation, cls.sr_legacy],
+            )
         )
 
     def test_verified_source_counts_and_rejections(self) -> None:
@@ -87,6 +98,33 @@ class UsdaSourceAdapterTests(unittest.TestCase):
         self.assertEqual(factor["review_status"], "reviewed")
         self.assertTrue(factor["is_usable"])
 
+    def test_search_terms_are_filtered_deduplicated_and_provenance_preserving(self) -> None:
+        self.assertEqual(len(self.search_terms), 10_953)
+        keys = [(row["food_id"], row["normalized_term"]) for row in self.search_terms]
+        self.assertEqual(keys, sorted(keys))
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertFalse(
+            _is_useful_search_term(
+                "any source",
+                primary_name="Milk, whole",
+                term_type="additional_description",
+            )
+        )
+        self.assertFalse(
+            _is_useful_search_term(
+                "12345",
+                primary_name="Milk, whole",
+                term_type="common_name",
+            )
+        )
+        hot_dog = next(
+            row
+            for row in self.search_terms
+            if row["normalized_term"] == "hot dog, wiener, frank"
+        )
+        self.assertEqual(hot_dog["term_type"], "common_name")
+        self.assertIn('"source_row_id"', hot_dog["provenance_json"])
+
 
 @unittest.skipUnless(
     (DEFAULT_OUTPUT_DIR / "opennutri-core.sqlite").is_file(),
@@ -109,6 +147,10 @@ class CombinedArtifactTests(unittest.TestCase):
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM edible_portion_factors").fetchone()[0],
                 1_943,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM food_search_terms").fetchone()[0],
+                10_953,
             )
         finally:
             connection.close()

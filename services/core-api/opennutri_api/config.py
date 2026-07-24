@@ -22,7 +22,7 @@ def default_database_path() -> Path:
         / "data"
         / "core"
         / "releases"
-        / "opennutri-core-usda-v0.2.0"
+        / "opennutri-core-usda-v0.3.0"
         / "opennutri-core.sqlite"
     )
     if repository_release_path.is_file():

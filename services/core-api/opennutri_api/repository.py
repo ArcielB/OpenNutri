@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-API_VERSION = "0.3.0"
+API_VERSION = "0.4.0"
 REQUIRED_TABLES = {
     "dataset_releases",
     "foods",
@@ -19,7 +19,9 @@ REQUIRED_TABLES = {
     "food_nutrients",
     "portions",
     "edible_portion_factors",
+    "food_search_terms",
     "food_search",
+    "food_source_term_search",
 }
 SEARCH_TOKEN_RE = re.compile(r"[^\W_]+(?:['-][^\W_]+)*", re.UNICODE)
 
@@ -143,11 +145,49 @@ class CoreRepository:
             )
             rows = connection.execute(
                 """
-                WITH matches AS (
+                WITH primary_matches AS (
                     SELECT food_id,
                            bm25(food_search, 0.0, 8.0, 3.0, 1.0) AS relevance
                     FROM food_search
                     WHERE food_search MATCH :fts_query
+                ),
+                source_matches AS (
+                    SELECT food_id,
+                           term,
+                           term_type,
+                           bm25(food_source_term_search, 0.0, 6.0, 0.0) AS relevance
+                    FROM food_source_term_search
+                    WHERE food_source_term_search MATCH :fts_query
+                ),
+                ranked_source_matches AS (
+                    SELECT food_id,
+                           term,
+                           term_type,
+                           relevance,
+                           row_number() OVER (
+                               PARTITION BY food_id
+                               ORDER BY
+                                   CASE term_type
+                                       WHEN 'common_name' THEN 0
+                                       WHEN 'foodon_label' THEN 1
+                                       ELSE 2
+                                   END,
+                                   CASE WHEN lower(term) = lower(:query) THEN 0 ELSE 1 END,
+                                   relevance,
+                                   length(term),
+                                   term
+                           ) AS source_rank
+                    FROM source_matches
+                ),
+                best_source_match AS (
+                    SELECT food_id, term, term_type, relevance
+                    FROM ranked_source_matches
+                    WHERE source_rank = 1
+                ),
+                candidate_ids AS (
+                    SELECT food_id FROM primary_matches
+                    UNION
+                    SELECT food_id FROM best_source_match
                 )
                 SELECT f.food_id,
                        f.display_name,
@@ -166,15 +206,33 @@ class CoreRepository:
                        CASE
                            WHEN lower(f.display_name) = lower(:query) THEN 0
                            WHEN lower(f.display_name) LIKE lower(:query) || '%' THEN 1
-                           ELSE 2
+                           WHEN source.term_type IN ('common_name', 'foodon_label') THEN 2
+                           WHEN source.term_type = 'additional_description' THEN 3
+                           ELSE 4
                        END AS match_tier,
-                       matches.relevance
-                FROM matches
-                JOIN foods AS f ON f.food_id = matches.food_id
+                       coalesce(primary_match.relevance, source.relevance) AS relevance,
+                       CASE
+                           WHEN primary_match.food_id IS NOT NULL THEN 'primary_name'
+                           ELSE 'source_term'
+                       END AS matched_via,
+                       CASE
+                           WHEN primary_match.food_id IS NOT NULL THEN f.display_name
+                           ELSE source.term
+                       END AS matched_term,
+                       CASE
+                           WHEN primary_match.food_id IS NOT NULL THEN 'primary_name'
+                           ELSE source.term_type
+                       END AS matched_term_type
+                FROM candidate_ids AS candidates
+                JOIN foods AS f ON f.food_id = candidates.food_id
                 JOIN dataset_releases AS r ON r.release_id = f.release_id
+                LEFT JOIN primary_matches AS primary_match
+                    ON primary_match.food_id = f.food_id
+                LEFT JOIN best_source_match AS source
+                    ON source.food_id = f.food_id
                 ORDER BY match_tier,
                          f.search_priority DESC,
-                         matches.relevance,
+                         relevance,
                          length(f.display_name),
                          f.display_name,
                          f.food_id
@@ -208,8 +266,19 @@ class CoreRepository:
 
         def count_for(terms: tuple[str, ...] | list[str]) -> int:
             return connection.execute(
-                "SELECT COUNT(*) FROM food_search WHERE food_search MATCH ?",
-                (query_for(terms),),
+                """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT food_id
+                    FROM food_search
+                    WHERE food_search MATCH :query
+                    UNION
+                    SELECT food_id
+                    FROM food_source_term_search
+                    WHERE food_source_term_search MATCH :query
+                )
+                """,
+                {"query": query_for(terms)},
             ).fetchone()[0]
 
         total = count_for(tokens)
@@ -403,6 +472,9 @@ class CoreRepository:
             "category": cls._category_payload(row),
             "source": cls._source_payload(row),
             "quality": cls._quality_payload(row),
+            "matched_via": row["matched_via"],
+            "matched_term": row["matched_term"],
+            "matched_term_type": row["matched_term_type"],
         }
 
     @staticmethod

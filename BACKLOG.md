@@ -56,10 +56,12 @@ Restore if ever needed (either works):
 ## 12. Benchmark OpenNutri Core search and weight-factor coverage
 
 ### Problem
-Combined USDA Core `v0.2.0`, API `v0.3.0`, and the Flutter diary now provide the
+Combined USDA Core `v0.3.0`, API `v0.4.0`, and the Flutter diary now provide the
 first vertical slice, including source-linked as-purchased conversion for validated
-SR28 foods. Search quality and practical weight-factor coverage are not yet measured
-against a reviewed list of common user tasks.
+SR28 foods. Core `v0.3.0` adds provenance-preserving common-name, FoodOn, and
+additional-description search terms. End-to-end voice/semantic search quality and
+practical weight-factor coverage still need measurement against the versioned beta
+benchmark.
 
 ### Goal
 - create reviewed food-concept grouping only for safe exact/identifier-backed matches

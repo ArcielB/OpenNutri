@@ -2,7 +2,7 @@
 
 ## Status
 
-`v0.2.0` combines three complementary, public-domain USDA FoodData Central
+`v0.3.0` combines three complementary, public-domain USDA FoodData Central
 datasets into one source-aware product artifact:
 
 | Source | Role | Foods | Searchable |
@@ -30,7 +30,7 @@ python3 services/data-pipeline/scripts/build_core_dataset.py
 The default output is:
 
 ```text
-services/data-pipeline/data/core/releases/opennutri-core-usda-v0.2.0/
+services/data-pipeline/data/core/releases/opennutri-core-usda-v0.3.0/
 ```
 
 It contains normalized CSV and Parquet tables, `opennutri-core.sqlite`, a quality
@@ -52,6 +52,7 @@ database avoids redundant indexes while retaining every accepted observation.
 | Portions | 36,619 |
 | Food categories | 200 |
 | Edible-portion factors | 1,943 |
+| Search terms | 10,953 |
 
 Of the 1,943 SR28 factor records, 1,937 are usable. The source contains 885
 positive-refuse factors for raw foods, of which 883 are usable. Six poultry records
@@ -92,6 +93,14 @@ as served.
 Search ranks exact and prefix name matches first, then source quality and FTS
 relevance. Foundation records have the highest source priority, FNDDS follows, and
 SR Legacy supplies breadth. Ambiguous `NFS`/`NS` records receive a penalty.
+
+The release retains 10,953 source-derived aliases in `food_search_terms`: 1,082
+USDA common names, 375 useful item-level FoodOn labels, and 9,496 lower-weight
+additional descriptions. Empty, numeric-only, administrative, generic, and
+primary-name duplicate terms are rejected. Duplicate values for one food collapse
+to one searchable row while all contributing source rows remain in
+`provenance_json`. The dedicated `food_source_term_search` FTS5 index keeps source
+terms separate from primary names so the API can enforce the ranking tiers.
 
 All query terms are required when possible. If no food contains every term, the API
 uses the largest and most selective matching subset and returns

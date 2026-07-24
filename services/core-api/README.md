@@ -23,7 +23,7 @@ python3 -m uvicorn opennutri_api.main:app --reload
 The API is available at `http://127.0.0.1:8000`. Interactive OpenAPI documentation
 is at `http://127.0.0.1:8000/docs`.
 
-The default database is the local USDA Core `v0.2.0` artifact. Override it with an
+The default database is the local USDA Core `v0.3.0` artifact. Override it with an
 absolute or relative path:
 
 ```bash
@@ -43,8 +43,8 @@ The repository's `vercel.json` runs `scripts/fetch_core_release.py` during the
 build and bundles the resulting read-only SQLite database with the FastAPI
 function.
 
-The build downloads the fixed `core-usda-v0.2.0` asset from the
-[GitHub release](https://github.com/ArcielB/OpenNutri/releases/tag/core-usda-v0.2.0).
+The build downloads the fixed `core-usda-v0.3.0` asset from the
+[GitHub release](https://github.com/ArcielB/OpenNutri/releases/tag/core-usda-v0.3.0).
 It verifies the compressed and expanded file sizes and SHA-256 checksums before
 installation. A changed, partial, or unavailable artifact fails the deployment
 instead of serving unverified data.
@@ -67,6 +67,13 @@ FTS operators. If every term has no common match, search returns the largest, mo
 selective matching subset and identifies it with `match_mode=partial_terms` and
 `matched_terms`. Search returns only `is_searchable` records; known excluded records
 remain retrievable by ID for audit and provenance.
+
+Core `v0.3.0` also searches provenance-preserving USDA common names, useful item-level
+FoodOn labels, and lower-weight additional descriptions through a separate FTS index.
+Results may include the additive `matched_via`, `matched_term`, and
+`matched_term_type` fields. Ranking tiers remain deterministic: exact primary name,
+primary-name prefix, common/FoodOn term, additional description, then other primary
+FTS matches.
 
 The API returns USDA nutrient observations unchanged on their stored
 `per_100g_edible_portion` basis. Clients can calculate a portion value with:

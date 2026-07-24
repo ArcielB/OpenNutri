@@ -67,7 +67,9 @@ Do not spend tokens on these unless the task explicitly needs them:
 - The consumer food-data surface is separate from the annotator schema. The current
   combined USDA Core release is built under `services/data-pipeline/opennutri_core/` and served
   read-only by `services/core-api/`; do not route it through legacy `claims` or expose
-  the SQLite table layout as the HTTP contract.
+  the SQLite table layout as the HTTP contract. Core `v0.3.0` source aliases remain
+  provenance-preserving and separately indexed; API `v0.4.0` exposes only optional
+  matched-term metadata.
 - USDA Core nutrients remain per 100 g edible portion. As-purchased logging may use
   only a usable, food-linked `edible_portion_factors` row. Do not infer a factor from
   a merely similar food or apply a conflict row. Preserve source refuse values and

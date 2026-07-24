@@ -126,11 +126,27 @@ def create_fixture_database(path: Path) -> None:
                 is_usable INTEGER NOT NULL,
                 notes TEXT
             );
+            CREATE TABLE food_search_terms (
+                term_id TEXT PRIMARY KEY,
+                food_id TEXT NOT NULL,
+                term TEXT NOT NULL,
+                normalized_term TEXT NOT NULL,
+                term_type TEXT NOT NULL,
+                search_weight REAL NOT NULL,
+                provenance_json TEXT NOT NULL,
+                UNIQUE(food_id, normalized_term)
+            );
             CREATE VIRTUAL TABLE food_search USING fts5(
                 food_id UNINDEXED,
                 display_name,
                 search_text,
                 category_name
+            );
+            CREATE VIRTUAL TABLE food_source_term_search USING fts5(
+                term_id UNINDEXED,
+                food_id UNINDEXED,
+                term,
+                term_type UNINDEXED
             );
             """
         )
@@ -229,6 +245,22 @@ def create_fixture_database(path: Path) -> None:
                     "INSERT INTO food_search VALUES (?, ?, ?, 'Apples')",
                     (food[0], food[1], food[2]),
                 )
+        connection.execute(
+            """
+            INSERT INTO food_search_terms VALUES (
+                'term-pomme', ?, 'pomme', 'pomme', 'common_name', 6.0, '[]'
+            )
+            """,
+            (FIXTURE_FOOD_ID,),
+        )
+        connection.execute(
+            """
+            INSERT INTO food_source_term_search VALUES (
+                'term-pomme', ?, 'pomme', 'common_name'
+            )
+            """,
+            (FIXTURE_FOOD_ID,),
+        )
 
         connection.executemany(
             "INSERT INTO nutrients VALUES (?, 'USDA', ?, ?, ?, ?, ?, ?, 0)",
@@ -293,7 +325,7 @@ class CoreApiTests(unittest.TestCase):
             health.json(),
             {
                 "status": "ok",
-                "api_version": "0.3.0",
+                "api_version": "0.4.0",
                 "artifact_version": "0.0.1-test",
                 "release_ids": ["fixture-release"],
             },
@@ -339,6 +371,17 @@ class CoreApiTests(unittest.TestCase):
         self.assertEqual(response.json()["matched_terms"], ["apple"])
         self.assertEqual(response.json()["items"][0]["name"], "Apple, raw")
 
+    def test_search_returns_source_term_provenance_without_changing_primary_contract(self) -> None:
+        with TestClient(self.app) as client:
+            response = client.get("/v1/foods/search", params={"q": "pomme"})
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["items"][0]
+        self.assertEqual(item["food_id"], FIXTURE_FOOD_ID)
+        self.assertEqual(item["matched_via"], "source_term")
+        self.assertEqual(item["matched_term"], "pomme")
+        self.assertEqual(item["matched_term_type"], "common_name")
+
     def test_food_detail_returns_nutrients_portions_and_provenance(self) -> None:
         with TestClient(self.app) as client:
             response = client.get(f"/v1/foods/{FIXTURE_FOOD_ID}")
@@ -369,7 +412,7 @@ class CoreApiTests(unittest.TestCase):
         with TestClient(self.app) as client:
             schema = client.get("/openapi.json").json()
 
-        self.assertEqual(schema["info"]["version"], "0.3.0")
+        self.assertEqual(schema["info"]["version"], "0.4.0")
         self.assertIn("/v1/foods/search", schema["paths"])
         self.assertIn("/v1/foods/{food_id}", schema["paths"])
 

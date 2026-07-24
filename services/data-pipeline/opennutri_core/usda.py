@@ -9,6 +9,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from itertools import chain
@@ -54,7 +55,7 @@ from .fndds import (
 )
 
 
-CORE_ARTIFACT_VERSION = "0.2.0"
+CORE_ARTIFACT_VERSION = "0.3.0"
 FOUNDATION_CORE_NUTRIENT_GROUPS = (
     frozenset({"203"}),
     frozenset({"204"}),
@@ -85,6 +86,49 @@ OVERLAPPING_BONE_COMPONENT_RE = re.compile(
     r"bone and (?:cartilage|co+n+ective tissue)",
     re.IGNORECASE,
 )
+SEARCH_TERM_LETTER_RE = re.compile(r"[^\W\d_]", re.UNICODE)
+SEARCH_TERM_WHITESPACE_RE = re.compile(r"\s+")
+GENERIC_SEARCH_TERMS = frozenset(
+    {
+        "all",
+        "all types",
+        "any",
+        "any source",
+        "generic",
+        "light",
+        "n/a",
+        "na",
+        "none",
+        "not applicable",
+        "other",
+        "unknown",
+        "unspecified",
+    }
+)
+ADMINISTRATIVE_ONTOLOGY_LABELS = frozenset(
+    {
+        "animal food product",
+        "beverage food product",
+        "dairy food product",
+        "food product",
+        "fruit food product",
+        "legume food product",
+        "meat food product",
+        "plant food product",
+        "sausage food product",
+        "vegetable food product",
+    }
+)
+SEARCH_TERM_TYPE_PRIORITY = {
+    "common_name": 0,
+    "foodon_label": 1,
+    "additional_description": 2,
+}
+SEARCH_TERM_WEIGHTS = {
+    "common_name": 6.0,
+    "foodon_label": 5.0,
+    "additional_description": 1.0,
+}
 
 
 SR28_FOOD_DES_COLUMNS = (
@@ -161,6 +205,30 @@ EDIBLE_PORTION_FACTOR_TABLE_SPEC = TableSpec(
     ),
 )
 
+FOOD_SEARCH_TERM_TABLE_SPEC = TableSpec(
+    "food_search_terms",
+    (
+        "term_id",
+        "food_id",
+        "term",
+        "normalized_term",
+        "term_type",
+        "search_weight",
+        "provenance_json",
+    ),
+    pa.schema(
+        [
+            ("term_id", pa.string()),
+            ("food_id", pa.string()),
+            ("term", pa.string()),
+            ("normalized_term", pa.string()),
+            ("term_type", pa.string()),
+            ("search_weight", pa.float64()),
+            ("provenance_json", pa.string()),
+        ]
+    ),
+)
+
 
 USDA_SQLITE_SCHEMA = (
     SQLITE_SCHEMA
@@ -191,6 +259,19 @@ CREATE TABLE edible_portion_factors (
         (is_usable = 0 AND edible_fraction IS NULL AND refuse_percent IS NULL)
     ),
     UNIQUE(food_id)
+);
+
+CREATE TABLE food_search_terms (
+    term_id TEXT PRIMARY KEY,
+    food_id TEXT NOT NULL REFERENCES foods(food_id),
+    term TEXT NOT NULL,
+    normalized_term TEXT NOT NULL,
+    term_type TEXT NOT NULL CHECK (
+        term_type IN ('common_name', 'foodon_label', 'additional_description')
+    ),
+    search_weight REAL NOT NULL CHECK (search_weight > 0),
+    provenance_json TEXT NOT NULL,
+    UNIQUE(food_id, normalized_term)
 );
 """
 )
@@ -356,6 +437,150 @@ def _nutrient_id(source_nutrient_id: str) -> str:
 
 def _edible_portion_factor_id(source_food_code: str) -> str:
     return _stable_uuid("edible-portion-factor", "usda-sr28", source_food_code)
+
+
+def _search_term_id(food_id: str, normalized_term: str) -> str:
+    return _stable_uuid("food-search-term", food_id, normalized_term)
+
+
+def _normalize_search_term(value: str) -> tuple[str, str]:
+    display = SEARCH_TERM_WHITESPACE_RE.sub(
+        " ", unicodedata.normalize("NFKC", value)
+    ).strip(" \t\r\n,;|")
+    normalized = SEARCH_TERM_WHITESPACE_RE.sub(" ", display.casefold()).strip()
+    return display, normalized
+
+
+def _is_useful_search_term(
+    value: str,
+    *,
+    primary_name: str,
+    term_type: str,
+) -> bool:
+    _, normalized = _normalize_search_term(value)
+    _, normalized_primary = _normalize_search_term(primary_name)
+    if not normalized or not SEARCH_TERM_LETTER_RE.search(normalized):
+        return False
+    if normalized == normalized_primary:
+        return False
+    if normalized in GENERIC_SEARCH_TERMS:
+        return False
+    if term_type == "foodon_label" and normalized in ADMINISTRATIVE_ONTOLOGY_LABELS:
+        return False
+    return True
+
+
+def _source_term_candidates(
+    source_dir: Path,
+    *,
+    release_id: str,
+    foods_by_fdc_id: dict[str, dict[str, str]],
+) -> Iterator[dict[str, str]]:
+    attribute_path = source_dir / "food_attribute.csv"
+    if not attribute_path.is_file():
+        return
+    for row in _csv_rows(
+        attribute_path,
+        {"id", "fdc_id", "food_attribute_type_id", "name", "value"},
+    ):
+        food = foods_by_fdc_id.get(row["fdc_id"])
+        if food is None:
+            continue
+        attribute_type_id = row["food_attribute_type_id"].strip()
+        attribute_name = row["name"].strip()
+        if attribute_type_id == "1000":
+            term_type = "common_name"
+            source_field = "Common Name"
+        elif attribute_type_id == "1001":
+            term_type = "additional_description"
+            source_field = "Additional Description"
+        elif attribute_name == "FoodOn Ontology Name For FDC Item":
+            term_type = "foodon_label"
+            source_field = attribute_name
+        else:
+            # Administrative attributes, category labels, ontology IDs, taxon IDs,
+            # and measurements are deliberately not searchable aliases.
+            continue
+        value = row["value"].strip()
+        primary_name = food["description"].strip()
+        if not _is_useful_search_term(
+            value,
+            primary_name=primary_name,
+            term_type=term_type,
+        ):
+            continue
+        term, normalized_term = _normalize_search_term(value)
+        yield {
+            "food_id": _food_id(release_id, row["fdc_id"]),
+            "term": term,
+            "normalized_term": normalized_term,
+            "term_type": term_type,
+            "source_dataset": release_id,
+            "source_file": attribute_path.name,
+            "source_row_id": row["id"],
+            "source_field": source_field,
+        }
+
+
+def _food_search_term_rows(
+    fndds_source_dir: Path,
+    fndds: SourceAudit,
+    basic_audits: Iterable[BasicSourceAudit],
+) -> Iterator[dict[str, Any]]:
+    candidates = chain(
+        _source_term_candidates(
+            fndds_source_dir,
+            release_id=FNDDS_RELEASE_ID,
+            foods_by_fdc_id=fndds.foods_by_fdc_id,
+        ),
+        *(
+            _source_term_candidates(
+                audit.source_dir,
+                release_id=audit.definition.release_id,
+                foods_by_fdc_id=audit.foods_by_fdc_id,
+            )
+            for audit in basic_audits
+        ),
+    )
+    grouped: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+    for candidate in candidates:
+        grouped[(candidate["food_id"], candidate["normalized_term"])].append(candidate)
+
+    for (food_id, normalized_term), sources in sorted(grouped.items()):
+        ordered_sources = sorted(
+            sources,
+            key=lambda row: (
+                SEARCH_TERM_TYPE_PRIORITY[row["term_type"]],
+                row["source_dataset"],
+                int(row["source_row_id"]),
+            ),
+        )
+        selected = ordered_sources[0]
+        provenance = [
+            {
+                "source_dataset": source["source_dataset"],
+                "source_file": source["source_file"],
+                "source_row_id": source["source_row_id"],
+                "source_field": source["source_field"],
+                "term_type": source["term_type"],
+                "source_value": source["term"],
+            }
+            for source in ordered_sources
+        ]
+        yield {
+            "term_id": _search_term_id(food_id, normalized_term),
+            "food_id": food_id,
+            "term": selected["term"],
+            "normalized_term": normalized_term,
+            "term_type": selected["term_type"],
+            "search_weight": SEARCH_TERM_WEIGHTS[selected["term_type"]],
+            "provenance_json": json.dumps(
+                provenance,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        }
 
 
 def _portion_description(row: dict[str, str], measure_name: str) -> str:
@@ -1009,6 +1234,37 @@ def _food_status_counts(rows: Iterable[dict[str, Any]]) -> dict[str, int]:
     return dict(counts)
 
 
+def _create_usda_search_indexes(connection: sqlite3.Connection) -> None:
+    _create_search_index(connection)
+    try:
+        connection.executescript(
+            """
+            CREATE INDEX idx_food_search_terms_food ON food_search_terms(food_id);
+            CREATE INDEX idx_food_search_terms_normalized
+                ON food_search_terms(normalized_term);
+            CREATE INDEX idx_food_search_terms_type
+                ON food_search_terms(term_type, food_id);
+
+            CREATE VIRTUAL TABLE food_source_term_search USING fts5(
+                term_id UNINDEXED,
+                food_id UNINDEXED,
+                term,
+                term_type UNINDEXED,
+                tokenize = 'unicode61 remove_diacritics 2'
+            );
+
+            INSERT INTO food_source_term_search (term_id, food_id, term, term_type)
+            SELECT t.term_id, t.food_id, t.term, t.term_type
+            FROM food_search_terms AS t
+            JOIN foods AS f ON f.food_id = t.food_id
+            WHERE f.is_searchable = 1
+            ORDER BY t.food_id, t.normalized_term;
+            """
+        )
+    except sqlite3.OperationalError as exc:
+        raise DatasetValidationError("This Python SQLite build must include FTS5 support") from exc
+
+
 def _quality_report(
     fndds: SourceAudit,
     basic_audits: list[BasicSourceAudit],
@@ -1179,10 +1435,15 @@ def _build_into(
             chain(fndds.accepted_portions, *(audit.accepted_portions for audit in basic_audits)),
         ),
         ("edible_portion_factors", iter(refuse_factors.factors)),
+        (
+            "food_search_terms",
+            _food_search_term_rows(fndds_source_dir, fndds, basic_audits),
+        ),
     ]
     table_specs = {
         **TABLE_SPECS,
         "edible_portion_factors": EDIBLE_PORTION_FACTOR_TABLE_SPEC,
+        "food_search_terms": FOOD_SEARCH_TERM_TABLE_SPEC,
     }
     output_counts: dict[str, int] = {}
     try:
@@ -1190,7 +1451,7 @@ def _build_into(
             output_counts[table_name] = _write_table(
                 output_dir, connection, table_specs[table_name], rows
             )
-        _create_search_index(connection)
+        _create_usda_search_indexes(connection)
         connection.commit()
         connection.execute("VACUUM")
     finally:

@@ -38,11 +38,14 @@ This is the current high-signal project state after the reviewer workflow moved 
 - The consumer dataset is a separate versioned package under
   `services/data-pipeline/opennutri_core/`; do not load it through the annotator's
   legacy `entities` / `claims` model.
-- `scripts/build_core_dataset.py` builds combined USDA Core `v0.2.0` from FNDDS
+- `scripts/build_core_dataset.py` builds combined USDA Core `v0.3.0` from FNDDS
   2021-2023, Foundation 2025-12-18, SR Legacy 2018-04, and SR28 food descriptions
   into normalized CSV/Parquet, SQLite with FTS5 search, `manifest.json`, and
   `quality_report.json`.
   Local release output is gitignored under `services/data-pipeline/data/core/releases/`.
+  `v0.3.0` includes 10,953 filtered, deduplicated, provenance-preserving USDA common
+  names, item-level FoodOn labels, and additional descriptions plus a dedicated
+  source-term FTS5 index.
 - The repo source files were compared byte-for-byte with the official USDA archive.
   Strict builds enforce the verified source-tree hash and official row counts.
 - Measured combined release: 13,590 foods, 13,537 searchable foods, 246 nutrients,
@@ -52,11 +55,13 @@ This is the current high-signal project state after the reviewer workflow moved 
   auditable but unusable.
 - FNDDS `food_nutrient.nutrient_id` maps through `nutrient.nutrient_nbr`, not
   `nutrient.id`. Keep this source adapter rule and its regression test intact.
-- `services/core-api/` provides API `v0.3.0` over the
+- `services/core-api/` provides API `v0.4.0` over the
   release: `/health`, `/v1/releases/current`, `/v1/foods/search`, and
   `/v1/foods/{food_id}`. It validates the artifact at startup, uses read-only SQLite
   connections, and returns source/quality metadata with nutrients, portions, and
-  source-linked weight factors.
+  source-linked weight factors. Search results add optional match provenance fields
+  and enforce exact-primary, primary-prefix, common/FoodOn, and additional-description
+  ranking tiers.
 - The Flutter diary can log edible grams or, when a usable factor exists,
   as-purchased grams. It stores entered and converted edible weights separately and
   scales all nutrients from edible grams.

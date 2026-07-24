@@ -72,6 +72,14 @@ class FoodSearchItem(BaseModel):
     category: FoodCategory
     source: FoodSource
     quality: FoodQuality
+    matched_via: Literal["primary_name", "source_term"] | None = None
+    matched_term: str | None = None
+    matched_term_type: Literal[
+        "primary_name",
+        "common_name",
+        "foodon_label",
+        "additional_description",
+    ] | None = None
 
 
 class FoodSearchResponse(BaseModel):
