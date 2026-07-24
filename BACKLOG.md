@@ -63,6 +63,13 @@ additional-description search terms. End-to-end voice/semantic search quality an
 practical weight-factor coverage still need measurement against the versioned beta
 benchmark.
 
+### PARTIAL 2026-07-24
+`benchmarks/voice-v0.1.0/` now provides 240 source-backed English/Turkish cases
+(48 deterministic audio, 192 submitted text), committed WAV/hash validation, and an
+evaluator for the rollout thresholds. Live semantic metrics remain pending because
+the app-only Supabase Free project is restricted by the organization-wide egress
+quota; do not report the manifest validation as retrieval/selection performance.
+
 ### Goal
 - create reviewed food-concept grouping only for safe exact/identifier-backed matches
 - define and run a common-query search benchmark before freezing API ranking

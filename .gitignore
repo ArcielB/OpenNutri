@@ -22,3 +22,4 @@ services/data-pipeline/food_paper_crawler/feedback/term_scores_*.json
 docs/.~lock.*#
 o.zip
 check_docs_defense_pdfs_or_docs.zip
+.vercel

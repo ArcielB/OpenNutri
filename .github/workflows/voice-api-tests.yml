@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "services/voice-api/**"
+      - "benchmarks/voice-v0.1.0/**"
       - ".github/workflows/voice-api-tests.yml"
   pull_request:
     paths:
       - "services/voice-api/**"
+      - "benchmarks/voice-v0.1.0/**"
       - ".github/workflows/voice-api-tests.yml"
 
 jobs:
@@ -29,6 +31,10 @@ jobs:
 
       - name: Install dependencies
         run: python3 -m pip install -r services/voice-api/requirements-dev.txt
+
+      - name: Fetch verified Core v0.3.0
+        working-directory: services/voice-api
+        run: python3 scripts/fetch_core_release.py
 
       - name: Run voice resolver tests
         working-directory: services/voice-api

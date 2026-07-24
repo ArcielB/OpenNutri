@@ -58,3 +58,18 @@ preparation description. Its SHA-256 hash lets repeated runs skip unchanged rows
 
 WAV input must be 16 kHz, mono, signed 16-bit PCM, no longer than 20 seconds, and no
 larger than 1 MB.
+
+## Benchmark
+
+`../../benchmarks/voice-v0.1.0/` contains 240 balanced English/Turkish text and
+audio cases. Its validator checks every gold food ID against Core `v0.3.0`, verifies
+committed WAV format/hash/limits, and guards the required scenario coverage.
+`evaluate.py --enforce` applies the rollout thresholds. Live metrics must only be
+published after running the complete private semantic index; the manifest validator
+alone is not a quality result.
+
+The production beta deployment is
+`https://opennutri-voice-beta.vercel.app`. Its unauthenticated health endpoint can
+be used for configuration smoke tests. Authenticated resolution remains unavailable
+while the app Supabase project is restricted by the organization-wide Free-plan
+egress quota; there is intentionally no billed fallback.

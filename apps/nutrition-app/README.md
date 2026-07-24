@@ -1,42 +1,31 @@
-# OpenNutri Nutrition App
+# OpenNutri Android beta
 
-Flutter client for the OpenNutri Core API. The first release supports a local
-daily diary, live combined USDA food search, USDA portion or gram entry, deterministic
-nutrient scaling, daily macro totals, a complete nutrient report, and editable
-targets.
+The Flutter diary keeps all diary entries on-device. Voice logging records a
+temporary 16 kHz mono PCM16 WAV, sends it only to the authenticated resolver,
+requires review of every item, and deletes the file after success, failure, or
+cancellation.
 
-When the selected food has a validated source-linked refuse factor, gram entry can
-switch between edible and as-purchased weight. Diary entries retain the entered
-weight, basis, and converted edible weight; nutrients are always scaled from edible
-grams.
-
-## Run
+The production resolver URL and Supabase project URL have non-secret defaults.
+Supply the app project's public client key at build time:
 
 ```bash
-flutter pub get
-flutter run
+flutter build apk --debug \
+  --dart-define=OPENNUTRI_APP_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-The default API is the deployed OpenNutri Core service. Override it at build
-time when testing another environment:
+`OPENNUTRI_VOICE_API_BASE_URL`, `OPENNUTRI_APP_SUPABASE_URL`, and
+`OPENNUTRI_TIMEZONE` remain overrideable Dart defines. Never put the Supabase
+secret/service-role key or Gemini key in a Flutter build.
 
-```bash
-flutter run \
-  --dart-define=OPENNUTRI_API_BASE_URL=http://127.0.0.1:8000
-```
-
-For web development, use port `5173`, which is currently allowed by the API's
-CORS configuration:
-
-```bash
-flutter run -d chrome --web-port=5173
-```
-
-## Validate
+Run the local verification suite with:
 
 ```bash
 flutter analyze
 flutter test
 flutter build apk --debug
-flutter build web
+android/gradlew -p android :app:assembleDebugAndroidTest
 ```
+
+The home-screen widget starts `MainActivity` with `ACTION_VOICE_LOG`; recording
+begins only after Flutter is visible and microphone permission plus the first-use
+provider disclosure are satisfied.

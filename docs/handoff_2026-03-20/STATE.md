@@ -72,13 +72,22 @@ This is the current high-signal project state after the reviewer workflow moved 
   embedding request, and one constrained selector call; candidate IDs are validated
   against deterministic top-12 fusion before returning. Provider/quota errors return
   a manual-search state without a paid fallback.
+- The Flutter Android beta records bounded temporary PCM WAV, requires visual review
+  of every resolved item, persists a confirmed batch once with one undo, and accepts
+  cold/warm `ACTION_VOICE_LOG` intents from a native 1×1 widget. Submitted text calls
+  the private resolver only on explicit Search; typing remains public lexical search.
+- `benchmarks/voice-v0.1.0/` contains 240 balanced English/Turkish cases with 48
+  committed deterministic audio fixtures. Validation is green; live threshold
+  metrics remain unmeasured until the free-tier app Supabase project can serve auth
+  and the complete 768-dimensional index.
 - Raw skin-on drumstick FDC `172373` uses a reviewed `0.67` edible fraction. SR28's
   reported `66%` refuse double-counts overlapping 33% bone descriptions; the reviewed
   correction uses sibling raw meat-only record `05071`, which separates 33% bone
   from 9% skin and fat. Preserve both source and corrected values.
-- Next product work is the reviewed common-query ranking benchmark and measured
-  coverage audit for the as-purchased factors. Never blend nutrient values or copy
-  weight factors between merely similar foods silently.
+- Next product work is running the complete voice benchmark after the app-project
+  free-tier egress restriction clears, plus the measured coverage audit for
+  as-purchased factors. Never blend nutrient values or copy weight factors between
+  merely similar foods silently.
 
 ## Team / Roles
 

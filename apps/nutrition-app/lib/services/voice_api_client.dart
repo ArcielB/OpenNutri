@@ -11,7 +11,10 @@ import 'supabase_config.dart';
 class VoiceApiClient {
   VoiceApiClient({http.Client? client}) : _client = client ?? http.Client();
 
-  static const baseUrl = String.fromEnvironment('OPENNUTRI_VOICE_API_BASE_URL');
+  static const baseUrl = String.fromEnvironment(
+    'OPENNUTRI_VOICE_API_BASE_URL',
+    defaultValue: 'https://opennutri-voice-beta.vercel.app',
+  );
 
   final http.Client _client;
 
