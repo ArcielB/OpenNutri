@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenNutri</string>
+    <string name="voice_widget_name">OpenNutri voice log</string>
+    <string name="voice_widget_description">Open OpenNutri and record a meal description</string>
+</resources>

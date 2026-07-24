@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/diary.dart';
 import '../services/core_api_client.dart';
+import '../services/voice_api_client.dart';
 import '../state/app_controller.dart';
 import '../widgets/daily_summary.dart';
 import '../widgets/day_header.dart';
@@ -13,16 +14,21 @@ class TodayScreen extends StatelessWidget {
     super.key,
     required this.controller,
     required this.apiClient,
+    required this.voiceApiClient,
+    required this.onVoice,
   });
 
   final AppController controller;
   final CoreApiClient apiClient;
+  final VoiceApiClient voiceApiClient;
+  final Future<void> Function({bool autoStart}) onVoice;
 
   Future<void> _addFood(BuildContext context, MealType meal) async {
     final entry = await Navigator.of(context).push<DiaryEntry>(
       MaterialPageRoute(
         builder: (context) => FoodSearchScreen(
           apiClient: apiClient,
+          resolver: voiceApiClient,
           meal: meal,
           date: controller.selectedDate,
         ),
@@ -51,6 +57,13 @@ class TodayScreen extends StatelessWidget {
             const Text('OpenNutri'),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Voice log',
+            onPressed: () => onVoice(autoStart: false),
+            icon: const Icon(Icons.mic_none),
+          ),
+        ],
       ),
       body: Center(
         child: ConstrainedBox(
@@ -80,10 +93,23 @@ class TodayScreen extends StatelessWidget {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _addFood(context, MealType.snacks),
-        icon: const Icon(Icons.add),
-        label: const Text('Add food'),
+      floatingActionButton: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'voice-log',
+            tooltip: 'Voice log',
+            onPressed: () => onVoice(autoStart: false),
+            child: const Icon(Icons.mic),
+          ),
+          const SizedBox(width: 12),
+          FloatingActionButton.extended(
+            heroTag: 'add-food',
+            onPressed: () => _addFood(context, MealType.snacks),
+            icon: const Icon(Icons.add),
+            label: const Text('Add food'),
+          ),
+        ],
       ),
     );
   }

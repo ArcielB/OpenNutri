@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'screens/home_shell.dart';
 import 'services/core_api_client.dart';
+import 'services/voice_api_client.dart';
 import 'state/app_controller.dart';
 import 'theme/app_theme.dart';
 
@@ -18,7 +19,11 @@ class OpenNutriApp extends StatelessWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
-      home: HomeShell(controller: controller, apiClient: CoreApiClient()),
+      home: HomeShell(
+        controller: controller,
+        apiClient: CoreApiClient(),
+        voiceApiClient: VoiceApiClient(),
+      ),
     );
   }
 }

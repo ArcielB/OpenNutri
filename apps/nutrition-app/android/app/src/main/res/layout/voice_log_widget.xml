@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="4dp">
+
+    <ImageButton
+        android:id="@+id/voice_widget_button"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/voice_widget_background"
+        android:contentDescription="@string/voice_widget_description"
+        android:padding="10dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_voice_widget_mic"
+        android:tint="@android:color/white" />
+</FrameLayout>

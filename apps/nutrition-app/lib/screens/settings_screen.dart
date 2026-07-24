@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 
 import '../models/diary.dart';
 import '../services/core_api_client.dart';
+import '../services/android_widget_bridge.dart';
+import '../services/voice_api_client.dart';
 import '../state/app_controller.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -10,10 +12,12 @@ class SettingsScreen extends StatefulWidget {
     super.key,
     required this.controller,
     required this.apiClient,
+    required this.voiceApiClient,
   });
 
   final AppController controller;
   final CoreApiClient apiClient;
+  final VoiceApiClient voiceApiClient;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -99,6 +103,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed == true) await widget.controller.clearEntries();
   }
 
+  Future<void> _pinWidget() async {
+    final requested = await AndroidWidgetBridge.requestPinWidget();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          requested
+              ? 'Widget request opened'
+              : 'Widget pinning is unavailable on this launcher',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteVoiceFeedback() async {
+    try {
+      await widget.voiceApiClient.deleteFeedback();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Voice feedback deleted')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not delete voice feedback')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -163,7 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.dataset_outlined),
                 title: const Text('USDA FNDDS 2021-2023'),
-                subtitle: const Text('OpenNutri Core v0.0.1'),
+                subtitle: const Text('OpenNutri Core v0.3.0 · API v0.4.0'),
               ),
               FutureBuilder<Map<String, dynamic>>(
                 future: _health,
@@ -190,6 +223,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   );
                 },
+              ),
+              const SizedBox(height: 24),
+              _heading(context, 'Voice logging'),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: widget.controller.voiceFeedbackConsent,
+                onChanged: widget.controller.updateVoiceFeedbackConsent,
+                title: const Text('Share correction feedback'),
+                subtitle: const Text(
+                  'Optional. Audio, transcripts, quantities, meals, dates, and '
+                  'nutrients are never included.',
+                ),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.widgets_outlined),
+                title: const Text('Add microphone widget'),
+                subtitle: const Text('Android home screen · 1×1'),
+                trailing: const Icon(Icons.add_to_home_screen),
+                onTap: _pinWidget,
+              ),
+              TextButton.icon(
+                onPressed: widget.voiceApiClient.isConfigured
+                    ? _deleteVoiceFeedback
+                    : null,
+                icon: const Icon(Icons.delete_sweep_outlined),
+                label: const Text('Delete my voice feedback'),
               ),
               const SizedBox(height: 24),
               _heading(context, 'On-device data'),

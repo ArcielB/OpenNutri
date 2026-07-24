@@ -7,6 +7,8 @@ import '../models/diary.dart';
 class LocalStore {
   static const _entriesKey = 'opennutri.diary.entries.v1';
   static const _targetsKey = 'opennutri.targets.v1';
+  static const _voiceDisclosureKey = 'opennutri.voice.disclosure.v1';
+  static const _voiceFeedbackConsentKey = 'opennutri.voice.feedback_consent.v1';
 
   Future<List<DiaryEntry>> loadEntries() async {
     final preferences = await SharedPreferences.getInstance();
@@ -36,5 +38,25 @@ class LocalStore {
   Future<void> saveTargets(NutritionTargets targets) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_targetsKey, jsonEncode(targets.toJson()));
+  }
+
+  Future<bool> loadVoiceDisclosureAccepted() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getBool(_voiceDisclosureKey) ?? false;
+  }
+
+  Future<void> saveVoiceDisclosureAccepted(bool accepted) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_voiceDisclosureKey, accepted);
+  }
+
+  Future<bool> loadVoiceFeedbackConsent() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getBool(_voiceFeedbackConsentKey) ?? false;
+  }
+
+  Future<void> saveVoiceFeedbackConsent(bool enabled) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_voiceFeedbackConsentKey, enabled);
   }
 }

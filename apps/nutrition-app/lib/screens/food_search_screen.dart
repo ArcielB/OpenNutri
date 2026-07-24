@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/diary.dart';
 import '../models/food.dart';
 import '../services/core_api_client.dart';
+import '../services/voice_api_client.dart';
 import '../widgets/serving_sheet.dart';
 
 class FoodSearchScreen extends StatefulWidget {
@@ -13,11 +14,13 @@ class FoodSearchScreen extends StatefulWidget {
     required this.apiClient,
     required this.meal,
     required this.date,
+    this.resolver,
   });
 
   final CoreApiClient apiClient;
   final MealType meal;
   final DateTime date;
+  final VoiceApiClient? resolver;
 
   @override
   State<FoodSearchScreen> createState() => _FoodSearchScreenState();
@@ -34,6 +37,9 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
   String? _loadingFoodId;
   String? _error;
   int _requestId = 0;
+  String? _semanticFoodId;
+  String? _semanticFoodName;
+  bool _resolvingSemantic = false;
 
   @override
   void initState() {
@@ -94,10 +100,48 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
     }
   }
 
-  Future<void> _selectFood(FoodSearchItem item) async {
-    setState(() => _loadingFoodId = item.foodId);
+  Future<void> _submitSearch(String query) async {
+    await _search(query);
+    final resolver = widget.resolver;
+    if (resolver == null || !resolver.isConfigured || query.trim().isEmpty) {
+      return;
+    }
+    setState(() {
+      _resolvingSemantic = true;
+      _semanticFoodId = null;
+      _semanticFoodName = null;
+    });
     try {
-      final detail = await widget.apiClient.foodDetail(item.foodId);
+      final response = await resolver.resolveText(
+        query.trim(),
+        localTimestamp: DateTime.now(),
+        timezone: const String.fromEnvironment(
+          'OPENNUTRI_TIMEZONE',
+          defaultValue: 'Europe/Istanbul',
+        ),
+      );
+      final candidate =
+          response.items.firstOrNull?.selectedCandidate ??
+          response.manualSearchCandidates.firstOrNull;
+      if (!mounted) return;
+      setState(() {
+        _semanticFoodId = candidate?.foodId;
+        _semanticFoodName = candidate?.name;
+        _resolvingSemantic = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _resolvingSemantic = false);
+    }
+  }
+
+  Future<void> _selectFood(FoodSearchItem item) async {
+    await _selectFoodId(item.foodId);
+  }
+
+  Future<void> _selectFoodId(String foodId) async {
+    setState(() => _loadingFoodId = foodId);
+    try {
+      final detail = await widget.apiClient.foodDetail(foodId);
       if (!mounted) return;
       final entry = await showModalBottomSheet<DiaryEntry>(
         context: context,
@@ -133,6 +177,7 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
                   controller: _searchController,
                   focusNode: _focusNode,
                   textInputAction: TextInputAction.search,
+                  onSubmitted: _submitSearch,
                   decoration: InputDecoration(
                     hintText: 'Search foods',
                     prefixIcon: const Icon(Icons.search),
@@ -147,6 +192,25 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
                 ),
               ),
               if (_searching) const LinearProgressIndicator(minHeight: 2),
+              if (_resolvingSemantic)
+                const LinearProgressIndicator(minHeight: 2),
+              if (_semanticFoodId != null)
+                ListTile(
+                  leading: const Icon(Icons.auto_awesome),
+                  title: Text(_semanticFoodName ?? 'Semantic match'),
+                  subtitle: const Text(
+                    'Submitted search match — review before logging',
+                  ),
+                  trailing: _loadingFoodId == _semanticFoodId
+                      ? const SizedBox.square(
+                          dimension: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.chevron_right),
+                  onTap: _loadingFoodId == _semanticFoodId
+                      ? null
+                      : () => _selectFoodId(_semanticFoodId!),
+                ),
               Expanded(child: _buildResults(context)),
             ],
           ),

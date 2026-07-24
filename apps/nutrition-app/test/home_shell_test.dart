@@ -26,10 +26,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: HomeShell(
-          controller: controller,
-          apiClient: CoreApiClient(),
-        ),
+        home: HomeShell(controller: controller, apiClient: CoreApiClient()),
       ),
     );
     expect(find.text(_apple.name), findsNothing);

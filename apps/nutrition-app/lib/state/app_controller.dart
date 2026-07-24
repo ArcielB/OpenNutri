@@ -10,14 +10,20 @@ class AppController extends ChangeNotifier {
   List<DiaryEntry> _entries = const [];
   DateTime _selectedDate = DateTime.now();
   NutritionTargets _targets = const NutritionTargets();
+  bool _voiceDisclosureAccepted = false;
+  bool _voiceFeedbackConsent = false;
 
   DateTime get selectedDate => _selectedDate;
   NutritionTargets get targets => _targets;
   List<DiaryEntry> get entries => List.unmodifiable(_entries);
+  bool get voiceDisclosureAccepted => _voiceDisclosureAccepted;
+  bool get voiceFeedbackConsent => _voiceFeedbackConsent;
 
   Future<void> initialize() async {
     _entries = await _store.loadEntries();
     _targets = await _store.loadTargets();
+    _voiceDisclosureAccepted = await _store.loadVoiceDisclosureAccepted();
+    _voiceFeedbackConsent = await _store.loadVoiceFeedbackConsent();
   }
 
   List<DiaryEntry> entriesForSelectedDate() {
@@ -45,13 +51,24 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> addEntry(DiaryEntry entry) async {
-    _entries = [..._entries, entry];
+    await addEntries([entry]);
+  }
+
+  Future<void> addEntries(List<DiaryEntry> entries) async {
+    if (entries.isEmpty) return;
+    _entries = [..._entries, ...entries];
     notifyListeners();
     await _store.saveEntries(_entries);
   }
 
   Future<void> removeEntry(String entryId) async {
-    _entries = _entries.where((entry) => entry.id != entryId).toList();
+    await removeEntries([entryId]);
+  }
+
+  Future<void> removeEntries(Iterable<String> entryIds) async {
+    final ids = entryIds.toSet();
+    if (ids.isEmpty) return;
+    _entries = _entries.where((entry) => !ids.contains(entry.id)).toList();
     notifyListeners();
     await _store.saveEntries(_entries);
   }
@@ -66,5 +83,21 @@ class AppController extends ChangeNotifier {
     _targets = targets;
     notifyListeners();
     await _store.saveTargets(targets);
+  }
+
+  Future<void> acceptVoiceDisclosure({required bool feedbackConsent}) async {
+    _voiceDisclosureAccepted = true;
+    _voiceFeedbackConsent = feedbackConsent;
+    notifyListeners();
+    await Future.wait([
+      _store.saveVoiceDisclosureAccepted(true),
+      _store.saveVoiceFeedbackConsent(feedbackConsent),
+    ]);
+  }
+
+  Future<void> updateVoiceFeedbackConsent(bool enabled) async {
+    _voiceFeedbackConsent = enabled;
+    notifyListeners();
+    await _store.saveVoiceFeedbackConsent(enabled);
   }
 }
