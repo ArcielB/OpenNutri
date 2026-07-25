@@ -76,6 +76,14 @@ This is the current high-signal project state after the reviewer workflow moved 
   of every resolved item, persists a confirmed batch once with one undo, and accepts
   cold/warm `ACTION_VOICE_LOG` intents from a native 1×1 widget. Submitted text calls
   the private resolver only on explicit Search; typing remains public lexical search.
+  On-device Android 16 validation on 2026-07-25 confirmed installation, first-use
+  disclosure, microphone permission, widget-equivalent cold intent delivery,
+  recording, and temporary-WAV cleanup after the app project's HTTP 402 auth failure.
+  Authentication/provider exceptions are deliberately rendered as the safe Manual
+  search fallback rather than exposing provider response text. The measured debug
+  cold launch was about 7.4 seconds on the test device, above the beta's 4-second
+  cold target; it must be remeasured after startup optimization and in a release
+  build.
 - `benchmarks/voice-v0.1.0/` contains 240 balanced English/Turkish cases with 48
   committed deterministic audio fixtures. Validation is green; live threshold
   metrics remain unmeasured until the free-tier app Supabase project can serve auth

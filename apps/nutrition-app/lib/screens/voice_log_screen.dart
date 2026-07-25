@@ -198,11 +198,13 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         return;
       }
       await _prepareReview(response);
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _state = VoiceLogState.error;
-        _error = error.toString();
+        _state = VoiceLogState.manualSearch;
+        _error =
+            'Voice matching is temporarily unavailable. You can still search '
+            'manually.';
       });
     } finally {
       await _recorder.deleteTemporaryFile(path);

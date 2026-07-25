@@ -29,3 +29,7 @@ android/gradlew -p android :app:assembleDebugAndroidTest
 The home-screen widget starts `MainActivity` with `ACTION_VOICE_LOG`; recording
 begins only after Flutter is visible and microphone permission plus the first-use
 provider disclosure are satisfied.
+
+If anonymous sign-in or a voice provider is unavailable, the app does not expose
+provider error details. It returns to a safe Manual search fallback, and any
+temporary recording is still deleted.

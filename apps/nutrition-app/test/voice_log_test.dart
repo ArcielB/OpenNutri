@@ -126,6 +126,41 @@ void main() {
     expect(controller.voiceFeedbackConsent, isTrue);
     expect(find.text('Listening…'), findsOneWidget);
   });
+
+  testWidgets('provider failures use the safe manual-search fallback', (
+    tester,
+  ) async {
+    final store = _MemoryStore(disclosureAccepted: true);
+    final controller = AppController(store);
+    await controller.initialize();
+    final recorder = _FakeRecorder();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VoiceLogScreen(
+          controller: controller,
+          coreApiClient: _FakeCoreClient(),
+          voiceApiClient: _FailingVoiceClient(),
+          recorder: recorder,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Start recording'));
+    await tester.pump();
+    await tester.tap(find.text('Stop'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Voice matching is temporarily unavailable. You can still search '
+        'manually.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('AuthApiException'), findsNothing);
+    expect(recorder.deletedPaths, contains('/tmp/fake.wav'));
+  });
 }
 
 class _FakeRecorder extends ChangeNotifier implements VoiceRecorderSession {
@@ -220,6 +255,21 @@ class _FakeVoiceClient extends VoiceApiClient {
       manualSearchCandidates: [],
     );
   }
+}
+
+class _FailingVoiceClient extends VoiceApiClient {
+  @override
+  bool get isConfigured => true;
+
+  @override
+  Future<VoiceResolution> resolveVoice({
+    required String wavPath,
+    required String languageHint,
+    required DateTime localTimestamp,
+    required String timezone,
+  }) => throw const VoiceApiException(
+    'AuthApiException(message: provider implementation detail)',
+  );
 }
 
 class _FakeCoreClient extends CoreApiClient {
