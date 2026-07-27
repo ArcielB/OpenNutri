@@ -78,24 +78,27 @@ This is the current high-signal project state after the reviewer workflow moved 
   the private resolver only on explicit Search; typing remains public lexical search.
   On-device Android 16 validation on 2026-07-25 confirmed installation, first-use
   disclosure, microphone permission, widget-equivalent cold intent delivery,
-  recording, and temporary-WAV cleanup after the app project's HTTP 402 auth failure.
-  Authentication/provider exceptions are deliberately rendered as the safe Manual
-  search fallback rather than exposing provider response text. The measured debug
+  recording, and temporary-WAV cleanup after the then-shared app project's HTTP 402
+  auth failure. On 2026-07-27, the app was reprovisioned in its own isolated Free
+  Supabase organization and the resolver was redeployed to it; anonymous auth and
+  the private schema are now live without research egress coupling. Authentication/
+  provider exceptions are deliberately rendered as the safe Manual search fallback
+  rather than exposing provider response text. The measured debug
   cold launch was about 7.4 seconds on the test device, above the beta's 4-second
   cold target; it must be remeasured after startup optimization and in a release
   build.
 - `benchmarks/voice-v0.1.0/` contains 240 balanced English/Turkish cases with 48
   committed deterministic audio fixtures. Validation is green; live threshold
-  metrics remain unmeasured until the free-tier app Supabase project can serve auth
-  and the complete 768-dimensional index.
+  metrics remain unmeasured until the complete 768-dimensional index is built and
+  the live evaluator is run.
 - Raw skin-on drumstick FDC `172373` uses a reviewed `0.67` edible fraction. SR28's
   reported `66%` refuse double-counts overlapping 33% bone descriptions; the reviewed
   correction uses sibling raw meat-only record `05071`, which separates 33% bone
   from 9% skin and fat. Preserve both source and corrected values.
-- Next product work is running the complete voice benchmark after the app-project
-  free-tier egress restriction clears, plus the measured coverage audit for
-  as-purchased factors. Never blend nutrient values or copy weight factors between
-  merely similar foods silently.
+- Next product work is completing the private semantic index and then running the
+  complete live voice benchmark, plus the measured coverage audit for as-purchased
+  factors. Never blend nutrient values or copy weight factors between merely similar
+  foods silently.
 
 ## Team / Roles
 

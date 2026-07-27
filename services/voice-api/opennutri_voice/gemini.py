@@ -11,7 +11,16 @@ from .models import AudioExtraction, ExtractedConcept, SelectorOutput
 
 
 class GeminiError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        is_rate_limited: bool = False,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.is_rate_limited = is_rate_limited
+        self.retry_after_seconds = retry_after_seconds
 
 
 class GeminiClient:
@@ -34,6 +43,19 @@ class GeminiClient:
             response = await self.client.post(url, headers=self._headers, json=payload)
             response.raise_for_status()
             result = response.json()
+        except httpx.HTTPStatusError as exc:
+            retry_after: float | None = None
+            if exc.response.status_code == 429:
+                try:
+                    retry_after = float(exc.response.headers.get("retry-after", ""))
+                except ValueError:
+                    retry_after = None
+                raise GeminiError(
+                    "Gemini rate limit reached",
+                    is_rate_limited=True,
+                    retry_after_seconds=retry_after,
+                ) from exc
+            raise GeminiError("Gemini request failed") from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise GeminiError("Gemini request failed") from exc
         if not isinstance(result, dict):

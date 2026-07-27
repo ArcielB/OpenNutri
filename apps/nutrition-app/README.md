@@ -5,8 +5,9 @@ temporary 16 kHz mono PCM16 WAV, sends it only to the authenticated resolver,
 requires review of every item, and deletes the file after success, failure, or
 cancellation.
 
-The production resolver URL and Supabase project URL have non-secret defaults.
-Supply the app project's public client key at build time:
+The production resolver URL and isolated Voice Beta Supabase project URL have
+non-secret defaults. The app's public client key is project-specific, so supply
+the current key at build time:
 
 ```bash
 flutter build apk --debug \

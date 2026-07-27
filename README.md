@@ -246,7 +246,9 @@ Pipeline data outputs:
   retrieval sets, and stores only consented privacy-limited feedback. Its private
   Supabase vector/feedback/quota schema is under
   `services/voice-api/supabase/migrations/`; it does not use the dormant research
-  project. Production health: `https://opennutri-voice-beta.vercel.app/health`.
+  project and runs in an isolated Free Supabase organization, so its egress quota
+  is not shared with research. Production health:
+  `https://opennutri-voice-beta.vercel.app/health`.
 - `apps/nutrition-app/`: Android-first Flutter diary with transient 16 kHz WAV
   capture, mandatory multi-food review, atomic local batch logging/undo, explicit
   submitted semantic search, optional privacy-limited feedback, and a native 1×1

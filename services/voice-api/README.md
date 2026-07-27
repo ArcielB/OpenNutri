@@ -41,11 +41,13 @@ Override the database with `OPENNUTRI_CORE_DB_PATH`.
 Build or resume the 768-dimensional private semantic index with:
 
 ```bash
-python3 scripts/build_embeddings.py --batch-size 32
+python3 scripts/build_embeddings.py --batch-size 100
 ```
 
 Each input is a deterministic composition of food name, category, source terms, and
 preparation description. Its SHA-256 hash lets repeated runs skip unchanged rows.
+The default builder waits 65 seconds between batches and retries HTTP 429 responses,
+so a Free-tier build is slow but resumable rather than abandoning the index.
 
 ## API
 
@@ -70,6 +72,6 @@ alone is not a quality result.
 
 The production beta deployment is
 `https://opennutri-voice-beta.vercel.app`. Its unauthenticated health endpoint can
-be used for configuration smoke tests. Authenticated resolution remains unavailable
-while the app Supabase project is restricted by the organization-wide Free-plan
-egress quota; there is intentionally no billed fallback.
+be used for configuration smoke tests. It uses an isolated app-only Free Supabase
+organization, so dormant research traffic cannot consume this beta's egress quota;
+there is intentionally no billed fallback.

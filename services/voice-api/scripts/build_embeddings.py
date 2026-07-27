@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import hashlib
 import sys
+import time
 from pathlib import Path
 
 
@@ -36,7 +37,13 @@ def input_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-async def build(*, batch_size: int, limit: int | None) -> int:
+async def build(
+    *,
+    batch_size: int,
+    limit: int | None,
+    min_interval_seconds: float = 65.0,
+    max_rate_limit_retries: int = 5,
+) -> int:
     settings = Settings.from_environment()
     core = CoreFoodRepository(settings.core_database_path)
     core.validate()
@@ -56,9 +63,36 @@ async def build(*, batch_size: int, limit: int | None) -> int:
             break
 
     completed = 0
+    last_embedding_request_at: float | None = None
     for offset in range(0, len(pending), batch_size):
         batch = pending[offset : offset + batch_size]
-        vectors = await gemini.embed_documents([item[1] for item in batch])
+        if last_embedding_request_at is not None:
+            elapsed = time.monotonic() - last_embedding_request_at
+            delay = max(0.0, min_interval_seconds - elapsed)
+            if delay:
+                print(f"Waiting {delay:.0f}s for the embedding free-tier window", flush=True)
+                await asyncio.sleep(delay)
+
+        retry_count = 0
+        while True:
+            last_embedding_request_at = time.monotonic()
+            try:
+                vectors = await gemini.embed_documents([item[1] for item in batch])
+                break
+            except GeminiError as exc:
+                if (
+                    not exc.is_rate_limited
+                    or retry_count >= max_rate_limit_retries
+                ):
+                    raise
+                retry_count += 1
+                delay = max(min_interval_seconds, exc.retry_after_seconds or 0.0)
+                print(
+                    f"Gemini rate limited; retrying this batch in {delay:.0f}s "
+                    f"({retry_count}/{max_rate_limit_retries})",
+                    flush=True,
+                )
+                await asyncio.sleep(delay)
         rows = [
             {
                 "food_id": item[0]["food_id"],
@@ -83,12 +117,30 @@ async def build(*, batch_size: int, limit: int | None) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--min-interval-seconds",
+        type=float,
+        default=65.0,
+        help="Minimum delay between embedding requests; keeps a Free-tier build resumable.",
+    )
+    parser.add_argument("--max-rate-limit-retries", type=int, default=5)
     args = parser.parse_args()
     if not 1 <= args.batch_size <= 100:
         parser.error("--batch-size must be between 1 and 100")
-    asyncio.run(build(batch_size=args.batch_size, limit=args.limit))
+    if args.min_interval_seconds < 0:
+        parser.error("--min-interval-seconds must be non-negative")
+    if args.max_rate_limit_retries < 0:
+        parser.error("--max-rate-limit-retries must be non-negative")
+    asyncio.run(
+        build(
+            batch_size=args.batch_size,
+            limit=args.limit,
+            min_interval_seconds=args.min_interval_seconds,
+            max_rate_limit_retries=args.max_rate_limit_retries,
+        )
+    )
     return 0
 
 
