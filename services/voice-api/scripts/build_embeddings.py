@@ -17,7 +17,7 @@ if str(SERVICE_ROOT) not in sys.path:
 
 from opennutri_voice.config import Settings
 from opennutri_voice.core_repository import CoreFoodRepository
-from opennutri_voice.gemini import GeminiClient
+from opennutri_voice.gemini import GeminiClient, GeminiError
 from opennutri_voice.supabase_store import SupabasePrivateStore
 
 
@@ -42,7 +42,7 @@ async def build(
     batch_size: int,
     limit: int | None,
     min_interval_seconds: float = 65.0,
-    max_rate_limit_retries: int = 5,
+    max_retries: int = 5,
 ) -> int:
     settings = Settings.from_environment()
     core = CoreFoodRepository(settings.core_database_path)
@@ -81,15 +81,15 @@ async def build(
                 break
             except GeminiError as exc:
                 if (
-                    not exc.is_rate_limited
-                    or retry_count >= max_rate_limit_retries
+                    not exc.is_retryable
+                    or retry_count >= max_retries
                 ):
                     raise
                 retry_count += 1
                 delay = max(min_interval_seconds, exc.retry_after_seconds or 0.0)
                 print(
-                    f"Gemini rate limited; retrying this batch in {delay:.0f}s "
-                    f"({retry_count}/{max_rate_limit_retries})",
+                    f"{exc}; retrying this batch in {delay:.0f}s "
+                    f"({retry_count}/{max_retries})",
                     flush=True,
                 )
                 await asyncio.sleep(delay)
@@ -125,20 +125,20 @@ def main() -> int:
         default=65.0,
         help="Minimum delay between embedding requests; keeps a Free-tier build resumable.",
     )
-    parser.add_argument("--max-rate-limit-retries", type=int, default=5)
+    parser.add_argument("--max-retries", type=int, default=5)
     args = parser.parse_args()
     if not 1 <= args.batch_size <= 100:
         parser.error("--batch-size must be between 1 and 100")
     if args.min_interval_seconds < 0:
         parser.error("--min-interval-seconds must be non-negative")
-    if args.max_rate_limit_retries < 0:
-        parser.error("--max-rate-limit-retries must be non-negative")
+    if args.max_retries < 0:
+        parser.error("--max-retries must be non-negative")
     asyncio.run(
         build(
             batch_size=args.batch_size,
             limit=args.limit,
             min_interval_seconds=args.min_interval_seconds,
-            max_rate_limit_retries=args.max_rate_limit_retries,
+            max_retries=args.max_retries,
         )
     )
     return 0

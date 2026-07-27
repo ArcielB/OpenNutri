@@ -16,10 +16,12 @@ class GeminiError(RuntimeError):
         message: str,
         *,
         is_rate_limited: bool = False,
+        is_retryable: bool = False,
         retry_after_seconds: float | None = None,
     ) -> None:
         super().__init__(message)
         self.is_rate_limited = is_rate_limited
+        self.is_retryable = is_retryable
         self.retry_after_seconds = retry_after_seconds
 
 
@@ -53,10 +55,15 @@ class GeminiClient:
                 raise GeminiError(
                     "Gemini rate limit reached",
                     is_rate_limited=True,
+                    is_retryable=True,
                     retry_after_seconds=retry_after,
                 ) from exc
+            if exc.response.status_code >= 500:
+                raise GeminiError("Gemini is temporarily unavailable", is_retryable=True) from exc
             raise GeminiError("Gemini request failed") from exc
-        except (httpx.HTTPError, ValueError) as exc:
+        except httpx.HTTPError as exc:
+            raise GeminiError("Gemini is temporarily unavailable", is_retryable=True) from exc
+        except ValueError as exc:
             raise GeminiError("Gemini request failed") from exc
         if not isinstance(result, dict):
             raise GeminiError("Gemini returned an invalid payload")
