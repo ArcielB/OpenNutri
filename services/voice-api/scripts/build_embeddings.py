@@ -18,7 +18,7 @@ if str(SERVICE_ROOT) not in sys.path:
 from opennutri_voice.config import Settings
 from opennutri_voice.core_repository import CoreFoodRepository
 from opennutri_voice.gemini import GeminiClient, GeminiError
-from opennutri_voice.supabase_store import SupabasePrivateStore
+from opennutri_voice.supabase_store import SupabasePrivateStore, SupabaseStoreError
 
 
 def embedding_input(row: dict) -> str:
@@ -105,7 +105,19 @@ async def build(
             }
             for item, vector in zip(batch, vectors, strict=True)
         ]
-        await store.upsert_embeddings(rows)
+        for write_attempt in range(1, 4):
+            try:
+                await store.upsert_embeddings(rows)
+                break
+            except SupabaseStoreError:
+                if write_attempt == 3:
+                    raise
+                print(
+                    f"Embedding write timed out; retrying the idempotent upsert in "
+                    f"{write_attempt * 10}s ({write_attempt}/3)",
+                    flush=True,
+                )
+                await asyncio.sleep(write_attempt * 10)
         completed += len(rows)
         print(f"Embedded {completed}/{len(pending)} pending foods", flush=True)
     print(

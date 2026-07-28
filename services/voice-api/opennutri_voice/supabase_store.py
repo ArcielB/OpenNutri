@@ -27,7 +27,14 @@ class SupabasePrivateStore:
             "content-type": "application/json",
         }
 
-    async def _post(self, path: str, payload: Any, *, prefer: str | None = None) -> Any:
+    async def _post(
+        self,
+        path: str,
+        payload: Any,
+        *,
+        prefer: str | None = None,
+        timeout: float | None = None,
+    ) -> Any:
         headers = self._headers
         if prefer:
             headers["prefer"] = prefer
@@ -36,6 +43,7 @@ class SupabasePrivateStore:
                 f"{self.settings.supabase_url.rstrip('/')}{path}",
                 headers=headers,
                 json=payload,
+                timeout=timeout,
             )
             response.raise_for_status()
             if not response.content:
@@ -141,4 +149,5 @@ class SupabasePrivateStore:
             "/rest/v1/food_embeddings?on_conflict=food_id,index_version",
             rows,
             prefer="resolution=merge-duplicates,return=minimal",
+            timeout=90,
         )
