@@ -286,6 +286,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
             item.selectedFoodId == item.resolution.selectedCandidate?.foodId &&
             item.resolution.confidence >= _autoLogConfidence &&
             !item.resolution.isUnspecified &&
+            item.resolution.alternatives.isEmpty &&
             item.resolution.unresolvedFields.isEmpty,
       );
 

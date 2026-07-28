@@ -233,7 +233,8 @@ class GeminiClient:
                             "conversion, or recipe decomposition. Preserve material preparation "
                             "and weight-basis distinctions as unresolved fields. An NFS/NS item "
                             "may be proposed as unspecified. Return alternatives only from that "
-                            "same set."
+                            "same set, and only when they are a materially plausible choice for "
+                            "the spoken food."
                         )
                     }
                 ]

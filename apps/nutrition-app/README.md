@@ -6,7 +6,8 @@ and deletes the file after success, failure, or cancellation. By default, a
 fully resolved high-confidence batch is written automatically; the app keeps an
 immediate Edit batch and Undo batch action on the success screen. Any missing or
 ambiguous Core food, quantity, weight basis, preparation distinction, or
-unspecified food opens the review screen instead.
+unspecified food opens the review screen instead. A selector-provided alternative
+also counts as ambiguity, so it never bypasses review.
 
 The production resolver URL and isolated Voice Beta Supabase project URL have
 non-secret defaults. The app's public client key is project-specific, so supply
