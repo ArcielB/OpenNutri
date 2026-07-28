@@ -71,6 +71,7 @@ void main() {
       await tester.tap(find.text('Start recording'));
       await tester.pump();
       expect(find.text('Listening…'), findsOneWidget);
+      expect(voiceClient.warmUpCalls, 1);
 
       await tester.tap(find.text('Stop'));
       await tester.pumpAndSettle();
@@ -204,8 +205,15 @@ class _FakeRecorder extends ChangeNotifier implements VoiceRecorderSession {
 }
 
 class _FakeVoiceClient extends VoiceApiClient {
+  int warmUpCalls = 0;
+
   @override
   bool get isConfigured => true;
+
+  @override
+  Future<void> warmUp() async {
+    warmUpCalls += 1;
+  }
 
   @override
   Future<VoiceResolution> resolveVoice({

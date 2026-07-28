@@ -31,6 +31,10 @@ The home-screen widget starts `MainActivity` with `ACTION_VOICE_LOG`; recording
 begins only after Flutter is visible and microphone permission plus the first-use
 provider disclosure are satisfied.
 
+Starting a recording also non-blockingly warms anonymous auth and the resolver
+health endpoint while the person is speaking. This overlaps first-use/serverless
+startup work with recording; it never uploads audio before Stop is pressed.
+
 If anonymous sign-in or a voice provider is unavailable, the app does not expose
 provider error details. It returns to a safe Manual search fallback, and any
 temporary recording is still deleted.

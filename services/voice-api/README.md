@@ -74,4 +74,5 @@ The production beta deployment is
 `https://opennutri-voice-beta.vercel.app`. Its unauthenticated health endpoint can
 be used for configuration smoke tests. It uses an isolated app-only Free Supabase
 organization, so dormant research traffic cannot consume this beta's egress quota;
-there is intentionally no billed fallback.
+there is intentionally no billed fallback. The Vercel function is pinned to
+Frankfurt (`fra1`) to keep the Android beta close to its EU Supabase project.

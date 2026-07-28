@@ -76,6 +76,10 @@ This is the current high-signal project state after the reviewer workflow moved 
   of every resolved item, persists a confirmed batch once with one undo, and accepts
   cold/warm `ACTION_VOICE_LOG` intents from a native 1×1 widget. Submitted text calls
   the private resolver only on explicit Search; typing remains public lexical search.
+  Starting a recording prewarms anonymous auth and the resolver health endpoint in
+  parallel with local recording; it cannot upload audio before the user stops it.
+  The resolver is deployed in Frankfurt beside the EU app project to reduce avoidable
+  mobile-to-backend and backend-to-Supabase latency.
   On-device Android 16 validation on 2026-07-25 confirmed installation, first-use
   disclosure, microphone permission, widget-equivalent cold intent delivery,
   recording, and temporary-WAV cleanup after the then-shared app project's HTTP 402

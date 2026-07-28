@@ -20,6 +20,24 @@ class VoiceApiClient {
 
   bool get isConfigured => baseUrl.isNotEmpty && SupabaseConfig.isConfigured;
 
+  /// Starts anonymous auth and the resolver's cold function while recording begins.
+  /// Failures stay non-blocking: the actual resolution path retains its normal
+  /// manual-search fallback.
+  Future<void> warmUp() async {
+    if (!isConfigured) return;
+    try {
+      await Future.wait<void>([
+        _accessToken(),
+        _client
+            .get(Uri.parse('$baseUrl/health'))
+            .timeout(const Duration(seconds: 8))
+            .then<void>((_) {}),
+      ]);
+    } catch (_) {
+      // Recording must remain available when auth or the resolver is offline.
+    }
+  }
+
   Future<String> _accessToken() async {
     if (!SupabaseConfig.isConfigured) {
       throw const VoiceApiException('Voice sign-in is not configured');

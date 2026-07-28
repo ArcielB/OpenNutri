@@ -152,6 +152,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
       return;
     }
     if (!await _ensureDisclosure() || !mounted) return;
+    unawaited(widget.voiceApiClient.warmUp());
     setState(() {
       _error = null;
       _state = VoiceLogState.recording;
