@@ -9,6 +9,7 @@ class LocalStore {
   static const _targetsKey = 'opennutri.targets.v1';
   static const _voiceDisclosureKey = 'opennutri.voice.disclosure.v1';
   static const _voiceFeedbackConsentKey = 'opennutri.voice.feedback_consent.v1';
+  static const _voiceFastLoggingKey = 'opennutri.voice.fast_logging.v1';
 
   Future<List<DiaryEntry>> loadEntries() async {
     final preferences = await SharedPreferences.getInstance();
@@ -58,5 +59,17 @@ class LocalStore {
   Future<void> saveVoiceFeedbackConsent(bool enabled) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_voiceFeedbackConsentKey, enabled);
+  }
+
+  Future<bool> loadVoiceFastLogging() async {
+    final preferences = await SharedPreferences.getInstance();
+    // Fast logging is the beta default. A person can opt into review-everything
+    // from Settings without losing the bounded resolver safeguards.
+    return preferences.getBool(_voiceFastLoggingKey) ?? true;
+  }
+
+  Future<void> saveVoiceFastLogging(bool enabled) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_voiceFastLoggingKey, enabled);
   }
 }

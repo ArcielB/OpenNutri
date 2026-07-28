@@ -71,6 +71,7 @@ class StubGemini:
                     food_name="apple",
                     quantity=ExtractedQuantity(value=100, unit="g"),
                     preparation=["raw"],
+                    meal="breakfast",
                 )
             ],
         )
@@ -143,6 +144,7 @@ def test_auth_audio_validation_and_bounded_voice_response(settings):
     assert payload["status"] == "resolved"
     assert payload["items"][0]["selected_candidate"]["food_id"] == "food-apple"
     assert payload["items"][0]["quantity"]["grams"] == 100
+    assert payload["items"][0]["meal_default"] == "breakfast"
     assert len(store.released) == 1
 
 

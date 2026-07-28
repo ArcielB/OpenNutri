@@ -250,9 +250,9 @@ Pipeline data outputs:
   is not shared with research. Production health:
   `https://opennutri-voice-beta.vercel.app/health`.
 - `apps/nutrition-app/`: Android-first Flutter diary with transient 16 kHz WAV
-  capture, mandatory multi-food review, atomic local batch logging/undo, explicit
-  submitted semantic search, optional privacy-limited feedback, and a native 1×1
-  microphone widget.
+  capture, high-confidence automatic multi-food batch logging with immediate
+  edit/undo, focused review only for uncertainty, explicit submitted semantic
+  search, optional privacy-limited feedback, and a native 1×1 microphone widget.
 - `benchmarks/voice-v0.1.0/`: 240 versioned English/Turkish text and deterministic
   audio cases, manifest/audio validation, and threshold scoring for retrieval,
   constrained selection, clarification safety, candidate validity, and latency.

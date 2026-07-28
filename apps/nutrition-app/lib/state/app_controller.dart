@@ -12,18 +12,21 @@ class AppController extends ChangeNotifier {
   NutritionTargets _targets = const NutritionTargets();
   bool _voiceDisclosureAccepted = false;
   bool _voiceFeedbackConsent = false;
+  bool _voiceFastLogging = true;
 
   DateTime get selectedDate => _selectedDate;
   NutritionTargets get targets => _targets;
   List<DiaryEntry> get entries => List.unmodifiable(_entries);
   bool get voiceDisclosureAccepted => _voiceDisclosureAccepted;
   bool get voiceFeedbackConsent => _voiceFeedbackConsent;
+  bool get voiceFastLogging => _voiceFastLogging;
 
   Future<void> initialize() async {
     _entries = await _store.loadEntries();
     _targets = await _store.loadTargets();
     _voiceDisclosureAccepted = await _store.loadVoiceDisclosureAccepted();
     _voiceFeedbackConsent = await _store.loadVoiceFeedbackConsent();
+    _voiceFastLogging = await _store.loadVoiceFastLogging();
   }
 
   List<DiaryEntry> entriesForSelectedDate() {
@@ -99,5 +102,11 @@ class AppController extends ChangeNotifier {
     _voiceFeedbackConsent = enabled;
     notifyListeners();
     await _store.saveVoiceFeedbackConsent(enabled);
+  }
+
+  Future<void> updateVoiceFastLogging(bool enabled) async {
+    _voiceFastLogging = enabled;
+    notifyListeners();
+    await _store.saveVoiceFastLogging(enabled);
   }
 }

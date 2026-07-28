@@ -72,10 +72,13 @@ This is the current high-signal project state after the reviewer workflow moved 
   embedding request, and one constrained selector call; candidate IDs are validated
   against deterministic top-12 fusion before returning. Provider/quota errors return
   a manual-search state without a paid fallback.
-- The Flutter Android beta records bounded temporary PCM WAV, requires visual review
-  of every resolved item, persists a confirmed batch once with one undo, and accepts
-  cold/warm `ACTION_VOICE_LOG` intents from a native 1×1 widget. Submitted text calls
-  the private resolver only on explicit Search; typing remains public lexical search.
+- The Flutter Android beta records bounded temporary PCM WAV, automatically persists
+  a fully resolved high-confidence batch once and shows immediate Edit batch/Undo
+  batch actions; it opens visual review for any unresolved or lower-confidence item.
+  One recording supports up to ten foods and preserves explicitly spoken meal groups;
+  otherwise per-item meal defaults come from local time. It accepts cold/warm
+  `ACTION_VOICE_LOG` intents from a native 1×1 widget. Submitted text calls the private
+  resolver only on explicit Search; typing remains public lexical search.
   Starting a recording prewarms anonymous auth and the resolver health endpoint in
   parallel with local recording; it cannot upload audio before the user stops it.
   The resolver is deployed in Frankfurt beside the EU app project to reduce avoidable

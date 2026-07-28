@@ -16,6 +16,7 @@ enum VoiceLogState {
   recording,
   processing,
   review,
+  logged,
   manualSearch,
   permissionDenied,
   error,
@@ -42,6 +43,7 @@ class VoiceLogScreen extends StatefulWidget {
 }
 
 class _VoiceLogScreenState extends State<VoiceLogScreen> {
+  static const _autoLogConfidence = 0.92;
   static const timezone = String.fromEnvironment(
     'OPENNUTRI_TIMEZONE',
     defaultValue: 'Europe/Istanbul',
@@ -52,6 +54,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
   VoiceLogState _state = VoiceLogState.ready;
   VoiceResolution? _resolution;
   List<_ReviewItem> _reviewItems = const [];
+  List<String> _autoLoggedEntryIds = const [];
   String? _error;
   String? _processingPath;
 
@@ -198,6 +201,15 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         });
         return;
       }
+      // Load only the selected Core foods first. This keeps the common
+      // high-confidence path fast: alternatives are fetched only when the
+      // person needs to review or edit the result.
+      await _prepareReview(response, selectedOnly: true, showReview: false);
+      if (!mounted) return;
+      if (_canAutoLog) {
+        await _logAll(automatic: true);
+        return;
+      }
       await _prepareReview(response);
     } catch (_) {
       if (!mounted) return;
@@ -213,11 +225,17 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
     }
   }
 
-  Future<void> _prepareReview(VoiceResolution response) async {
-    final ids = response.items
-        .expand((item) => item.candidates)
-        .map((candidate) => candidate.foodId)
-        .toSet();
+  Future<void> _prepareReview(
+    VoiceResolution response, {
+    bool selectedOnly = false,
+    bool showReview = true,
+  }) async {
+    final candidates = selectedOnly
+        ? response.items
+              .map((item) => item.selectedCandidate)
+              .whereType<VoiceFoodCandidate>()
+        : response.items.expand((item) => item.candidates);
+    final ids = candidates.map((candidate) => candidate.foodId).toSet();
     final details = <String, FoodDetail>{};
     await Future.wait(
       ids.map((id) async {
@@ -238,7 +256,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
           ),
         )
         .toList(growable: false);
-    if (!mounted) return;
+    if (!mounted || !showReview) return;
     setState(() => _state = VoiceLogState.review);
   }
 
@@ -260,7 +278,18 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
   bool get _canLogAll =>
       _reviewItems.isNotEmpty && _reviewItems.every((item) => item.isValid);
 
-  Future<void> _logAll() async {
+  bool get _canAutoLog =>
+      widget.controller.voiceFastLogging &&
+      _canLogAll &&
+      _reviewItems.every(
+        (item) =>
+            item.selectedFoodId == item.resolution.selectedCandidate?.foodId &&
+            item.resolution.confidence >= _autoLogConfidence &&
+            !item.resolution.isUnspecified &&
+            item.resolution.unresolvedFields.isEmpty,
+      );
+
+  Future<void> _logAll({bool automatic = false}) async {
     if (!_canLogAll || _resolution == null) return;
     final entries = <DiaryEntry>[];
     final feedback = <VoiceFeedbackItem>[];
@@ -307,8 +336,15 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
       }
     }
     if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
     final ids = entries.map((entry) => entry.id).toList(growable: false);
+    if (automatic) {
+      setState(() {
+        _autoLoggedEntryIds = ids;
+        _state = VoiceLogState.logged;
+      });
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
     messenger.showSnackBar(
       SnackBar(
@@ -319,6 +355,27 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _undoAutomaticLog() async {
+    final ids = _autoLoggedEntryIds;
+    if (ids.isEmpty) return;
+    await widget.controller.removeEntries(ids);
+    if (!mounted) return;
+    setState(() {
+      _autoLoggedEntryIds = const [];
+      _state = VoiceLogState.ready;
+    });
+  }
+
+  Future<void> _editAutomaticLog() async {
+    final resolution = _resolution;
+    final ids = _autoLoggedEntryIds;
+    if (resolution == null || ids.isEmpty) return;
+    await widget.controller.removeEntries(ids);
+    if (!mounted) return;
+    _autoLoggedEntryIds = const [];
+    await _prepareReview(resolution);
   }
 
   Future<void> _openManualSearch() async {
@@ -357,8 +414,14 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
                 transcript: _resolution?.transcript ?? '',
                 items: _reviewItems,
                 canLogAll: _canLogAll,
-                onLogAll: _logAll,
+                onLogAll: () => _logAll(),
                 onManualSearch: _openManualSearch,
+              ),
+              VoiceLogState.logged => _AutoLoggedView(
+                items: _reviewItems,
+                onUndo: _undoAutomaticLog,
+                onEdit: _editAutomaticLog,
+                onDone: () => Navigator.of(context).pop(),
               ),
               VoiceLogState.manualSearch => _FallbackView(
                 message: _error,
@@ -510,13 +573,15 @@ class _ReadyView extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            'Describe your meal',
+            'Log your day by voice',
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           const SizedBox(height: 8),
           const Text(
-            'Include amounts and details such as raw, cooked, drained, '
-            'skin, bone, or as-purchased weight.',
+            'Say several foods at once (up to 10). You can group them by '
+            'meal: “Breakfast: 2 eggs. Dinner: 150 g chicken.” Include '
+            'amounts and details such as raw, cooked, drained, skin, bone, '
+            'or as-purchased weight.',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
@@ -654,6 +719,87 @@ class _ReviewView extends StatelessWidget {
       ],
     );
   }
+}
+
+class _AutoLoggedView extends StatelessWidget {
+  const _AutoLoggedView({
+    required this.items,
+    required this.onUndo,
+    required this.onEdit,
+    required this.onDone,
+  });
+
+  final List<_ReviewItem> items;
+  final VoidCallback onUndo;
+  final VoidCallback onEdit;
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      key: const ValueKey('voice-auto-logged'),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.check_circle_outline,
+            size: 68,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Logged automatically',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${items.length} ${items.length == 1 ? 'food was' : 'foods were'} added to Today.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final grams = item.grams;
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    item.selectedDetail?.name ?? item.resolution.sourcePhrase,
+                  ),
+                  subtitle: Text(
+                    '${item.meal.label}${grams == null ? '' : ' · ${_formatGrams(grams)} g'}',
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Edit batch'),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: onUndo,
+            icon: const Icon(Icons.undo),
+            label: const Text('Undo batch'),
+          ),
+          TextButton(onPressed: onDone, child: const Text('Done')),
+        ],
+      ),
+    );
+  }
+
+  String _formatGrams(double grams) =>
+      grams % 1 == 0 ? grams.toStringAsFixed(0) : grams.toStringAsFixed(1);
 }
 
 class _ReviewItemCard extends StatelessWidget {

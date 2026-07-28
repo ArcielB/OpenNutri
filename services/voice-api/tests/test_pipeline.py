@@ -4,6 +4,7 @@ import pytest
 
 from opennutri_voice.core_repository import CoreFoodRepository
 from opennutri_voice.models import (
+    AudioExtraction,
     ExtractedConcept,
     ExtractedQuantity,
     SelectorDecision,
@@ -84,6 +85,18 @@ def test_candidate_ids_outside_retrieval_set_are_rejected(pipeline):
     assert item.selected_candidate is None
     assert "food" in item.unresolved_fields
     assert [candidate.food_id for candidate in item.alternatives] == ["food-apple"]
+
+
+def test_audio_extraction_supports_a_day_batch_of_ten_foods():
+    extraction = AudioExtraction(
+        transcript="ten foods",
+        detected_language="en",
+        concepts=[
+            ExtractedConcept(source_phrase=f"food {index}", food_name=f"food {index}")
+            for index in range(10)
+        ],
+    )
+    assert len(extraction.concepts) == 10
 
 
 @pytest.mark.parametrize(

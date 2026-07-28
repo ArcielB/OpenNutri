@@ -4,7 +4,7 @@ This private FastAPI service implements the bounded beta pipeline:
 
 ```text
 audio -> structured concepts -> lexical + semantic retrieval
-      -> constrained candidate selection -> Flutter review
+      -> constrained candidate selection -> automatic log or Flutter review
 ```
 
 The service never returns invented nutrient data. Gemini can select only a Core food
@@ -19,6 +19,8 @@ validated again. Flutter obtains nutrients from the public Core API after review
   minute, 50 AI resolutions per subject/day, and 200 globally/day by default.
 - Each voice request makes at most one audio extraction call, one batched embedding
   call, and one constrained selector call.
+- A recording may contain up to ten foods. Explicit spoken meal groups are returned
+  per concept; meal is otherwise left unset for Flutter's local-time default.
 - Provider or quota failures return `status=manual_search`; there is no paid fallback.
 - Audio is held only in request memory and is never written to Supabase or logs.
 - Feedback accepts only short source phrases, proposed/final Core IDs, correction

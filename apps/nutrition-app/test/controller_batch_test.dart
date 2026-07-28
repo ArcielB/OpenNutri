@@ -39,6 +39,7 @@ void main() {
       await controller.acceptVoiceDisclosure(feedbackConsent: true);
       expect(controller.voiceDisclosureAccepted, isTrue);
       expect(controller.voiceFeedbackConsent, isTrue);
+      expect(controller.voiceFastLogging, isTrue);
       expect(store.disclosureAccepted, isTrue);
       expect(store.feedbackConsent, isTrue);
 
@@ -46,6 +47,10 @@ void main() {
       expect(controller.voiceDisclosureAccepted, isTrue);
       expect(controller.voiceFeedbackConsent, isFalse);
       expect(store.feedbackConsent, isFalse);
+
+      await controller.updateVoiceFastLogging(false);
+      expect(controller.voiceFastLogging, isFalse);
+      expect(store.fastLogging, isFalse);
     },
   );
 }
@@ -85,6 +90,7 @@ class _CountingStore extends LocalStore {
   List<DiaryEntry> lastSaved = const [];
   bool disclosureAccepted = false;
   bool feedbackConsent = false;
+  bool fastLogging = true;
 
   @override
   Future<List<DiaryEntry>> loadEntries() async => const [];
@@ -97,6 +103,9 @@ class _CountingStore extends LocalStore {
 
   @override
   Future<bool> loadVoiceFeedbackConsent() async => feedbackConsent;
+
+  @override
+  Future<bool> loadVoiceFastLogging() async => fastLogging;
 
   @override
   Future<void> saveEntries(List<DiaryEntry> entries) async {
@@ -112,5 +121,10 @@ class _CountingStore extends LocalStore {
   @override
   Future<void> saveVoiceFeedbackConsent(bool enabled) async {
     feedbackConsent = enabled;
+  }
+
+  @override
+  Future<void> saveVoiceFastLogging(bool enabled) async {
+    fastLogging = enabled;
   }
 }

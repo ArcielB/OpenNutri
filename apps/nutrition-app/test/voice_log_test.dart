@@ -128,6 +128,47 @@ void main() {
     expect(find.text('Listening…'), findsOneWidget);
   });
 
+  testWidgets(
+    'a fully resolved high-confidence batch logs automatically and can be edited',
+    (tester) async {
+      final store = _MemoryStore(disclosureAccepted: true);
+      final controller = AppController(store);
+      await controller.initialize();
+      final recorder = _FakeRecorder();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VoiceLogScreen(
+            controller: controller,
+            coreApiClient: _FakeCoreClient(),
+            voiceApiClient: _ResolvedVoiceClient(),
+            recorder: recorder,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Start recording'));
+      await tester.pump();
+      await tester.tap(find.text('Stop'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Logged automatically'), findsOneWidget);
+      expect(controller.entries, hasLength(1));
+      expect(controller.entries.single.grams, 100);
+      expect(store.entrySaveCount, 1);
+
+      await tester.tap(find.text('Edit batch'));
+      await tester.pumpAndSettle();
+      expect(controller.entries, isEmpty);
+      expect(find.widgetWithText(FilledButton, 'Log all (1)'), findsOneWidget);
+
+      await tester.tap(find.text('Log all (1)'));
+      await tester.pumpAndSettle();
+      expect(controller.entries, hasLength(1));
+      expect(store.entrySaveCount, 3);
+    },
+  );
+
   testWidgets('provider failures use the safe manual-search fallback', (
     tester,
   ) async {
@@ -280,6 +321,62 @@ class _FailingVoiceClient extends VoiceApiClient {
   );
 }
 
+class _ResolvedVoiceClient extends _FakeVoiceClient {
+  @override
+  Future<VoiceResolution> resolveVoice({
+    required String wavPath,
+    required String languageHint,
+    required DateTime localTimestamp,
+    required String timezone,
+  }) async {
+    return const VoiceResolution(
+      status: 'resolved',
+      metadata: ResolutionMetadata(
+        requestId: 'request-2',
+        coreVersion: '0.3.0',
+        indexVersion: 'index-1',
+        selectorModel: 'selector-1',
+      ),
+      transcript: '100 grams raw apple',
+      detectedLanguage: 'en',
+      items: [
+        ResolvedVoiceItem(
+          conceptIndex: 0,
+          sourcePhrase: '100 grams raw apple',
+          selectedCandidate: VoiceFoodCandidate(
+            foodId: 'food-apple',
+            name: 'Apple, raw',
+            category: 'Fruit',
+            qualityStatus: 'complete',
+            sourceReleaseId: 'fixture',
+            portions: [],
+            hasUsableWeightFactor: false,
+            matchedChannels: ['primary'],
+            retrievalScore: 1,
+          ),
+          alternatives: [],
+          confidence: 0.95,
+          preparation: ['raw'],
+          weightBasis: VoiceWeightBasis(
+            status: 'resolved',
+            value: LoggedWeightBasis.edible,
+          ),
+          quantity: VoiceQuantity(
+            status: 'resolved',
+            grams: 100,
+            spokenValue: 100,
+            spokenUnit: 'g',
+          ),
+          mealDefault: MealType.breakfast,
+          unresolvedFields: [],
+          isUnspecified: false,
+        ),
+      ],
+      manualSearchCandidates: [],
+    );
+  }
+}
+
 class _FakeCoreClient extends CoreApiClient {
   @override
   Future<FoodDetail> foodDetail(String foodId) async => _apple;
@@ -308,6 +405,7 @@ class _MemoryStore extends LocalStore {
   _MemoryStore({this.disclosureAccepted = false});
   bool disclosureAccepted;
   bool feedbackConsent = false;
+  bool fastLogging = true;
   int entrySaveCount = 0;
 
   @override
@@ -318,6 +416,8 @@ class _MemoryStore extends LocalStore {
   Future<bool> loadVoiceDisclosureAccepted() async => disclosureAccepted;
   @override
   Future<bool> loadVoiceFeedbackConsent() async => feedbackConsent;
+  @override
+  Future<bool> loadVoiceFastLogging() async => fastLogging;
   @override
   Future<void> saveEntries(List<DiaryEntry> entries) async {
     entrySaveCount += 1;
@@ -331,5 +431,10 @@ class _MemoryStore extends LocalStore {
   @override
   Future<void> saveVoiceFeedbackConsent(bool enabled) async {
     feedbackConsent = enabled;
+  }
+
+  @override
+  Future<void> saveVoiceFastLogging(bool enabled) async {
+    fastLogging = enabled;
   }
 }

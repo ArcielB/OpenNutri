@@ -137,14 +137,14 @@ class ResolverPipeline:
             candidate_sets=candidate_sets,
         )
         decisions = {decision.concept_index: decision for decision in selector.decisions}
-        meal_default = self.meal_for(local_timestamp, timezone_name)
+        fallback_meal = self.meal_for(local_timestamp, timezone_name)
         items = [
             self._build_item(
                 concept_index=index,
                 concept=concept,
                 candidates=candidate_sets[index],
                 decision=decisions.get(index),
-                meal_default=meal_default,
+                meal_default=concept.meal or fallback_meal,
             )
             for index, concept in enumerate(concepts)
         ]

@@ -229,6 +229,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 8),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
+                value: widget.controller.voiceFastLogging,
+                onChanged: widget.controller.updateVoiceFastLogging,
+                title: const Text('Log confident foods automatically'),
+                subtitle: const Text(
+                  'Default. Foods with a valid Core match, amount, weight '
+                  'basis, and high confidence are logged immediately. Others '
+                  'still open for review.',
+                ),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
                 value: widget.controller.voiceFeedbackConsent,
                 onChanged: widget.controller.updateVoiceFeedbackConsent,
                 title: const Text('Share correction feedback'),

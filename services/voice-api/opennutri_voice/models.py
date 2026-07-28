@@ -30,12 +30,16 @@ class ExtractedConcept(StrictModel):
     quantity: ExtractedQuantity = Field(default_factory=ExtractedQuantity)
     preparation: list[str] = Field(default_factory=list, max_length=8)
     weight_basis: Literal["edible", "as_purchased"] | None = None
+    # This is populated only when the person explicitly groups a food under a
+    # meal (for example, "for breakfast" or "akşam yemeğinde"). It must not
+    # be inferred from the food itself.
+    meal: MealType | None = None
 
 
 class AudioExtraction(StrictModel):
     transcript: str = Field(max_length=1000)
     detected_language: str = Field(max_length=32)
-    concepts: list[ExtractedConcept] = Field(min_length=1, max_length=5)
+    concepts: list[ExtractedConcept] = Field(min_length=1, max_length=10)
 
 
 class CandidatePortion(StrictModel):
@@ -62,7 +66,7 @@ class FoodCandidate(StrictModel):
 
 
 class SelectorDecision(StrictModel):
-    concept_index: int = Field(ge=0, le=4)
+    concept_index: int = Field(ge=0, le=9)
     selected_food_id: str | None = None
     alternative_food_ids: list[str] = Field(default_factory=list, max_length=4)
     confidence: float = Field(ge=0, le=1)
@@ -79,7 +83,7 @@ class SelectorDecision(StrictModel):
 
 
 class SelectorOutput(StrictModel):
-    decisions: list[SelectorDecision] = Field(max_length=5)
+    decisions: list[SelectorDecision] = Field(max_length=10)
 
 
 class QuantityResolution(StrictModel):
@@ -97,7 +101,7 @@ class WeightBasisResolution(StrictModel):
 
 
 class ResolvedFoodItem(StrictModel):
-    concept_index: int = Field(ge=0, le=4)
+    concept_index: int = Field(ge=0, le=9)
     source_phrase: str
     selected_candidate: FoodCandidate | None
     alternatives: list[FoodCandidate]
@@ -125,7 +129,7 @@ class ResolutionResponse(StrictModel):
     metadata: ResolutionMetadata
     transcript: str
     detected_language: str
-    items: list[ResolvedFoodItem] = Field(default_factory=list, max_length=5)
+    items: list[ResolvedFoodItem] = Field(default_factory=list, max_length=10)
     manual_search_query: str | None = None
     manual_search_candidates: list[FoodCandidate] = Field(default_factory=list)
     error_code: str | None = None
@@ -149,11 +153,11 @@ class FeedbackRequest(StrictModel):
     core_version: str = Field(min_length=1, max_length=64)
     index_version: str = Field(min_length=1, max_length=128)
     model_version: str = Field(min_length=1, max_length=128)
-    items: list[FeedbackItem] = Field(min_length=1, max_length=5)
+    items: list[FeedbackItem] = Field(min_length=1, max_length=10)
 
 
 class FeedbackResponse(StrictModel):
-    stored: int = Field(ge=0, le=5)
+    stored: int = Field(ge=0, le=10)
 
 
 class DeleteFeedbackResponse(StrictModel):

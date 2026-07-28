@@ -90,10 +90,14 @@ class GeminiClient:
                 "parts": [
                     {
                         "text": (
-                            "Transcribe the meal recording and extract at most five distinct "
+                            "Transcribe the food recording and extract at most ten distinct "
                             "food concepts. Preserve raw/cooked, drained, skin, bone, edible, "
                             "and as-purchased wording. Never invent a quantity or preparation. "
-                            "English and Turkish are supported; other languages are best effort."
+                            "Set a concept's meal only when the speaker explicitly groups it "
+                            "under breakfast, lunch, dinner, or snacks (for example, 'for "
+                            "breakfast' or 'kahvaltıda'); otherwise return null. Never infer a "
+                            "meal from the food. English and Turkish are supported; other "
+                            "languages are best effort."
                         )
                     }
                 ]
