@@ -101,6 +101,17 @@ QUANTITY_RE = re.compile(
     r"adet|piece|pieces|cup|cups|fincan|bardak|dilim|slice|slices)\b",
     re.IGNORECASE,
 )
+SEHRIYE_ALIAS_RE = re.compile(
+    r"\b(?:tel\s+|arpa\s+)?(?:sehriye|sehirye|sehir\s+ye|sehiriye|sehrie|shehriye)\b"
+)
+DRY_PASTA_WORDS = {"raw", "dry", "uncooked", "cig"}
+COOKED_PASTA_WORDS = {
+    "cooked",
+    "boiled",
+    "pismis",
+    "pisirilmis",
+    "haslanmis",
+}
 
 
 class ResolverPipeline:
@@ -440,6 +451,17 @@ class ResolverPipeline:
 
     @classmethod
     def _food_search_query(cls, concept: ExtractedConcept) -> str:
+        alias_material = " ".join(
+            [concept.source_phrase, concept.food_name, *concept.preparation]
+        )
+        alias_text = cls._ascii_search_text(alias_material)
+        if SEHRIYE_ALIAS_RE.search(alias_text):
+            alias_words = set(WORD_RE.findall(alias_text))
+            if alias_words.intersection(COOKED_PASTA_WORDS):
+                return "pasta cooked"
+            if alias_words.intersection(DRY_PASTA_WORDS):
+                return "pasta dry enriched"
+            return "pasta"
         words = WORD_RE.findall(
             unicodedata.normalize("NFKC", concept.food_name)
         )
@@ -447,6 +469,22 @@ class ResolverPipeline:
             word for word in words if word.casefold() not in PORTION_SIZE_WORDS
         ]
         return " ".join(filtered).strip() or concept.food_name
+
+    @staticmethod
+    def _ascii_search_text(value: str) -> str:
+        normalized = unicodedata.normalize("NFKD", value).casefold()
+        return "".join(
+            character
+            for character in normalized
+            if not unicodedata.combining(character)
+        )
+
+    @classmethod
+    def _uses_curated_food_alias(cls, concept: ExtractedConcept) -> bool:
+        material = " ".join(
+            [concept.source_phrase, concept.food_name, *concept.preparation]
+        )
+        return bool(SEHRIYE_ALIAS_RE.search(cls._ascii_search_text(material)))
 
     def manual_search_response(
         self,
@@ -519,6 +557,8 @@ class ResolverPipeline:
             unresolved.append("weight_basis")
         if selected and self._needs_preparation_confirmation(concept, selected):
             unresolved.append("preparation")
+        if selected and self._uses_curated_food_alias(concept):
+            unresolved.append("food")
         if transcription_fallback_used:
             unresolved.append("transcription")
         is_unspecified = bool(

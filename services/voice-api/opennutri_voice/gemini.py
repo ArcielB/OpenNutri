@@ -145,7 +145,9 @@ class GeminiClient:
                             "This recording is about foods, so distinguish food words such as "
                             "eggs from letter names such as X only according to the audio. "
                             "For Turkish, preserve phrases such as 'katı pişmiş' and 'bütün "
-                            "yumurta' literally; do not replace them with paraphrases."
+                            "yumurta' literally. Preserve food names such as 'şehriye', 'tel "
+                            "şehriye', and 'arpa şehriye' literally; do not replace them with "
+                            "paraphrases."
                         )
                     }
                 ]
@@ -207,7 +209,9 @@ class GeminiClient:
                             "'egg', never 'yumurta'). Never invent a quantity, unit, preparation, "
                             "weight basis, food, or recipe decomposition. Set meal only when the "
                             "speaker explicitly groups the food under breakfast, lunch, dinner, "
-                            "or snacks; otherwise return null. English and Turkish are supported."
+                            "or snacks; otherwise return null. English and Turkish are supported. "
+                            "For database search, translate şehriye, tel şehriye, and arpa "
+                            "şehriye to pasta while source_phrase remains exact."
                         )
                     }
                 ]

@@ -73,6 +73,10 @@ async def test_voice_uses_literal_transcription_then_text_extraction(settings):
     assert "10 and unit 'egg'" in second_body["systemInstruction"]["parts"][0][
         "text"
     ]
+    assert "tel şehriye" in first_body["systemInstruction"]["parts"][0]["text"]
+    assert "translate şehriye" in second_body["systemInstruction"]["parts"][0][
+        "text"
+    ]
 
 
 @pytest.mark.asyncio

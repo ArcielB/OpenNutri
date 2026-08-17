@@ -98,6 +98,69 @@ def test_plural_food_query_retrieves_singular_core_name(pipeline):
     assert rows[0]["food_id"] == "food-egg"
 
 
+@pytest.mark.parametrize(
+    ("source_phrase", "food_name", "preparation", "expected_query"),
+    [
+        ("250 grams şehriye raw", "raw şehriye", ["raw"], "pasta dry enriched"),
+        (
+            "250 grams tel şehriye raw",
+            "raw tel şehriye",
+            ["raw"],
+            "pasta dry enriched",
+        ),
+        ("arpa sehriye pişmiş", "cooked pasta", ["cooked"], "pasta cooked"),
+        ("250 grams şehriye", "pasta", [], "pasta"),
+        ("250 grams şehir ye raw", "raw pasta", ["raw"], "pasta dry enriched"),
+    ],
+)
+def test_sehriye_search_alias_preserves_cooking_state(
+    pipeline,
+    source_phrase,
+    food_name,
+    preparation,
+    expected_query,
+):
+    concept = ExtractedConcept(
+        source_phrase=source_phrase,
+        food_name=food_name,
+        preparation=preparation,
+    )
+    assert pipeline._food_search_query(concept) == expected_query
+
+
+@pytest.mark.asyncio
+async def test_raw_sehriye_uses_deterministic_lexical_pasta_match(settings):
+    pipeline = ResolverPipeline(
+        settings=settings,
+        core=CoreFoodRepository(settings.core_database_path),
+        store=StubStore(),
+        gemini=FastPathGemini(),
+    )
+    response = await pipeline._resolve_concepts(
+        request_id="request-sehriye",
+        transcript="250 grams şehriye raw",
+        detected_language="tr",
+        concepts=[
+            ExtractedConcept(
+                source_phrase="250 grams şehriye raw",
+                food_name="raw şehriye",
+                quantity=ExtractedQuantity(value=250, unit="gram"),
+                preparation=["raw"],
+            )
+        ],
+        local_timestamp="2026-08-17T15:00:00",
+        timezone_name="Europe/Istanbul",
+        audio_model="gemini-audio",
+    )
+
+    item = response.items[0]
+    assert item.selected_candidate is not None
+    assert item.selected_candidate.food_id == "food-pasta-dry"
+    assert item.quantity.grams == 250
+    assert "food" in item.unresolved_fields
+    assert item.auto_log_eligible is False
+
+
 def test_counted_food_uses_only_one_unambiguous_source_item_portion(pipeline):
     concept = ExtractedConcept(
         source_phrase="ten hard-boiled whole eggs",
