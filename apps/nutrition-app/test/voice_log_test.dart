@@ -105,6 +105,46 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Log all confirms a complete flagged match without a hidden extra step',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final store = _MemoryStore(disclosureAccepted: true);
+      final controller = AppController(store);
+      await controller.initialize();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VoiceLogScreen(
+            controller: controller,
+            coreApiClient: _FlaggedCoreClient(),
+            voiceApiClient: _FlaggedVoiceClient(),
+            recorder: _FakeRecorder(),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Start recording'));
+      await tester.pump();
+      await tester.tap(find.text('Stop'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Check before logging'), findsOneWidget);
+      expect(find.text('Log all confirms these details.'), findsOneWidget);
+      final logButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Log all (1)'),
+      );
+      expect(logButton.onPressed, isNotNull);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('Log all (1)'));
+      await tester.pumpAndSettle();
+      expect(controller.entries, hasLength(1));
+      expect(controller.entries.single.grams, 50);
+    },
+  );
+
   testWidgets('first-use disclosure leaves feedback optional', (tester) async {
     final store = _MemoryStore();
     final controller = AppController(store);
@@ -385,9 +425,70 @@ class _ResolvedVoiceClient extends _FakeVoiceClient {
   }
 }
 
+class _FlaggedVoiceClient extends _FakeVoiceClient {
+  @override
+  Future<VoiceResolution> resolveVoice({
+    required String wavPath,
+    required String languageHint,
+    required DateTime localTimestamp,
+    required String timezone,
+  }) async {
+    return const VoiceResolution(
+      status: 'resolved',
+      metadata: ResolutionMetadata(
+        requestId: 'request-flagged',
+        coreVersion: '0.3.0',
+        indexVersion: 'index-1',
+        selectorModel: 'selector-1',
+      ),
+      transcript: '50 grams tomato paste',
+      detectedLanguage: 'en',
+      items: [
+        ResolvedVoiceItem(
+          conceptIndex: 0,
+          sourcePhrase: '50 grams tomato paste',
+          selectedCandidate: VoiceFoodCandidate(
+            foodId: 'food-tomato-paste',
+            name: 'Tomato products, canned, paste, without salt added',
+            category: 'Vegetables',
+            qualityStatus: 'complete',
+            sourceReleaseId: 'fixture',
+            portions: [],
+            hasUsableWeightFactor: false,
+            matchedChannels: ['primary'],
+            retrievalScore: 1,
+          ),
+          alternatives: [],
+          confidence: 0.72,
+          preparation: ['canned'],
+          weightBasis: VoiceWeightBasis(
+            status: 'resolved',
+            value: LoggedWeightBasis.edible,
+          ),
+          quantity: VoiceQuantity(
+            status: 'resolved',
+            grams: 50,
+            spokenValue: 50,
+            spokenUnit: 'g',
+          ),
+          mealDefault: MealType.lunch,
+          unresolvedFields: ['food'],
+          isUnspecified: false,
+        ),
+      ],
+      manualSearchCandidates: [],
+    );
+  }
+}
+
 class _FakeCoreClient extends CoreApiClient {
   @override
   Future<FoodDetail> foodDetail(String foodId) async => _apple;
+}
+
+class _FlaggedCoreClient extends CoreApiClient {
+  @override
+  Future<FoodDetail> foodDetail(String foodId) async => _tomatoPaste;
 }
 
 const _apple = FoodDetail(
@@ -403,6 +504,25 @@ const _apple = FoodDetail(
       nutrientId: 'energy',
       name: 'Energy',
       amount: 52,
+      unit: 'kcal',
+    ),
+  ],
+  portions: [],
+);
+
+const _tomatoPaste = FoodDetail(
+  foodId: 'food-tomato-paste',
+  name: 'Tomato products, canned, paste, without salt added',
+  categoryName: 'Vegetables',
+  publisher: 'USDA',
+  datasetName: 'Fixture',
+  sourceFoodCode: '2',
+  qualityStatus: 'complete',
+  nutrients: [
+    FoodNutrient(
+      nutrientId: 'energy',
+      name: 'Energy',
+      amount: 82,
       unit: 'kcal',
     ),
   ],

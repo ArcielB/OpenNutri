@@ -491,7 +491,6 @@ class _ReviewItem {
       selectedDetail != null &&
       grams != null &&
       weightBasis != null &&
-      unresolved.isEmpty &&
       (weightBasis != LoggedWeightBasis.asPurchased ||
           selectedDetail!.asPurchasedFactor != null);
 
@@ -829,6 +828,7 @@ class _ReviewItemCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: candidateIds.contains(item.selectedFoodId)
                   ? item.selectedFoodId
                   : null,
@@ -839,6 +839,7 @@ class _ReviewItemCard extends StatelessWidget {
                     value: foodId,
                     child: Text(
                       item.details[foodId]!.name,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -847,6 +848,7 @@ class _ReviewItemCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String?>(
+              isExpanded: true,
               initialValue: item.selectedPortionId,
               decoration: const InputDecoration(labelText: 'Amount source'),
               items: [
@@ -859,6 +861,7 @@ class _ReviewItemCard extends StatelessWidget {
                     value: portion.portionId,
                     child: Text(
                       '${portion.description} (${portion.gramWeight} g)',
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -878,6 +881,7 @@ class _ReviewItemCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<LoggedWeightBasis>(
+              isExpanded: true,
               initialValue: item.weightBasis,
               decoration: const InputDecoration(labelText: 'Weight basis'),
               items: [
@@ -895,6 +899,7 @@ class _ReviewItemCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<MealType>(
+              isExpanded: true,
               initialValue: item.meal,
               decoration: const InputDecoration(labelText: 'Meal'),
               items: [
@@ -911,8 +916,13 @@ class _ReviewItemCard extends StatelessWidget {
             if (item.unresolved.isNotEmpty) ...[
               const SizedBox(height: 12),
               Text(
-                'Needs confirmation',
+                'Check before logging',
                 style: Theme.of(context).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Log all confirms these details.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 6),
               Wrap(
@@ -920,12 +930,13 @@ class _ReviewItemCard extends StatelessWidget {
                 runSpacing: 6,
                 children: [
                   for (final field in item.unresolved)
-                    if (!{'food', 'quantity', 'weight_basis'}.contains(field))
-                      InputChip(
-                        label: Text(_clarificationLabel(field)),
-                        onPressed: () => item.confirm(field),
-                        avatar: const Icon(Icons.check, size: 18),
-                      ),
+                    InputChip(
+                      label: Text(_clarificationLabel(field)),
+                      onPressed: _canConfirm(field)
+                          ? () => item.confirm(field)
+                          : null,
+                      avatar: const Icon(Icons.check, size: 18),
+                    ),
                 ],
               ),
             ],
@@ -937,6 +948,11 @@ class _ReviewItemCard extends StatelessWidget {
 
   String _clarificationLabel(String field) {
     return switch (field) {
+      'food' =>
+        item.selectedDetail == null ? 'Choose a Core food' : 'Check food match',
+      'quantity' => item.grams == null ? 'Enter weight' : 'Check amount',
+      'weight_basis' =>
+        item.weightBasis == null ? 'Choose weight basis' : 'Check weight basis',
       'preparation' =>
         'Confirm ${item.resolution.preparation.join(', ').isEmpty ? 'preparation' : item.resolution.preparation.join(', ')}',
       'unspecified_food' => 'Use unspecified food',
@@ -944,6 +960,13 @@ class _ReviewItemCard extends StatelessWidget {
       _ => 'Confirm $field',
     };
   }
+
+  bool _canConfirm(String field) => switch (field) {
+    'food' => item.selectedDetail != null,
+    'quantity' => item.grams != null,
+    'weight_basis' => item.weightBasis != null,
+    _ => true,
+  };
 }
 
 class _FallbackView extends StatelessWidget {
