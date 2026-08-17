@@ -8,6 +8,7 @@ from opennutri_voice.models import (
     ExtractedConcept,
     ExtractedQuantity,
     SelectorDecision,
+    SelectorOutput,
 )
 from opennutri_voice.pipeline import ResolverPipeline
 
@@ -30,6 +31,26 @@ class FastPathGemini:
 
     async def select_candidates(self, *, concepts, candidate_sets):
         raise AssertionError("exact lexical matches must not invoke the selector")
+
+
+class LexicalSelectorGemini:
+    def __init__(self) -> None:
+        self.selector_calls = 0
+
+    async def embed_concepts(self, concepts):
+        raise AssertionError("lexical candidates must not request embeddings")
+
+    async def select_candidates(self, *, concepts, candidate_sets):
+        self.selector_calls += 1
+        return SelectorOutput(
+            decisions=[
+                SelectorDecision(
+                    concept_index=0,
+                    selected_food_id="food-apple",
+                    confidence=0.9,
+                )
+            ]
+        )
 
 
 @pytest.fixture
@@ -284,6 +305,35 @@ async def test_exact_lexical_resolution_skips_semantic_and_selector(settings):
     assert response.items[0].selected_candidate.food_id == "food-apple"
     assert response.items[0].auto_log_eligible is True
     assert response.metadata.extraction_model == "gemini-extraction"
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_lexical_resolution_skips_semantic_but_uses_selector(settings):
+    gemini = LexicalSelectorGemini()
+    pipeline = ResolverPipeline(
+        settings=settings,
+        core=CoreFoodRepository(settings.core_database_path),
+        store=StubStore(),
+        gemini=gemini,
+    )
+    response = await pipeline._resolve_concepts(
+        request_id="request-lexical-selector",
+        transcript="100 grams apple",
+        detected_language="en",
+        concepts=[
+            ExtractedConcept(
+                source_phrase="100 grams apple",
+                food_name="apple",
+                quantity=ExtractedQuantity(value=100, unit="g"),
+            )
+        ],
+        local_timestamp="2026-07-24T12:00:00",
+        timezone_name="Europe/Istanbul",
+        audio_model="gemini-audio",
+    )
+    assert gemini.selector_calls == 1
+    assert response.items[0].selected_candidate.food_id == "food-apple"
+    assert "preparation" in response.items[0].unresolved_fields
 
 
 def test_candidate_ids_outside_retrieval_set_are_rejected(pipeline):

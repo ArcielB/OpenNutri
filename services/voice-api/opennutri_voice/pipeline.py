@@ -170,9 +170,10 @@ class ResolverPipeline:
         timezone_name: str,
         audio_model: str | None,
     ) -> ResolutionResponse:
-        # Exact lexical matches take a deterministic fast path. Semantic search and
-        # the selector are reserved for ambiguous concepts, reducing latency,
-        # provider calls, and private-index egress for ordinary food lists.
+        # Exact lexical matches take a deterministic fast path. Ambiguous lexical
+        # matches go directly to the constrained selector; semantic retrieval is
+        # reserved for queries with no lexical candidates. This keeps the ordinary
+        # path fast and makes private-index egress exceptional.
         candidate_sets = [
             await self._retrieve(self._food_search_query(concept))
             for concept in concepts
@@ -187,13 +188,17 @@ class ResolverPipeline:
                 decisions[index] = decision
 
         if pending:
-            pending_concepts = [concepts[index] for index in pending]
-            vectors = await self.gemini.embed_concepts(pending_concepts)
-            for index, vector in zip(pending, vectors, strict=True):
-                candidate_sets[index] = await self._retrieve(
-                    self._food_search_query(concepts[index]),
-                    vector,
-                )
+            semantic_indices = [
+                index for index in pending if not candidate_sets[index]
+            ]
+            if semantic_indices:
+                semantic_concepts = [concepts[index] for index in semantic_indices]
+                vectors = await self.gemini.embed_concepts(semantic_concepts)
+                for index, vector in zip(semantic_indices, vectors, strict=True):
+                    candidate_sets[index] = await self._retrieve(
+                        self._food_search_query(concepts[index]),
+                        vector,
+                    )
 
             selector_indices = []
             for index in pending:

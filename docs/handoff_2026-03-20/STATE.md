@@ -71,8 +71,9 @@ This is the current high-signal project state after the reviewer workflow moved 
   feedback. As of 2026-08-17, voice resolution first performs literal
   `gemini-3.6-flash` transcription and then text-only concept extraction. Exact
   unambiguous lexical matches skip vector retrieval and the selector entirely;
-  ambiguous concepts may use one batched embedding request and one constrained
-  selector call. Candidate IDs are validated against deterministic top-12 fusion
+  ambiguous lexical matches skip vectors but may use one constrained selector call.
+  Only concepts with no lexical candidates use one batched embedding request before
+  selection. Candidate IDs are validated against deterministic top-12 fusion
   before returning. Provider/quota errors return a manual-search state without a
   paid fallback.
 - The Flutter Android beta records a bounded 30-second temporary PCM WAV, waits two

@@ -22,9 +22,10 @@ validated again. Flutter obtains nutrients from the public Core API after review
   text-only concept-extraction call. Keeping those jobs separate prevents the
   transcription model from rewriting a number or food word while trying to match it.
 - Exact, unambiguous lexical matches are selected deterministically and make no
-  embedding or selector request. Only ambiguous concepts use one batched embedding
-  call and, when still needed, one constrained selector call. This is both the
-  lowest-latency path and the lowest-egress path for ordinary lists.
+  embedding or selector request. Ambiguous lexical matches use the constrained
+  selector without a vector call. Only a concept with zero lexical candidates uses
+  one batched embedding call before selection. This is both the lowest-latency path
+  and the lowest-egress path for ordinary lists.
 - A recording may contain up to ten foods. Explicit spoken meal groups are returned
   per concept; meal is otherwise left unset for Flutter's local-time default.
 - Provider or quota failures return `status=manual_search`; there is no paid fallback.
