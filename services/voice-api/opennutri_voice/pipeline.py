@@ -53,7 +53,8 @@ NON_COUNT_INPUT_UNITS = {
 NON_ITEM_PORTION_RE = re.compile(
     r"\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|fluid ounces?|fl oz|ounces?|oz|"
     r"grams?|kilograms?|kg|g|pounds?|lbs?|millilit(?:er|re)s?|ml|lit(?:er|re)s?|"
-    r"packages?|packets?|containers?|cans?|bottles?|jars?|slices?|wedges?)\b",
+    r"packages?|packets?|containers?|cans?|bottles?|jars?|slices?|wedges?|"
+    r"inches?|centimet(?:er|re)s?|cm|linear|servings?|quantity not specified)\b",
     re.IGNORECASE,
 )
 WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
@@ -64,6 +65,8 @@ SPECIFIC_COOKING_STATES = {
     "roasted",
     "grilled",
 }
+PORTION_SIZE_WORDS = {"small", "medium", "large", "extra", "thin", "thick", "regular"}
+COOKING_STATE_WORDS = {"raw", "cooked", *SPECIFIC_COOKING_STATES}
 PREPARATION_WORDS = {
     "raw",
     "cooked",
@@ -171,7 +174,8 @@ class ResolverPipeline:
         # the selector are reserved for ambiguous concepts, reducing latency,
         # provider calls, and private-index egress for ordinary food lists.
         candidate_sets = [
-            await self._retrieve(concept.food_name) for concept in concepts
+            await self._retrieve(self._food_search_query(concept))
+            for concept in concepts
         ]
         decisions: dict[int, SelectorDecision] = {}
         pending = []
@@ -187,7 +191,7 @@ class ResolverPipeline:
             vectors = await self.gemini.embed_concepts(pending_concepts)
             for index, vector in zip(pending, vectors, strict=True):
                 candidate_sets[index] = await self._retrieve(
-                    concepts[index].food_name,
+                    self._food_search_query(concepts[index]),
                     vector,
                 )
 
@@ -310,10 +314,10 @@ class ResolverPipeline:
                         state["matched_term_type"] = term_type
                     state["source_term_exact"] = state["source_term_exact"] or exact
                     bonus = {
-                        "common_name": 4.0 if exact else 2.0,
-                        "foodon_label": 3.5 if exact else 1.7,
-                        "additional_description": 1.0 if exact else 0.4,
-                    }.get(term_type, 0.3)
+                        "common_name": 4.0 if exact else 0.4,
+                        "foodon_label": 3.5 if exact else 0.25,
+                        "additional_description": 1.0 if exact else 0.05,
+                    }.get(term_type, 0.05)
                 elif channel == "semantic":
                     bonus = float(row.get("similarity") or 0) * 0.5
                 state["score"] += bonus + weight / (60 + rank)
@@ -368,21 +372,22 @@ class ResolverPipeline:
             re.IGNORECASE,
         ):
             return None
+        search_query = self._food_search_query(concept)
         direct_primary = selected.get("primary_match_tier") == 0
         same_signature = self._lexical_signature(
-            concept.food_name
+            search_query
         ) == self._lexical_signature(selected["name"])
         exact_alias = bool(
             selected.get("source_term_exact")
             and selected.get("matched_term_type") in {"common_name", "foodon_label"}
         )
-        query_tokens = set(self._lexical_signature(concept.food_name))
+        query_tokens = set(self._lexical_signature(search_query))
         selected_tokens = set(self._lexical_signature(selected["name"]))
         strong_head_match = bool(
             query_tokens
             and query_tokens.issubset(selected_tokens)
             and self._candidate_head_matches_query(
-                concept.food_name,
+                search_query,
                 selected["name"],
             )
         )
@@ -407,7 +412,7 @@ class ResolverPipeline:
                 relies_on_head_match
                 and query_tokens.issubset(candidate_tokens)
                 and self._candidate_head_matches_query(
-                    concept.food_name,
+                    search_query,
                     candidate["name"],
                 )
             ):
@@ -417,6 +422,16 @@ class ResolverPipeline:
             selected_food_id=selected["food_id"],
             confidence=0.99,
         )
+
+    @classmethod
+    def _food_search_query(cls, concept: ExtractedConcept) -> str:
+        words = WORD_RE.findall(
+            unicodedata.normalize("NFKC", concept.food_name)
+        )
+        filtered = [
+            word for word in words if word.casefold() not in PORTION_SIZE_WORDS
+        ]
+        return " ".join(filtered).strip() or concept.food_name
 
     def manual_search_response(
         self,
@@ -589,6 +604,31 @@ class ResolverPipeline:
                     source_portion_id=portion["portion_id"],
                     source_portion_description=portion["description"],
                 )
+            spoken_size_words = PORTION_SIZE_WORDS.intersection(
+                cls._lexical_signature(
+                    f"{concept.source_phrase} {concept.food_name}"
+                )
+            )
+            if spoken_size_words:
+                size_matches = [
+                    portion
+                    for portion in selected.get("portions", [])
+                    if PORTION_SIZE_WORDS.intersection(
+                        cls._lexical_signature(portion["description"])
+                    )
+                    == spoken_size_words
+                ]
+                if len(size_matches) == 1:
+                    portion = size_matches[0]
+                    source_amount = portion.get("amount") or 1
+                    return QuantityResolution(
+                        status="resolved",
+                        grams=value * portion["gram_weight"] / source_amount,
+                        spoken_value=value,
+                        spoken_unit=concept.quantity.unit,
+                        source_portion_id=portion["portion_id"],
+                        source_portion_description=portion["description"],
+                    )
             if cls._is_food_count_unit(unit, concept):
                 item_portions = [
                     portion
@@ -644,7 +684,31 @@ class ResolverPipeline:
         spoken_states = {
             match.casefold() for match in MATERIAL_STATE_RE.findall(spoken_material)
         }
-        return bool(selected_states and not selected_states & spoken_states)
+        if not selected_states:
+            return False
+
+        selected_cooking = selected_states & COOKING_STATE_WORDS
+        spoken_cooking = spoken_states & COOKING_STATE_WORDS
+        if "raw" in selected_cooking and "raw" not in spoken_cooking:
+            return True
+        selected_specific_cooking = selected_cooking & SPECIFIC_COOKING_STATES
+        if selected_specific_cooking:
+            if not selected_specific_cooking & spoken_cooking:
+                return True
+        elif selected_cooking == {"cooked"} and not (
+            spoken_cooking - {"raw"}
+        ):
+            return True
+
+        for family in (
+            {"drained"},
+            {"skin", "skinless"},
+            {"bone", "boneless"},
+        ):
+            selected_family = selected_states & family
+            if selected_family and not selected_family & spoken_states:
+                return True
+        return False
 
     @classmethod
     def _has_trusted_lexical_evidence(
@@ -653,7 +717,9 @@ class ResolverPipeline:
         selected: dict[str, Any],
     ) -> bool:
         if "primary" in selected.get("matched_channels", []):
-            query_tokens = set(cls._lexical_signature(concept.food_name))
+            query_tokens = set(
+                cls._lexical_signature(cls._food_search_query(concept))
+            )
             selected_tokens = set(cls._lexical_signature(selected["name"]))
             if query_tokens and query_tokens.issubset(selected_tokens):
                 return True
@@ -665,11 +731,15 @@ class ResolverPipeline:
     @classmethod
     def _is_food_count_unit(cls, unit: str, concept: ExtractedConcept) -> bool:
         normalized_unit = cls._singular_token(unit)
+        unit_tokens = set(cls._lexical_signature(unit))
         if normalized_unit in GENERIC_COUNT_UNITS:
             return True
-        if normalized_unit in NON_COUNT_INPUT_UNITS:
+        if normalized_unit in NON_COUNT_INPUT_UNITS or unit_tokens.intersection(
+            NON_COUNT_INPUT_UNITS
+        ):
             return False
-        if normalized_unit in set(cls._lexical_signature(concept.food_name)):
+        food_tokens = set(cls._lexical_signature(cls._food_search_query(concept)))
+        if normalized_unit in food_tokens or unit_tokens.intersection(food_tokens):
             return True
         # The extractor is instructed to translate count nouns to English, but
         # structured models can occasionally preserve the spoken Turkish noun

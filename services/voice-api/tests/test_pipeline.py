@@ -123,6 +123,91 @@ def test_counted_food_uses_only_one_unambiguous_source_item_portion(pipeline):
     assert ambiguous.status == "unresolved"
 
 
+def test_spoken_size_selects_one_source_portion(pipeline):
+    concept = ExtractedConcept(
+        source_phrase="one medium banana",
+        food_name="medium banana",
+        quantity=ExtractedQuantity(value=1, unit="banana"),
+    )
+    selected = {
+        "portions": [
+            {
+                "portion_id": "small",
+                "description": "1 small",
+                "gram_weight": 101,
+                "amount": 1,
+            },
+            {
+                "portion_id": "medium",
+                "description": "1 medium",
+                "gram_weight": 118,
+                "amount": 1,
+            },
+            {
+                "portion_id": "large",
+                "description": "1 large",
+                "gram_weight": 136,
+                "amount": 1,
+            },
+        ]
+    }
+    resolved = pipeline._resolve_quantity(concept, selected)
+    assert resolved.status == "resolved"
+    assert resolved.grams == 118
+    assert resolved.source_portion_id == "medium"
+    assert pipeline._food_search_query(concept) == "banana"
+
+    generic_source = {
+        "portions": [
+            {
+                "portion_id": "banana",
+                "description": "1 banana",
+                "gram_weight": 126,
+                "amount": None,
+            },
+            {
+                "portion_id": "slice",
+                "description": "1 slice",
+                "gram_weight": 6,
+                "amount": None,
+            },
+            {
+                "portion_id": "linear-inch",
+                "description": "1 linear inch",
+                "gram_weight": 15,
+                "amount": None,
+            },
+            {
+                "portion_id": "unspecified",
+                "description": "Quantity not specified",
+                "gram_weight": 126,
+                "amount": None,
+            },
+        ]
+    }
+    generic = pipeline._resolve_quantity(concept, generic_source)
+    assert generic.status == "resolved"
+    assert generic.grams == 126
+    assert generic.source_portion_id == "banana"
+
+
+def test_specific_cooking_state_cannot_be_silently_generalized(pipeline):
+    selected = {"name": "Egg, whole, cooked, hard-boiled"}
+    generic = ExtractedConcept(
+        source_phrase="cooked egg",
+        food_name="cooked egg",
+        preparation=["cooked"],
+    )
+    assert pipeline._needs_preparation_confirmation(generic, selected) is True
+
+    explicit = ExtractedConcept(
+        source_phrase="hard-boiled egg",
+        food_name="hard-boiled egg",
+        preparation=["hard-boiled"],
+    )
+    assert pipeline._needs_preparation_confirmation(explicit, selected) is False
+
+
 def test_auto_log_requires_trusted_lexical_evidence(pipeline):
     selected = pipeline.core.hydrate_candidates(["food-apple"])["food-apple"]
     selected.update(
