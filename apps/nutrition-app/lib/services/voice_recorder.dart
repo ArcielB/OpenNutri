@@ -11,7 +11,7 @@ class SilenceStopDetector {
   SilenceStopDetector({
     this.thresholdDbfs = -40,
     this.speechOpportunity = const Duration(milliseconds: 800),
-    this.trailingSilence = const Duration(milliseconds: 1200),
+    this.trailingSilence = const Duration(milliseconds: 2000),
   });
 
   final double thresholdDbfs;
@@ -52,8 +52,8 @@ class OpenNutriVoiceRecorder extends ChangeNotifier
 
   static const silenceThresholdDbfs = -40.0;
   static const speechOpportunity = Duration(milliseconds: 800);
-  static const trailingSilence = Duration(milliseconds: 1200);
-  static const maximumDuration = Duration(seconds: 20);
+  static const trailingSilence = Duration(milliseconds: 2000);
+  static const maximumDuration = Duration(seconds: 30);
 
   final AudioRecorder _recorder;
   StreamSubscription<Amplitude>? _amplitudeSubscription;

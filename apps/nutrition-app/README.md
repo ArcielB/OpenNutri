@@ -9,6 +9,12 @@ ambiguous Core food, quantity, weight basis, preparation distinction, or
 unspecified food opens the review screen instead. A selector-provided alternative
 also counts as ambiguity, so it never bypasses review.
 
+Recording permits a 30-second whole-day list and waits for two seconds of trailing
+silence, so a normal pause between foods does not cut the list off. The resolver's
+literal-transcription pass is separate from food matching. Exact source-backed
+matches take a deterministic fast path; ambiguous foods still receive semantic
+retrieval and visual review.
+
 The production resolver URL and isolated Voice Beta Supabase project URL have
 non-secret defaults. The app's public client key is project-specific, so supply
 the current key at build time:

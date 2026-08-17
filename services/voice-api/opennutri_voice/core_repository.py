@@ -75,7 +75,18 @@ class CoreFoodRepository:
         tokens = list(dict.fromkeys(TOKEN_RE.findall(normalized)))[:10]
         if not tokens:
             return ""
-        return " ".join(f'"{token}"*' for token in tokens)
+        terms = []
+        for token in tokens:
+            singular = token
+            if token.endswith("ies") and len(token) > 3:
+                singular = f"{token[:-3]}y"
+            elif token.endswith("s") and not token.endswith("ss") and len(token) > 2:
+                singular = token[:-1]
+            if singular == token:
+                terms.append(f'"{token}"*')
+            else:
+                terms.append(f'("{token}"* OR "{singular}"*)')
+        return " AND ".join(terms)
 
     def primary_search(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         fts_query = self._fts_query(query)

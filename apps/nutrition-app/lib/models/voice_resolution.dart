@@ -56,6 +56,7 @@ class ResolutionMetadata {
     required this.coreVersion,
     required this.indexVersion,
     this.audioModel,
+    this.extractionModel,
     this.selectorModel,
     this.embeddingModel,
   });
@@ -66,6 +67,7 @@ class ResolutionMetadata {
       coreVersion: json['core_version'] as String,
       indexVersion: json['index_version'] as String,
       audioModel: json['audio_model'] as String?,
+      extractionModel: json['extraction_model'] as String?,
       selectorModel: json['selector_model'] as String?,
       embeddingModel: json['embedding_model'] as String?,
     );
@@ -75,6 +77,7 @@ class ResolutionMetadata {
   final String coreVersion;
   final String indexVersion;
   final String? audioModel;
+  final String? extractionModel;
   final String? selectorModel;
   final String? embeddingModel;
 }
@@ -92,6 +95,8 @@ class VoiceFoodCandidate {
     required this.retrievalScore,
     this.matchedTerm,
     this.matchedTermType,
+    this.primaryMatchTier,
+    this.sourceTermExact = false,
   });
 
   factory VoiceFoodCandidate.fromJson(Map<String, dynamic> json) {
@@ -113,6 +118,8 @@ class VoiceFoodCandidate {
       retrievalScore: (json['retrieval_score'] as num).toDouble(),
       matchedTerm: json['matched_term'] as String?,
       matchedTermType: json['matched_term_type'] as String?,
+      primaryMatchTier: json['primary_match_tier'] as int?,
+      sourceTermExact: json['source_term_exact'] as bool? ?? false,
     );
   }
 
@@ -127,6 +134,8 @@ class VoiceFoodCandidate {
   final double retrievalScore;
   final String? matchedTerm;
   final String? matchedTermType;
+  final int? primaryMatchTier;
+  final bool sourceTermExact;
 }
 
 class VoiceCandidatePortion {
@@ -165,6 +174,7 @@ class ResolvedVoiceItem {
     required this.mealDefault,
     required this.unresolvedFields,
     required this.isUnspecified,
+    this.autoLogEligible = false,
     this.noMatchReason,
   });
 
@@ -194,6 +204,7 @@ class ResolvedVoiceItem {
       unresolvedFields: (json['unresolved_fields'] as List<dynamic>)
           .cast<String>(),
       isUnspecified: json['is_unspecified'] as bool,
+      autoLogEligible: json['auto_log_eligible'] as bool? ?? false,
       noMatchReason: json['no_match_reason'] as String?,
     );
   }
@@ -209,13 +220,11 @@ class ResolvedVoiceItem {
   final MealType mealDefault;
   final List<String> unresolvedFields;
   final bool isUnspecified;
+  final bool autoLogEligible;
   final String? noMatchReason;
 
   List<VoiceFoodCandidate> get candidates {
-    final values = <VoiceFoodCandidate>[
-      ?selectedCandidate,
-      ...alternatives,
-    ];
+    final values = <VoiceFoodCandidate>[?selectedCandidate, ...alternatives];
     final seen = <String>{};
     return values.where((value) => seen.add(value.foodId)).toList();
   }

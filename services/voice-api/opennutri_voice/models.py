@@ -20,13 +20,34 @@ class StrictModel(BaseModel):
 
 
 class ExtractedQuantity(StrictModel):
-    value: float | None = Field(default=None, gt=0)
-    unit: str | None = None
+    value: float | None = Field(
+        default=None,
+        gt=0,
+        description="Quantity copied from the source phrase; null when absent.",
+    )
+    unit: str | None = Field(
+        default=None,
+        max_length=48,
+        description=(
+            "Canonical English unit copied from the phrase, including a counted "
+            "food noun such as egg when applicable; null when value is null."
+        ),
+    )
 
 
 class ExtractedConcept(StrictModel):
-    source_phrase: str = Field(min_length=1, max_length=160)
-    food_name: str = Field(min_length=1, max_length=160)
+    source_phrase: str = Field(
+        min_length=1,
+        max_length=160,
+        description="Exact contiguous phrase from the literal transcript.",
+    )
+    food_name: str = Field(
+        min_length=1,
+        max_length=160,
+        description=(
+            "Concise English Core-search query preserving food variant and preparation."
+        ),
+    )
     quantity: ExtractedQuantity = Field(default_factory=ExtractedQuantity)
     preparation: list[str] = Field(default_factory=list, max_length=8)
     weight_basis: Literal["edible", "as_purchased"] | None = None
@@ -39,6 +60,15 @@ class ExtractedConcept(StrictModel):
 class AudioExtraction(StrictModel):
     transcript: str = Field(max_length=1000)
     detected_language: str = Field(max_length=32)
+    concepts: list[ExtractedConcept] = Field(min_length=1, max_length=10)
+
+
+class AudioTranscript(StrictModel):
+    transcript: str = Field(min_length=1, max_length=1000)
+    detected_language: str = Field(min_length=1, max_length=32)
+
+
+class ConceptExtraction(StrictModel):
     concepts: list[ExtractedConcept] = Field(min_length=1, max_length=10)
 
 
@@ -62,6 +92,8 @@ class FoodCandidate(StrictModel):
     )
     matched_term: str | None = None
     matched_term_type: TermType | None = None
+    primary_match_tier: int | None = Field(default=None, ge=0, le=2)
+    source_term_exact: bool = False
     retrieval_score: float = 0
 
 
@@ -112,6 +144,7 @@ class ResolvedFoodItem(StrictModel):
     meal_default: MealType
     unresolved_fields: list[str]
     is_unspecified: bool = False
+    auto_log_eligible: bool = False
     no_match_reason: str | None = None
 
 
@@ -120,6 +153,7 @@ class ResolutionMetadata(StrictModel):
     core_version: str
     index_version: str
     audio_model: str | None = None
+    extraction_model: str | None = None
     selector_model: str | None = None
     embedding_model: str | None = None
 

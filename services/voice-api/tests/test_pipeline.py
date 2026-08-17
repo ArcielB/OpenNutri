@@ -24,6 +24,14 @@ class StubGemini:
     pass
 
 
+class FastPathGemini:
+    async def embed_concepts(self, concepts):
+        raise AssertionError("exact lexical matches must not request embeddings")
+
+    async def select_candidates(self, *, concepts, candidate_sets):
+        raise AssertionError("exact lexical matches must not invoke the selector")
+
+
 @pytest.fixture
 def pipeline(settings):
     return ResolverPipeline(
@@ -62,6 +70,135 @@ def test_quantity_requires_grams_or_one_source_backed_portion(pipeline):
     unresolved = pipeline._resolve_quantity(concept, selected)
     assert unresolved.status == "unresolved"
     assert unresolved.grams is None
+
+
+def test_plural_food_query_retrieves_singular_core_name(pipeline):
+    rows = pipeline.core.primary_search("hard-boiled whole eggs", limit=10)
+    assert rows[0]["food_id"] == "food-egg"
+
+
+def test_counted_food_uses_only_one_unambiguous_source_item_portion(pipeline):
+    concept = ExtractedConcept(
+        source_phrase="ten hard-boiled whole eggs",
+        food_name="hard-boiled whole egg",
+        quantity=ExtractedQuantity(value=10, unit="egg"),
+        preparation=["hard-boiled"],
+    )
+    selected = {
+        "portions": [
+            {
+                "portion_id": "cup",
+                "description": "1 cup, chopped",
+                "gram_weight": 136,
+                "amount": 1,
+            },
+            {
+                "portion_id": "large",
+                "description": "1 large",
+                "gram_weight": 50,
+                "amount": 1,
+            },
+        ]
+    }
+    resolved = pipeline._resolve_quantity(concept, selected)
+    assert resolved.status == "resolved"
+    assert resolved.grams == 500
+    assert resolved.source_portion_id == "large"
+
+    concept.quantity = ExtractedQuantity(value=2, unit="yumurta")
+    concept.source_phrase = "iki katı pişmiş bütün yumurta"
+    translated_unit = pipeline._resolve_quantity(concept, selected)
+    assert translated_unit.status == "resolved"
+    assert translated_unit.grams == 100
+
+    selected["portions"].append(
+        {
+            "portion_id": "small",
+            "description": "1 small",
+            "gram_weight": 38,
+            "amount": 1,
+        }
+    )
+    ambiguous = pipeline._resolve_quantity(concept, selected)
+    assert ambiguous.status == "unresolved"
+
+
+def test_auto_log_requires_trusted_lexical_evidence(pipeline):
+    selected = pipeline.core.hydrate_candidates(["food-apple"])["food-apple"]
+    selected.update(
+        {
+            "matched_channels": ["primary"],
+            "matched_term": "Apple, raw",
+            "matched_term_type": "primary_name",
+            "primary_match_tier": 0,
+            "source_term_exact": False,
+            "retrieval_score": 6,
+        }
+    )
+    concept = ExtractedConcept(
+        source_phrase="100 grams raw apple",
+        food_name="Apple, raw",
+        quantity=ExtractedQuantity(value=100, unit="g"),
+        preparation=["raw"],
+    )
+    decision = SelectorDecision(
+        concept_index=0,
+        selected_food_id="food-apple",
+        confidence=0.99,
+    )
+    item = pipeline._build_item(
+        concept_index=0,
+        concept=concept,
+        candidates=[selected],
+        decision=decision,
+        meal_default="lunch",
+    )
+    assert item.auto_log_eligible is True
+
+    semantic_only = {
+        **selected,
+        "matched_channels": ["semantic"],
+        "matched_term": None,
+        "matched_term_type": "semantic",
+        "primary_match_tier": None,
+    }
+    item = pipeline._build_item(
+        concept_index=0,
+        concept=concept,
+        candidates=[semantic_only],
+        decision=decision,
+        meal_default="lunch",
+    )
+    assert item.auto_log_eligible is False
+
+
+@pytest.mark.asyncio
+async def test_exact_lexical_resolution_skips_semantic_and_selector(settings):
+    pipeline = ResolverPipeline(
+        settings=settings,
+        core=CoreFoodRepository(settings.core_database_path),
+        store=StubStore(),
+        gemini=FastPathGemini(),
+    )
+    response = await pipeline._resolve_concepts(
+        request_id="request-fast",
+        transcript="100 grams raw apple",
+        detected_language="en",
+        concepts=[
+            ExtractedConcept(
+                source_phrase="100 grams raw apple",
+                food_name="Apple, raw",
+                quantity=ExtractedQuantity(value=100, unit="g"),
+                preparation=["raw"],
+            )
+        ],
+        local_timestamp="2026-07-24T12:00:00",
+        timezone_name="Europe/Istanbul",
+        audio_model="gemini-audio",
+    )
+    assert response.items[0].selected_candidate.food_id == "food-apple"
+    assert response.items[0].auto_log_eligible is True
+    assert response.metadata.extraction_model == "gemini-extraction"
 
 
 def test_candidate_ids_outside_retrieval_set_are_rejected(pipeline):

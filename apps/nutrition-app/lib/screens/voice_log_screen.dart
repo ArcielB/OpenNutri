@@ -283,6 +283,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
       _canLogAll &&
       _reviewItems.every(
         (item) =>
+            item.resolution.autoLogEligible &&
             item.selectedFoodId == item.resolution.selectedCandidate?.foodId &&
             item.resolution.confidence >= _autoLogConfidence &&
             !item.resolution.isUnspecified &&
@@ -582,7 +583,8 @@ class _ReadyView extends StatelessWidget {
             'Say several foods at once (up to 10). You can group them by '
             'meal: “Breakfast: 2 eggs. Dinner: 150 g chicken.” Include '
             'amounts and details such as raw, cooked, drained, skin, bone, '
-            'or as-purchased weight.',
+            'or as-purchased weight. Pause briefly between foods; recording '
+            'stops two seconds after you finish.',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),

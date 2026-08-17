@@ -68,11 +68,15 @@ This is the current high-signal project state after the reviewer workflow moved 
 - `services/voice-api/` is the isolated authenticated resolver for the Android beta.
   It verifies app-project anonymous JWTs through JWKS and uses an app-only Supabase
   schema for 768-dimensional vectors, atomic quotas, and optional privacy-limited
-  feedback. Voice resolution is capped at one audio extraction, one batched
-  embedding request, and one constrained selector call; candidate IDs are validated
-  against deterministic top-12 fusion before returning. Provider/quota errors return
-  a manual-search state without a paid fallback.
-- The Flutter Android beta records bounded temporary PCM WAV, automatically persists
+  feedback. As of 2026-08-17, voice resolution first performs literal
+  `gemini-3.6-flash` transcription and then text-only concept extraction. Exact
+  unambiguous lexical matches skip vector retrieval and the selector entirely;
+  ambiguous concepts may use one batched embedding request and one constrained
+  selector call. Candidate IDs are validated against deterministic top-12 fusion
+  before returning. Provider/quota errors return a manual-search state without a
+  paid fallback.
+- The Flutter Android beta records a bounded 30-second temporary PCM WAV, waits two
+  seconds through natural between-food pauses, automatically persists
   a fully resolved high-confidence batch once and shows immediate Edit batch/Undo
   batch actions; it opens visual review for any unresolved or lower-confidence item.
   One recording supports up to ten foods and preserves explicitly spoken meal groups;
@@ -88,7 +92,9 @@ This is the current high-signal project state after the reviewer workflow moved 
   recording, and temporary-WAV cleanup after the then-shared app project's HTTP 402
   auth failure. On 2026-07-27, the app was reprovisioned in its own isolated Free
   Supabase organization and the resolver was redeployed to it; anonymous auth and
-  the private schema are now live without research egress coupling. Authentication/
+  the private schema are now live without research egress coupling. The isolated
+  project was restored from an idle Free-plan pause on 2026-08-17; anonymous sign-up
+  and private REST both returned success. Authentication/
   provider exceptions are deliberately rendered as the safe Manual search fallback
   rather than exposing provider response text. The measured debug
   cold launch was about 7.4 seconds on the test device, above the beta's 4-second
@@ -102,7 +108,8 @@ This is the current high-signal project state after the reviewer workflow moved 
   reported `66%` refuse double-counts overlapping 33% bone descriptions; the reviewed
   correction uses sibling raw meat-only record `05071`, which separates 33% bone
   from 9% skin and fat. Preserve both source and corrected values.
-- Next product work is completing the private semantic index and then running the
+- The private index had 840/13,537 rows when its resumable Free-tier build was
+  restarted on 2026-08-17. Next product work is completing that index and running the
   complete live voice benchmark, plus the measured coverage audit for as-purchased
   factors. Never blend nutrient values or copy weight factors between merely similar
   foods silently.

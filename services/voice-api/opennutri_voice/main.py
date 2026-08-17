@@ -34,9 +34,9 @@ from .pipeline import ResolverPipeline
 from .supabase_store import SupabasePrivateStore, SupabaseStoreError
 
 
-SERVICE_VERSION = "0.1.0"
+SERVICE_VERSION = "0.2.0"
 MAX_AUDIO_BYTES = 1024 * 1024
-MAX_AUDIO_SECONDS = 20.0
+MAX_AUDIO_SECONDS = 30.0
 bearer = HTTPBearer(auto_error=False)
 
 
@@ -62,7 +62,7 @@ def validate_wav(payload: bytes) -> float:
     if duration <= 0:
         raise HTTPException(status_code=422, detail="Audio contains no samples")
     if duration > MAX_AUDIO_SECONDS:
-        raise HTTPException(status_code=413, detail="Audio must not exceed 20 seconds")
+        raise HTTPException(status_code=413, detail="Audio must not exceed 30 seconds")
     return duration
 
 

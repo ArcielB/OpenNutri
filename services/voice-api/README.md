@@ -3,8 +3,9 @@
 This private FastAPI service implements the bounded beta pipeline:
 
 ```text
-audio -> structured concepts -> lexical + semantic retrieval
-      -> constrained candidate selection -> automatic log or Flutter review
+audio -> literal transcript -> structured concepts -> lexical retrieval
+      -> exact-match fast path OR semantic retrieval + constrained selection
+      -> automatic log or Flutter review
 ```
 
 The service never returns invented nutrient data. Gemini can select only a Core food
@@ -17,8 +18,13 @@ validated again. Flutter obtains nutrients from the public Core API after review
 - The service role key is present only in this backend.
 - Atomic database functions enforce one active request per subject, 10 requests per
   minute, 50 AI resolutions per subject/day, and 200 globally/day by default.
-- Each voice request makes at most one audio extraction call, one batched embedding
-  call, and one constrained selector call.
+- Voice uses one `gemini-3.6-flash` literal transcription call followed by one
+  text-only concept-extraction call. Keeping those jobs separate prevents the
+  transcription model from rewriting a number or food word while trying to match it.
+- Exact, unambiguous lexical matches are selected deterministically and make no
+  embedding or selector request. Only ambiguous concepts use one batched embedding
+  call and, when still needed, one constrained selector call. This is both the
+  lowest-latency path and the lowest-egress path for ordinary lists.
 - A recording may contain up to ten foods. Explicit spoken meal groups are returned
   per concept; meal is otherwise left unset for Flutter's local-time default.
 - Provider or quota failures return `status=manual_search`; there is no paid fallback.
@@ -60,7 +66,7 @@ so a Free-tier build is slow but resumable rather than abandoning the index.
 - `POST /v1/voice/feedback`: privacy-limited optional confirmation feedback.
 - `DELETE /v1/voice/feedback`: remove every feedback row for the token subject.
 
-WAV input must be 16 kHz, mono, signed 16-bit PCM, no longer than 20 seconds, and no
+WAV input must be 16 kHz, mono, signed 16-bit PCM, no longer than 30 seconds, and no
 larger than 1 MB.
 
 ## Benchmark

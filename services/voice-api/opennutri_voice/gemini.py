@@ -7,7 +7,13 @@ from typing import Any
 import httpx
 
 from .config import Settings
-from .models import AudioExtraction, ExtractedConcept, SelectorOutput
+from .models import (
+    AudioExtraction,
+    AudioTranscript,
+    ConceptExtraction,
+    ExtractedConcept,
+    SelectorOutput,
+)
 
 
 class GeminiError(RuntimeError):
@@ -84,20 +90,40 @@ class GeminiClient:
         wav_bytes: bytes,
         language_hint: str,
     ) -> AudioExtraction:
-        schema = AudioExtraction.model_json_schema()
+        transcript = await self.transcribe_audio(
+            wav_bytes=wav_bytes,
+            language_hint=language_hint,
+        )
+        concepts = await self.extract_concepts(
+            transcript=transcript.transcript,
+            detected_language=transcript.detected_language,
+        )
+        return AudioExtraction(
+            transcript=transcript.transcript,
+            detected_language=transcript.detected_language,
+            concepts=concepts.concepts,
+        )
+
+    async def transcribe_audio(
+        self,
+        *,
+        wav_bytes: bytes,
+        language_hint: str,
+    ) -> AudioTranscript:
+        schema = AudioTranscript.model_json_schema()
         payload = {
             "systemInstruction": {
                 "parts": [
                     {
                         "text": (
-                            "Transcribe the food recording and extract at most ten distinct "
-                            "food concepts. Preserve raw/cooked, drained, skin, bone, edible, "
-                            "and as-purchased wording. Never invent a quantity or preparation. "
-                            "Set a concept's meal only when the speaker explicitly groups it "
-                            "under breakfast, lunch, dinner, or snacks (for example, 'for "
-                            "breakfast' or 'kahvaltıda'); otherwise return null. Never infer a "
-                            "meal from the food. English and Turkish are supported; other "
-                            "languages are best effort."
+                            "You are a literal food-diary transcription engine. Transcribe "
+                            "only what is audibly spoken, in the original language. Preserve "
+                            "every number, food word, unit, preparation, and meal label exactly. "
+                            "Do not correct, translate, summarize, interpret, or add words. "
+                            "This recording is about foods, so distinguish food words such as "
+                            "eggs from letter names such as X only according to the audio. "
+                            "For Turkish, preserve phrases such as 'katı pişmiş' and 'bütün "
+                            "yumurta' literally; do not replace them with paraphrases."
                         )
                     }
                 ]
@@ -109,7 +135,7 @@ class GeminiClient:
                         {
                             "text": (
                                 f"Language hint: {language_hint or 'auto'}. "
-                                "Return the transcript and structured concepts."
+                                "Return the exact transcript."
                             )
                         },
                         {
@@ -122,7 +148,7 @@ class GeminiClient:
                 }
             ],
             "generationConfig": {
-                "temperature": 0,
+                "thinkingConfig": {"thinkingLevel": "minimal"},
                 "responseMimeType": "application/json",
                 "responseJsonSchema": schema,
             },
@@ -132,9 +158,69 @@ class GeminiClient:
             payload,
         )
         try:
-            return AudioExtraction.model_validate(self._json_text(response))
+            return AudioTranscript.model_validate(self._json_text(response))
         except ValueError as exc:
-            raise GeminiError("Audio extraction did not match the contract") from exc
+            raise GeminiError("Audio transcription did not match the contract") from exc
+
+    async def extract_concepts(
+        self,
+        *,
+        transcript: str,
+        detected_language: str,
+    ) -> ConceptExtraction:
+        schema = ConceptExtraction.model_json_schema()
+        payload = {
+            "systemInstruction": {
+                "parts": [
+                    {
+                        "text": (
+                            "Extract at most ten distinct food concepts from an already literal "
+                            "food-diary transcript. Never alter or reinterpret the transcript. "
+                            "source_phrase must be an exact contiguous phrase from it. food_name "
+                            "must be a concise English database-search query that preserves the "
+                            "food variant and raw/cooked/drained/skin/bone preparation. Copy every "
+                            "quantity exactly. Express its unit as a canonical English unit; for "
+                            "counted foods use the singular food noun (for example, 'ten eggs' is "
+                            "value 10 and unit 'egg', and 'iki yumurta' is value 2 and unit "
+                            "'egg', never 'yumurta'). Never invent a quantity, unit, preparation, "
+                            "weight basis, food, or recipe decomposition. Set meal only when the "
+                            "speaker explicitly groups the food under breakfast, lunch, dinner, "
+                            "or snacks; otherwise return null. English and Turkish are supported."
+                        )
+                    }
+                ]
+            },
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": json.dumps(
+                                {
+                                    "detected_language": detected_language,
+                                    "literal_transcript": transcript,
+                                },
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            )
+                        }
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "thinkingConfig": {"thinkingLevel": "minimal"},
+                "responseMimeType": "application/json",
+                "responseJsonSchema": schema,
+            },
+        }
+        response = await self._post(
+            f"{self.base_url}/{self.settings.gemini_extraction_model}:generateContent",
+            payload,
+        )
+        try:
+            return ConceptExtraction.model_validate(self._json_text(response))
+        except ValueError as exc:
+            raise GeminiError("Concept extraction did not match the contract") from exc
 
     async def embed_concepts(self, concepts: list[ExtractedConcept]) -> list[list[float]]:
         requests = [
@@ -206,6 +292,12 @@ class GeminiClient:
                     "name": candidate["name"],
                     "category": candidate["category"],
                     "quality_status": candidate["quality_status"],
+                    "matched_channels": candidate.get("matched_channels", []),
+                    "matched_term": candidate.get("matched_term"),
+                    "matched_term_type": candidate.get("matched_term_type"),
+                    "primary_match_tier": candidate.get("primary_match_tier"),
+                    "source_term_exact": candidate.get("source_term_exact", False),
+                    "retrieval_score": candidate.get("retrieval_score", 0),
                     "portions": [
                         {
                             "portion_id": portion["portion_id"],
@@ -234,7 +326,11 @@ class GeminiClient:
                             "and weight-basis distinctions as unresolved fields. An NFS/NS item "
                             "may be proposed as unspecified. Return alternatives only from that "
                             "same set, and only when they are a materially plausible choice for "
-                            "the spoken food."
+                            "the spoken food. Prefer direct primary/common-name evidence and exact "
+                            "preparation matches. Do not choose a candidate with extra material "
+                            "attributes that were not spoken when a less-assumptive matching "
+                            "candidate exists. Confidence may be at least 0.92 only when the food "
+                            "and every material attribute are directly supported."
                         )
                     }
                 ]
@@ -254,7 +350,7 @@ class GeminiClient:
                 }
             ],
             "generationConfig": {
-                "temperature": 0,
+                "thinkingConfig": {"thinkingLevel": "low"},
                 "responseMimeType": "application/json",
                 "responseJsonSchema": SelectorOutput.model_json_schema(),
             },

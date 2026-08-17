@@ -81,11 +81,16 @@ def create_core_fixture(path: Path) -> None:
             ('food-apple-cooked', 'Apple, cooked', 'Apple, cooked', 'Fruit',
              'complete', 'fixture-release', 1, 90),
             ('food-rice', 'Rice, cooked', 'Rice, cooked', 'Grains', 'complete',
+             'fixture-release', 1, 100),
+            ('food-egg', 'Egg, whole, cooked, hard-boiled',
+             'Egg, whole, cooked, hard-boiled', 'Eggs', 'complete',
              'fixture-release', 1, 100);
         INSERT INTO food_search VALUES
             ('food-apple', 'Apple, raw', 'apple raw fruit', 'Fruit'),
             ('food-apple-cooked', 'Apple, cooked', 'apple cooked fruit', 'Fruit'),
-            ('food-rice', 'Rice, cooked', 'rice cooked grain', 'Grains');
+            ('food-rice', 'Rice, cooked', 'rice cooked grain', 'Grains'),
+            ('food-egg', 'Egg, whole, cooked, hard-boiled',
+             'egg whole cooked hard-boiled', 'Eggs');
         INSERT INTO food_source_term_search VALUES
             ('term-elma', 'food-apple', 'elma', 'common_name');
         INSERT INTO food_search_terms VALUES ('term-elma', 'food-apple', 'elma');
@@ -108,6 +113,7 @@ def settings(tmp_path: Path) -> Settings:
         supabase_jwt_audience="authenticated",
         gemini_api_key="gemini-key",
         gemini_audio_model="gemini-audio",
+        gemini_extraction_model="gemini-extraction",
         gemini_selector_model="gemini-selector",
         gemini_embedding_model="gemini-embedding-2",
         embedding_dimensions=768,

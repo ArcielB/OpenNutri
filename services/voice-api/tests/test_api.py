@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from opennutri_voice.core_repository import CoreFoodRepository
-from opennutri_voice.main import create_app
+from opennutri_voice.main import create_app, validate_wav
 from opennutri_voice.models import (
     AudioExtraction,
     ExtractedConcept,
@@ -146,6 +148,13 @@ def test_auth_audio_validation_and_bounded_voice_response(settings):
     assert payload["items"][0]["quantity"]["grams"] == 100
     assert payload["items"][0]["meal_default"] == "breakfast"
     assert len(store.released) == 1
+
+
+def test_audio_accepts_thirty_seconds_but_not_longer():
+    assert validate_wav(make_wav(seconds=30)) == 30
+    with pytest.raises(HTTPException) as raised:
+        validate_wav(make_wav(seconds=31))
+    assert raised.value.status_code == 413
 
 
 def test_quota_falls_back_to_lexical_manual_search(settings):

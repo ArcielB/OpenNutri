@@ -41,7 +41,14 @@ void main() {
       expect(
         detector.observe(
           dbfs: -60,
-          elapsed: const Duration(milliseconds: 2800),
+          elapsed: const Duration(milliseconds: 3500),
+        ),
+        isFalse,
+      );
+      expect(
+        detector.observe(
+          dbfs: -60,
+          elapsed: const Duration(milliseconds: 3600),
         ),
         isTrue,
       );
@@ -370,6 +377,7 @@ class _ResolvedVoiceClient extends _FakeVoiceClient {
           mealDefault: MealType.breakfast,
           unresolvedFields: [],
           isUnspecified: false,
+          autoLogEligible: true,
         ),
       ],
       manualSearchCandidates: [],
