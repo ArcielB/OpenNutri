@@ -105,6 +105,11 @@ This is the current high-signal project state after the reviewer workflow moved 
   cold launch was about 7.4 seconds on the test device, above the beta's 4-second
   cold target; it must be remeasured after startup optimization and in a release
   build.
+  A configured arm64 release APK was built on 2026-08-17 at
+  `apps/nutrition-app/build/app/outputs/flutter-apk/app-release.apk` (19,386,116
+  bytes; SHA-256 `e3deda7ab860619131d8e52a142822b3a9666b32de461d3083a403f10b1e16c0`).
+  It is debug-key signed for this personal beta and remains uninstalled because no
+  USB device was visible to `adb` or `lsusb` at handoff.
 - `benchmarks/voice-v0.1.0/` contains 240 balanced English/Turkish cases with 48
   committed deterministic audio fixtures. Validation is green; live threshold
   metrics remain unmeasured until the complete 768-dimensional index is built and
