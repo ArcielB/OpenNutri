@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .config import Settings
 from .core_repository import CoreFoodRepository
-from .gemini import GeminiClient
+from .gemini import GeminiClient, GeminiError
 from .models import (
     CandidatePortion,
     ExtractedConcept,
@@ -90,6 +90,11 @@ PREPARATION_WORDS = {
     "kemikli",
     "kemiksiz",
 }
+LEXICAL_MATERIAL_WORDS = {
+    *PREPARATION_WORDS,
+    "dry",
+    "uncooked",
+}
 MATERIAL_STATE_RE = re.compile(
     r"\b(raw|cooked|boiled|fried|baked|roasted|grilled|drained|skin|skinless|"
     r"bone|boneless|çiğ|pişmiş|haşlanmış|kızarmış|süzülmüş|kabuklu|kabuksuz|"
@@ -99,6 +104,10 @@ MATERIAL_STATE_RE = re.compile(
 QUANTITY_RE = re.compile(
     r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>kg|kilograms?|kilo|g|gr|grams?|"
     r"adet|piece|pieces|cup|cups|fincan|bardak|dilim|slice|slices)\b",
+    re.IGNORECASE,
+)
+AS_PURCHASED_RE = re.compile(
+    r"\b(as[ -]?purchased|satın alındığı(?: haliyle)?|satın alınan(?: haliyle)?)\b",
     re.IGNORECASE,
 )
 SEHRIYE_ALIAS_RE = re.compile(
@@ -186,17 +195,58 @@ class ResolverPipeline:
         audio_model: str | None,
         transcription_fallback_used: bool = False,
     ) -> ResolutionResponse:
-        # Exact lexical matches take a deterministic fast path. Ambiguous lexical
-        # matches go directly to the constrained selector; semantic retrieval is
-        # reserved for queries with no lexical candidates. This keeps the ordinary
-        # path fast and makes private-index egress exceptional.
+        # Exact lexical matches take a deterministic fast path. A single batched
+        # translation/synonym pass repairs concepts with no lexical candidates
+        # before the private semantic index is consulted.
+        working_concepts = list(concepts)
         candidate_sets = [
             await self._retrieve(self._food_search_query(concept))
-            for concept in concepts
+            for concept in working_concepts
         ]
+        repaired_indices: set[int] = set()
+        repair_indices = [
+            index
+            for index, (concept, candidates) in enumerate(
+                zip(working_concepts, candidate_sets)
+            )
+            if not self._has_viable_lexical_candidate(concept, candidates)
+        ]
+        if repair_indices:
+            for index in repair_indices:
+                candidate_sets[index] = []
+            try:
+                rewrites = await self.gemini.normalize_search_queries(
+                    [working_concepts[index] for index in repair_indices]
+                )
+            except GeminiError:
+                rewrites = None
+            if rewrites is not None:
+                rewrite_by_index = {
+                    rewrite.concept_index: rewrite.search_query.strip()
+                    for rewrite in rewrites.rewrites
+                    if 0 <= rewrite.concept_index < len(repair_indices)
+                    and rewrite.search_query.strip()
+                }
+                for local_index, search_query in rewrite_by_index.items():
+                    original_index = repair_indices[local_index]
+                    working_concepts[original_index] = working_concepts[
+                        original_index
+                    ].model_copy(update={"food_name": search_query})
+                    repaired_indices.add(original_index)
+                    repaired_candidates = await self._retrieve(
+                        self._food_search_query(working_concepts[original_index])
+                    )
+                    if self._has_viable_lexical_candidate(
+                        working_concepts[original_index],
+                        repaired_candidates,
+                    ):
+                        candidate_sets[original_index] = repaired_candidates
+
         decisions: dict[int, SelectorDecision] = {}
         pending = []
-        for index, (concept, candidates) in enumerate(zip(concepts, candidate_sets)):
+        for index, (concept, candidates) in enumerate(
+            zip(working_concepts, candidate_sets)
+        ):
             decision = self._deterministic_decision(concept, candidates)
             if decision is None:
                 pending.append(index)
@@ -208,18 +258,20 @@ class ResolverPipeline:
                 index for index in pending if not candidate_sets[index]
             ]
             if semantic_indices:
-                semantic_concepts = [concepts[index] for index in semantic_indices]
+                semantic_concepts = [
+                    working_concepts[index] for index in semantic_indices
+                ]
                 vectors = await self.gemini.embed_concepts(semantic_concepts)
                 for index, vector in zip(semantic_indices, vectors, strict=True):
                     candidate_sets[index] = await self._retrieve(
-                        self._food_search_query(concepts[index]),
+                        self._food_search_query(working_concepts[index]),
                         vector,
                     )
 
             selector_indices = []
             for index in pending:
                 decision = self._deterministic_decision(
-                    concepts[index],
+                    working_concepts[index],
                     candidate_sets[index],
                 )
                 if decision is None:
@@ -229,7 +281,9 @@ class ResolverPipeline:
 
             if selector_indices:
                 selector = await self.gemini.select_candidates(
-                    concepts=[concepts[index] for index in selector_indices],
+                    concepts=[
+                        working_concepts[index] for index in selector_indices
+                    ],
                     candidate_sets=[candidate_sets[index] for index in selector_indices],
                 )
                 for decision in selector.decisions:
@@ -247,8 +301,9 @@ class ResolverPipeline:
                 decision=decisions.get(index),
                 meal_default=concept.meal or fallback_meal,
                 transcription_fallback_used=transcription_fallback_used,
+                query_repaired=index in repaired_indices,
             )
-            for index, concept in enumerate(concepts)
+            for index, concept in enumerate(working_concepts)
         ]
         return ResolutionResponse(
             status="resolved",
@@ -450,6 +505,32 @@ class ResolverPipeline:
         )
 
     @classmethod
+    def _has_viable_lexical_candidate(
+        cls,
+        concept: ExtractedConcept,
+        candidates: list[dict[str, Any]],
+    ) -> bool:
+        search_query = cls._food_search_query(concept)
+        query_tokens = set(cls._lexical_signature(search_query))
+        query_material = query_tokens.intersection(LEXICAL_MATERIAL_WORDS)
+        for candidate in candidates:
+            if candidate.get("source_term_exact"):
+                return True
+            candidate_tokens = set(cls._lexical_signature(candidate["name"]))
+            candidate_material = candidate_tokens.intersection(
+                LEXICAL_MATERIAL_WORDS
+            )
+            if query_material and not query_material.intersection(candidate_material):
+                continue
+            if candidate.get("primary_match_tier") in {0, 1}:
+                return True
+            if query_tokens and query_tokens.issubset(candidate_tokens):
+                return True
+            if cls._candidate_head_matches_query(search_query, candidate["name"]):
+                return True
+        return False
+
+    @classmethod
     def _food_search_query(cls, concept: ExtractedConcept) -> str:
         alias_material = " ".join(
             [concept.source_phrase, concept.food_name, *concept.preparation]
@@ -527,6 +608,7 @@ class ResolverPipeline:
         decision: SelectorDecision | None,
         meal_default: str,
         transcription_fallback_used: bool = False,
+        query_repaired: bool = False,
     ) -> ResolvedFoodItem:
         candidate_by_id = {candidate["food_id"]: candidate for candidate in candidates}
         allowed_ids = set(candidate_by_id)
@@ -557,7 +639,9 @@ class ResolverPipeline:
             unresolved.append("weight_basis")
         if selected and self._needs_preparation_confirmation(concept, selected):
             unresolved.append("preparation")
-        if selected and self._uses_curated_food_alias(concept):
+        if selected and (
+            query_repaired or self._uses_curated_food_alias(concept)
+        ):
             unresolved.append("food")
         if transcription_fallback_used:
             unresolved.append("transcription")
@@ -715,7 +799,9 @@ class ResolverPipeline:
         concept: ExtractedConcept,
         selected: dict[str, Any] | None,
     ) -> WeightBasisResolution:
-        if concept.weight_basis == "as_purchased":
+        if concept.weight_basis == "as_purchased" and AS_PURCHASED_RE.search(
+            concept.source_phrase
+        ):
             if selected and selected.get("has_usable_weight_factor"):
                 return WeightBasisResolution(status="resolved", value="as_purchased")
             return WeightBasisResolution(status="unresolved")

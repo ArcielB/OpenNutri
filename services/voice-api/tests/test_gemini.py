@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from opennutri_voice.gemini import GeminiClient, GeminiError
+from opennutri_voice.models import ExtractedConcept
 
 
 @pytest.mark.asyncio
@@ -74,9 +75,12 @@ async def test_voice_uses_literal_transcription_then_text_extraction(settings):
         "text"
     ]
     assert "tel şehriye" in first_body["systemInstruction"]["parts"][0]["text"]
-    assert "translate şehriye" in second_body["systemInstruction"]["parts"][0][
-        "text"
-    ]
+    assert "food_name must translate" in second_body["systemInstruction"]["parts"][
+        0
+    ]["text"]
+    assert "Raw or uncooked never means as-purchased" in second_body[
+        "systemInstruction"
+    ]["parts"][0]["text"]
 
 
 @pytest.mark.asyncio
@@ -129,6 +133,69 @@ async def test_voice_uses_review_only_audio_fallback_after_primary_rate_limit(se
         "gemini-audio-fallback:generateContent",
         "gemini-extraction:generateContent",
     ]
+
+
+@pytest.mark.asyncio
+async def test_difficult_search_queries_are_normalized_in_one_batch(settings):
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": json.dumps(
+                                        {
+                                            "rewrites": [
+                                                {
+                                                    "concept_index": 0,
+                                                    "search_query": "raw pasta",
+                                                },
+                                                {
+                                                    "concept_index": 1,
+                                                    "search_query": "cooked rice",
+                                                },
+                                            ]
+                                        }
+                                    )
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    client = GeminiClient(
+        settings,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = await client.normalize_search_queries(
+        [
+            ExtractedConcept(source_phrase="çiğ makarna", food_name="çiğ makarna"),
+            ExtractedConcept(
+                source_phrase="pişmiş pirinç",
+                food_name="pişmiş pirinç",
+            ),
+        ]
+    )
+
+    assert [rewrite.search_query for rewrite in result.rewrites] == [
+        "raw pasta",
+        "cooked rice",
+    ]
+    assert len(requests) == 1
+    body = json.loads(requests[0].content)
+    assert body["generationConfig"]["temperature"] == 0
+    prompt = body["systemInstruction"]["parts"][0]["text"]
+    assert "Never decompose a dish or recipe" in prompt
+    assert "preserve every explicitly spoken food variant" in prompt
 
 
 @pytest.mark.asyncio

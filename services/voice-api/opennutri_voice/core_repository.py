@@ -9,6 +9,7 @@ from typing import Any, Iterator
 
 
 TOKEN_RE = re.compile(r"[^\W_]+(?:['-][^\W_]+)*", re.UNICODE)
+UNSPECIFIED_TOKENS = {"nfs", "ns", "unspecified"}
 
 
 class CoreDatabaseError(RuntimeError):
@@ -92,6 +93,7 @@ class CoreFoodRepository:
         fts_query = self._fts_query(query)
         if not fts_query:
             return []
+        fetch_limit = min(max(limit * 5, limit), 50)
         with self.connect() as connection:
             rows = connection.execute(
                 """
@@ -114,11 +116,74 @@ class CoreFoodRepository:
                          relevance,
                          length(f.display_name),
                          f.food_id
-                LIMIT :limit
+                LIMIT :fetch_limit
                 """,
-                {"query": query.strip(), "fts_query": fts_query, "limit": limit},
+                {
+                    "query": query.strip(),
+                    "fts_query": fts_query,
+                    "fetch_limit": fetch_limit,
+                },
             ).fetchall()
-        return [dict(row) for row in rows]
+        ranked = sorted(
+            enumerate(rows),
+            key=lambda indexed: self._lexical_rank(
+                query,
+                indexed[1]["display_name"],
+                indexed[0],
+            ),
+        )
+        return [dict(row) for _, row in ranked[:limit]]
+
+    @staticmethod
+    def _singular_token(token: str) -> str:
+        if token in UNSPECIFIED_TOKENS:
+            return token
+        if token.endswith("ies") and len(token) > 3:
+            return f"{token[:-3]}y"
+        if token.endswith("s") and not token.endswith("ss") and len(token) > 2:
+            return token[:-1]
+        return token
+
+    @classmethod
+    def _head_matches_query(cls, query: str, display_name: str) -> bool:
+        query_tokens = cls._lexical_tokens(query)
+        display_tokens = TOKEN_RE.findall(
+            unicodedata.normalize("NFKC", display_name).casefold()
+        )
+        return bool(
+            display_tokens
+            and cls._singular_token(display_tokens[0]) in query_tokens
+        )
+
+    @classmethod
+    def _lexical_tokens(cls, value: str) -> set[str]:
+        return {
+            cls._singular_token(token)
+            for token in TOKEN_RE.findall(
+                unicodedata.normalize("NFKC", value).casefold()
+            )
+        }
+
+    @classmethod
+    def _lexical_rank(
+        cls,
+        query: str,
+        display_name: str,
+        original_rank: int,
+    ) -> tuple[bool, bool, int, bool, int]:
+        query_tokens = cls._lexical_tokens(query)
+        display_tokens = cls._lexical_tokens(display_name)
+        covers_query = bool(query_tokens and query_tokens.issubset(display_tokens))
+        extra_tokens = (
+            len(display_tokens - query_tokens) if covers_query else 10_000
+        )
+        return (
+            not cls._head_matches_query(query, display_name),
+            not covers_query,
+            extra_tokens,
+            not bool(display_tokens.intersection(UNSPECIFIED_TOKENS)),
+            original_rank,
+        )
 
     def source_term_search(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         fts_query = self._fts_query(query)

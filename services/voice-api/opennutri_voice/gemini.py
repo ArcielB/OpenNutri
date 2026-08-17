@@ -12,6 +12,7 @@ from .models import (
     AudioTranscript,
     ConceptExtraction,
     ExtractedConcept,
+    SearchQueryRewriteOutput,
     SelectorOutput,
 )
 
@@ -207,11 +208,19 @@ class GeminiClient:
                             "counted foods use the singular food noun (for example, 'ten eggs' is "
                             "value 10 and unit 'egg', and 'iki yumurta' is value 2 and unit "
                             "'egg', never 'yumurta'). Never invent a quantity, unit, preparation, "
-                            "weight basis, food, or recipe decomposition. Set meal only when the "
+                            "weight basis, food, or recipe decomposition. Raw or uncooked never "
+                            "means as-purchased; set weight_basis only when the speaker literally "
+                            "says edible weight, as purchased, yenilebilir ağırlık, or satın "
+                            "alındığı haliyle. Set meal only when the "
                             "speaker explicitly groups the food under breakfast, lunch, dinner, "
                             "or snacks; otherwise return null. English and Turkish are supported. "
-                            "For database search, translate şehriye, tel şehriye, and arpa "
-                            "şehriye to pasta while source_phrase remains exact."
+                            "The source_phrase and food_name have different jobs: source_phrase "
+                            "stays exact, while food_name must translate any Turkish food words "
+                            "to English. Examples: 'çiğ makarna' becomes food_name 'raw pasta'; "
+                            "'pişmiş pirinç' becomes 'cooked rice'; 'ızgara tavuk göğsü' becomes "
+                            "'grilled chicken breast'; and şehriye, tel şehriye, or arpa şehriye "
+                            "becomes 'pasta'. Never copy a Turkish food name into food_name when "
+                            "an English equivalent exists."
                         )
                     }
                 ]
@@ -247,6 +256,75 @@ class GeminiClient:
             return ConceptExtraction.model_validate(self._json_text(response))
         except ValueError as exc:
             raise GeminiError("Concept extraction did not match the contract") from exc
+
+    async def normalize_search_queries(
+        self,
+        concepts: list[ExtractedConcept],
+    ) -> SearchQueryRewriteOutput:
+        payload = {
+            "systemInstruction": {
+                "parts": [
+                    {
+                        "text": (
+                            "Convert each difficult food phrase into one concise English USDA/Core "
+                            "database search query. Return exactly one rewrite for every supplied "
+                            "concept_index. Translate Turkish or other languages, expand a common "
+                            "colloquial food name, or correct an obvious food spelling variation. "
+                            "Remove quantities from search_query, but preserve every explicitly "
+                            "spoken food variant and raw/cooked/boiled/fried/grilled/drained/skin/"
+                            "bone state. Do not add an unspoken ingredient, preparation, brand, "
+                            "food variant, or weight basis. Never decompose a dish or recipe into "
+                            "ingredients. Use conventional database state words when equivalent: "
+                            "uncooked pasta is 'pasta dry', not 'raw pasta'. Examples: çiğ "
+                            "makarna -> pasta dry; pişmiş pirinç -> "
+                            "cooked rice; ızgara tavuk göğsü -> grilled chicken breast; tel "
+                            "şehriye -> pasta; PB and J sandwich -> peanut butter and jelly "
+                            "sandwich. If a proper food name has no translation, transliterate it "
+                            "without guessing what it contains."
+                        )
+                    }
+                ]
+            },
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": json.dumps(
+                                {
+                                    "concepts": [
+                                        {
+                                            "concept_index": index,
+                                            "source_phrase": concept.source_phrase,
+                                            "food_name": concept.food_name,
+                                            "preparation": concept.preparation,
+                                            "weight_basis": concept.weight_basis,
+                                        }
+                                        for index, concept in enumerate(concepts)
+                                    ]
+                                },
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            )
+                        }
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "thinkingConfig": {"thinkingLevel": "minimal"},
+                "temperature": 0,
+                "responseMimeType": "application/json",
+                "responseJsonSchema": SearchQueryRewriteOutput.model_json_schema(),
+            },
+        }
+        response = await self._post(
+            f"{self.base_url}/{self.settings.gemini_extraction_model}:generateContent",
+            payload,
+        )
+        try:
+            return SearchQueryRewriteOutput.model_validate(self._json_text(response))
+        except ValueError as exc:
+            raise GeminiError("Search-query normalization did not match the contract") from exc
 
     async def embed_concepts(self, concepts: list[ExtractedConcept]) -> list[list[float]]:
         requests = [

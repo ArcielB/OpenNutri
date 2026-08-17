@@ -27,9 +27,13 @@ validated again. Flutter obtains nutrients from the public Core API after review
   `transcription` unresolved and can never auto-log until the person confirms it.
 - Exact, unambiguous lexical matches are selected deterministically and make no
   embedding or selector request. Ambiguous lexical matches use the constrained
-  Flash-Lite selector without a vector call. Only a concept with zero lexical
-  candidates uses one batched embedding call before selection. This is both the
-  lowest-latency path and the lowest-egress path for ordinary lists.
+  Flash-Lite selector without a vector call. Concepts with no viable lexical
+  candidate first receive one batched English translation/synonym rewrite and retry
+  lexical search. Only phrases that still have no candidate use a batched embedding
+  call.
+  The literal transcript and extracted amount are never rewritten, and normalized
+  matches always require review. This keeps the ordinary path fast and minimizes
+  private-index egress.
 - A recording may contain up to ten foods. Explicit spoken meal groups are returned
   per concept; meal is otherwise left unset for Flutter's local-time default.
 - Provider or quota failures return `status=manual_search`; there is no paid fallback.

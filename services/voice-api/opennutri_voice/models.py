@@ -74,6 +74,15 @@ class ConceptExtraction(StrictModel):
     concepts: list[ExtractedConcept] = Field(min_length=1, max_length=10)
 
 
+class SearchQueryRewrite(StrictModel):
+    concept_index: int = Field(ge=0, le=9)
+    search_query: str = Field(min_length=1, max_length=120)
+
+
+class SearchQueryRewriteOutput(StrictModel):
+    rewrites: list[SearchQueryRewrite] = Field(min_length=1, max_length=10)
+
+
 class CandidatePortion(StrictModel):
     portion_id: str
     description: str

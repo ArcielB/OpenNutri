@@ -7,6 +7,8 @@ from opennutri_voice.models import (
     AudioExtraction,
     ExtractedConcept,
     ExtractedQuantity,
+    SearchQueryRewrite,
+    SearchQueryRewriteOutput,
     SelectorDecision,
     SelectorOutput,
 )
@@ -53,6 +55,36 @@ class LexicalSelectorGemini:
         )
 
 
+class NormalizationGemini:
+    def __init__(self) -> None:
+        self.normalization_calls = 0
+
+    async def normalize_search_queries(self, concepts):
+        self.normalization_calls += 1
+        assert [concept.food_name for concept in concepts] == [
+            "çiğ makarna",
+            "pişmiş pirinç",
+        ]
+        return SearchQueryRewriteOutput(
+            rewrites=[
+                SearchQueryRewrite(
+                    concept_index=0,
+                    search_query="pasta dry",
+                ),
+                SearchQueryRewrite(
+                    concept_index=1,
+                    search_query="cooked rice",
+                ),
+            ]
+        )
+
+    async def embed_concepts(self, concepts):
+        raise AssertionError("normalized lexical matches must not request embeddings")
+
+    async def select_candidates(self, *, concepts, candidate_sets):
+        raise AssertionError("fixture rewrites should resolve deterministically")
+
+
 @pytest.fixture
 def pipeline(settings):
     return ResolverPipeline(
@@ -96,6 +128,11 @@ def test_quantity_requires_grams_or_one_source_backed_portion(pipeline):
 def test_plural_food_query_retrieves_singular_core_name(pipeline):
     rows = pipeline.core.primary_search("hard-boiled whole eggs", limit=10)
     assert rows[0]["food_id"] == "food-egg"
+
+
+def test_primary_search_prioritizes_food_head_over_category_noise(pipeline):
+    rows = pipeline.core.primary_search("pasta dry", limit=10)
+    assert rows[0]["food_id"] == "food-pasta-dry"
 
 
 @pytest.mark.parametrize(
@@ -159,6 +196,48 @@ async def test_raw_sehriye_uses_deterministic_lexical_pasta_match(settings):
     assert item.quantity.grams == 250
     assert "food" in item.unresolved_fields
     assert item.auto_log_eligible is False
+
+
+@pytest.mark.asyncio
+async def test_zero_lexical_turkish_foods_get_one_batched_normalization(settings):
+    gemini = NormalizationGemini()
+    pipeline = ResolverPipeline(
+        settings=settings,
+        core=CoreFoodRepository(settings.core_database_path),
+        store=StubStore(),
+        gemini=gemini,
+    )
+    response = await pipeline._resolve_concepts(
+        request_id="request-normalized-turkish",
+        transcript="250 gram çiğ makarna ve 200 gram pişmiş pirinç",
+        detected_language="tr",
+        concepts=[
+            ExtractedConcept(
+                source_phrase="250 gram çiğ makarna",
+                food_name="çiğ makarna",
+                quantity=ExtractedQuantity(value=250, unit="gram"),
+                preparation=["raw"],
+            ),
+            ExtractedConcept(
+                source_phrase="200 gram pişmiş pirinç",
+                food_name="pişmiş pirinç",
+                quantity=ExtractedQuantity(value=200, unit="gram"),
+                preparation=["cooked"],
+            ),
+        ],
+        local_timestamp="2026-08-17T15:00:00",
+        timezone_name="Europe/Istanbul",
+        audio_model="gemini-audio",
+    )
+
+    assert gemini.normalization_calls == 1
+    assert [item.selected_candidate.food_id for item in response.items] == [
+        "food-pasta-dry",
+        "food-rice",
+    ]
+    assert [item.quantity.grams for item in response.items] == [250, 200]
+    assert all("food" in item.unresolved_fields for item in response.items)
+    assert all(item.auto_log_eligible is False for item in response.items)
 
 
 def test_counted_food_uses_only_one_unambiguous_source_item_portion(pipeline):
@@ -273,6 +352,33 @@ def test_spoken_size_selects_one_source_portion(pipeline):
     assert generic.status == "resolved"
     assert generic.grams == 126
     assert generic.source_portion_id == "banana"
+
+
+def test_weight_basis_cannot_be_inferred_from_raw_food(pipeline):
+    selected = {
+        "name": "Beef, ground, raw",
+        "has_usable_weight_factor": False,
+    }
+    hallucinated = ExtractedConcept(
+        source_phrase="100 gram çiğ dana kıyma",
+        food_name="raw ground beef",
+        weight_basis="as_purchased",
+    )
+    resolved = pipeline._resolve_weight_basis(hallucinated, selected)
+    assert resolved.status == "resolved"
+    assert resolved.value == "edible"
+
+    explicit = hallucinated.model_copy(
+        update={"source_phrase": "100 gram dana kıyma as purchased"}
+    )
+    unresolved = pipeline._resolve_weight_basis(explicit, selected)
+    assert unresolved.status == "unresolved"
+    assert unresolved.value is None
+
+    selected["has_usable_weight_factor"] = True
+    as_purchased = pipeline._resolve_weight_basis(explicit, selected)
+    assert as_purchased.status == "resolved"
+    assert as_purchased.value == "as_purchased"
 
 
 def test_specific_cooking_state_cannot_be_silently_generalized(pipeline):

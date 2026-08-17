@@ -88,7 +88,9 @@ def create_core_fixture(path: Path) -> None:
             ('food-pasta-dry', 'Pasta, dry, enriched', 'Pasta, dry, enriched',
              'Grains', 'complete', 'fixture-release', 1, 100),
             ('food-pasta-cooked', 'Pasta, cooked', 'Pasta, cooked', 'Grains',
-             'complete', 'fixture-release', 1, 100);
+             'complete', 'fixture-release', 1, 100),
+            ('food-bulgur', 'Bulgur, dry, raw', 'Bulgur, dry, raw', 'Grains',
+             'complete', 'fixture-release', 1, 200);
         INSERT INTO food_search VALUES
             ('food-apple', 'Apple, raw', 'apple raw fruit', 'Fruit'),
             ('food-apple-cooked', 'Apple, cooked', 'apple cooked fruit', 'Fruit'),
@@ -98,7 +100,9 @@ def create_core_fixture(path: Path) -> None:
             ('food-pasta-dry', 'Pasta, dry, enriched',
              'pasta dry enriched grain', 'Grains'),
             ('food-pasta-cooked', 'Pasta, cooked', 'pasta cooked grain',
-             'Grains');
+             'Grains'),
+            ('food-bulgur', 'Bulgur, dry, raw',
+             'bulgur dry raw cereal grains and pasta', 'Grains');
         INSERT INTO food_source_term_search VALUES
             ('term-elma', 'food-apple', 'elma', 'common_name');
         INSERT INTO food_search_terms VALUES ('term-elma', 'food-apple', 'elma');
