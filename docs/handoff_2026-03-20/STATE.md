@@ -69,8 +69,12 @@ This is the current high-signal project state after the reviewer workflow moved 
   It verifies app-project anonymous JWTs through JWKS and uses an app-only Supabase
   schema for 768-dimensional vectors, atomic quotas, and optional privacy-limited
   feedback. As of 2026-08-17, voice resolution first performs literal
-  `gemini-3.6-flash` transcription and then text-only concept extraction. Exact
-  unambiguous lexical matches skip vector retrieval and the selector entirely;
+  `gemini-3.6-flash` transcription and then text-only `gemini-3.5-flash-lite`
+  concept extraction/selection. This spends one scarce strong-model request per
+  recording, not up to three. A retryable/rate-limit failure uses literal Flash-Lite
+  audio as a review-only fallback: every item receives a `transcription`
+  clarification and cannot auto-log. Exact unambiguous lexical matches skip vector
+  retrieval and the selector entirely;
   ambiguous lexical matches skip vectors but may use one constrained selector call.
   Only concepts with no lexical candidates use one batched embedding request before
   selection. Candidate IDs are validated against deterministic top-12 fusion
@@ -109,11 +113,14 @@ This is the current high-signal project state after the reviewer workflow moved 
   reported `66%` refuse double-counts overlapping 33% bone descriptions; the reviewed
   correction uses sibling raw meat-only record `05071`, which separates 33% bone
   from 9% skin and fat. Preserve both source and corrected values.
-- The private index had 840/13,537 rows when its resumable Free-tier build was
-  restarted on 2026-08-17. Next product work is completing that index and running the
-  complete live voice benchmark, plus the measured coverage audit for as-purchased
-  factors. Never blend nutrient values or copy weight factors between merely similar
-  foods silently.
+- The private index reached 1,840/13,537 rows on 2026-08-17, when the observed
+  `gemini-embedding-2` Free-tier daily limit stopped the build after exactly 1,000
+  new rows. The active app-only `Voice Semantic Index` workflow resumes at most 900
+  rows after each Pacific-time reset, preserving 100 requests for rare live misses;
+  it performs only a count check after completion. Next product work is completing
+  that index and running the complete live voice benchmark, plus the measured
+  coverage audit for as-purchased factors. Never blend nutrient values or copy
+  weight factors between merely similar foods silently.
 
 ## Team / Roles
 

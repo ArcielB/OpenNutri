@@ -36,6 +36,7 @@ class Settings:
     supabase_jwt_audience: str
     gemini_api_key: str
     gemini_audio_model: str
+    gemini_audio_fallback_model: str
     gemini_extraction_model: str
     gemini_selector_model: str
     gemini_embedding_model: str
@@ -73,11 +74,14 @@ class Settings:
             gemini_audio_model=os.environ.get(
                 "OPENNUTRI_GEMINI_AUDIO_MODEL", "gemini-3.6-flash"
             ),
+            gemini_audio_fallback_model=os.environ.get(
+                "OPENNUTRI_GEMINI_AUDIO_FALLBACK_MODEL", "gemini-3.5-flash-lite"
+            ),
             gemini_extraction_model=os.environ.get(
-                "OPENNUTRI_GEMINI_EXTRACTION_MODEL", "gemini-3.6-flash"
+                "OPENNUTRI_GEMINI_EXTRACTION_MODEL", "gemini-3.5-flash-lite"
             ),
             gemini_selector_model=os.environ.get(
-                "OPENNUTRI_GEMINI_SELECTOR_MODEL", "gemini-3.6-flash"
+                "OPENNUTRI_GEMINI_SELECTOR_MODEL", "gemini-3.5-flash-lite"
             ),
             gemini_embedding_model=os.environ.get(
                 "OPENNUTRI_GEMINI_EMBEDDING_MODEL", "gemini-embedding-2"

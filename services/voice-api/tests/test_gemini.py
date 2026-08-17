@@ -53,6 +53,8 @@ async def test_voice_uses_literal_transcription_then_text_extraction(settings):
     )
 
     assert extraction.transcript == "Ten hard-boiled whole eggs."
+    assert extraction.transcription_model == "gemini-audio"
+    assert extraction.transcription_fallback_used is False
     assert extraction.concepts[0].quantity.value == 10
     assert extraction.concepts[0].quantity.unit == "egg"
     assert len(requests) == 2
@@ -70,6 +72,58 @@ async def test_voice_uses_literal_transcription_then_text_extraction(settings):
     )
     assert "10 and unit 'egg'" in second_body["systemInstruction"]["parts"][0][
         "text"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_voice_uses_review_only_audio_fallback_after_primary_rate_limit(settings):
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/gemini-audio:generateContent"):
+            return httpx.Response(429, request=request)
+        if request.url.path.endswith("/gemini-audio-fallback:generateContent"):
+            result = {"transcript": "ten eggs", "detected_language": "en"}
+        else:
+            result = {
+                "concepts": [
+                    {
+                        "source_phrase": "ten eggs",
+                        "food_name": "egg",
+                        "quantity": {"value": 10, "unit": "egg"},
+                        "preparation": [],
+                        "weight_basis": None,
+                        "meal": None,
+                    }
+                ]
+            }
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"content": {"parts": [{"text": json.dumps(result)}]}}
+                ]
+            },
+            request=request,
+        )
+
+    client = GeminiClient(
+        settings,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    extraction = await client.transcribe_and_extract(
+        wav_bytes=b"literal-wav",
+        language_hint="auto",
+    )
+
+    assert extraction.transcript == "ten eggs"
+    assert extraction.transcription_model == "gemini-audio-fallback"
+    assert extraction.transcription_fallback_used is True
+    assert [request.url.path.rsplit("/", 1)[-1] for request in requests] == [
+        "gemini-audio:generateContent",
+        "gemini-audio-fallback:generateContent",
+        "gemini-extraction:generateContent",
     ]
 
 

@@ -940,6 +940,7 @@ class _ReviewItemCard extends StatelessWidget {
       'preparation' =>
         'Confirm ${item.resolution.preparation.join(', ').isEmpty ? 'preparation' : item.resolution.preparation.join(', ')}',
       'unspecified_food' => 'Use unspecified food',
+      'transcription' => 'Confirm transcript',
       _ => 'Confirm $field',
     };
   }

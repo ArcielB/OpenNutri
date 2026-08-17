@@ -56,6 +56,7 @@ class ResolutionMetadata {
     required this.coreVersion,
     required this.indexVersion,
     this.audioModel,
+    this.transcriptionFallbackUsed = false,
     this.extractionModel,
     this.selectorModel,
     this.embeddingModel,
@@ -67,6 +68,8 @@ class ResolutionMetadata {
       coreVersion: json['core_version'] as String,
       indexVersion: json['index_version'] as String,
       audioModel: json['audio_model'] as String?,
+      transcriptionFallbackUsed:
+          json['transcription_fallback_used'] as bool? ?? false,
       extractionModel: json['extraction_model'] as String?,
       selectorModel: json['selector_model'] as String?,
       embeddingModel: json['embedding_model'] as String?,
@@ -77,6 +80,7 @@ class ResolutionMetadata {
   final String coreVersion;
   final String indexVersion;
   final String? audioModel;
+  final bool transcriptionFallbackUsed;
   final String? extractionModel;
   final String? selectorModel;
   final String? embeddingModel;

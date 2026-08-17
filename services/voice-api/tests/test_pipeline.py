@@ -277,6 +277,17 @@ def test_auto_log_requires_trusted_lexical_evidence(pipeline):
     )
     assert item.auto_log_eligible is False
 
+    fallback_item = pipeline._build_item(
+        concept_index=0,
+        concept=concept,
+        candidates=[selected],
+        decision=decision,
+        meal_default="lunch",
+        transcription_fallback_used=True,
+    )
+    assert fallback_item.auto_log_eligible is False
+    assert "transcription" in fallback_item.unresolved_fields
+
 
 @pytest.mark.asyncio
 async def test_exact_lexical_resolution_skips_semantic_and_selector(settings):

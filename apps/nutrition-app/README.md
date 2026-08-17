@@ -16,6 +16,11 @@ matches take a deterministic fast path; ambiguous lexical matches skip vector
 retrieval but still receive constrained selection and visual review. Semantic search
 is reserved for a phrase with no lexical candidates.
 
+The scarce strong model is used only for literal audio transcription; high-volume
+text extraction and constrained selection use Flash-Lite. If strong transcription is
+rate-limited, a fast transcription fallback keeps the flow available but forces a
+visible transcript confirmation and disables automatic logging for that request.
+
 The production resolver URL and isolated Voice Beta Supabase project URL have
 non-secret defaults. The app's public client key is project-specific, so supply
 the current key at build time:

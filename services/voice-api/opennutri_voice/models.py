@@ -61,6 +61,8 @@ class AudioExtraction(StrictModel):
     transcript: str = Field(max_length=1000)
     detected_language: str = Field(max_length=32)
     concepts: list[ExtractedConcept] = Field(min_length=1, max_length=10)
+    transcription_model: str | None = None
+    transcription_fallback_used: bool = False
 
 
 class AudioTranscript(StrictModel):
@@ -153,6 +155,7 @@ class ResolutionMetadata(StrictModel):
     core_version: str
     index_version: str
     audio_model: str | None = None
+    transcription_fallback_used: bool = False
     extraction_model: str | None = None
     selector_model: str | None = None
     embedding_model: str | None = None

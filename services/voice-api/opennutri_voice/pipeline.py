@@ -137,7 +137,10 @@ class ResolverPipeline:
             concepts=extraction.concepts,
             local_timestamp=local_timestamp,
             timezone_name=timezone_name,
-            audio_model=self.settings.gemini_audio_model,
+            audio_model=(
+                extraction.transcription_model or self.settings.gemini_audio_model
+            ),
+            transcription_fallback_used=extraction.transcription_fallback_used,
         )
 
     async def resolve_text(
@@ -157,6 +160,7 @@ class ResolverPipeline:
             local_timestamp=local_timestamp or datetime.now().isoformat(),
             timezone_name=timezone_name,
             audio_model=None,
+            transcription_fallback_used=False,
         )
 
     async def _resolve_concepts(
@@ -169,6 +173,7 @@ class ResolverPipeline:
         local_timestamp: str,
         timezone_name: str,
         audio_model: str | None,
+        transcription_fallback_used: bool = False,
     ) -> ResolutionResponse:
         # Exact lexical matches take a deterministic fast path. Ambiguous lexical
         # matches go directly to the constrained selector; semantic retrieval is
@@ -230,12 +235,17 @@ class ResolverPipeline:
                 candidates=candidate_sets[index],
                 decision=decisions.get(index),
                 meal_default=concept.meal or fallback_meal,
+                transcription_fallback_used=transcription_fallback_used,
             )
             for index, concept in enumerate(concepts)
         ]
         return ResolutionResponse(
             status="resolved",
-            metadata=self._metadata(request_id, audio_model=audio_model),
+            metadata=self._metadata(
+                request_id,
+                audio_model=audio_model,
+                transcription_fallback_used=transcription_fallback_used,
+            ),
             transcript=transcript,
             detected_language=detected_language,
             items=items,
@@ -478,6 +488,7 @@ class ResolverPipeline:
         candidates: list[dict[str, Any]],
         decision: SelectorDecision | None,
         meal_default: str,
+        transcription_fallback_used: bool = False,
     ) -> ResolvedFoodItem:
         candidate_by_id = {candidate["food_id"]: candidate for candidate in candidates}
         allowed_ids = set(candidate_by_id)
@@ -508,6 +519,8 @@ class ResolverPipeline:
             unresolved.append("weight_basis")
         if selected and self._needs_preparation_confirmation(concept, selected):
             unresolved.append("preparation")
+        if transcription_fallback_used:
+            unresolved.append("transcription")
         is_unspecified = bool(
             selected
             and re.search(
@@ -850,12 +863,19 @@ class ResolverPipeline:
             return "dinner"
         return "snacks"
 
-    def _metadata(self, request_id: str, *, audio_model: str | None) -> ResolutionMetadata:
+    def _metadata(
+        self,
+        request_id: str,
+        *,
+        audio_model: str | None,
+        transcription_fallback_used: bool = False,
+    ) -> ResolutionMetadata:
         return ResolutionMetadata(
             request_id=request_id,
             core_version=self.settings.core_version,
             index_version=self.settings.index_version,
             audio_model=audio_model,
+            transcription_fallback_used=transcription_fallback_used,
             extraction_model=(
                 self.settings.gemini_extraction_model if audio_model is not None else None
             ),

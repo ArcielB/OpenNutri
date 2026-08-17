@@ -18,14 +18,18 @@ validated again. Flutter obtains nutrients from the public Core API after review
 - The service role key is present only in this backend.
 - Atomic database functions enforce one active request per subject, 10 requests per
   minute, 50 AI resolutions per subject/day, and 200 globally/day by default.
-- Voice uses one `gemini-3.6-flash` literal transcription call followed by one
-  text-only concept-extraction call. Keeping those jobs separate prevents the
-  transcription model from rewriting a number or food word while trying to match it.
+- Voice uses one `gemini-3.6-flash` literal transcription call followed by a
+  text-only `gemini-3.5-flash-lite` concept-extraction call. Keeping those jobs
+  separate prevents the transcription model from rewriting a number or food word
+  while trying to match it, and preserves scarce strong-model daily capacity.
+- If the strong audio model is temporarily unavailable or rate-limited, literal
+  Flash-Lite transcription keeps voice usable, but every returned item is marked
+  `transcription` unresolved and can never auto-log until the person confirms it.
 - Exact, unambiguous lexical matches are selected deterministically and make no
   embedding or selector request. Ambiguous lexical matches use the constrained
-  selector without a vector call. Only a concept with zero lexical candidates uses
-  one batched embedding call before selection. This is both the lowest-latency path
-  and the lowest-egress path for ordinary lists.
+  Flash-Lite selector without a vector call. Only a concept with zero lexical
+  candidates uses one batched embedding call before selection. This is both the
+  lowest-latency path and the lowest-egress path for ordinary lists.
 - A recording may contain up to ten foods. Explicit spoken meal groups are returned
   per concept; meal is otherwise left unset for Flutter's local-time default.
 - Provider or quota failures return `status=manual_search`; there is no paid fallback.
@@ -59,6 +63,12 @@ The default builder waits 65 seconds between batches and retries HTTP 429 respon
 so a Free-tier build is slow but resumable rather than abandoning the index. Resume
 state is read in ordered 1,000-row pages; Supabase's response cap must never silently
 truncate the completed-hash set.
+
+The app-only `.github/workflows/voice-semantic-index.yml` extends the index by at
+most 900 foods after the daily Pacific-time quota reset. It leaves 100 observed
+free-tier embedding requests for rare live zero-lexical-candidate queries. Once all
+13,537 searchable foods exist, the scheduled run stops after a count-only health
+check and does not download hashes or call Gemini.
 
 ## API
 

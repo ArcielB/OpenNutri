@@ -90,10 +90,29 @@ class GeminiClient:
         wav_bytes: bytes,
         language_hint: str,
     ) -> AudioExtraction:
-        transcript = await self.transcribe_audio(
-            wav_bytes=wav_bytes,
-            language_hint=language_hint,
-        )
+        transcription_model = self.settings.gemini_audio_model
+        fallback_used = False
+        try:
+            transcript = await self.transcribe_audio(
+                wav_bytes=wav_bytes,
+                language_hint=language_hint,
+                model=transcription_model,
+            )
+        except GeminiError as exc:
+            fallback_model = self.settings.gemini_audio_fallback_model
+            if (
+                not fallback_model
+                or fallback_model == transcription_model
+                or not exc.is_retryable
+            ):
+                raise
+            transcript = await self.transcribe_audio(
+                wav_bytes=wav_bytes,
+                language_hint=language_hint,
+                model=fallback_model,
+            )
+            transcription_model = fallback_model
+            fallback_used = True
         concepts = await self.extract_concepts(
             transcript=transcript.transcript,
             detected_language=transcript.detected_language,
@@ -102,6 +121,8 @@ class GeminiClient:
             transcript=transcript.transcript,
             detected_language=transcript.detected_language,
             concepts=concepts.concepts,
+            transcription_model=transcription_model,
+            transcription_fallback_used=fallback_used,
         )
 
     async def transcribe_audio(
@@ -109,6 +130,7 @@ class GeminiClient:
         *,
         wav_bytes: bytes,
         language_hint: str,
+        model: str | None = None,
     ) -> AudioTranscript:
         schema = AudioTranscript.model_json_schema()
         payload = {
@@ -154,7 +176,7 @@ class GeminiClient:
             },
         }
         response = await self._post(
-            f"{self.base_url}/{self.settings.gemini_audio_model}:generateContent",
+            f"{self.base_url}/{model or self.settings.gemini_audio_model}:generateContent",
             payload,
         )
         try:
