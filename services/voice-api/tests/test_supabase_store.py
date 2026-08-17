@@ -36,3 +36,30 @@ async def test_embedding_upsert_uses_a_bulk_write_timeout(settings):
     )
 
     assert client.timeout == 90
+
+
+@pytest.mark.asyncio
+async def test_existing_embedding_hashes_reads_every_supabase_page(settings):
+    offsets: list[int] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        offset = int(request.url.params.get("offset", "0"))
+        offsets.append(offset)
+        size = 1000 if offset == 0 else 3
+        rows = [
+            {
+                "food_id": f"food-{offset + index:05d}",
+                "input_hash": f"hash-{offset + index:05d}",
+            }
+            for index in range(size)
+        ]
+        return httpx.Response(200, json=rows, request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    store = SupabasePrivateStore(settings, client=client)
+    hashes = await store.existing_embedding_hashes()
+    await client.aclose()
+
+    assert offsets == [0, 1000]
+    assert len(hashes) == 1003
+    assert hashes["food-01002"] == "hash-01002"

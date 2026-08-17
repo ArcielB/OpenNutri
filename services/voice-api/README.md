@@ -55,7 +55,9 @@ python3 scripts/build_embeddings.py --batch-size 100
 Each input is a deterministic composition of food name, category, source terms, and
 preparation description. Its SHA-256 hash lets repeated runs skip unchanged rows.
 The default builder waits 65 seconds between batches and retries HTTP 429 responses,
-so a Free-tier build is slow but resumable rather than abandoning the index.
+so a Free-tier build is slow but resumable rather than abandoning the index. Resume
+state is read in ordered 1,000-row pages; Supabase's response cap must never silently
+truncate the completed-hash set.
 
 ## API
 

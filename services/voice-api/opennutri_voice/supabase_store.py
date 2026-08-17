@@ -122,18 +122,31 @@ class SupabasePrivateStore:
 
     async def existing_embedding_hashes(self) -> dict[str, str]:
         headers = self._headers
+        rows: list[Any] = []
+        page_size = 1000
+        offset = 0
         try:
-            response = await self.client.get(
-                f"{self.settings.supabase_url.rstrip('/')}/rest/v1/food_embeddings",
-                headers=headers,
-                params={
-                    "select": "food_id,input_hash",
-                    "core_version": f"eq.{self.settings.core_version}",
-                    "index_version": f"eq.{self.settings.index_version}",
-                },
-            )
-            response.raise_for_status()
-            rows = response.json()
+            while True:
+                response = await self.client.get(
+                    f"{self.settings.supabase_url.rstrip('/')}/rest/v1/food_embeddings",
+                    headers=headers,
+                    params={
+                        "select": "food_id,input_hash",
+                        "core_version": f"eq.{self.settings.core_version}",
+                        "index_version": f"eq.{self.settings.index_version}",
+                        "order": "food_id.asc",
+                        "limit": str(page_size),
+                        "offset": str(offset),
+                    },
+                )
+                response.raise_for_status()
+                page = response.json()
+                if not isinstance(page, list):
+                    raise ValueError("Embedding state response is not a list")
+                rows.extend(page)
+                if len(page) < page_size:
+                    break
+                offset += page_size
         except (httpx.HTTPError, ValueError) as exc:
             raise SupabaseStoreError("Could not load embedding state") from exc
         return {
