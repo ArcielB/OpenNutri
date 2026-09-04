@@ -9,6 +9,10 @@ from opennutri_voice.gemini import GeminiError
 from opennutri_voice.main import create_app, validate_wav
 from opennutri_voice.models import (
     AudioExtraction,
+    CoachAction,
+    CoachModelOutput,
+    CoachMemoryUpdate,
+    CoachVoiceModelOutput,
     ExtractedConcept,
     ExtractedQuantity,
     SelectorDecision,
@@ -92,6 +96,36 @@ class StubGemini:
                     confidence=0.95,
                 )
             ]
+        )
+
+    async def generate_coach_response(self, request):
+        assert request.goal == "Build muscle"
+        return CoachModelOutput(
+            headline="Make protein easier",
+            message="Your current log leaves room for a protein-rich meal.",
+            actions=[
+                CoachAction(
+                    title="Add yogurt",
+                    detail="A practical protein option.",
+                    search_query="plain Greek yogurt",
+                )
+            ],
+            memory_updates=[],
+        )
+
+    async def generate_coach_voice_response(
+        self, *, wav_bytes, language_hint, request
+    ):
+        assert language_hint == "en-US"
+        return CoachVoiceModelOutput(
+            transcript="I avoid shellfish and train at night",
+            headline="Got it",
+            message="I’ll account for both in future suggestions.",
+            actions=[],
+            memory_updates=[
+                CoachMemoryUpdate(fact="Avoids shellfish", category="avoidance"),
+                CoachMemoryUpdate(fact="Trains at night", category="context"),
+            ],
         )
 
 
@@ -290,3 +324,72 @@ def test_feedback_contract_excludes_private_fields_and_deletes_by_subject(settin
     assert invalid.status_code == 422
     assert deleted.json() == {"deleted": True}
     assert store.deleted_subject == "00000000-0000-0000-0000-000000000001"
+
+
+def test_coach_is_authenticated_structured_and_quota_bounded(settings):
+    client, store = build_client(settings)
+    body = {
+        "mode": "oracle",
+        "locale": "en-US",
+        "local_date": "2026-09-04",
+        "goal": "Build muscle",
+        "diet": "Mediterranean",
+        "daily_totals": [
+            {"name": "Protein", "amount": 35, "unit": "g", "target": 120}
+        ],
+        "recent_foods": [],
+        "memories": ["Avoids shellfish"],
+    }
+    with client:
+        missing_auth = client.post("/v1/coach/respond", json=body)
+        response = client.post(
+            "/v1/coach/respond",
+            headers={"authorization": "Bearer valid-token"},
+            json=body,
+        )
+
+    assert missing_auth.status_code == 401
+    assert response.status_code == 200
+    assert response.json() == {
+        "headline": "Make protein easier",
+        "message": "Your current log leaves room for a protein-rich meal.",
+        "actions": [
+            {
+                "title": "Add yogurt",
+                "detail": "A practical protein option.",
+                "search_query": "plain Greek yogurt",
+            }
+        ],
+        "memory_updates": [],
+        "safety_note": None,
+        "model": "gemini-coach",
+    }
+    assert len(store.released) == 1
+
+
+def test_voice_coach_returns_transcript_and_explicit_memories(settings):
+    client, store = build_client(settings)
+    context = {
+        "mode": "chat",
+        "locale": "en-US",
+        "local_date": "2026-09-04",
+        "goal": "Eat well",
+        "diet": "Flexible balance",
+    }
+    with client:
+        response = client.post(
+            "/v1/coach/voice",
+            headers={"authorization": "Bearer valid-token"},
+            files={"audio": ("coach.wav", make_wav(), "audio/wav")},
+            data={"context": __import__("json").dumps(context), "language_hint": "en-US"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["transcript"] == "I avoid shellfish and train at night"
+    assert payload["memory_updates"] == [
+        {"fact": "Avoids shellfish", "category": "avoidance"},
+        {"fact": "Trains at night", "category": "context"},
+    ]
+    assert payload["model"] == "gemini-coach"
+    assert len(store.released) == 1

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opennutri_app/models/diary.dart';
 import 'package:opennutri_app/models/food.dart';
+import 'package:opennutri_app/models/personalization.dart';
 import 'package:opennutri_app/services/local_store.dart';
 import 'package:opennutri_app/state/app_controller.dart';
 
@@ -167,6 +168,19 @@ class _CountingStore extends LocalStore {
 
   @override
   Future<bool> loadVoiceFastLogging() async => fastLogging;
+
+  @override
+  Future<UserNutritionProfile> loadProfile() async =>
+      const UserNutritionProfile();
+
+  @override
+  Future<DailyCoachBrief?> loadDailyCoachBrief() async => null;
+
+  @override
+  Future<void> saveProfile(UserNutritionProfile profile) async {}
+
+  @override
+  Future<void> saveDailyCoachBrief(DailyCoachBrief brief) async {}
 
   @override
   Future<void> saveEntries(List<DiaryEntry> entries) async {

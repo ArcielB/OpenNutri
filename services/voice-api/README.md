@@ -12,6 +12,14 @@ The service never returns invented nutrient data. Gemini can select only a Core 
 ID supplied in that concept's retrieved candidate set, and every returned ID is
 validated again. Flutter obtains nutrients from the public Core API after review.
 
+The same authenticated service also provides stateless structured coaching.
+`gemini-3.8-flash` receives a compact client-supplied profile/diary snapshot and
+returns daily guidance, chat replies, or Oracle food search queries. Coach requests,
+responses, and audio are not written to Supabase. Voice coach input is handled in
+one audio request that returns the literal transcript, reply, and only explicit
+durable memory candidates; Flutter decides what to store on-device. Oracle output
+cannot log directly: Flutter resolves its plain-English query against Core first.
+
 ## Provider boundary
 
 - Supabase anonymous access tokens are verified against the app project's JWKS.
@@ -56,6 +64,10 @@ validated again. Flutter obtains nutrients from the public Core API after review
 - Audio is held only in request memory and is never written to Supabase or logs.
 - Feedback accepts only short source phrases, proposed/final Core IDs, correction
   status, and model/index/Core versions.
+- Coach prompts prohibit diagnosis and treat one-day diaries as potentially
+  incomplete. FDA adult Daily Values supplied by Flutter are broad comparison
+  references, not individualized clinical targets. Memory updates are limited to
+  facts explicitly stated in chat and are never persisted by this service.
 
 ## Local setup
 
@@ -98,6 +110,9 @@ check and does not download hashes or call Gemini.
   is for explicit Search submission, never per-keystroke calls.
 - `POST /v1/voice/feedback`: privacy-limited optional confirmation feedback.
 - `DELETE /v1/voice/feedback`: remove every feedback row for the token subject.
+- `POST /v1/coach/respond`: authenticated structured daily/chat/Oracle/diet response.
+- `POST /v1/coach/voice`: authenticated multipart voice chat plus compact JSON
+  context; returns transcript, response, and explicit memory candidates.
 
 WAV input must be 16 kHz, mono, signed 16-bit PCM, no longer than 30 seconds, and no
 larger than 1 MB.

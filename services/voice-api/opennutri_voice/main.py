@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import wave
 from contextlib import asynccontextmanager
@@ -24,6 +25,9 @@ from .config import Settings
 from .core_repository import CoreFoodRepository
 from .gemini import GeminiClient, GeminiError
 from .models import (
+    CoachRequest,
+    CoachResponse,
+    CoachVoiceResponse,
     DeleteFeedbackResponse,
     FeedbackRequest,
     FeedbackResponse,
@@ -35,7 +39,7 @@ from .pipeline import ResolverPipeline
 from .supabase_store import SupabasePrivateStore, SupabaseStoreError
 
 
-SERVICE_VERSION = "0.3.5"
+SERVICE_VERSION = "0.4.0"
 MAX_AUDIO_BYTES = 1024 * 1024
 MAX_AUDIO_SECONDS = 30.0
 bearer = HTTPBearer(auto_error=False)
@@ -315,6 +319,119 @@ def create_app(
         except SupabaseStoreError as exc:
             raise HTTPException(status_code=503, detail="Feedback storage unavailable") from exc
         return FeedbackResponse(stored=stored)
+
+    @application.post(
+        "/v1/coach/respond",
+        response_model=CoachResponse,
+        tags=["coach"],
+    )
+    async def coach_respond(
+        body: CoachRequest,
+        request: Request,
+        subject: str = Depends(authenticated_subject),
+    ) -> CoachResponse:
+        request_id = str(uuid4())
+        reserved = False
+        try:
+            quota = await request.app.state.store.reserve_request(
+                subject=subject,
+                request_id=request_id,
+            )
+            if not quota.get("allowed"):
+                raise HTTPException(status_code=429, detail="Coach request limit reached")
+            reserved = True
+            output = await request.app.state.gemini.generate_coach_response(body)
+            return CoachResponse(
+                **output.model_dump(),
+                model=resolved_settings.gemini_coach_model,
+            )
+        except SupabaseStoreError as exc:
+            raise HTTPException(status_code=503, detail="Coach temporarily unavailable") from exc
+        except GeminiError as exc:
+            logger.warning(
+                "coach_request_failed request_id=%s mode=%s code=%s status=%s",
+                request_id,
+                body.mode,
+                exc.error_code,
+                exc.http_status,
+            )
+            raise HTTPException(status_code=503, detail="Coach temporarily unavailable") from exc
+        finally:
+            if reserved:
+                try:
+                    await request.app.state.store.release_request(
+                        subject=subject,
+                        request_id=request_id,
+                    )
+                except SupabaseStoreError:
+                    pass
+
+    @application.post(
+        "/v1/coach/voice",
+        response_model=CoachVoiceResponse,
+        tags=["coach"],
+    )
+    async def coach_voice(
+        request: Request,
+        audio: UploadFile = File(),
+        context: str = Form(max_length=12_000),
+        language_hint: str = Form(default="auto", max_length=32),
+        subject: str = Depends(authenticated_subject),
+    ) -> CoachVoiceResponse:
+        if audio.content_type not in {
+            "audio/wav",
+            "audio/x-wav",
+            "audio/wave",
+            "application/octet-stream",
+        }:
+            raise HTTPException(status_code=415, detail="Audio must be WAV")
+        payload = await audio.read(MAX_AUDIO_BYTES + 1)
+        validate_wav(payload)
+        try:
+            body = CoachRequest.model_validate(json.loads(context))
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=422, detail="Invalid coach context") from exc
+        if body.mode != "chat":
+            raise HTTPException(status_code=422, detail="Voice coach requires chat mode")
+        request_id = str(uuid4())
+        reserved = False
+        try:
+            quota = await request.app.state.store.reserve_request(
+                subject=subject,
+                request_id=request_id,
+            )
+            if not quota.get("allowed"):
+                raise HTTPException(status_code=429, detail="Coach request limit reached")
+            reserved = True
+            output = await request.app.state.gemini.generate_coach_voice_response(
+                wav_bytes=payload,
+                language_hint=language_hint,
+                request=body,
+            )
+            return CoachVoiceResponse(
+                **output.model_dump(),
+                model=resolved_settings.gemini_coach_model,
+            )
+        except SupabaseStoreError as exc:
+            raise HTTPException(status_code=503, detail="Coach temporarily unavailable") from exc
+        except GeminiError as exc:
+            logger.warning(
+                "coach_voice_failed request_id=%s code=%s status=%s partial_transcript=%s",
+                request_id,
+                exc.error_code,
+                exc.http_status,
+                exc.partial_transcript is not None,
+            )
+            raise HTTPException(status_code=503, detail="Coach temporarily unavailable") from exc
+        finally:
+            if reserved:
+                try:
+                    await request.app.state.store.release_request(
+                        subject=subject,
+                        request_id=request_id,
+                    )
+                except SupabaseStoreError:
+                    pass
 
     @application.delete(
         "/v1/voice/feedback",

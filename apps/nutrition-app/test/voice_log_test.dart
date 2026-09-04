@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opennutri_app/models/diary.dart';
 import 'package:opennutri_app/models/food.dart';
+import 'package:opennutri_app/models/personalization.dart';
 import 'package:opennutri_app/models/voice_resolution.dart';
 import 'package:opennutri_app/screens/voice_log_screen.dart';
 import 'package:opennutri_app/services/core_api_client.dart';
@@ -607,6 +608,11 @@ class _MemoryStore extends LocalStore {
   @override
   Future<bool> loadVoiceFastLogging() async => fastLogging;
   @override
+  Future<UserNutritionProfile> loadProfile() async =>
+      const UserNutritionProfile();
+  @override
+  Future<DailyCoachBrief?> loadDailyCoachBrief() async => null;
+  @override
   Future<void> saveEntries(List<DiaryEntry> entries) async {
     entrySaveCount += 1;
   }
@@ -625,4 +631,9 @@ class _MemoryStore extends LocalStore {
   Future<void> saveVoiceFastLogging(bool enabled) async {
     fastLogging = enabled;
   }
+
+  @override
+  Future<void> saveProfile(UserNutritionProfile profile) async {}
+  @override
+  Future<void> saveDailyCoachBrief(DailyCoachBrief brief) async {}
 }

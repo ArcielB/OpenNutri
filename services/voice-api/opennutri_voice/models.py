@@ -211,6 +211,66 @@ class DeleteFeedbackResponse(StrictModel):
     deleted: bool
 
 
+CoachMode = Literal["daily", "chat", "oracle", "diet_plan"]
+
+
+class CoachMetric(StrictModel):
+    name: str = Field(min_length=1, max_length=80)
+    amount: float
+    unit: str = Field(min_length=1, max_length=16)
+    target: float | None = Field(default=None, gt=0)
+
+
+class CoachFoodLog(StrictModel):
+    name: str = Field(min_length=1, max_length=160)
+    grams: float = Field(gt=0)
+    meal: MealType
+
+
+class CoachRequest(StrictModel):
+    mode: CoachMode
+    locale: str = Field(default="en", min_length=2, max_length=16)
+    local_date: str = Field(min_length=8, max_length=16)
+    goal: str = Field(default="Eat well", max_length=120)
+    diet: str = Field(default="Balanced", max_length=120)
+    diet_notes: str = Field(default="", max_length=500)
+    memories: list[str] = Field(default_factory=list, max_length=30)
+    daily_totals: list[CoachMetric] = Field(default_factory=list, max_length=40)
+    recent_foods: list[CoachFoodLog] = Field(default_factory=list, max_length=30)
+    user_message: str | None = Field(default=None, min_length=1, max_length=1000)
+
+
+class CoachAction(StrictModel):
+    title: str = Field(min_length=1, max_length=100)
+    detail: str = Field(min_length=1, max_length=240)
+    search_query: str | None = Field(default=None, max_length=120)
+
+
+class CoachMemoryUpdate(StrictModel):
+    fact: str = Field(min_length=1, max_length=180)
+    category: Literal["goal", "preference", "avoidance", "context"]
+
+
+class CoachModelOutput(StrictModel):
+    headline: str = Field(min_length=1, max_length=120)
+    message: str = Field(min_length=1, max_length=700)
+    actions: list[CoachAction] = Field(default_factory=list, max_length=6)
+    memory_updates: list[CoachMemoryUpdate] = Field(default_factory=list, max_length=5)
+    safety_note: str | None = Field(default=None, max_length=240)
+
+
+class CoachResponse(CoachModelOutput):
+    model: str = Field(min_length=1, max_length=120)
+
+
+class CoachVoiceModelOutput(CoachModelOutput):
+    transcript: str = Field(min_length=1, max_length=1000)
+
+
+class CoachVoiceResponse(CoachVoiceModelOutput):
+    model: str = Field(min_length=1, max_length=120)
+
+
 class HealthResponse(StrictModel):
     status: Literal["ok"]
     service_version: str

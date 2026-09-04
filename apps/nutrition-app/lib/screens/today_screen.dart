@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../models/diary.dart';
+import '../models/personalization.dart';
 import '../services/core_api_client.dart';
 import '../services/voice_api_client.dart';
 import '../state/app_controller.dart';
 import '../utils/format.dart';
 import '../widgets/daily_summary.dart';
+import '../widgets/daily_coach_card.dart';
 import '../widgets/day_header.dart';
 import '../widgets/entry_detail_sheet.dart';
 import '../widgets/meal_section.dart';
@@ -18,12 +20,20 @@ class TodayScreen extends StatelessWidget {
     required this.apiClient,
     required this.voiceApiClient,
     required this.onVoice,
+    required this.dailyCoachBrief,
+    required this.coachEnabled,
+    required this.coachLoading,
+    required this.onOpenCoach,
   });
 
   final AppController controller;
   final CoreApiClient apiClient;
   final VoiceApiClient voiceApiClient;
   final Future<void> Function({bool autoStart}) onVoice;
+  final DailyCoachBrief? dailyCoachBrief;
+  final bool coachEnabled;
+  final bool coachLoading;
+  final VoidCallback onOpenCoach;
 
   Future<void> _addFood(BuildContext context, MealType meal) async {
     final entry = await Navigator.of(context).push<DiaryEntry>(
@@ -117,6 +127,14 @@ class TodayScreen extends StatelessWidget {
                 child: DailySummary(
                   totals: controller.dailyTotals,
                   targets: controller.targets,
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: DailyCoachCard(
+                  enabled: coachEnabled,
+                  brief: dailyCoachBrief,
+                  loading: coachLoading,
+                  onOpen: onOpenCoach,
                 ),
               ),
               SliverToBoxAdapter(

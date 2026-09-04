@@ -80,6 +80,15 @@ Do not spend tokens on these unless the task explicitly needs them:
   ambiguous match becomes a visibly marked editable estimate rather than a blocking
   confirmation step. Widget-launched capture closes back to the launcher only after
   the on-device save completes and shows a native result toast.
+  The 1.1 personalization profile (goal, active diet, free-form diet notes, and
+  explicit coach memories) remains on-device. Coach calls are stateless and send a
+  compact snapshot transiently to Gemini 3.8 Flash only after a dedicated disclosure.
+  Daily advice is cached by local date. Text or bounded voice chat may propose memory
+  updates only from explicit user statements; the app displays and can delete each
+  memory. Oracle suggestions are plain English search queries and must pass through
+  public Core search/detail before logging—AI must never supply nutrient truth or an
+  unvalidated food ID. FDA adult Daily Values are labeled as broad references, not
+  individualized medical targets.
 - The consumer food-data surface is separate from the annotator schema. The current
   combined USDA Core release is built under `services/data-pipeline/opennutri_core/` and served
   read-only by `services/core-api/`; do not route it through legacy `claims` or expose

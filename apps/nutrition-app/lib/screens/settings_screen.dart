@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/diary.dart';
+import '../models/personalization.dart';
 import '../services/core_api_client.dart';
 import '../services/android_widget_bridge.dart';
 import '../services/voice_api_client.dart';
 import '../state/app_controller.dart';
+import 'diets_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -189,6 +191,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: const Icon(Icons.save_outlined),
                 label: const Text('Save targets'),
               ),
+              const SizedBox(height: 30),
+              _heading(context, 'Personalization'),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<NutritionGoal>(
+                initialValue: widget.controller.profile.goal,
+                decoration: const InputDecoration(
+                  labelText: 'Primary goal',
+                  prefixIcon: Icon(Icons.flag_outlined),
+                ),
+                items: [
+                  for (final goal in NutritionGoal.values)
+                    DropdownMenuItem(value: goal, child: Text(goal.label)),
+                ],
+                onChanged: (goal) {
+                  if (goal != null) widget.controller.updateGoal(goal);
+                },
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.restaurant_menu),
+                title: Text(widget.controller.profile.diet.name),
+                subtitle: const Text('Active diet framework'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) =>
+                        DietsScreen(controller: widget.controller),
+                  ),
+                ),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.memory_outlined),
+                title: const Text('Coach memory'),
+                subtitle: Text(
+                  widget.controller.profile.memories.isEmpty
+                      ? 'No saved personal facts'
+                      : '${widget.controller.profile.memories.length} on-device facts · manage in Coach',
+                ),
+                trailing: widget.controller.profile.coachEnabled
+                    ? const Chip(label: Text('Active'))
+                    : null,
+              ),
               const SizedBox(height: 32),
               _heading(context, 'Data'),
               const SizedBox(height: 8),
@@ -279,7 +325,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 28),
               Text(
-                'OpenNutri 1.0.0 beta',
+                'OpenNutri 1.1.0 beta',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),

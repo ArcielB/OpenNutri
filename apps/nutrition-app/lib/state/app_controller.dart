@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/diary.dart';
+import '../models/personalization.dart';
 import '../services/local_store.dart';
 
 class AppController extends ChangeNotifier {
@@ -13,6 +14,8 @@ class AppController extends ChangeNotifier {
   bool _voiceDisclosureAccepted = false;
   bool _voiceFeedbackConsent = false;
   bool _voiceFastLogging = true;
+  UserNutritionProfile _profile = const UserNutritionProfile();
+  DailyCoachBrief? _dailyCoachBrief;
 
   DateTime get selectedDate => _selectedDate;
   NutritionTargets get targets => _targets;
@@ -20,6 +23,8 @@ class AppController extends ChangeNotifier {
   bool get voiceDisclosureAccepted => _voiceDisclosureAccepted;
   bool get voiceFeedbackConsent => _voiceFeedbackConsent;
   bool get voiceFastLogging => _voiceFastLogging;
+  UserNutritionProfile get profile => _profile;
+  DailyCoachBrief? get dailyCoachBrief => _dailyCoachBrief;
 
   Future<void> initialize() async {
     _entries = await _store.loadEntries();
@@ -27,6 +32,8 @@ class AppController extends ChangeNotifier {
     _voiceDisclosureAccepted = await _store.loadVoiceDisclosureAccepted();
     _voiceFeedbackConsent = await _store.loadVoiceFeedbackConsent();
     _voiceFastLogging = await _store.loadVoiceFastLogging();
+    _profile = await _store.loadProfile();
+    _dailyCoachBrief = await _store.loadDailyCoachBrief();
   }
 
   List<DiaryEntry> entriesForSelectedDate() {
@@ -135,5 +142,73 @@ class AppController extends ChangeNotifier {
     _voiceFastLogging = enabled;
     notifyListeners();
     await _store.saveVoiceFastLogging(enabled);
+  }
+
+  Future<void> updateProfile(UserNutritionProfile profile) async {
+    _profile = profile;
+    notifyListeners();
+    await _store.saveProfile(profile);
+  }
+
+  Future<void> enableCoach() async {
+    await updateProfile(_profile.copyWith(coachEnabled: true));
+  }
+
+  Future<void> updateGoal(NutritionGoal goal) async {
+    _profile = _profile.copyWith(goal: goal);
+    _targets = _profile.diet.targetsForCalories(_targets.calories, goal: goal);
+    _dailyCoachBrief = null;
+    notifyListeners();
+    await Future.wait([
+      _store.saveProfile(_profile),
+      _store.saveTargets(_targets),
+    ]);
+  }
+
+  Future<void> applyDiet(DietPreset diet, {String? notes}) async {
+    _profile = _profile.copyWith(
+      dietId: diet.id,
+      dietNotes: notes ?? _profile.dietNotes,
+    );
+    _targets = diet.targetsForCalories(_targets.calories, goal: _profile.goal);
+    _dailyCoachBrief = null;
+    notifyListeners();
+    await Future.wait([
+      _store.saveProfile(_profile),
+      _store.saveTargets(_targets),
+    ]);
+  }
+
+  Future<void> addCoachMemories(Iterable<CoachMemory> updates) async {
+    final merged = <CoachMemory>[..._profile.memories];
+    for (final update in updates) {
+      final normalized = update.fact.trim().toLowerCase();
+      if (normalized.isEmpty ||
+          merged.any((item) => item.fact.trim().toLowerCase() == normalized)) {
+        continue;
+      }
+      merged.add(update);
+    }
+    if (merged.length == _profile.memories.length) return;
+    await updateProfile(_profile.copyWith(memories: merged.take(30).toList()));
+  }
+
+  Future<void> removeCoachMemory(CoachMemory memory) async {
+    await updateProfile(
+      _profile.copyWith(
+        memories: _profile.memories
+            .where(
+              (item) =>
+                  item.fact != memory.fact || item.category != memory.category,
+            )
+            .toList(growable: false),
+      ),
+    );
+  }
+
+  Future<void> saveDailyCoachBrief(DailyCoachBrief brief) async {
+    _dailyCoachBrief = brief;
+    notifyListeners();
+    await _store.saveDailyCoachBrief(brief);
   }
 }

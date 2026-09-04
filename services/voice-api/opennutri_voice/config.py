@@ -40,6 +40,7 @@ class Settings:
     gemini_audio_fallback_model: str
     gemini_extraction_model: str
     gemini_selector_model: str
+    gemini_coach_model: str
     gemini_embedding_model: str
     embedding_dimensions: int
     core_version: str
@@ -92,6 +93,9 @@ class Settings:
             ),
             gemini_selector_model=os.environ.get(
                 "OPENNUTRI_GEMINI_SELECTOR_MODEL", "gemini-3.5-flash-lite"
+            ),
+            gemini_coach_model=os.environ.get(
+                "OPENNUTRI_GEMINI_COACH_MODEL", "gemini-3.8-flash"
             ),
             gemini_embedding_model=os.environ.get(
                 "OPENNUTRI_GEMINI_EMBEDDING_MODEL", "gemini-embedding-2"

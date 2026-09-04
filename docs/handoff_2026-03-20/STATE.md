@@ -142,6 +142,16 @@ This is the current high-signal project state after the reviewer workflow moved 
   bytes; SHA-256 `355728ade6b7bfead76a3e6b6da57f67758ddc1437141737dc83bddb278205f9`).
   It is debug-key signed for this personal beta and was installed in place on the
   connected Android 16 `2409BRN2CA` device without clearing its diary data.
+- On 2026-09-04, the consumer app 1.1 product layer added a shared on-device
+  personalization profile, opt-in daily Gemini coaching, typed and voice coach chat,
+  explicit/removable memory updates, six adjustable diet templates, and an Oracle
+  that ranks food search strategies against the current day's nutrient opportunities.
+  The backend coach routes are stateless: they do not persist context, responses, or
+  audio. Oracle output contains search queries only; the user still selects a
+  source-backed Core record before logging. Diet macros adapt to both the current
+  energy target and selected goal. General FDA Nutrition Facts Daily Values are used
+  only as clearly labeled adult comparison references. Voice API service version is
+  `0.4.0`; production deployment validation is recorded in the service/operator note.
 - `benchmarks/voice-v0.1.0/` contains 240 balanced English/Turkish cases with 48
   committed deterministic audio fixtures. Validation is green and the private
   768-dimensional semantic index now contains all 13,537 searchable foods. The full

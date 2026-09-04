@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/diary.dart';
+import '../models/personalization.dart';
 
 class LocalStore {
   static const _entriesKey = 'opennutri.diary.entries.v1';
@@ -10,6 +11,8 @@ class LocalStore {
   static const _voiceDisclosureKey = 'opennutri.voice.disclosure.v1';
   static const _voiceFeedbackConsentKey = 'opennutri.voice.feedback_consent.v1';
   static const _voiceFastLoggingKey = 'opennutri.voice.fast_logging.v1';
+  static const _profileKey = 'opennutri.profile.v1';
+  static const _dailyCoachKey = 'opennutri.coach.daily.v1';
 
   Future<List<DiaryEntry>> loadEntries() async {
     final preferences = await SharedPreferences.getInstance();
@@ -71,5 +74,31 @@ class LocalStore {
   Future<void> saveVoiceFastLogging(bool enabled) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_voiceFastLoggingKey, enabled);
+  }
+
+  Future<UserNutritionProfile> loadProfile() async {
+    final preferences = await SharedPreferences.getInstance();
+    final raw = preferences.getString(_profileKey);
+    if (raw == null) return const UserNutritionProfile();
+    return UserNutritionProfile.fromJson(
+      jsonDecode(raw) as Map<String, dynamic>,
+    );
+  }
+
+  Future<void> saveProfile(UserNutritionProfile profile) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_profileKey, jsonEncode(profile.toJson()));
+  }
+
+  Future<DailyCoachBrief?> loadDailyCoachBrief() async {
+    final preferences = await SharedPreferences.getInstance();
+    final raw = preferences.getString(_dailyCoachKey);
+    if (raw == null) return null;
+    return DailyCoachBrief.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+  }
+
+  Future<void> saveDailyCoachBrief(DailyCoachBrief brief) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_dailyCoachKey, jsonEncode(brief.toJson()));
   }
 }

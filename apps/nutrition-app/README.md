@@ -20,6 +20,30 @@ per-100 g calculation basis, and the exact stored nutrient snapshot. The
 Nutrition report groups that snapshot into energy/macros, vitamins, minerals,
 fatty acids, and other values instead of presenting one undifferentiated list.
 
+## Personal coach, Oracle, and diets
+
+OpenNutri 1.1 adds one on-device personalization profile shared by three surfaces:
+
+- Coach creates one cached daily signal from the selected goal, active diet,
+  today's actual nutrient totals, and explicit saved facts. The first activation
+  explains that this compact context is sent transiently to Gemini. Text and
+  bounded temporary voice messages are supported. Gemini may return memory updates
+  only for durable facts the person explicitly said; those facts remain on-device,
+  are shown as removable chips, and are never stored by the resolver.
+- The Oracle asks Gemini to rank practical foods for the current day's largest
+  opportunities while respecting that same profile. Gemini returns ordinary
+  English food search queries, never nutrient numbers or invented IDs. Tapping an
+  idea opens OpenNutri Core search, and only a verified Core food can be logged.
+- Diets provides Flexible balance, Mediterranean, High protein, Plant powered,
+  Low-carb keto, and Blue Zones-inspired starting patterns. Choosing one adjusts
+  macro targets to the current energy target and goal; the person can add arbitrary
+  constraints and still edit the resulting numeric targets in Settings.
+
+The gap context uses current FDA Nutrition Facts Daily Values for adults and
+children age 4+ as general comparison references. It is not an individualized
+clinical assessment. A deterministic on-device macro observation is shown if the
+daily coach is unavailable; it is labeled as a fallback rather than AI output.
+
 Recording permits a 30-second whole-day list and waits for 1.6 seconds of trailing
 silence, so a normal pause between foods does not cut the list off. The resolver
 returns the literal transcript and structured concepts in one audio-model call.

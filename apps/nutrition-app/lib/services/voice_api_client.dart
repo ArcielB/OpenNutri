@@ -7,6 +7,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/voice_resolution.dart';
+import '../models/personalization.dart';
 import 'supabase_config.dart';
 
 class VoiceApiClient {
@@ -191,6 +192,85 @@ class VoiceApiClient {
         )
         .timeout(const Duration(seconds: 15));
     _decode(response);
+  }
+
+  Future<CoachReply> coach(Map<String, dynamic> request) async {
+    if (!isConfigured) {
+      throw const VoiceApiException('AI coach is not configured');
+    }
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/coach/respond'),
+            headers: {
+              'authorization': 'Bearer ${await _accessToken()}',
+              'content-type': 'application/json',
+            },
+            body: jsonEncode(request),
+          )
+          .timeout(const Duration(seconds: 24));
+      return CoachReply.fromJson(_decode(response));
+    } on TimeoutException catch (error) {
+      throw VoiceApiException(
+        'The coach took too long',
+        error,
+        VoiceApiFailureKind.timeout,
+      );
+    } on SocketException catch (error) {
+      throw VoiceApiException(
+        'Could not reach the coach',
+        error,
+        VoiceApiFailureKind.network,
+      );
+    }
+  }
+
+  Future<CoachReply> coachVoice({
+    required String wavPath,
+    required String languageHint,
+    required Map<String, dynamic> context,
+  }) async {
+    if (!isConfigured) {
+      throw const VoiceApiException('AI coach is not configured');
+    }
+    final file = File(wavPath);
+    if (await file.length() > 1024 * 1024) {
+      throw const VoiceApiException('Recording is larger than 1 MB');
+    }
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/v1/coach/voice'),
+    );
+    request.headers['authorization'] = 'Bearer ${await _accessToken()}';
+    request.fields['language_hint'] = languageHint;
+    request.fields['context'] = jsonEncode(context);
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'audio',
+        wavPath,
+        filename: 'coach.wav',
+        contentType: MediaType('audio', 'wav'),
+      ),
+    );
+    try {
+      final streamed = await _client
+          .send(request)
+          .timeout(const Duration(seconds: 30));
+      final response = await http.Response.fromStream(streamed);
+      return CoachReply.fromJson(_decode(response));
+    } on TimeoutException catch (error) {
+      throw VoiceApiException(
+        'The voice coach took too long',
+        error,
+        VoiceApiFailureKind.timeout,
+      );
+    } on SocketException catch (error) {
+      throw VoiceApiException(
+        'Could not reach the voice coach',
+        error,
+        VoiceApiFailureKind.network,
+      );
+    }
   }
 
   Map<String, dynamic> _decode(http.Response response) {

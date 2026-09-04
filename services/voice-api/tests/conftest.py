@@ -129,6 +129,7 @@ def settings(tmp_path: Path) -> Settings:
         gemini_audio_fallback_model="gemini-audio-fallback",
         gemini_extraction_model="gemini-extraction",
         gemini_selector_model="gemini-selector",
+        gemini_coach_model="gemini-coach",
         gemini_embedding_model="gemini-embedding-2",
         embedding_dimensions=768,
         core_version="0.3.0",

@@ -12,6 +12,9 @@ from .models import (
     AudioExtraction,
     AudioTranscript,
     ConceptExtraction,
+    CoachModelOutput,
+    CoachRequest,
+    CoachVoiceModelOutput,
     ExtractedConcept,
     SearchQueryRewriteOutput,
     SelectorOutput,
@@ -154,6 +157,130 @@ class GeminiClient:
             return None
         transcript = transcript.strip()
         return transcript[:1000] or None
+
+    async def generate_coach_response(self, request: CoachRequest) -> CoachModelOutput:
+        model = self.settings.gemini_coach_model
+        payload = {
+            "systemInstruction": {
+                "parts": [
+                    {
+                        "text": (
+                            "You are OpenNutri Coach, a concise, supportive food coach. Use only "
+                            "the profile, diary totals, FDA adult Daily Value targets, and foods "
+                            "provided by the user. A one-day diary can be incomplete: describe "
+                            "opportunities, never diagnose deficiencies or promise health outcomes. "
+                            "Respect every diet note, allergy, avoidance, and explicit preference. "
+                            "For daily mode, give one useful insight and up to three concrete actions. "
+                            "For oracle mode, return four to six diverse food actions ranked for the "
+                            "largest stated nutrient/goal opportunities; every action must include a "
+                            "short, conventional English food search_query suitable for a USDA food "
+                            "database. Never invent nutrient measurements. For diet_plan mode, explain "
+                            "a practical day structure compatible with the selected diet. For chat "
+                            "mode, answer the message directly. memory_updates are allowed only in "
+                            "chat mode and only for durable facts the user explicitly stated about "
+                            "their goal, preference, avoidance, allergy, schedule, or context. Do not "
+                            "infer sensitive or medical facts. Write in the requested locale when "
+                            "possible, but keep oracle search_query values in English. Keep the tone "
+                            "specific and calm, not preachy. Mention professional care only when the "
+                            "user raises a medical condition, pregnancy, eating disorder, medication, "
+                            "or other clinical issue."
+                        )
+                    }
+                ]
+            },
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": request.model_dump_json(
+                                exclude_none=True,
+                                exclude_defaults=False,
+                            )
+                        }
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "thinkingConfig": {"thinkingLevel": self._thinking_level(model)},
+                "responseMimeType": "application/json",
+                "responseJsonSchema": CoachModelOutput.model_json_schema(),
+            },
+        }
+        response = await self._post(f"{self.base_url}/{model}:generateContent", payload)
+        structured = self._json_text(response)
+        try:
+            return CoachModelOutput.model_validate(structured)
+        except ValueError as exc:
+            raise GeminiError(
+                "Coach output did not match the contract",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            ) from exc
+
+    async def generate_coach_voice_response(
+        self,
+        *,
+        wav_bytes: bytes,
+        language_hint: str,
+        request: CoachRequest,
+    ) -> CoachVoiceModelOutput:
+        model = self.settings.gemini_coach_model
+        payload = {
+            "systemInstruction": {
+                "parts": [
+                    {
+                        "text": (
+                            "You are OpenNutri Coach. First transcribe the user's spoken message "
+                            "literally in its original language. Then answer it as a concise, "
+                            "supportive food coach using only the supplied profile and diary. A "
+                            "one-day diary can be incomplete: never diagnose a deficiency or promise "
+                            "a health outcome. Respect every explicit avoidance. memory_updates may "
+                            "contain only durable goal, preference, avoidance/allergy, schedule, or "
+                            "context facts explicitly spoken in this recording; never infer sensitive "
+                            "or medical facts. Never store or request a name. Write the response in the "
+                            "user's language when possible. This is general food guidance, not medical "
+                            "care. Mention professional care only for clinical issues."
+                        )
+                    }
+                ]
+            },
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                f"Language hint: {language_hint}. Context: "
+                                + request.model_dump_json(exclude_none=True)
+                            )
+                        },
+                        {
+                            "inlineData": {
+                                "mimeType": "audio/wav",
+                                "data": base64.b64encode(wav_bytes).decode("ascii"),
+                            }
+                        },
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "thinkingConfig": {"thinkingLevel": self._thinking_level(model)},
+                "responseMimeType": "application/json",
+                "responseJsonSchema": CoachVoiceModelOutput.model_json_schema(),
+            },
+        }
+        response = await self._post(f"{self.base_url}/{model}:generateContent", payload)
+        structured = self._json_text(response)
+        try:
+            return CoachVoiceModelOutput.model_validate(structured)
+        except ValueError as exc:
+            raise GeminiError(
+                "Coach voice output did not match the contract",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+                partial_transcript=self._partial_transcript(structured),
+            ) from exc
 
     async def transcribe_and_extract(
         self,
