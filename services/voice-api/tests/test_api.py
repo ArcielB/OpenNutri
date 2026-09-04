@@ -177,6 +177,26 @@ def test_quota_falls_back_to_lexical_manual_search(settings):
     assert store.released == []
 
 
+def test_turkish_voice_failure_metadata_reports_language_primary(settings):
+    client, store = build_client(settings)
+    store.allowed = False
+    with client:
+        response = client.post(
+            "/v1/voice/resolve",
+            headers={"authorization": "Bearer valid-token"},
+            files={"audio": ("meal.wav", make_wav(), "audio/wav")},
+            data={
+                "language_hint": "tr-TR",
+                "local_timestamp": "2026-07-24T12:00:00",
+                "timezone": "Europe/Istanbul",
+            },
+        )
+
+    payload = response.json()
+    assert payload["status"] == "manual_search"
+    assert payload["metadata"]["audio_model"] == "gemini-audio-turkish"
+
+
 def test_feedback_contract_excludes_private_fields_and_deletes_by_subject(settings):
     client, store = build_client(settings)
     headers = {"authorization": "Bearer valid-token"}

@@ -94,11 +94,7 @@ class GeminiClient:
         language_hint: str,
     ) -> AudioExtraction:
         default_model = self.settings.gemini_audio_model
-        transcription_model = (
-            self.settings.gemini_audio_turkish_model
-            if language_hint.lower().startswith("tr")
-            else default_model
-        )
+        transcription_model = self.settings.audio_model_for_language(language_hint)
         fallback_used = False
         try:
             extraction = await self._extract_audio_once(

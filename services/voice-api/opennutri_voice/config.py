@@ -58,6 +58,11 @@ class Settings:
     def jwt_issuer(self) -> str:
         return f"{self.supabase_url.rstrip('/')}/auth/v1"
 
+    def audio_model_for_language(self, language_hint: str) -> str:
+        if language_hint.lower().startswith("tr"):
+            return self.gemini_audio_turkish_model
+        return self.gemini_audio_model
+
     @classmethod
     def from_environment(cls) -> "Settings":
         configured_database = os.environ.get("OPENNUTRI_CORE_DB_PATH")

@@ -12,3 +12,6 @@ def test_default_audio_models_prioritize_voice_latency(monkeypatch):
     assert settings.gemini_audio_turkish_model == "gemini-3.5-flash-lite"
     assert settings.gemini_audio_fallback_model == "gemini-3.5-flash-lite"
     assert settings.gemini_request_timeout_seconds == 12
+    assert settings.audio_model_for_language("en") == "gemini-3.1-flash-lite"
+    assert settings.audio_model_for_language("auto") == "gemini-3.1-flash-lite"
+    assert settings.audio_model_for_language("tr-TR") == "gemini-3.5-flash-lite"

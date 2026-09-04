@@ -173,7 +173,9 @@ def create_app(
                     request_id=request_id,
                     query="",
                     error_code=str(quota.get("reason") or "quota_limited"),
-                    audio_model=resolved_settings.gemini_audio_model,
+                    audio_model=resolved_settings.audio_model_for_language(
+                        language_hint
+                    ),
                 )
             reserved = True
             return await request.app.state.pipeline.resolve_voice(
@@ -188,14 +190,14 @@ def create_app(
                 request_id=request_id,
                 query="",
                 error_code="supabase_unavailable",
-                audio_model=resolved_settings.gemini_audio_model,
+                audio_model=resolved_settings.audio_model_for_language(language_hint),
             )
         except GeminiError:
             return request.app.state.pipeline.manual_search_response(
                 request_id=request_id,
                 query="",
                 error_code="gemini_unavailable",
-                audio_model=resolved_settings.gemini_audio_model,
+                audio_model=resolved_settings.audio_model_for_language(language_hint),
             )
         finally:
             if reserved:
