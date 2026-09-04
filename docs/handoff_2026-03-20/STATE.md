@@ -82,6 +82,9 @@ This is the current high-signal project state after the reviewer workflow moved 
   primary with `thinkingLevel=low`; Flutter supplies the supported device locale as
   a hint instead of always sending `auto`. Direct two-food smoke tests completed in
   2.78 seconds for English and 7.41 seconds for Turkish with both quantities exact.
+  Final authenticated production checks on resolver `0.3.5` completed those same
+  fixtures in 3.49 seconds (English) and 2.70 seconds (Turkish); both returned exact
+  Core foods/quantities with auto-log eligibility.
   Response metadata includes privacy-safe stage timings. Each provider call has a
   12-second deadline; timeout, rate limit, transport failure, or invalid structured
   output uses `gemini-3.1-flash-lite` as review-only, so every fallback item receives
@@ -111,7 +114,7 @@ This is the current high-signal project state after the reviewer workflow moved 
   recording, maps transport/auth/timeout/service/provider-contract failures
   separately, preserves a returned transcript for prefilled search, retries
   post-resolution Core detail loading without re-recording, and caches repeated food
-  details in memory. Resolver service `0.3.5` targets Vercel Washington, D.C.
+  details in memory. Resolver service `0.3.5` is deployed in Vercel Washington, D.C.
   (`iad1`). Frankfurt (`fra1`) spent 35–39 seconds inside Gemini 3.5 Flash-Lite and
   San Francisco took 35.42 seconds; the runtime therefore remains pinned to `iad1`.
   Matching is local SQLite, so the extra EU quota-store round trip is small compared

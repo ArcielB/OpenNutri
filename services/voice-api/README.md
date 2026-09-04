@@ -22,7 +22,10 @@ validated again. Flutter obtains nutrients from the public Core API after review
   `thinkingLevel=low`, returning both the literal transcript and food concepts. The
   Flutter client supplies its English/Turkish device locale as a hint. Direct
   two-food smoke tests completed in 2.78 seconds for English and 7.41 seconds for
-  Turkish with both quantities exact.
+  Turkish with both quantities exact. Final authenticated production checks on
+  service `0.3.5` completed the same English and Turkish fixtures in 3.49 and 2.70
+  seconds of pipeline time respectively; both foods and quantities were exact and
+  auto-log eligible.
 - If the primary model is temporarily unavailable, rate-limited, or returns
   malformed/schema-invalid structured output, `gemini-3.1-flash-lite` gets one
   review-only attempt. Every fallback item is marked `transcription` unresolved and
