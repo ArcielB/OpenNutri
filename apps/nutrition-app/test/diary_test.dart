@@ -169,6 +169,30 @@ void main() {
     expect(restored.calories, closeTo(original.calories, 0.001));
   });
 
+  test('copyFor keeps the exact nutrition snapshot on a new day', () {
+    final original = DiaryEntry.fromFood(
+      food: food,
+      date: DateTime(2026, 7, 22),
+      meal: MealType.lunch,
+      grams: 125,
+      servingLabel: '125 g',
+      id: 'entry-original',
+    );
+
+    final repeated = original.copyFor(
+      date: DateTime(2026, 7, 25),
+      meal: MealType.dinner,
+      id: 'entry-repeat',
+    );
+
+    expect(repeated.id, 'entry-repeat');
+    expect(repeated.dateKey, '2026-07-25');
+    expect(repeated.meal, MealType.dinner);
+    expect(repeated.foodId, original.foodId);
+    expect(repeated.grams, original.grams);
+    expect(repeated.nutrients, same(original.nutrients));
+  });
+
   test('uses Foundation Atwater energy and excludes physical properties', () {
     const foundationFood = FoodDetail(
       foodId: 'foundation-apple',

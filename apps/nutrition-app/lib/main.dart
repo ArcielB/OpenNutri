@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'app.dart';
@@ -7,7 +9,7 @@ import 'state/app_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SupabaseConfig.initialize();
+  unawaited(SupabaseConfig.initialize().catchError((Object _) {}));
   final controller = AppController(LocalStore());
   await controller.initialize();
   runApp(OpenNutriApp(controller: controller));

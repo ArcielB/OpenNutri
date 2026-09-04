@@ -29,6 +29,13 @@ class FoodSearchScreen extends StatefulWidget {
 }
 
 class _FoodSearchScreenState extends State<FoodSearchScreen> {
+  static const _suggestions = [
+    'raw apple',
+    'chicken breast',
+    'cooked rice',
+    'whole milk',
+  ];
+
   late final TextEditingController _searchController;
   final _focusNode = FocusNode();
   Timer? _debounce;
@@ -76,8 +83,16 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
         _partialMatch = false;
         _searching = false;
         _error = null;
+        _semanticFoodId = null;
+        _semanticFoodName = null;
       });
       return;
+    }
+    if (_semanticFoodId != null || _semanticFoodName != null) {
+      setState(() {
+        _semanticFoodId = null;
+        _semanticFoodName = null;
+      });
     }
     _debounce = Timer(const Duration(milliseconds: 350), () => _search(query));
   }
@@ -107,6 +122,7 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
   }
 
   Future<void> _submitSearch(String query) async {
+    _debounce?.cancel();
     await _search(query);
     final resolver = widget.resolver;
     if (resolver == null || !resolver.isConfigured || query.trim().isEmpty) {
@@ -138,6 +154,14 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
     } catch (_) {
       if (mounted) setState(() => _resolvingSemantic = false);
     }
+  }
+
+  void _useSuggestion(String query) {
+    _searchController.value = TextEditingValue(
+      text: query,
+      selection: TextSelection.collapsed(offset: query.length),
+    );
+    _submitSearch(query);
   }
 
   Future<void> _selectFood(FoodSearchItem item) async {
@@ -201,21 +225,10 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
               if (_resolvingSemantic)
                 const LinearProgressIndicator(minHeight: 2),
               if (_semanticFoodId != null)
-                ListTile(
-                  leading: const Icon(Icons.auto_awesome),
-                  title: Text(_semanticFoodName ?? 'Semantic match'),
-                  subtitle: const Text(
-                    'Submitted search match — review before logging',
-                  ),
-                  trailing: _loadingFoodId == _semanticFoodId
-                      ? const SizedBox.square(
-                          dimension: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.chevron_right),
-                  onTap: _loadingFoodId == _semanticFoodId
-                      ? null
-                      : () => _selectFoodId(_semanticFoodId!),
+                _SemanticMatchCard(
+                  foodName: _semanticFoodName ?? 'Semantic match',
+                  loading: _loadingFoodId == _semanticFoodId,
+                  onTap: () => _selectFoodId(_semanticFoodId!),
                 ),
               Expanded(child: _buildResults(context)),
             ],
@@ -248,26 +261,106 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
       );
     }
     if (_searchController.text.trim().isEmpty) {
-      return Center(
-        child: Icon(
-          Icons.manage_search,
-          size: 48,
-          color: Theme.of(context).colorScheme.outline,
-        ),
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.manage_search,
+              size: 36,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Search verified foods',
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            'Search by food and preparation. Specific phrases give better matches.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Try an example',
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final suggestion in _suggestions)
+                ActionChip(
+                  avatar: const Icon(Icons.north_west, size: 16),
+                  label: Text(suggestion),
+                  onPressed: () => _useSuggestion(suggestion),
+                ),
+            ],
+          ),
+        ],
       );
     }
     if (!_searching && _results.isEmpty) {
-      return const Center(child: Text('No foods found'));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.search_off_rounded,
+                size: 42,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'No foods found',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                'Try a simpler food name or remove brand words.',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
     }
     final headerCount = _partialMatch ? 1 : 0;
     return ListView.separated(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       itemCount: _results.length + headerCount,
-      separatorBuilder: (_, _) => const Divider(indent: 16, endIndent: 16),
+      separatorBuilder: (_, _) => const SizedBox(height: 7),
       itemBuilder: (context, index) {
         if (_partialMatch && index == 0) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+          return Container(
+            margin: const EdgeInsets.only(bottom: 3),
+            padding: const EdgeInsets.fromLTRB(14, 11, 14, 11),
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.tertiaryContainer.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(14),
+            ),
             child: Row(
               children: [
                 Icon(
@@ -288,30 +381,82 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
         }
         final item = _results[index - headerCount];
         final loading = _loadingFoodId == item.foodId;
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 4,
-          ),
-          onTap: loading ? null : () => _selectFood(item),
-          title: Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              '${item.categoryName} - ${item.nutrientCount} nutrients',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+        return Card(
+          margin: EdgeInsets.zero,
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 7,
             ),
+            onTap: loading ? null : () => _selectFood(item),
+            title: Text(
+              item.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: Text(
+                '${item.categoryName} · ${item.nutrientCount} nutrients\n${item.datasetName}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            isThreeLine: true,
+            leading: _QualityMark(status: item.qualityStatus),
+            trailing: loading
+                ? const SizedBox.square(
+                    dimension: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.chevron_right),
           ),
-          leading: _QualityMark(status: item.qualityStatus),
-          trailing: loading
-              ? const SizedBox.square(
-                  dimension: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.chevron_right),
         );
       },
+    );
+  }
+}
+
+class _SemanticMatchCard extends StatelessWidget {
+  const _SemanticMatchCard({
+    required this.foodName,
+    required this.loading,
+    required this.onTap,
+  });
+
+  final String foodName;
+  final bool loading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: ListTile(
+        leading: Icon(Icons.auto_awesome, color: scheme.primary),
+        title: Text(
+          foodName,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: const Text(
+          'Best meaning-based match · review before logging',
+        ),
+        trailing: loading
+            ? const SizedBox.square(
+                dimension: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.chevron_right),
+        onTap: loading ? null : onTap,
+      ),
     );
   }
 }

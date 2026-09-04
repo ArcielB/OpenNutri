@@ -152,6 +152,21 @@ class DiaryEntry {
   double get carbs => nutrientAmount('Carbohydrate, by difference', 'g');
   double get fat => nutrientAmount('Total lipid (fat)', 'g');
 
+  DiaryEntry copyFor({required DateTime date, MealType? meal, String? id}) {
+    return DiaryEntry(
+      id: id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+      dateKey: dateKeyFor(date),
+      meal: meal ?? this.meal,
+      foodId: foodId,
+      foodName: foodName,
+      grams: grams,
+      inputGrams: inputGrams,
+      weightBasis: weightBasis,
+      servingLabel: servingLabel,
+      nutrients: nutrients,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'date_key': dateKey,

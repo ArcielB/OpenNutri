@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/core_api_client.dart';
@@ -34,6 +36,7 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     _voiceApiClient = widget.voiceApiClient ?? VoiceApiClient();
+    unawaited(_voiceApiClient.warmUp());
     AndroidWidgetBridge.listenForVoiceActions(
       () => _openVoice(autoStart: true),
     );

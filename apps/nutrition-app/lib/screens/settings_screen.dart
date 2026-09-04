@@ -281,7 +281,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 28),
               Text(
-                'OpenNutri 0.1.0',
+                'OpenNutri 1.0.0 beta',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),

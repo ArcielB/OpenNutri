@@ -34,8 +34,14 @@ void main() {
     final save = controller.addEntry(entry);
     await tester.pump();
 
-    expect(find.text(_apple.name), findsOneWidget);
-    expect(find.text('52'), findsNWidgets(2));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('entry-apple')),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text(_apple.name), findsWidgets);
+    expect(find.text('52'), findsWidgets);
 
     store.finishSave();
     await save;

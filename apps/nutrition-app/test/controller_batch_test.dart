@@ -53,6 +53,35 @@ void main() {
       expect(store.fastLogging, isFalse);
     },
   );
+
+  test(
+    'recent foods are unique and can be repeated on the selected day',
+    () async {
+      final store = _CountingStore(
+        initialEntries: [
+          _entry('older-apple', MealType.breakfast),
+          _entry('newer-apple', MealType.snacks),
+        ],
+      );
+      final controller = AppController(store);
+      await controller.initialize();
+      controller.selectDate(DateTime(2026, 7, 25));
+
+      expect(controller.recentEntries(), hasLength(1));
+      expect(controller.recentEntries().single.id, 'newer-apple');
+
+      final repeated = await controller.repeatEntry(
+        controller.recentEntries().single,
+        meal: MealType.lunch,
+      );
+
+      expect(repeated.dateKey, '2026-07-25');
+      expect(repeated.meal, MealType.lunch);
+      expect(repeated.id, isNot('newer-apple'));
+      expect(controller.entriesForMeal(MealType.lunch), [repeated]);
+      expect(store.entrySaveCount, 1);
+    },
+  );
 }
 
 DiaryEntry _entry(String id, MealType meal) {
@@ -86,6 +115,9 @@ const _apple = FoodDetail(
 );
 
 class _CountingStore extends LocalStore {
+  _CountingStore({this.initialEntries = const []});
+
+  final List<DiaryEntry> initialEntries;
   int entrySaveCount = 0;
   List<DiaryEntry> lastSaved = const [];
   bool disclosureAccepted = false;
@@ -93,7 +125,7 @@ class _CountingStore extends LocalStore {
   bool fastLogging = true;
 
   @override
-  Future<List<DiaryEntry>> loadEntries() async => const [];
+  Future<List<DiaryEntry>> loadEntries() async => initialEntries;
 
   @override
   Future<NutritionTargets> loadTargets() async => const NutritionTargets();

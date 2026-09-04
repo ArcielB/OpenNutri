@@ -18,14 +18,17 @@ validated again. Flutter obtains nutrients from the public Core API after review
 - The service role key is present only in this backend.
 - Atomic database functions enforce one active request per subject, 10 requests per
   minute, 50 AI resolutions per subject/day, and 200 globally/day by default.
-- Voice uses one structured `gemini-3.6-flash` audio call that returns both the
+- Voice uses one structured `gemini-3.1-flash-lite` audio call that returns both the
   literal transcript and food concepts. This removes the previous mandatory second
-  provider round trip; a committed fixture smoke test completed that model step in
-  2.88 seconds. Per-stage server timings are returned in response metadata for
-  privacy-safe latency diagnosis.
-- If the strong audio model is temporarily unavailable or rate-limited, a one-pass
-  Flash-Lite audio fallback keeps voice usable, but every returned item is marked
-  `transcription` unresolved and can never auto-log until the person confirms it.
+  provider round trip. Production smoke tests resolved the committed raw-apple
+  fixture in 2.90 seconds of pipeline work / 6.16 seconds wall time and a two-food
+  fixture in 3.32 / 5.11 seconds. Per-stage server timings are returned in response
+  metadata for privacy-safe latency diagnosis.
+- If the fast audio model is temporarily unavailable or rate-limited, a one-pass
+  `gemini-3.5-flash-lite` fallback keeps voice usable, but every returned item is
+  marked `transcription` unresolved and can never auto-log until the person confirms
+  it. Each provider attempt has a 12-second deadline, keeping the primary plus
+  fallback inside the Flutter client's 30-second request budget.
 - Exact, unambiguous lexical matches are selected deterministically and make no
   embedding or selector request. Ambiguous lexical matches use the constrained
   Flash-Lite selector without a vector call. Concepts with no viable lexical
@@ -101,4 +104,6 @@ The production beta deployment is
 be used for configuration smoke tests. It uses an isolated app-only Free Supabase
 organization, so dormant research traffic cannot consume this beta's egress quota;
 there is intentionally no billed fallback. The Vercel function is pinned to
-Frankfurt (`fra1`) to keep the Android beta close to its EU Supabase project.
+Washington, D.C. (`iad1`): measured Gemini audio latency from that runtime matters
+more than the small extra round trip to the EU quota store, and matching itself is
+local SQLite.

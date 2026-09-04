@@ -35,7 +35,9 @@ class GeminiError(RuntimeError):
 class GeminiClient:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
-        self.client = client or httpx.AsyncClient(timeout=45)
+        self.client = client or httpx.AsyncClient(
+            timeout=settings.gemini_request_timeout_seconds
+        )
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
 
     @property

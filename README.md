@@ -242,7 +242,8 @@ Pipeline data outputs:
 - `services/voice-api/`: separate authenticated FastAPI service for the Android
   voice and submitted-text beta. It verifies the app-only Supabase anonymous JWT,
   atomically reserves configurable per-user/global quotas, returns a literal
-  transcript and food concepts in one structured audio-model call, takes a no-vector/no-selector fast
+  transcript and food concepts in one structured low-latency Flash-Lite audio call,
+  takes a no-vector/no-selector fast
   path for unambiguous lexical matches, rejects IDs outside deterministic retrieval
   sets, and stores only consented privacy-limited feedback. Its private
   Supabase vector/feedback/quota schema is under
@@ -256,6 +257,10 @@ Pipeline data outputs:
   automatic multi-food batch logging with immediate
   edit/undo, focused review only for uncertainty, explicit submitted semantic
   search, optional privacy-limited feedback, and a native 1×1 microphone widget.
+  The 1.0 beta UI adds a glanceable daily dashboard, one-tap recent-food repeats,
+  guided source-backed search, grouped nutrient reporting, and per-entry USDA
+  provenance/calculation details. Supabase initialization and voice warm-up no
+  longer block the first rendered frame.
 - `benchmarks/voice-v0.1.0/`: 240 versioned English/Turkish text and deterministic
   audio cases, manifest/audio validation, and threshold scoring for retrieval,
   constrained selection, clarification safety, candidate validity, and latency.

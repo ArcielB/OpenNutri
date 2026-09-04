@@ -12,25 +12,44 @@ class DailySummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final remaining = (targets.calories - totals.calories)
+        .clamp(0, double.infinity)
+        .toDouble();
     return Container(
-      color: scheme.surfaceContainerHighest.withValues(alpha: 0.25),
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.primary, const Color(0xFF074C3D)],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.18),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
       child: Column(
         children: [
           Row(
             children: [
               SizedBox(
-                width: 80,
-                height: 80,
+                width: 98,
+                height: 98,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     SizedBox.expand(
                       child: CircularProgressIndicator(
                         value: _progress(totals.calories, targets.calories),
-                        strokeWidth: 7,
-                        backgroundColor: scheme.outlineVariant,
-                        color: scheme.tertiary,
+                        strokeWidth: 8,
+                        strokeCap: StrokeCap.round,
+                        backgroundColor: Colors.white.withValues(alpha: 0.18),
+                        color: const Color(0xFFFFD18A),
                       ),
                     ),
                     Column(
@@ -38,15 +57,18 @@ class DailySummary extends StatelessWidget {
                       children: [
                         Text(
                           formatAmount(totals.calories, maximumDecimals: 0),
-                          style: Theme.of(context).textTheme.titleLarge
+                          style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                height: 1,
                               ),
                         ),
+                        const SizedBox(height: 4),
                         Text(
-                          'kcal',
-                          style: Theme.of(context).textTheme.labelSmall,
+                          'kcal eaten',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: Colors.white70),
                         ),
                       ],
                     ),
@@ -59,23 +81,34 @@ class DailySummary extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${formatAmount((targets.calories - totals.calories).clamp(0, double.infinity), maximumDecimals: 0)} kcal remaining',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0,
+                      formatAmount(remaining, maximumDecimals: 0),
+                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 5),
                     Text(
-                      '${formatAmount(totals.calories, maximumDecimals: 0)} of ${formatAmount(targets.calories, maximumDecimals: 0)} kcal',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      'kcal remaining',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Daily goal · ${formatAmount(targets.calories, maximumDecimals: 0)} kcal',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Colors.white70),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
           Row(
             children: [
               Expanded(
@@ -83,25 +116,25 @@ class DailySummary extends StatelessWidget {
                   label: 'Protein',
                   value: totals.protein,
                   target: targets.protein,
-                  color: scheme.primary,
+                  color: const Color(0xFFA9E4CE),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 16),
               Expanded(
                 child: _MacroProgress(
                   label: 'Carbs',
                   value: totals.carbs,
                   target: targets.carbs,
-                  color: scheme.secondary,
+                  color: const Color(0xFF9DDDF4),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 16),
               Expanded(
                 child: _MacroProgress(
                   label: 'Fat',
                   value: totals.fat,
                   target: targets.fat,
-                  color: scheme.tertiary,
+                  color: const Color(0xFFFFD18A),
                 ),
               ),
             ],
@@ -136,24 +169,32 @@ class _MacroProgress extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Theme.of(context).textTheme.labelMedium),
-        const SizedBox(height: 5),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 6,
-            color: color,
-            backgroundColor: Theme.of(context).colorScheme.outlineVariant,
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 7),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 7,
+            color: color,
+            backgroundColor: Colors.white.withValues(alpha: 0.18),
+          ),
+        ),
+        const SizedBox(height: 6),
         Text(
           '${formatAmount(value)} / ${formatAmount(target)} g',
           maxLines: 1,
           overflow: TextOverflow.fade,
           softWrap: false,
-          style: Theme.of(context).textTheme.labelSmall,
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: Colors.white70),
         ),
       ],
     );

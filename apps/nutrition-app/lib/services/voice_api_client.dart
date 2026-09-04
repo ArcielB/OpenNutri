@@ -44,6 +44,7 @@ class VoiceApiClient {
       throw const VoiceApiException('Voice sign-in is not configured');
     }
     try {
+      await SupabaseConfig.initialize();
       final auth = Supabase.instance.client.auth;
       var session = auth.currentSession;
       if (session == null) {

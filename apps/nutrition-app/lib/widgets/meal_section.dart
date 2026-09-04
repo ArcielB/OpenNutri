@@ -10,107 +10,150 @@ class MealSection extends StatelessWidget {
     required this.entries,
     required this.onAdd,
     required this.onRemove,
+    required this.onEntryTap,
   });
 
   final MealType meal;
   final List<DiaryEntry> entries;
   final VoidCallback onAdd;
   final ValueChanged<String> onRemove;
+  final ValueChanged<DiaryEntry> onEntryTap;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final calories = entries.fold<double>(
       0,
       (total, entry) => total + entry.calories,
     );
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 10, 8),
-          child: Row(
-            children: [
-              Icon(
-                _iconFor(meal),
-                size: 20,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  meal.label,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0,
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: _colorFor(meal, scheme).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    _iconFor(meal),
+                    size: 20,
+                    color: _colorFor(meal, scheme),
                   ),
                 ),
-              ),
-              Text(
-                '${formatAmount(calories, maximumDecimals: 0)} kcal',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-              IconButton(
-                tooltip: 'Add ${meal.label.toLowerCase()} food',
-                onPressed: onAdd,
-                icon: const Icon(Icons.add_circle_outline),
-              ),
-            ],
-          ),
-        ),
-        for (final entry in entries)
-          Dismissible(
-            key: ValueKey(entry.id),
-            direction: DismissDirection.endToStart,
-            onDismissed: (_) => onRemove(entry.id),
-            background: Container(
-              alignment: Alignment.centerRight,
-              color: Theme.of(context).colorScheme.errorContainer,
-              padding: const EdgeInsets.only(right: 22),
-              child: Icon(
-                Icons.delete_outline,
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ),
-            child: ListTile(
-              contentPadding: const EdgeInsets.only(left: 50, right: 12),
-              title: Text(
-                entry.foodName,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Text(
-                entry.weightBasis == LoggedWeightBasis.asPurchased
-                    ? '${entry.servingLabel} - ${formatAmount(entry.inputGrams)} g '
-                          '(${formatAmount(entry.grams)} g edible)'
-                    : '${entry.servingLabel} - ${formatAmount(entry.grams)} g',
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    formatAmount(entry.calories, maximumDecimals: 0),
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                  PopupMenuButton<void>(
-                    tooltip: 'Entry actions',
-                    itemBuilder: (context) => [
-                      PopupMenuItem<void>(
-                        onTap: () => onRemove(entry.id),
-                        child: const ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.delete_outline),
-                          title: Text('Remove'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        meal.label,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                      Text(
+                        entries.isEmpty
+                            ? 'Nothing logged yet'
+                            : '${entries.length} ${entries.length == 1 ? 'item' : 'items'} · ${formatAmount(calories, maximumDecimals: 0)} kcal',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
                         ),
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Add ${meal.label.toLowerCase()} food',
+                  onPressed: onAdd,
+                  icon: const Icon(Icons.add, size: 20),
+                ),
+              ],
             ),
           ),
-        const Divider(indent: 20, endIndent: 20),
-      ],
+          if (entries.isNotEmpty) const Divider(height: 1),
+          for (final entry in entries)
+            Dismissible(
+              key: ValueKey(entry.id),
+              direction: DismissDirection.endToStart,
+              onDismissed: (_) => onRemove(entry.id),
+              background: Container(
+                alignment: Alignment.centerRight,
+                color: scheme.errorContainer,
+                padding: const EdgeInsets.only(right: 22),
+                child: Icon(Icons.delete_outline, color: scheme.error),
+              ),
+              child: InkWell(
+                onTap: () => onEntryTap(entry),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 13, 10, 13),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              entry.foodName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              entry.weightBasis == LoggedWeightBasis.asPurchased
+                                  ? '${entry.servingLabel} · ${formatAmount(entry.inputGrams)} g bought · ${formatAmount(entry.grams)} g edible'
+                                  : '${entry.servingLabel} · ${formatAmount(entry.grams)} g',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: scheme.onSurfaceVariant),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            formatAmount(entry.calories, maximumDecimals: 0),
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          Text(
+                            'kcal',
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.chevron_right, color: scheme.outline),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
+
+  Color _colorFor(MealType value, ColorScheme scheme) => switch (value) {
+    MealType.breakfast => const Color(0xFFC66A24),
+    MealType.lunch => scheme.primary,
+    MealType.dinner => scheme.secondary,
+    MealType.snacks => const Color(0xFF8B5FBF),
+  };
 
   IconData _iconFor(MealType value) => switch (value) {
     MealType.breakfast => Icons.wb_sunny_outlined,

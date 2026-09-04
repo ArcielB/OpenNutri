@@ -65,15 +65,25 @@ This is the current high-signal project state after the reviewer workflow moved 
 - The Flutter diary can log edible grams or, when a usable factor exists,
   as-purchased grams. It stores entered and converted edible weights separately and
   scales all nutrients from edible grams.
+  On 2026-09-04 its 1.0 beta surface was rebuilt around a glanceable energy/macro
+  dashboard and whole-meal voice action. It now supports one-tap recent-food
+  repeats with Undo, guided typed search, grouped nutrition reporting, and a
+  tap-through trust sheet exposing the USDA publisher/dataset/code, logged and
+  edible weights, per-100 g calculation, and exact stored nutrient snapshot.
+  Supabase initialization runs in parallel with local startup, and the home shell
+  prewarms anonymous auth plus the resolver health endpoint so voice setup is more
+  likely to finish before recording ends.
 - `services/voice-api/` is the isolated authenticated resolver for the Android beta.
   It verifies app-project anonymous JWTs through JWKS and uses an app-only Supabase
   schema for 768-dimensional vectors, atomic quotas, and optional privacy-limited
   feedback. As of 2026-09-04, voice resolution performs literal transcription and
-  concept extraction together in one structured `gemini-3.6-flash` audio call,
-  removing the previous mandatory second model round trip. A real English benchmark
-  fixture returned the exact transcript, food query, and quantity in 2.88 seconds.
-  Response metadata includes privacy-safe stage timings. A retryable/rate-limit
-  failure uses a one-pass Flash-Lite audio fallback as review-only: every item receives a `transcription`
+  concept extraction together in one structured `gemini-3.1-flash-lite` audio call,
+  removing the previous mandatory second model round trip. Production `iad1` smoke
+  tests returned the exact raw-apple transcript/query/150 g quantity in 2.90 seconds
+  of pipeline work / 6.16 seconds wall time and correctly split banana plus milk in
+  3.32 / 5.11 seconds. Response metadata includes privacy-safe stage timings. Each
+  provider call has a 12-second deadline; a retryable failure uses a one-pass
+  `gemini-3.5-flash-lite` audio fallback as review-only, so every item receives a `transcription`
   clarification and cannot auto-log. Exact unambiguous lexical matches skip vector
   retrieval and the selector entirely;
   ambiguous lexical matches skip vectors but may use one constrained selector call.
@@ -89,14 +99,18 @@ This is the current high-signal project state after the reviewer workflow moved 
   otherwise per-item meal defaults come from local time. It accepts cold/warm
   `ACTION_VOICE_LOG` intents from a native 1×1 widget. Submitted text calls the private
   resolver only on explicit Search; typing remains public lexical search.
-  Starting a recording prewarms anonymous auth and the resolver health endpoint in
-  parallel with local recording; it cannot upload audio before the user stops it.
+  The home shell prewarms anonymous auth and the resolver health endpoint before the
+  user opens voice; it cannot upload audio before the user stops recording.
   The 2026-09-04 voice UI adds a live waveform/timer, clears stale snackbars on a new
   recording, maps transport/auth/timeout/service failures separately, preserves a
   returned transcript for prefilled search, retries post-resolution Core detail
   loading without re-recording, and caches repeated food details in memory.
-  The resolver is deployed in Frankfurt beside the EU app project to reduce avoidable
-  mobile-to-backend and backend-to-Supabase latency.
+  Resolver service `0.3.2` is deployed in Vercel Washington, D.C. (`iad1`). Frankfurt
+  (`fra1`) spent 35–39 seconds inside Gemini 3.5 Flash-Lite and San Francisco took
+  35.42 seconds; `iad1` plus Gemini 3.1 Flash-Lite is the measured production choice.
+  Matching is local SQLite, so the extra EU quota-store round trip is small compared
+  with provider inference latency. A Supabase Edge proxy experiment was slower than
+  45 seconds and was removed completely from both providers after measurement.
   On-device Android 16 validation on 2026-07-25 confirmed installation, first-use
   disclosure, microphone permission, widget-equivalent cold intent delivery,
   recording, and temporary-WAV cleanup after the then-shared app project's HTTP 402
@@ -110,25 +124,22 @@ This is the current high-signal project state after the reviewer workflow moved 
   cold launch was about 7.4 seconds on the test device, above the beta's 4-second
   cold target; it must be remeasured after startup optimization and in a release
   build.
-  A configured arm64 release APK was built on 2026-08-17 at
-  `apps/nutrition-app/build/app/outputs/flutter-apk/app-release.apk` (19,386,116
-  bytes; SHA-256 `e3deda7ab860619131d8e52a142822b3a9666b32de461d3083a403f10b1e16c0`).
-  It is debug-key signed for this personal beta and remains uninstalled because no
-  USB device was visible to `adb` or `lsusb` at handoff.
+  A configured arm64 release APK was rebuilt on 2026-09-04 at
+  `apps/nutrition-app/build/app/outputs/flutter-apk/app-release.apk` (19,452,380
+  bytes; SHA-256 `355728ade6b7bfead76a3e6b6da57f67758ddc1437141737dc83bddb278205f9`).
+  It is debug-key signed for this personal beta and was installed in place on the
+  connected Android 16 `2409BRN2CA` device without clearing its diary data.
 - `benchmarks/voice-v0.1.0/` contains 240 balanced English/Turkish cases with 48
-  committed deterministic audio fixtures. Validation is green; live threshold
-  metrics remain unmeasured until the complete 768-dimensional index is built and
-  the live evaluator is run.
+  committed deterministic audio fixtures. Validation is green and the private
+  768-dimensional semantic index now contains all 13,537 searchable foods. The full
+  live threshold run is still pending; smoke tests are not a substitute for it.
 - Raw skin-on drumstick FDC `172373` uses a reviewed `0.67` edible fraction. SR28's
   reported `66%` refuse double-counts overlapping 33% bone descriptions; the reviewed
   correction uses sibling raw meat-only record `05071`, which separates 33% bone
   from 9% skin and fat. Preserve both source and corrected values.
-- The private index reached 1,840/13,537 rows on 2026-08-17, when the observed
-  `gemini-embedding-2` Free-tier daily limit stopped the build after exactly 1,000
-  new rows. The active app-only `Voice Semantic Index` workflow resumes at most 900
-  rows after each Pacific-time reset, preserving 100 requests for rare live misses;
-  it performs only a count check after completion. Next product work is completing
-  that index and running the complete live voice benchmark, plus the measured
+- The private index reached 13,537/13,537 rows by 2026-09-04. The app-only `Voice
+  Semantic Index` workflow now performs only a count check after completion. Next
+  product validation is the complete live voice benchmark plus the measured
   coverage audit for as-purchased factors. Never blend nutrient values or copy
   weight factors between merely similar foods silently.
 

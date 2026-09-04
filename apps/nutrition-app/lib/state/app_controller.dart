@@ -44,6 +44,17 @@ class AppController extends ChangeNotifier {
 
   DailyTotals get dailyTotals => DailyTotals(entriesForSelectedDate());
 
+  List<DiaryEntry> recentEntries({int limit = 6}) {
+    final seen = <String>{};
+    final recent = <DiaryEntry>[];
+    for (final entry in _entries.reversed) {
+      if (!seen.add(entry.foodId)) continue;
+      recent.add(entry);
+      if (recent.length == limit) break;
+    }
+    return recent;
+  }
+
   void selectDate(DateTime date) {
     _selectedDate = DateTime(date.year, date.month, date.day);
     notifyListeners();
@@ -62,6 +73,12 @@ class AppController extends ChangeNotifier {
     _entries = [..._entries, ...entries];
     notifyListeners();
     await _store.saveEntries(_entries);
+  }
+
+  Future<DiaryEntry> repeatEntry(DiaryEntry source, {MealType? meal}) async {
+    final entry = source.copyFor(date: _selectedDate, meal: meal);
+    await addEntry(entry);
+    return entry;
   }
 
   Future<void> removeEntry(String entryId) async {

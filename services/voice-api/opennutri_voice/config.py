@@ -46,6 +46,7 @@ class Settings:
     per_user_requests_per_minute: int
     per_user_ai_resolutions_per_day: int
     global_ai_resolutions_per_day: int
+    gemini_request_timeout_seconds: int
     active_request_timeout_seconds: int
 
     @property
@@ -72,7 +73,7 @@ class Settings:
             ),
             gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
             gemini_audio_model=os.environ.get(
-                "OPENNUTRI_GEMINI_AUDIO_MODEL", "gemini-3.6-flash"
+                "OPENNUTRI_GEMINI_AUDIO_MODEL", "gemini-3.1-flash-lite"
             ),
             gemini_audio_fallback_model=os.environ.get(
                 "OPENNUTRI_GEMINI_AUDIO_FALLBACK_MODEL", "gemini-3.5-flash-lite"
@@ -99,6 +100,9 @@ class Settings:
             ),
             global_ai_resolutions_per_day=_int_env(
                 "OPENNUTRI_GLOBAL_AI_RESOLUTIONS_PER_DAY", 200
+            ),
+            gemini_request_timeout_seconds=_int_env(
+                "OPENNUTRI_GEMINI_REQUEST_TIMEOUT_SECONDS", 12
             ),
             active_request_timeout_seconds=_int_env(
                 "OPENNUTRI_ACTIVE_REQUEST_TIMEOUT_SECONDS", 90

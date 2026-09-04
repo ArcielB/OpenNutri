@@ -135,5 +135,6 @@ def settings(tmp_path: Path) -> Settings:
         per_user_requests_per_minute=10,
         per_user_ai_resolutions_per_day=50,
         global_ai_resolutions_per_day=200,
+        gemini_request_timeout_seconds=12,
         active_request_timeout_seconds=90,
     )
