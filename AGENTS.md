@@ -73,6 +73,9 @@ Do not spend tokens on these unless the task explicitly needs them:
   or invalid structured output. Flutter sends English/Turkish device locale hints.
   Preserve any safe transcript on failure, keep privacy-safe stage/error logging,
   and never collapse contract validation failures into a false provider-outage UI.
+  After a fallback transcript, do not make a third provider call; return lexical
+  candidates for review. Downstream matching-model failures must degrade to safe
+  review instead of discarding the transcript.
 - The consumer food-data surface is separate from the annotator schema. The current
   combined USDA Core release is built under `services/data-pipeline/opennutri_core/` and served
   read-only by `services/core-api/`; do not route it through legacy `claims` or expose

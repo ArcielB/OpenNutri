@@ -28,6 +28,9 @@ validated again. Flutter obtains nutrients from the public Core API after review
   review-only attempt. Every fallback item is marked `transcription` unresolved and
   can never auto-log until the person confirms it. If both attempts fail, any safe
   transcript recovered from the response is returned for editable manual search.
+  A successful audio fallback never starts a third provider call: lexical candidates
+  are returned for safe review. Later query-rewrite, embedding, or selector failures
+  also degrade to review instead of discarding an otherwise valid transcript.
   Each provider attempt has a 12-second deadline, keeping the primary plus fallback
   inside the Flutter client's 30-second request budget. Per-stage server timings and
   privacy-safe error classifications support production diagnosis without logging
@@ -43,8 +46,10 @@ validated again. Flutter obtains nutrients from the public Core API after review
   private-index egress.
 - A recording may contain up to ten foods. Explicit spoken meal groups are returned
   per concept; meal is otherwise left unset for Flutter's local-time default.
-- Provider, contract, no-food, or quota failures return `status=manual_search` with a
-  specific safe error code; there is no paid fallback.
+- Provider, contract, no-food, or quota failures before transcription return
+  `status=manual_search` with a specific safe error code. Matching-stage provider
+  failures after transcription return a conservative review result; there is no
+  paid fallback.
 - Audio is held only in request memory and is never written to Supabase or logs.
 - Feedback accepts only short source phrases, proposed/final Core IDs, correction
   status, and model/index/Core versions.

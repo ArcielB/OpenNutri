@@ -87,7 +87,10 @@ This is the current high-signal project state after the reviewer workflow moved 
   output uses `gemini-3.1-flash-lite` as review-only, so every fallback item receives
   a `transcription` clarification and cannot auto-log. If both attempts fail, a
   usable transcript recovered from the structured response is retained for editable
-  search. Exact unambiguous lexical matches skip vector
+  search. A successful audio fallback never makes a third provider call; lexical
+  candidates are shown for review. Query-rewrite, embedding, and selector failures
+  after transcription likewise degrade to conservative review instead of discarding
+  the transcript. Exact unambiguous lexical matches skip vector
   retrieval and the selector entirely;
   ambiguous lexical matches skip vectors but may use one constrained selector call.
   Only concepts with no lexical candidates use one batched embedding request before
@@ -108,7 +111,7 @@ This is the current high-signal project state after the reviewer workflow moved 
   recording, maps transport/auth/timeout/service/provider-contract failures
   separately, preserves a returned transcript for prefilled search, retries
   post-resolution Core detail loading without re-recording, and caches repeated food
-  details in memory. Resolver service `0.3.4` targets Vercel Washington, D.C.
+  details in memory. Resolver service `0.3.5` targets Vercel Washington, D.C.
   (`iad1`). Frankfurt (`fra1`) spent 35–39 seconds inside Gemini 3.5 Flash-Lite and
   San Francisco took 35.42 seconds; the runtime therefore remains pinned to `iad1`.
   Matching is local SQLite, so the extra EU quota-store round trip is small compared

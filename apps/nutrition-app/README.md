@@ -33,7 +33,9 @@ candidate selection and difficult query repair still use a low-latency Flash-Lit
 model. If the primary call exceeds its 12-second provider deadline, is rate-limited,
 or returns malformed structured output, Gemini 3.1 Flash-Lite gets one review-only
 attempt. That fallback forces visible transcript confirmation and disables automatic
-logging for the request; both attempts fit inside the app's 30-second request budget.
+logging for the request. It never starts a third provider call for semantic matching;
+the resolver presents lexical candidates for review instead, keeping both attempts
+inside the app's 30-second request budget.
 
 The voice screen shows a responsive recording waveform and actual elapsed time,
 distinguishes timeout/network/auth/service/provider-contract failures, clears stale

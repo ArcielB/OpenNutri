@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import time
 import unicodedata
@@ -23,6 +24,9 @@ from .models import (
     WeightBasisResolution,
 )
 from .supabase_store import SupabasePrivateStore, SupabaseStoreError
+
+
+logger = logging.getLogger(__name__)
 
 
 GRAM_UNITS = {"g", "gr", "gram", "grams", "gramme", "grammes"}
@@ -247,14 +251,20 @@ class ResolverPipeline:
             )
             if not self._has_viable_lexical_candidate(concept, candidates)
         ]
-        if repair_indices:
-            for index in repair_indices:
-                candidate_sets[index] = []
+        allow_provider_matching = not transcription_fallback_used
+        if repair_indices and allow_provider_matching:
             try:
                 rewrites = await self.gemini.normalize_search_queries(
                     [working_concepts[index] for index in repair_indices]
                 )
-            except GeminiError:
+            except GeminiError as exc:
+                logger.warning(
+                    "voice_matching_degraded request_id=%s stage=query_rewrite "
+                    "code=%s status=%s",
+                    request_id,
+                    exc.error_code,
+                    exc.http_status,
+                )
                 rewrites = None
             if rewrites is not None:
                 rewrite_by_index = {
@@ -293,16 +303,26 @@ class ResolverPipeline:
             semantic_indices = [
                 index for index in pending if not candidate_sets[index]
             ]
-            if semantic_indices:
+            if semantic_indices and allow_provider_matching:
                 semantic_concepts = [
                     working_concepts[index] for index in semantic_indices
                 ]
-                vectors = await self.gemini.embed_concepts(semantic_concepts)
-                for index, vector in zip(semantic_indices, vectors, strict=True):
-                    candidate_sets[index] = await self._retrieve(
-                        self._food_search_query(working_concepts[index]),
-                        vector,
+                try:
+                    vectors = await self.gemini.embed_concepts(semantic_concepts)
+                except GeminiError as exc:
+                    logger.warning(
+                        "voice_matching_degraded request_id=%s stage=embedding "
+                        "code=%s status=%s",
+                        request_id,
+                        exc.error_code,
+                        exc.http_status,
                     )
+                else:
+                    for index, vector in zip(semantic_indices, vectors, strict=True):
+                        candidate_sets[index] = await self._retrieve(
+                            self._food_search_query(working_concepts[index]),
+                            vector,
+                        )
 
             selector_indices = []
             for index in pending:
@@ -315,19 +335,43 @@ class ResolverPipeline:
                 else:
                     decisions[index] = decision
 
-            if selector_indices:
-                selector = await self.gemini.select_candidates(
-                    concepts=[
-                        working_concepts[index] for index in selector_indices
-                    ],
-                    candidate_sets=[candidate_sets[index] for index in selector_indices],
-                )
-                for decision in selector.decisions:
-                    if 0 <= decision.concept_index < len(selector_indices):
-                        original_index = selector_indices[decision.concept_index]
-                        decisions[original_index] = decision.model_copy(
-                            update={"concept_index": original_index}
+            if selector_indices and allow_provider_matching:
+                try:
+                    selector = await self.gemini.select_candidates(
+                        concepts=[
+                            working_concepts[index] for index in selector_indices
+                        ],
+                        candidate_sets=[
+                            candidate_sets[index] for index in selector_indices
+                        ],
+                    )
+                except GeminiError as exc:
+                    logger.warning(
+                        "voice_matching_degraded request_id=%s stage=selector "
+                        "code=%s status=%s",
+                        request_id,
+                        exc.error_code,
+                        exc.http_status,
+                    )
+                else:
+                    for decision in selector.decisions:
+                        if 0 <= decision.concept_index < len(selector_indices):
+                            original_index = selector_indices[decision.concept_index]
+                            decisions[original_index] = decision.model_copy(
+                                update={"concept_index": original_index}
+                            )
+
+            for index in selector_indices:
+                if index not in decisions:
+                    decisions[index] = self._review_decision(
+                        concept_index=index,
+                        candidates=candidate_sets[index],
+                        reason=(
+                            "Voice transcription fallback requires confirmation"
+                            if transcription_fallback_used
+                            else "Automatic matching was unavailable"
                         )
+                    )
         fallback_meal = self.meal_for(local_timestamp, timezone_name)
         items = [
             self._build_item(
@@ -539,6 +583,27 @@ class ResolverPipeline:
             concept_index=0,
             selected_food_id=selected["food_id"],
             confidence=0.99,
+        )
+
+    @staticmethod
+    def _review_decision(
+        *,
+        concept_index: int,
+        candidates: list[dict[str, Any]],
+        reason: str,
+    ) -> SelectorDecision:
+        candidate_ids = [
+            candidate["food_id"]
+            for candidate in candidates
+            if isinstance(candidate.get("food_id"), str)
+        ]
+        return SelectorDecision(
+            concept_index=concept_index,
+            selected_food_id=candidate_ids[0] if candidate_ids else None,
+            alternative_food_ids=candidate_ids[1:5],
+            confidence=0,
+            unresolved_fields=["food"],
+            no_match_reason=reason,
         )
 
     @classmethod

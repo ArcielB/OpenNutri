@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from opennutri_voice.core_repository import CoreFoodRepository
+from opennutri_voice.gemini import GeminiError
 from opennutri_voice.models import (
     AudioExtraction,
     ExtractedConcept,
@@ -83,6 +84,29 @@ class NormalizationGemini:
 
     async def select_candidates(self, *, concepts, candidate_sets):
         raise AssertionError("fixture rewrites should resolve deterministically")
+
+
+class ReviewOnlyFallbackGemini:
+    async def normalize_search_queries(self, concepts):
+        raise AssertionError("audio fallback must not start query repair")
+
+    async def embed_concepts(self, concepts):
+        raise AssertionError("audio fallback must not request embeddings")
+
+    async def select_candidates(self, *, concepts, candidate_sets):
+        raise AssertionError("audio fallback must not invoke the selector")
+
+
+class FailingSelectorGemini:
+    async def embed_concepts(self, concepts):
+        raise AssertionError("lexical candidates must not request embeddings")
+
+    async def select_candidates(self, *, concepts, candidate_sets):
+        raise GeminiError(
+            "Gemini is temporarily unavailable",
+            is_retryable=True,
+            error_code="gemini_unavailable",
+        )
 
 
 @pytest.fixture
@@ -514,6 +538,69 @@ async def test_ambiguous_lexical_resolution_skips_semantic_but_uses_selector(set
     assert gemini.selector_calls == 1
     assert response.items[0].selected_candidate.food_id == "food-apple"
     assert "preparation" in response.items[0].unresolved_fields
+
+
+@pytest.mark.asyncio
+async def test_audio_fallback_never_starts_a_third_provider_call(settings):
+    pipeline = ResolverPipeline(
+        settings=settings,
+        core=CoreFoodRepository(settings.core_database_path),
+        store=StubStore(),
+        gemini=ReviewOnlyFallbackGemini(),
+    )
+    response = await pipeline._resolve_concepts(
+        request_id="request-audio-fallback-review",
+        transcript="100 grams apple",
+        detected_language="en",
+        concepts=[
+            ExtractedConcept(
+                source_phrase="100 grams apple",
+                food_name="apple",
+                quantity=ExtractedQuantity(value=100, unit="g"),
+            )
+        ],
+        local_timestamp="2026-07-24T12:00:00",
+        timezone_name="Europe/Istanbul",
+        audio_model="gemini-audio-fallback",
+        transcription_fallback_used=True,
+    )
+
+    item = response.items[0]
+    assert item.selected_candidate is not None
+    assert item.selected_candidate.food_id == "food-apple"
+    assert {"food", "transcription"}.issubset(item.unresolved_fields)
+    assert item.auto_log_eligible is False
+
+
+@pytest.mark.asyncio
+async def test_selector_failure_degrades_to_safe_review(settings):
+    pipeline = ResolverPipeline(
+        settings=settings,
+        core=CoreFoodRepository(settings.core_database_path),
+        store=StubStore(),
+        gemini=FailingSelectorGemini(),
+    )
+    response = await pipeline._resolve_concepts(
+        request_id="request-selector-failure",
+        transcript="100 grams apple",
+        detected_language="en",
+        concepts=[
+            ExtractedConcept(
+                source_phrase="100 grams apple",
+                food_name="apple",
+                quantity=ExtractedQuantity(value=100, unit="g"),
+            )
+        ],
+        local_timestamp="2026-07-24T12:00:00",
+        timezone_name="Europe/Istanbul",
+        audio_model="gemini-audio",
+    )
+
+    item = response.items[0]
+    assert response.status == "resolved"
+    assert item.selected_candidate is not None
+    assert "food" in item.unresolved_fields
+    assert item.auto_log_eligible is False
 
 
 def test_candidate_ids_outside_retrieval_set_are_rejected(pipeline):
