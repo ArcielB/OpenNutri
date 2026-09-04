@@ -7,7 +7,53 @@ import httpx
 import pytest
 
 from opennutri_voice.gemini import GeminiClient, GeminiError
-from opennutri_voice.models import ExtractedConcept
+from opennutri_voice.models import CoachRequest, ExtractedConcept
+
+
+@pytest.mark.asyncio
+async def test_coach_retries_one_transient_error_on_latest_model(settings):
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(503, request=request)
+        result = {
+            "headline": "A useful next step",
+            "message": "Add a protein source to the next meal.",
+            "actions": [],
+            "memory_updates": [],
+            "safety_note": None,
+        }
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"content": {"parts": [{"text": json.dumps(result)}]}}
+                ]
+            },
+            request=request,
+        )
+
+    client = GeminiClient(
+        settings,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = await client.generate_coach_response(
+        CoachRequest(
+            mode="daily",
+            local_date="2026-09-04",
+            goal="Eat well",
+            diet="Flexible balance",
+        )
+    )
+
+    assert result.headline == "A useful next step"
+    assert len(requests) == 2
+    assert all(
+        request.url.path.endswith("/gemini-coach:generateContent")
+        for request in requests
+    )
 
 
 @pytest.mark.asyncio

@@ -208,7 +208,7 @@ class VoiceApiClient {
             },
             body: jsonEncode(request),
           )
-          .timeout(const Duration(seconds: 24));
+          .timeout(const Duration(seconds: 30));
       return CoachReply.fromJson(_decode(response));
     } on TimeoutException catch (error) {
       throw VoiceApiException(

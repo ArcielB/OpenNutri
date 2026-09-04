@@ -158,6 +158,24 @@ class GeminiClient:
         transcript = transcript.strip()
         return transcript[:1000] or None
 
+    async def _post_coach_with_retry(
+        self, url: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            return await self._post(url, payload)
+        except GeminiError as exc:
+            if not exc.is_retryable:
+                raise
+            logger.warning(
+                "gemini_coach_attempt_failed code=%s status=%s retrying=true",
+                exc.error_code,
+                exc.http_status,
+            )
+            # Keep the advertised/validated latest Flash model. A single retry
+            # absorbs Gemini's occasional transient 5xx without silently moving
+            # personalized guidance to an older model.
+            return await self._post(url, payload)
+
     async def generate_coach_response(self, request: CoachRequest) -> CoachModelOutput:
         model = self.settings.gemini_coach_model
         payload = {
@@ -207,7 +225,9 @@ class GeminiClient:
                 "responseJsonSchema": CoachModelOutput.model_json_schema(),
             },
         }
-        response = await self._post(f"{self.base_url}/{model}:generateContent", payload)
+        response = await self._post_coach_with_retry(
+            f"{self.base_url}/{model}:generateContent", payload
+        )
         structured = self._json_text(response)
         try:
             return CoachModelOutput.model_validate(structured)
@@ -270,7 +290,9 @@ class GeminiClient:
                 "responseJsonSchema": CoachVoiceModelOutput.model_json_schema(),
             },
         }
-        response = await self._post(f"{self.base_url}/{model}:generateContent", payload)
+        response = await self._post_coach_with_retry(
+            f"{self.base_url}/{model}:generateContent", payload
+        )
         structured = self._json_text(response)
         try:
             return CoachVoiceModelOutput.model_validate(structured)

@@ -19,6 +19,9 @@ responses, and audio are not written to Supabase. Voice coach input is handled i
 one audio request that returns the literal transcript, reply, and only explicit
 durable memory candidates; Flutter decides what to store on-device. Oracle output
 cannot log directly: Flutter resolves its plain-English query against Core first.
+Coach requests use the configured latest Flash model and make at most one same-model
+retry for a transient provider/transport failure; this avoids reporting an older
+model while absorbing occasional Gemini 5xx responses.
 
 ## Provider boundary
 
