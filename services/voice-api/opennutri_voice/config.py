@@ -36,6 +36,7 @@ class Settings:
     supabase_jwt_audience: str
     gemini_api_key: str
     gemini_audio_model: str
+    gemini_audio_turkish_model: str
     gemini_audio_fallback_model: str
     gemini_extraction_model: str
     gemini_selector_model: str
@@ -74,6 +75,9 @@ class Settings:
             gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
             gemini_audio_model=os.environ.get(
                 "OPENNUTRI_GEMINI_AUDIO_MODEL", "gemini-3.1-flash-lite"
+            ),
+            gemini_audio_turkish_model=os.environ.get(
+                "OPENNUTRI_GEMINI_AUDIO_TURKISH_MODEL", "gemini-3.5-flash-lite"
             ),
             gemini_audio_fallback_model=os.environ.get(
                 "OPENNUTRI_GEMINI_AUDIO_FALLBACK_MODEL", "gemini-3.5-flash-lite"

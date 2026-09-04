@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -116,6 +117,56 @@ async def test_voice_uses_review_only_audio_fallback_after_primary_rate_limit(se
     assert [request.url.path.rsplit("/", 1)[-1] for request in requests] == [
         "gemini-audio:generateContent",
         "gemini-audio-fallback:generateContent",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_turkish_voice_prefers_turkish_model_then_fast_default(settings):
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/gemini-audio-turkish:generateContent"):
+            return httpx.Response(429, request=request)
+        result = {
+            "transcript": "150 gram çiğ elma",
+            "detected_language": "tr",
+            "concepts": [
+                {
+                    "source_phrase": "150 gram çiğ elma",
+                    "food_name": "raw apple",
+                    "quantity": {"value": 150, "unit": "gram"},
+                    "preparation": ["raw"],
+                    "weight_basis": None,
+                    "meal": None,
+                }
+            ],
+        }
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"content": {"parts": [{"text": json.dumps(result)}]}}
+                ]
+            },
+            request=request,
+        )
+
+    client = GeminiClient(
+        replace(settings, gemini_audio_fallback_model="gemini-audio-turkish"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    extraction = await client.transcribe_and_extract(
+        wav_bytes=b"literal-wav",
+        language_hint="tr",
+    )
+
+    assert extraction.transcript == "150 gram çiğ elma"
+    assert extraction.transcription_model == "gemini-audio"
+    assert extraction.transcription_fallback_used is True
+    assert [request.url.path.rsplit("/", 1)[-1] for request in requests] == [
+        "gemini-audio-turkish:generateContent",
+        "gemini-audio:generateContent",
     ]
 
 

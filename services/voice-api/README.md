@@ -18,17 +18,19 @@ validated again. Flutter obtains nutrients from the public Core API after review
 - The service role key is present only in this backend.
 - Atomic database functions enforce one active request per subject, 10 requests per
   minute, 50 AI resolutions per subject/day, and 200 globally/day by default.
-- Voice uses one structured `gemini-3.1-flash-lite` audio call that returns both the
-  literal transcript and food concepts. This removes the previous mandatory second
-  provider round trip. Production smoke tests resolved the committed raw-apple
-  fixture in 2.90 seconds of pipeline work / 6.16 seconds wall time and a two-food
-  fixture in 3.32 / 5.11 seconds. Per-stage server timings are returned in response
-  metadata for privacy-safe latency diagnosis.
-- If the fast audio model is temporarily unavailable or rate-limited, a one-pass
-  `gemini-3.5-flash-lite` fallback keeps voice usable, but every returned item is
-  marked `transcription` unresolved and can never auto-log until the person confirms
-  it. Each provider attempt has a 12-second deadline, keeping the primary plus
-  fallback inside the Flutter client's 30-second request budget.
+- English/auto voice uses one structured `gemini-3.1-flash-lite` audio call that
+  returns both the literal transcript and food concepts. This removes the previous
+  mandatory second provider round trip. Production smoke tests resolved the
+  committed raw-apple fixture in 2.90 seconds of pipeline work / 6.16 seconds wall
+  time and a two-food fixture in 3.32 / 5.11 seconds. Turkish prefers
+  `gemini-3.5-flash-lite`: 3.1 was fast but misheard a benchmark quantity, and the
+  resolver correctly blocked that item from automatic logging.
+- If the language-primary model is temporarily unavailable or rate-limited, the
+  other Flash-Lite model gets one review-only attempt. Every fallback item is marked
+  `transcription` unresolved and can never auto-log until the person confirms it.
+  Each provider attempt has a 12-second deadline, keeping the primary plus fallback
+  inside the Flutter client's 30-second request budget. Per-stage server timings are
+  returned in response metadata for privacy-safe latency diagnosis.
 - Exact, unambiguous lexical matches are selected deterministically and make no
   embedding or selector request. Ambiguous lexical matches use the constrained
   Flash-Lite selector without a vector call. Concepts with no viable lexical

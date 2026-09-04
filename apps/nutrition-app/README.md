@@ -26,12 +26,13 @@ matches take a deterministic fast path; ambiguous lexical matches skip vector
 retrieval but still receive constrained selection and visual review. Semantic search
 is reserved for a phrase with no lexical candidates.
 
-Gemini 3.1 Flash-Lite performs the one-pass transcription and extraction; ambiguous
-candidate selection and difficult query repair use a low-latency Flash-Lite model.
-If the primary call exceeds its 12-second provider deadline or is rate-limited, a
-one-pass Gemini 3.5 Flash-Lite fallback keeps the flow available but forces visible
-transcript confirmation and disables automatic logging for that request. Both
-attempts fit inside the app's 30-second request budget.
+Gemini 3.1 Flash-Lite performs the one-pass English/auto transcription and
+extraction; Turkish prefers Gemini 3.5 Flash-Lite for quantity accuracy. Ambiguous
+candidate selection and difficult query repair also use a low-latency Flash-Lite
+model. If the language-primary call exceeds its 12-second provider deadline or is
+rate-limited, the other model gets one review-only attempt. That fallback forces
+visible transcript confirmation and disables automatic logging for the request;
+both attempts fit inside the app's 30-second request budget.
 
 The voice screen shows a responsive recording waveform and actual elapsed time,
 distinguishes timeout/network/auth/service failures, clears stale route snackbars,

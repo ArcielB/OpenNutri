@@ -125,6 +125,7 @@ def settings(tmp_path: Path) -> Settings:
         supabase_jwt_audience="authenticated",
         gemini_api_key="gemini-key",
         gemini_audio_model="gemini-audio",
+        gemini_audio_turkish_model="gemini-audio-turkish",
         gemini_audio_fallback_model="gemini-audio-fallback",
         gemini_extraction_model="gemini-extraction",
         gemini_selector_model="gemini-selector",

@@ -77,13 +77,16 @@ This is the current high-signal project state after the reviewer workflow moved 
   It verifies app-project anonymous JWTs through JWKS and uses an app-only Supabase
   schema for 768-dimensional vectors, atomic quotas, and optional privacy-limited
   feedback. As of 2026-09-04, voice resolution performs literal transcription and
-  concept extraction together in one structured `gemini-3.1-flash-lite` audio call,
-  removing the previous mandatory second model round trip. Production `iad1` smoke
-  tests returned the exact raw-apple transcript/query/150 g quantity in 2.90 seconds
-  of pipeline work / 6.16 seconds wall time and correctly split banana plus milk in
-  3.32 / 5.11 seconds. Response metadata includes privacy-safe stage timings. Each
-  provider call has a 12-second deadline; a retryable failure uses a one-pass
-  `gemini-3.5-flash-lite` audio fallback as review-only, so every item receives a `transcription`
+  concept extraction together in one structured audio call, removing the previous
+  mandatory second model round trip. English/auto uses `gemini-3.1-flash-lite`;
+  production `iad1` smoke tests returned the exact raw-apple transcript/query/150 g
+  quantity in 2.90 seconds of pipeline work / 6.16 seconds wall time and correctly
+  split banana plus milk in 3.32 / 5.11 seconds. Turkish prefers
+  `gemini-3.5-flash-lite` because 3.1 misheard `150 gram` as `1 litre` on a committed
+  Turkish fixture; the quantity remained unresolved and did not auto-log. Response
+  metadata includes privacy-safe stage timings. Each provider call has a 12-second
+  deadline; a retryable failure uses the other Flash-Lite model as review-only, so
+  every fallback item receives a `transcription`
   clarification and cannot auto-log. Exact unambiguous lexical matches skip vector
   retrieval and the selector entirely;
   ambiguous lexical matches skip vectors but may use one constrained selector call.
@@ -105,7 +108,7 @@ This is the current high-signal project state after the reviewer workflow moved 
   recording, maps transport/auth/timeout/service failures separately, preserves a
   returned transcript for prefilled search, retries post-resolution Core detail
   loading without re-recording, and caches repeated food details in memory.
-  Resolver service `0.3.2` is deployed in Vercel Washington, D.C. (`iad1`). Frankfurt
+  Resolver service `0.3.3` is deployed in Vercel Washington, D.C. (`iad1`). Frankfurt
   (`fra1`) spent 35–39 seconds inside Gemini 3.5 Flash-Lite and San Francisco took
   35.42 seconds; `iad1` plus Gemini 3.1 Flash-Lite is the measured production choice.
   Matching is local SQLite, so the extra EU quota-store round trip is small compared
