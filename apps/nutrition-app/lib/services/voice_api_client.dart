@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -42,17 +43,31 @@ class VoiceApiClient {
     if (!SupabaseConfig.isConfigured) {
       throw const VoiceApiException('Voice sign-in is not configured');
     }
-    final auth = Supabase.instance.client.auth;
-    var session = auth.currentSession;
-    if (session == null) {
-      final response = await auth.signInAnonymously();
-      session = response.session;
+    try {
+      final auth = Supabase.instance.client.auth;
+      var session = auth.currentSession;
+      if (session == null) {
+        final response = await auth.signInAnonymously();
+        session = response.session;
+      }
+      final token = session?.accessToken;
+      if (token == null || token.isEmpty) {
+        throw const VoiceApiException(
+          'Could not start an anonymous session',
+          null,
+          VoiceApiFailureKind.authentication,
+        );
+      }
+      return token;
+    } on VoiceApiException {
+      rethrow;
+    } catch (error) {
+      throw VoiceApiException(
+        'Could not start a private voice session',
+        error,
+        VoiceApiFailureKind.authentication,
+      );
     }
-    final token = session?.accessToken;
-    if (token == null || token.isEmpty) {
-      throw const VoiceApiException('Could not start an anonymous session');
-    }
-    return token;
   }
 
   Future<VoiceResolution> resolveVoice({
@@ -87,11 +102,33 @@ class VoiceApiClient {
         contentType: MediaType('audio', 'wav'),
       ),
     );
-    final streamed = await _client
-        .send(request)
-        .timeout(const Duration(seconds: 45));
-    final response = await http.Response.fromStream(streamed);
-    return VoiceResolution.fromJson(_decode(response));
+    try {
+      final streamed = await _client
+          .send(request)
+          .timeout(const Duration(seconds: 30));
+      final response = await http.Response.fromStream(streamed);
+      return VoiceResolution.fromJson(_decode(response));
+    } on TimeoutException catch (error) {
+      throw VoiceApiException(
+        'Voice matching took too long',
+        error,
+        VoiceApiFailureKind.timeout,
+      );
+    } on SocketException catch (error) {
+      throw VoiceApiException(
+        'Could not reach the voice service',
+        error,
+        VoiceApiFailureKind.network,
+      );
+    } on VoiceApiException {
+      rethrow;
+    } catch (error) {
+      throw VoiceApiException(
+        'Voice matching returned an unexpected response',
+        error,
+        VoiceApiFailureKind.invalidResponse,
+      );
+    }
   }
 
   Future<VoiceResolution> resolveText(
@@ -157,21 +194,45 @@ class VoiceApiClient {
 
   Map<String, dynamic> _decode(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw VoiceApiException('Voice service returned ${response.statusCode}');
+      throw VoiceApiException(
+        'Voice service returned ${response.statusCode}',
+        null,
+        response.statusCode == 401
+            ? VoiceApiFailureKind.authentication
+            : VoiceApiFailureKind.service,
+      );
     }
     try {
       return jsonDecode(response.body) as Map<String, dynamic>;
     } on FormatException catch (error) {
-      throw VoiceApiException('Voice service returned invalid data', error);
+      throw VoiceApiException(
+        'Voice service returned invalid data',
+        error,
+        VoiceApiFailureKind.invalidResponse,
+      );
     }
   }
 }
 
+enum VoiceApiFailureKind {
+  unknown,
+  timeout,
+  network,
+  authentication,
+  service,
+  invalidResponse,
+}
+
 class VoiceApiException implements Exception {
-  const VoiceApiException(this.message, [this.cause]);
+  const VoiceApiException(
+    this.message, [
+    this.cause,
+    this.kind = VoiceApiFailureKind.unknown,
+  ]);
 
   final String message;
   final Object? cause;
+  final VoiceApiFailureKind kind;
 
   @override
   String toString() => message;

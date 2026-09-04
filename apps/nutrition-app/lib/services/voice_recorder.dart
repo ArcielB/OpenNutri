@@ -36,6 +36,8 @@ abstract class VoiceRecorderSession {
   VoiceRecorderState get state;
   String? get errorMessage;
   String? get currentPath;
+  double get amplitudeDbfs;
+  Duration get elapsed;
   Future<bool> start();
   Future<String?> stop();
   Future<void> cancel();
@@ -52,7 +54,7 @@ class OpenNutriVoiceRecorder extends ChangeNotifier
 
   static const silenceThresholdDbfs = -40.0;
   static const speechOpportunity = Duration(milliseconds: 800);
-  static const trailingSilence = Duration(milliseconds: 2000);
+  static const trailingSilence = Duration(milliseconds: 1600);
   static const maximumDuration = Duration(seconds: 30);
 
   final AudioRecorder _recorder;
@@ -68,6 +70,7 @@ class OpenNutriVoiceRecorder extends ChangeNotifier
   VoiceRecorderState _state = VoiceRecorderState.idle;
   String? _errorMessage;
   String? _currentPath;
+  double _amplitudeDbfs = -60;
 
   @override
   VoiceRecorderState get state => _state;
@@ -75,6 +78,10 @@ class OpenNutriVoiceRecorder extends ChangeNotifier
   String? get errorMessage => _errorMessage;
   @override
   String? get currentPath => _currentPath;
+  @override
+  double get amplitudeDbfs => _amplitudeDbfs;
+  @override
+  Duration get elapsed => _elapsed?.elapsed ?? Duration.zero;
 
   @override
   Future<bool> start() async {
@@ -117,10 +124,13 @@ class OpenNutriVoiceRecorder extends ChangeNotifier
   }
 
   void _handleAmplitude(Amplitude amplitude) {
+    _amplitudeDbfs = amplitude.current;
     final elapsed = _elapsed?.elapsed ?? Duration.zero;
     if (_silenceDetector.observe(dbfs: amplitude.current, elapsed: elapsed)) {
       unawaited(stop());
+      return;
     }
+    notifyListeners();
   }
 
   @override

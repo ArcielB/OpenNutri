@@ -68,11 +68,12 @@ This is the current high-signal project state after the reviewer workflow moved 
 - `services/voice-api/` is the isolated authenticated resolver for the Android beta.
   It verifies app-project anonymous JWTs through JWKS and uses an app-only Supabase
   schema for 768-dimensional vectors, atomic quotas, and optional privacy-limited
-  feedback. As of 2026-08-17, voice resolution first performs literal
-  `gemini-3.6-flash` transcription and then text-only `gemini-3.5-flash-lite`
-  concept extraction/selection. This spends one scarce strong-model request per
-  recording, not up to three. A retryable/rate-limit failure uses literal Flash-Lite
-  audio as a review-only fallback: every item receives a `transcription`
+  feedback. As of 2026-09-04, voice resolution performs literal transcription and
+  concept extraction together in one structured `gemini-3.6-flash` audio call,
+  removing the previous mandatory second model round trip. A real English benchmark
+  fixture returned the exact transcript, food query, and quantity in 2.88 seconds.
+  Response metadata includes privacy-safe stage timings. A retryable/rate-limit
+  failure uses a one-pass Flash-Lite audio fallback as review-only: every item receives a `transcription`
   clarification and cannot auto-log. Exact unambiguous lexical matches skip vector
   retrieval and the selector entirely;
   ambiguous lexical matches skip vectors but may use one constrained selector call.
@@ -80,7 +81,7 @@ This is the current high-signal project state after the reviewer workflow moved 
   selection. Candidate IDs are validated against deterministic top-12 fusion
   before returning. Provider/quota errors return a manual-search state without a
   paid fallback.
-- The Flutter Android beta records a bounded 30-second temporary PCM WAV, waits two
+- The Flutter Android beta records a bounded 30-second temporary PCM WAV, waits 1.6
   seconds through natural between-food pauses, automatically persists
   a fully resolved high-confidence batch once and shows immediate Edit batch/Undo
   batch actions; it opens visual review for any unresolved or lower-confidence item.
@@ -90,6 +91,10 @@ This is the current high-signal project state after the reviewer workflow moved 
   resolver only on explicit Search; typing remains public lexical search.
   Starting a recording prewarms anonymous auth and the resolver health endpoint in
   parallel with local recording; it cannot upload audio before the user stops it.
+  The 2026-09-04 voice UI adds a live waveform/timer, clears stale snackbars on a new
+  recording, maps transport/auth/timeout/service failures separately, preserves a
+  returned transcript for prefilled search, retries post-resolution Core detail
+  loading without re-recording, and caches repeated food details in memory.
   The resolver is deployed in Frankfurt beside the EU app project to reduce avoidable
   mobile-to-backend and backend-to-Supabase latency.
   On-device Android 16 validation on 2026-07-25 confirmed installation, first-use

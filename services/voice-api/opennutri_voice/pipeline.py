@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
 from datetime import datetime
 from typing import Any
@@ -146,11 +147,15 @@ class ResolverPipeline:
         local_timestamp: str,
         timezone_name: str,
     ) -> ResolutionResponse:
+        started_at = time.perf_counter()
+        extraction_started_at = started_at
         extraction = await self.gemini.transcribe_and_extract(
             wav_bytes=wav_bytes,
             language_hint=language_hint,
         )
-        return await self._resolve_concepts(
+        extraction_ms = round((time.perf_counter() - extraction_started_at) * 1000)
+        matching_started_at = time.perf_counter()
+        response = await self._resolve_concepts(
             request_id=request_id,
             transcript=extraction.transcript,
             detected_language=extraction.detected_language,
@@ -161,7 +166,15 @@ class ResolverPipeline:
                 extraction.transcription_model or self.settings.gemini_audio_model
             ),
             transcription_fallback_used=extraction.transcription_fallback_used,
+            timings_ms={"audio_extraction": extraction_ms},
         )
+        response.metadata.timings_ms["matching"] = round(
+            (time.perf_counter() - matching_started_at) * 1000
+        )
+        response.metadata.timings_ms["pipeline_total"] = round(
+            (time.perf_counter() - started_at) * 1000
+        )
+        return response
 
     async def resolve_text(
         self,
@@ -194,6 +207,7 @@ class ResolverPipeline:
         timezone_name: str,
         audio_model: str | None,
         transcription_fallback_used: bool = False,
+        timings_ms: dict[str, int] | None = None,
     ) -> ResolutionResponse:
         # Exact lexical matches take a deterministic fast path. A single batched
         # translation/synonym pass repairs concepts with no lexical candidates
@@ -311,6 +325,7 @@ class ResolverPipeline:
                 request_id,
                 audio_model=audio_model,
                 transcription_fallback_used=transcription_fallback_used,
+                timings_ms=timings_ms,
             ),
             transcript=transcript,
             detected_language=detected_language,
@@ -995,6 +1010,7 @@ class ResolverPipeline:
         *,
         audio_model: str | None,
         transcription_fallback_used: bool = False,
+        timings_ms: dict[str, int] | None = None,
     ) -> ResolutionMetadata:
         return ResolutionMetadata(
             request_id=request_id,
@@ -1003,8 +1019,9 @@ class ResolverPipeline:
             audio_model=audio_model,
             transcription_fallback_used=transcription_fallback_used,
             extraction_model=(
-                self.settings.gemini_extraction_model if audio_model is not None else None
+                audio_model if audio_model is not None else None
             ),
             selector_model=self.settings.gemini_selector_model,
             embedding_model=self.settings.gemini_embedding_model,
+            timings_ms=timings_ms or {},
         )

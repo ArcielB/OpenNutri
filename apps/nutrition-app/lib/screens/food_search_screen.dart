@@ -15,19 +15,21 @@ class FoodSearchScreen extends StatefulWidget {
     required this.meal,
     required this.date,
     this.resolver,
+    this.initialQuery,
   });
 
   final CoreApiClient apiClient;
   final MealType meal;
   final DateTime date;
   final VoiceApiClient? resolver;
+  final String? initialQuery;
 
   @override
   State<FoodSearchScreen> createState() => _FoodSearchScreenState();
 }
 
 class _FoodSearchScreenState extends State<FoodSearchScreen> {
-  final _searchController = TextEditingController();
+  late final TextEditingController _searchController;
   final _focusNode = FocusNode();
   Timer? _debounce;
   List<FoodSearchItem> _results = const [];
@@ -44,10 +46,14 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController(text: widget.initialQuery ?? '');
     _searchController.addListener(_scheduleSearch);
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _focusNode.requestFocus(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      if (_searchController.text.trim().isNotEmpty) {
+        _search(_searchController.text.trim());
+      }
+    });
   }
 
   @override

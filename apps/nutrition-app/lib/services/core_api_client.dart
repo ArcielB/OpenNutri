@@ -13,6 +13,7 @@ class CoreApiClient {
   );
 
   final http.Client _client;
+  final Map<String, FoodDetail> _detailCache = {};
 
   Future<FoodSearchResults> searchFoods(String query, {int limit = 30}) async {
     final normalized = query.trim();
@@ -34,11 +35,15 @@ class CoreApiClient {
   }
 
   Future<FoodDetail> foodDetail(String foodId) async {
+    final cached = _detailCache[foodId];
+    if (cached != null) return cached;
     final uri = Uri.parse('$baseUrl/v1/foods/$foodId');
     final response = await _client
         .get(uri)
         .timeout(const Duration(seconds: 30));
-    return FoodDetail.fromJson(_decode(response));
+    final detail = FoodDetail.fromJson(_decode(response));
+    _detailCache[foodId] = detail;
+    return detail;
   }
 
   Future<Map<String, dynamic>> health() async {

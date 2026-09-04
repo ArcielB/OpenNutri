@@ -484,7 +484,7 @@ async def test_exact_lexical_resolution_skips_semantic_and_selector(settings):
     )
     assert response.items[0].selected_candidate.food_id == "food-apple"
     assert response.items[0].auto_log_eligible is True
-    assert response.metadata.extraction_model == "gemini-extraction"
+    assert response.metadata.extraction_model == "gemini-audio"
 
 
 @pytest.mark.asyncio

@@ -60,6 +60,7 @@ class ResolutionMetadata {
     this.extractionModel,
     this.selectorModel,
     this.embeddingModel,
+    this.timingsMs = const {},
   });
 
   factory ResolutionMetadata.fromJson(Map<String, dynamic> json) {
@@ -73,6 +74,8 @@ class ResolutionMetadata {
       extractionModel: json['extraction_model'] as String?,
       selectorModel: json['selector_model'] as String?,
       embeddingModel: json['embedding_model'] as String?,
+      timingsMs: ((json['timings_ms'] as Map<String, dynamic>?) ?? const {})
+          .map((key, value) => MapEntry(key, (value as num).toInt())),
     );
   }
 
@@ -84,6 +87,7 @@ class ResolutionMetadata {
   final String? extractionModel;
   final String? selectorModel;
   final String? embeddingModel;
+  final Map<String, int> timingsMs;
 }
 
 class VoiceFoodCandidate {

@@ -94,7 +94,7 @@ class GeminiClient:
         transcription_model = self.settings.gemini_audio_model
         fallback_used = False
         try:
-            transcript = await self.transcribe_audio(
+            extraction = await self._extract_audio_once(
                 wav_bytes=wav_bytes,
                 language_hint=language_hint,
                 model=transcription_model,
@@ -107,24 +107,96 @@ class GeminiClient:
                 or not exc.is_retryable
             ):
                 raise
-            transcript = await self.transcribe_audio(
+            extraction = await self._extract_audio_once(
                 wav_bytes=wav_bytes,
                 language_hint=language_hint,
                 model=fallback_model,
             )
             transcription_model = fallback_model
             fallback_used = True
-        concepts = await self.extract_concepts(
-            transcript=transcript.transcript,
-            detected_language=transcript.detected_language,
+        return extraction.model_copy(
+            update={
+                "transcription_model": transcription_model,
+                "transcription_fallback_used": fallback_used,
+            }
         )
-        return AudioExtraction(
-            transcript=transcript.transcript,
-            detected_language=transcript.detected_language,
-            concepts=concepts.concepts,
-            transcription_model=transcription_model,
-            transcription_fallback_used=fallback_used,
+
+    async def _extract_audio_once(
+        self,
+        *,
+        wav_bytes: bytes,
+        language_hint: str,
+        model: str,
+    ) -> AudioExtraction:
+        """Transcribe and structure one recording in a single model request.
+
+        The older pipeline made a second text-model request after transcription.
+        Keeping both jobs in one constrained response removes a full provider
+        round trip while the literal transcript remains available for review.
+        """
+        payload = {
+            "systemInstruction": {
+                "parts": [
+                    {
+                        "text": (
+                            "You are a literal food-diary transcription and extraction engine. "
+                            "First transcribe only what is audibly spoken, in the original "
+                            "language. Preserve every number, food word, unit, preparation, and "
+                            "meal label exactly in transcript. Do not correct, summarize, or add "
+                            "words to transcript. Then extract at most ten distinct food concepts "
+                            "from that exact transcript. source_phrase must be an exact contiguous "
+                            "phrase from transcript. food_name must be a concise English database-"
+                            "search query that preserves the food variant and raw/cooked/drained/"
+                            "skin/bone preparation. Copy every quantity exactly. Express its unit "
+                            "as a canonical English unit; for counted foods use the singular food "
+                            "noun, for example ten eggs is value 10 and unit egg, and iki yumurta "
+                            "is value 2 and unit egg. Never invent a quantity, unit, preparation, "
+                            "weight basis, food, or recipe decomposition. Raw or uncooked never "
+                            "means as-purchased; set weight_basis only when the speaker literally "
+                            "says edible weight, as purchased, yenilebilir ağırlık, or satın "
+                            "alındığı haliyle. Set meal only when the speaker explicitly groups "
+                            "the food under breakfast, lunch, dinner, or snacks; otherwise return "
+                            "null. English and Turkish are supported. Preserve Turkish food words "
+                            "literally in transcript and source_phrase, including şehriye, tel "
+                            "şehriye, arpa şehriye, katı pişmiş, and bütün yumurta, while food_name "
+                            "uses the conventional English food equivalent."
+                        )
+                    }
+                ]
+            },
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                f"Language hint: {language_hint or 'auto'}. Return the literal "
+                                "transcript and its structured food concepts."
+                            )
+                        },
+                        {
+                            "inlineData": {
+                                "mimeType": "audio/wav",
+                                "data": base64.b64encode(wav_bytes).decode("ascii"),
+                            }
+                        },
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "thinkingConfig": {"thinkingLevel": "minimal"},
+                "responseMimeType": "application/json",
+                "responseJsonSchema": AudioExtraction.model_json_schema(),
+            },
+        }
+        response = await self._post(
+            f"{self.base_url}/{model}:generateContent",
+            payload,
         )
+        try:
+            return AudioExtraction.model_validate(self._json_text(response))
+        except ValueError as exc:
+            raise GeminiError("Audio extraction did not match the contract") from exc
 
     async def transcribe_audio(
         self,

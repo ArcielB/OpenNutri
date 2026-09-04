@@ -3,7 +3,7 @@
 This private FastAPI service implements the bounded beta pipeline:
 
 ```text
-audio -> literal transcript -> structured concepts -> lexical retrieval
+audio -> one-pass literal transcript + structured concepts -> lexical retrieval
       -> exact-match fast path OR semantic retrieval + constrained selection
       -> automatic log or Flutter review
 ```
@@ -18,12 +18,13 @@ validated again. Flutter obtains nutrients from the public Core API after review
 - The service role key is present only in this backend.
 - Atomic database functions enforce one active request per subject, 10 requests per
   minute, 50 AI resolutions per subject/day, and 200 globally/day by default.
-- Voice uses one `gemini-3.6-flash` literal transcription call followed by a
-  text-only `gemini-3.5-flash-lite` concept-extraction call. Keeping those jobs
-  separate prevents the transcription model from rewriting a number or food word
-  while trying to match it, and preserves scarce strong-model daily capacity.
-- If the strong audio model is temporarily unavailable or rate-limited, literal
-  Flash-Lite transcription keeps voice usable, but every returned item is marked
+- Voice uses one structured `gemini-3.6-flash` audio call that returns both the
+  literal transcript and food concepts. This removes the previous mandatory second
+  provider round trip; a committed fixture smoke test completed that model step in
+  2.88 seconds. Per-stage server timings are returned in response metadata for
+  privacy-safe latency diagnosis.
+- If the strong audio model is temporarily unavailable or rate-limited, a one-pass
+  Flash-Lite audio fallback keeps voice usable, but every returned item is marked
   `transcription` unresolved and can never auto-log until the person confirms it.
 - Exact, unambiguous lexical matches are selected deterministically and make no
   embedding or selector request. Ambiguous lexical matches use the constrained
@@ -31,7 +32,7 @@ validated again. Flutter obtains nutrients from the public Core API after review
   candidate first receive one batched English translation/synonym rewrite and retry
   lexical search. Only phrases that still have no candidate use a batched embedding
   call.
-  The literal transcript and extracted amount are never rewritten, and normalized
+  The literal transcript and extracted amount stay separately represented, and normalized
   matches always require review. This keeps the ordinary path fast and minimizes
   private-index egress.
 - A recording may contain up to ten foods. Explicit spoken meal groups are returned

@@ -75,12 +75,12 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Start recording'));
+      await tester.tap(find.text('Start speaking'));
       await tester.pump();
-      expect(find.text('Listening…'), findsOneWidget);
+      expect(find.text('I’m listening'), findsOneWidget);
       expect(voiceClient.warmUpCalls, 1);
 
-      await tester.tap(find.text('Stop'));
+      await tester.tap(find.text('Done speaking'));
       await tester.pumpAndSettle();
 
       final logButton = tester.widget<FilledButton>(
@@ -125,9 +125,9 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Start recording'));
+      await tester.tap(find.text('Start speaking'));
       await tester.pump();
-      await tester.tap(find.text('Stop'));
+      await tester.tap(find.text('Done speaking'));
       await tester.pumpAndSettle();
 
       expect(find.text('Check before logging'), findsOneWidget);
@@ -161,7 +161,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Start recording'));
+    await tester.tap(find.text('Start speaking'));
     await tester.pumpAndSettle();
 
     expect(find.text('Before voice logging'), findsOneWidget);
@@ -172,7 +172,7 @@ void main() {
 
     expect(controller.voiceDisclosureAccepted, isTrue);
     expect(controller.voiceFeedbackConsent, isTrue);
-    expect(find.text('Listening…'), findsOneWidget);
+    expect(find.text('I’m listening'), findsOneWidget);
   });
 
   testWidgets(
@@ -194,9 +194,9 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Start recording'));
+      await tester.tap(find.text('Start speaking'));
       await tester.pump();
-      await tester.tap(find.text('Stop'));
+      await tester.tap(find.text('Done speaking'));
       await tester.pumpAndSettle();
 
       expect(find.text('Logged automatically'), findsOneWidget);
@@ -235,15 +235,14 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Start recording'));
+    await tester.tap(find.text('Start speaking'));
     await tester.pump();
-    await tester.tap(find.text('Stop'));
+    await tester.tap(find.text('Done speaking'));
     await tester.pumpAndSettle();
 
     expect(
       find.text(
-        'Voice matching is temporarily unavailable. You can still search '
-        'manually.',
+        'We could not finish that voice request. Your diary was not changed.',
       ),
       findsOneWidget,
     );
@@ -259,6 +258,10 @@ class _FakeRecorder extends ChangeNotifier implements VoiceRecorderSession {
   String? errorMessage;
   @override
   String? currentPath;
+  @override
+  double get amplitudeDbfs => -24;
+  @override
+  Duration get elapsed => Duration.zero;
   final List<String> deletedPaths = [];
 
   @override

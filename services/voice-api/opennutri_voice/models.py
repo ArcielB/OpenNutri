@@ -168,6 +168,7 @@ class ResolutionMetadata(StrictModel):
     extraction_model: str | None = None
     selector_model: str | None = None
     embedding_model: str | None = None
+    timings_ms: dict[str, int] = Field(default_factory=dict)
 
 
 class ResolutionResponse(StrictModel):

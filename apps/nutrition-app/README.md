@@ -9,17 +9,24 @@ ambiguous Core food, quantity, weight basis, preparation distinction, or
 unspecified food opens the review screen instead. A selector-provided alternative
 also counts as ambiguity, so it never bypasses review.
 
-Recording permits a 30-second whole-day list and waits for two seconds of trailing
-silence, so a normal pause between foods does not cut the list off. The resolver's
-literal-transcription pass is separate from food matching. Exact source-backed
+Recording permits a 30-second whole-day list and waits for 1.6 seconds of trailing
+silence, so a normal pause between foods does not cut the list off. The resolver
+returns the literal transcript and structured concepts in one audio-model call.
+Exact source-backed
 matches take a deterministic fast path; ambiguous lexical matches skip vector
 retrieval but still receive constrained selection and visual review. Semantic search
 is reserved for a phrase with no lexical candidates.
 
-The scarce strong model is used only for literal audio transcription; high-volume
-text extraction and constrained selection use Flash-Lite. If strong transcription is
-rate-limited, a fast transcription fallback keeps the flow available but forces a
+The strong audio model performs the one-pass transcription and extraction; only
+ambiguous candidate selection and difficult query repair use Flash-Lite. If the
+strong call is rate-limited, a one-pass fast fallback keeps the flow available but forces a
 visible transcript confirmation and disables automatic logging for that request.
+
+The voice screen shows a responsive recording waveform and actual elapsed time,
+distinguishes timeout/network/auth/service failures, clears stale route snackbars,
+preserves any returned transcript for fallback search, and can retry Core nutrition
+detail loading without asking the person to record the meal again. Food details are
+cached in memory for repeat logs.
 
 The production resolver URL and isolated Voice Beta Supabase project URL have
 non-secret defaults. The app's public client key is project-specific, so supply

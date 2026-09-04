@@ -57,6 +57,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
   List<String> _autoLoggedEntryIds = const [];
   String? _error;
   String? _processingPath;
+  String _processingMessage = 'Understanding your meal…';
 
   @override
   void initState() {
@@ -85,6 +86,8 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         _recorder.state == VoiceRecorderState.stopped &&
         _recorder.currentPath != null) {
       unawaited(_processRecording(_recorder.currentPath!));
+    } else if (_state == VoiceLogState.recording && mounted) {
+      setState(() {});
     }
   }
 
@@ -155,9 +158,12 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
       return;
     }
     if (!await _ensureDisclosure() || !mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
     unawaited(widget.voiceApiClient.warmUp());
     setState(() {
       _error = null;
+      _resolution = null;
+      _processingMessage = 'Understanding your meal…';
       _state = VoiceLogState.recording;
     });
     final started = await _recorder.start();
@@ -184,7 +190,11 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
   Future<void> _processRecording(String path) async {
     if (_processingPath == path) return;
     _processingPath = path;
-    setState(() => _state = VoiceLogState.processing);
+    final stopwatch = Stopwatch()..start();
+    setState(() {
+      _processingMessage = 'Understanding your meal…';
+      _state = VoiceLogState.processing;
+    });
     try {
       final response = await widget.voiceApiClient.resolveVoice(
         wavPath: path,
@@ -194,6 +204,10 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
       );
       if (!mounted) return;
       _resolution = response;
+      debugPrint(
+        'Voice resolver completed in ${stopwatch.elapsedMilliseconds} ms; '
+        'server timings=${response.metadata.timingsMs}',
+      );
       if (response.requiresManualSearch) {
         setState(() {
           _state = VoiceLogState.manualSearch;
@@ -201,6 +215,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         });
         return;
       }
+      setState(() => _processingMessage = 'Loading trusted nutrition data…');
       // Load only the selected Core foods first. This keeps the common
       // high-confidence path fast: alternatives are fetched only when the
       // person needs to review or edit the result.
@@ -211,17 +226,73 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         return;
       }
       await _prepareReview(response);
-    } catch (_) {
+    } on VoiceApiException catch (error) {
       if (!mounted) return;
       setState(() {
         _state = VoiceLogState.manualSearch;
-        _error =
-            'Voice matching is temporarily unavailable. You can still search '
-            'manually.';
+        _error = _voiceFailureMessage(error);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      debugPrint('Voice result preparation failed: $error');
+      setState(() {
+        _state = _resolution == null
+            ? VoiceLogState.manualSearch
+            : VoiceLogState.error;
+        _error = _resolution == null
+            ? 'We could not finish that voice request. Your diary was not changed.'
+            : 'Your meal was understood, but its nutrition details did not finish loading.';
       });
     } finally {
       await _recorder.deleteTemporaryFile(path);
       _processingPath = null;
+    }
+  }
+
+  String _voiceFailureMessage(VoiceApiException error) {
+    return switch (error.kind) {
+      VoiceApiFailureKind.timeout =>
+        'That took longer than expected. Your diary was not changed.',
+      VoiceApiFailureKind.network =>
+        'You appear to be offline. Reconnect or use food search.',
+      VoiceApiFailureKind.authentication =>
+        'A private voice session could not be started. Try again in a moment.',
+      VoiceApiFailureKind.service =>
+        'The voice service is taking a break. Your diary was not changed.',
+      VoiceApiFailureKind.invalidResponse =>
+        'The voice service returned an incomplete result. Your diary was not changed.',
+      VoiceApiFailureKind.unknown =>
+        'We could not finish that voice request. Your diary was not changed.',
+    };
+  }
+
+  Future<void> _retryDetails() async {
+    final response = _resolution;
+    if (response == null) {
+      await _startRecording();
+      return;
+    }
+    setState(() {
+      _error = null;
+      _processingMessage = 'Loading trusted nutrition data…';
+      _state = VoiceLogState.processing;
+    });
+    try {
+      await _prepareReview(response, selectedOnly: true, showReview: false);
+      if (!mounted) return;
+      if (_canAutoLog) {
+        await _logAll(automatic: true);
+      } else {
+        await _prepareReview(response);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      debugPrint('Voice detail retry failed: $error');
+      setState(() {
+        _error =
+            'Nutrition details are still unavailable. You can retry or search manually.';
+        _state = VoiceLogState.error;
+      });
     }
   }
 
@@ -390,6 +461,9 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
               ? MealType.snacks
               : _reviewItems.first.meal,
           date: widget.controller.selectedDate,
+          initialQuery:
+              _resolution?.items.firstOrNull?.sourcePhrase ??
+              _resolution?.manualSearchQuery,
         ),
       ),
     );
@@ -398,54 +472,80 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Voice log')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            child: switch (_state) {
-              VoiceLogState.ready => _ReadyView(onStart: _startRecording),
-              VoiceLogState.recording => _RecordingView(
-                onStop: _stopRecording,
-                onCancel: _cancelRecording,
-              ),
-              VoiceLogState.processing => const _ProcessingView(),
-              VoiceLogState.review => _ReviewView(
-                transcript: _resolution?.transcript ?? '',
-                items: _reviewItems,
-                canLogAll: _canLogAll,
-                onLogAll: () => _logAll(),
-                onManualSearch: _openManualSearch,
-              ),
-              VoiceLogState.logged => _AutoLoggedView(
-                items: _reviewItems,
-                onUndo: _undoAutomaticLog,
-                onEdit: _editAutomaticLog,
-                onDone: () => Navigator.of(context).pop(),
-              ),
-              VoiceLogState.manualSearch => _FallbackView(
-                message: _error,
-                icon: Icons.manage_search,
-                onRetry: _startRecording,
-                onManualSearch: _openManualSearch,
-              ),
-              VoiceLogState.permissionDenied => _FallbackView(
-                message:
-                    'Microphone permission is required. Allow it in Android '
-                    'settings, then try again.',
-                icon: Icons.mic_off_outlined,
-                onRetry: _startRecording,
-                onManualSearch: _openManualSearch,
-              ),
-              VoiceLogState.error => _FallbackView(
-                message: _error ?? 'Voice logging failed.',
-                icon: Icons.error_outline,
-                onRetry: _startRecording,
-                onManualSearch: _openManualSearch,
-              ),
-            },
+      appBar: AppBar(title: const Text('Log with voice')),
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              scheme.primaryContainer.withValues(alpha: 0.22),
+              scheme.surface,
+              scheme.surface,
+            ],
+            stops: const [0, 0.38, 1],
+          ),
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              switchInCurve: Curves.easeOutCubic,
+              child: switch (_state) {
+                VoiceLogState.ready => _ReadyView(onStart: _startRecording),
+                VoiceLogState.recording => _RecordingView(
+                  amplitudeDbfs: _recorder.amplitudeDbfs,
+                  elapsed: _recorder.elapsed,
+                  onStop: _stopRecording,
+                  onCancel: _cancelRecording,
+                ),
+                VoiceLogState.processing => _ProcessingView(
+                  message: _processingMessage,
+                ),
+                VoiceLogState.review => _ReviewView(
+                  transcript: _resolution?.transcript ?? '',
+                  items: _reviewItems,
+                  canLogAll: _canLogAll,
+                  onLogAll: () => _logAll(),
+                  onManualSearch: _openManualSearch,
+                ),
+                VoiceLogState.logged => _AutoLoggedView(
+                  items: _reviewItems,
+                  onUndo: _undoAutomaticLog,
+                  onEdit: _editAutomaticLog,
+                  onDone: () => Navigator.of(context).pop(),
+                ),
+                VoiceLogState.manualSearch => _FallbackView(
+                  message: _error,
+                  icon: Icons.manage_search,
+                  onRetry: _startRecording,
+                  onManualSearch: _openManualSearch,
+                  transcript: _resolution?.transcript,
+                ),
+                VoiceLogState.permissionDenied => _FallbackView(
+                  message:
+                      'Microphone permission is required. Allow it in Android '
+                      'settings, then try again.',
+                  icon: Icons.mic_off_outlined,
+                  onRetry: _startRecording,
+                  onManualSearch: _openManualSearch,
+                  retryLabel: 'Check permission again',
+                ),
+                VoiceLogState.error => _FallbackView(
+                  message: _error ?? 'Voice logging failed.',
+                  icon: Icons.cloud_sync_outlined,
+                  onRetry: _retryDetails,
+                  onManualSearch: _openManualSearch,
+                  retryLabel: _resolution == null
+                      ? 'Try voice again'
+                      : 'Reload nutrition details',
+                  transcript: _resolution?.transcript,
+                ),
+              },
+            ),
           ),
         ),
       ),
@@ -561,45 +661,123 @@ class _ReadyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return LayoutBuilder(
       key: const ValueKey('voice-ready'),
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.mic_none,
-            size: 72,
-            color: Theme.of(context).colorScheme.primary,
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: (constraints.maxHeight - 64).clamp(0, double.infinity),
           ),
-          const SizedBox(height: 20),
-          Text(
-            'Log your day by voice',
-            style: Theme.of(context).textTheme.headlineSmall,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  'VOICE MEAL LOG',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 28),
+              Container(
+                width: 104,
+                height: 104,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.24),
+                      blurRadius: 30,
+                      spreadRadius: 6,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.mic_rounded,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onPrimary,
+                ),
+              ),
+              const SizedBox(height: 28),
+              Text(
+                'Say it. See it logged.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.7,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Speak naturally and log up to 10 foods in one go.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                child: const Text(
+                  '“Breakfast: two eggs, one banana, and a glass of milk.”',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onStart,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(56),
+                  ),
+                  icon: const Icon(Icons.mic_rounded),
+                  label: const Text('Start speaking'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Include amounts and words like raw, cooked, or drained.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Say several foods at once (up to 10). You can group them by '
-            'meal: “Breakfast: 2 eggs. Dinner: 150 g chicken.” Include '
-            'amounts and details such as raw, cooked, drained, skin, bone, '
-            'or as-purchased weight. Pause briefly between foods; recording '
-            'stops two seconds after you finish.',
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: onStart,
-            icon: const Icon(Icons.mic),
-            label: const Text('Start recording'),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
 class _RecordingView extends StatelessWidget {
-  const _RecordingView({required this.onStop, required this.onCancel});
+  const _RecordingView({
+    required this.amplitudeDbfs,
+    required this.elapsed,
+    required this.onStop,
+    required this.onCancel,
+  });
+  final double amplitudeDbfs;
+  final Duration elapsed;
   final VoidCallback onStop;
   final VoidCallback onCancel;
 
@@ -611,43 +789,103 @@ class _RecordingView extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const SizedBox.square(
-            dimension: 88,
-            child: CircularProgressIndicator(strokeWidth: 7),
+          Text(
+            _formatElapsed(elapsed),
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
-          const SizedBox(height: 24),
-          Text('Listening…', style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 22),
+          _VoiceWave(amplitudeDbfs: amplitudeDbfs),
+          const SizedBox(height: 28),
+          Text(
+            'I’m listening',
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+            ),
+          ),
           const SizedBox(height: 8),
-          const Text('Stops automatically after you finish speaking.'),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: onStop,
-            icon: const Icon(Icons.stop),
-            label: const Text('Stop'),
+          const Text('Pause between foods. Tap done when you finish.'),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: 190,
+            child: FilledButton.icon(
+              onPressed: onStop,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(56),
+              ),
+              icon: const Icon(Icons.stop_rounded),
+              label: const Text('Done speaking'),
+            ),
           ),
           TextButton(onPressed: onCancel, child: const Text('Cancel')),
         ],
       ),
     );
   }
+
+  String _formatElapsed(Duration value) {
+    final seconds = value.inSeconds.clamp(0, 30);
+    return '0:${seconds.toString().padLeft(2, '0')} / 0:30';
+  }
 }
 
 class _ProcessingView extends StatelessWidget {
-  const _ProcessingView();
+  const _ProcessingView({required this.message});
+  final String message;
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      key: ValueKey('voice-processing'),
-      padding: EdgeInsets.all(32),
+    return Padding(
+      key: const ValueKey('voice-processing'),
+      padding: const EdgeInsets.all(32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 20),
-          Text('Matching foods…'),
-          SizedBox(height: 8),
-          Text('Your recording will be deleted when this request finishes.'),
+          Container(
+            width: 88,
+            height: 88,
+            padding: const EdgeInsets.all(25),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: CircularProgressIndicator(
+              strokeWidth: 4,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 26),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Matching against verified OpenNutri foods',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 18),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.lock_outline_rounded,
+                size: 16,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Recording deleted after this request',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -975,11 +1213,15 @@ class _FallbackView extends StatelessWidget {
     required this.icon,
     required this.onRetry,
     required this.onManualSearch,
+    this.retryLabel = 'Try voice again',
+    this.transcript,
   });
   final String? message;
   final IconData icon;
   final VoidCallback onRetry;
   final VoidCallback onManualSearch;
+  final String retryLabel;
+  final String? transcript;
 
   @override
   Widget build(BuildContext context) {
@@ -989,19 +1231,94 @@ class _FallbackView extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 58, color: Theme.of(context).colorScheme.error),
-          const SizedBox(height: 16),
+          Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 42,
+              color: Theme.of(context).colorScheme.onErrorContainer,
+            ),
+          ),
+          const SizedBox(height: 22),
+          Text(
+            'That didn’t finish',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
           Text(
             message ?? 'Voice logging is unavailable.',
             textAlign: TextAlign.center,
           ),
+          if (transcript?.trim().isNotEmpty == true) ...[
+            const SizedBox(height: 18),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text('Heard: “${transcript!.trim()}”'),
+            ),
+          ],
           const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed: onManualSearch,
-            icon: const Icon(Icons.search),
-            label: const Text('Manual search'),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onManualSearch,
+              icon: const Icon(Icons.search),
+              label: Text(
+                transcript?.trim().isNotEmpty == true
+                    ? 'Continue with search'
+                    : 'Search foods instead',
+              ),
+            ),
           ),
-          TextButton(onPressed: onRetry, child: const Text('Try voice again')),
+          TextButton(onPressed: onRetry, child: Text(retryLabel)),
+        ],
+      ),
+    );
+  }
+}
+
+class _VoiceWave extends StatelessWidget {
+  const _VoiceWave({required this.amplitudeDbfs});
+
+  final double amplitudeDbfs;
+
+  @override
+  Widget build(BuildContext context) {
+    final signal = ((amplitudeDbfs + 55) / 45).clamp(0.08, 1.0);
+    const weights = [0.42, 0.75, 1.0, 0.62, 0.9, 0.56, 0.8, 0.38];
+    return Container(
+      height: 112,
+      width: 220,
+      padding: const EdgeInsets.symmetric(horizontal: 22),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(32),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          for (final weight in weights)
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 90),
+              curve: Curves.easeOut,
+              width: 8,
+              height: 16 + (66 * signal * weight),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
         ],
       ),
     );
