@@ -54,6 +54,8 @@ class DietsScreen extends StatelessWidget {
               Text(diet.description),
               const SizedBox(height: 18),
               _MacroSplit(diet: diet),
+              const SizedBox(height: 12),
+              _PersonalizedTargetPreview(diet: diet, controller: controller),
               const SizedBox(height: 20),
               Text(
                 'The idea',
@@ -242,4 +244,45 @@ class _MacroSplit extends StatelessWidget {
           : Theme.of(context).textTheme.labelLarge,
     ),
   );
+}
+
+class _PersonalizedTargetPreview extends StatelessWidget {
+  const _PersonalizedTargetPreview({
+    required this.diet,
+    required this.controller,
+  });
+
+  final DietPreset diet;
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = diet.targetsForCalories(
+      controller.targets.calories,
+      goal: controller.profile.goal,
+    );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Adjusted for ${controller.profile.goal.label.toLowerCase()}',
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${target.calories.round()} kcal · ${target.protein.round()} g protein · ${target.carbs.round()} g carbs · ${target.fat.round()} g fat',
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -151,7 +151,13 @@ This is the current high-signal project state after the reviewer workflow moved 
   source-backed Core record before logging. Diet macros adapt to both the current
   energy target and selected goal. General FDA Nutrition Facts Daily Values are used
   only as clearly labeled adult comparison references. Voice API service version is
-  `0.4.0`; production deployment validation is recorded in the service/operator note.
+  `0.4.0`; production deployment `dpl_BfCTuBWN2XTBFjeEj4BMz4BLH41V` is live in
+  `iad1`. Authenticated production validation returned structured personalized daily
+  guidance, five restriction-aware Oracle queries, and a literal voice-coach
+  transcript/reply on `gemini-3.8-flash`. The latest configured release APK is
+  version `1.1.0+2`, 54,622,410 bytes, SHA-256
+  `3357b514810dcee325d894dc3ae17ad8722ba99bf3fafdcf97a26b2ad2e6d7cc`, and was
+  installed in place on the connected Android 16 `2409BRN2CA` without clearing data.
 - `benchmarks/voice-v0.1.0/` contains 240 balanced English/Turkish cases with 48
   committed deterministic audio fixtures. Validation is green and the private
   768-dimensional semantic index now contains all 13,537 searchable foods. The full
