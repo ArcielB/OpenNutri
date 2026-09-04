@@ -154,20 +154,42 @@ class ResolverPipeline:
             language_hint=language_hint,
         )
         extraction_ms = round((time.perf_counter() - extraction_started_at) * 1000)
-        matching_started_at = time.perf_counter()
-        response = await self._resolve_concepts(
-            request_id=request_id,
-            transcript=extraction.transcript,
-            detected_language=extraction.detected_language,
-            concepts=extraction.concepts,
-            local_timestamp=local_timestamp,
-            timezone_name=timezone_name,
-            audio_model=(
-                extraction.transcription_model or self.settings.gemini_audio_model
-            ),
-            transcription_fallback_used=extraction.transcription_fallback_used,
-            timings_ms={"audio_extraction": extraction_ms},
+        audio_model = (
+            extraction.transcription_model or self.settings.gemini_audio_model
         )
+        if not extraction.concepts:
+            return self.manual_search_response(
+                request_id=request_id,
+                query=extraction.transcript,
+                error_code="no_foods_detected",
+                audio_model=audio_model,
+                transcript=extraction.transcript,
+                detected_language=extraction.detected_language,
+                transcription_fallback_used=extraction.transcription_fallback_used,
+                timings_ms={
+                    "audio_extraction": extraction_ms,
+                    "pipeline_total": round(
+                        (time.perf_counter() - started_at) * 1000
+                    ),
+                },
+            )
+        matching_started_at = time.perf_counter()
+        try:
+            response = await self._resolve_concepts(
+                request_id=request_id,
+                transcript=extraction.transcript,
+                detected_language=extraction.detected_language,
+                concepts=extraction.concepts,
+                local_timestamp=local_timestamp,
+                timezone_name=timezone_name,
+                audio_model=audio_model,
+                transcription_fallback_used=extraction.transcription_fallback_used,
+                timings_ms={"audio_extraction": extraction_ms},
+            )
+        except GeminiError as exc:
+            if exc.partial_transcript is None:
+                exc.partial_transcript = extraction.transcript
+            raise
         response.metadata.timings_ms["matching"] = round(
             (time.perf_counter() - matching_started_at) * 1000
         )
@@ -589,6 +611,10 @@ class ResolverPipeline:
         query: str,
         error_code: str,
         audio_model: str | None,
+        transcript: str | None = None,
+        detected_language: str = "unknown",
+        transcription_fallback_used: bool = False,
+        timings_ms: dict[str, int] | None = None,
     ) -> ResolutionResponse:
         lexical = self.core.primary_search(query, limit=8) if query else []
         hydrated = self.core.hydrate_candidates(
@@ -606,9 +632,14 @@ class ResolverPipeline:
         ]
         return ResolutionResponse(
             status="manual_search",
-            metadata=self._metadata(request_id, audio_model=audio_model),
-            transcript="",
-            detected_language="unknown",
+            metadata=self._metadata(
+                request_id,
+                audio_model=audio_model,
+                transcription_fallback_used=transcription_fallback_used,
+                timings_ms=timings_ms,
+            ),
+            transcript=transcript or "",
+            detected_language=detected_language,
             manual_search_query=query or None,
             manual_search_candidates=candidates,
             error_code=error_code,

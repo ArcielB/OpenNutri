@@ -66,6 +66,13 @@ Do not spend tokens on these unless the task explicitly needs them:
 
 ## Product Truths
 - The project is a food-composition paper pipeline plus a human labeling UI.
+- `apps/nutrition-app/` is the Android-first consumer diary. Voice uses the isolated
+  app Supabase project and `services/voice-api/`. The production primary is one-pass
+  `gemini-3.8-flash` audio extraction with `thinkingLevel=low` in Vercel `iad1`;
+  `gemini-3.1-flash-lite` is a review-only retry for timeout, rate limit, transport,
+  or invalid structured output. Flutter sends English/Turkish device locale hints.
+  Preserve any safe transcript on failure, keep privacy-safe stage/error logging,
+  and never collapse contract validation failures into a false provider-outage UI.
 - The consumer food-data surface is separate from the annotator schema. The current
   combined USDA Core release is built under `services/data-pipeline/opennutri_core/` and served
   read-only by `services/core-api/`; do not route it through legacy `claims` or expose

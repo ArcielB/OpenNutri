@@ -22,6 +22,13 @@ enum VoiceLogState {
   error,
 }
 
+String voiceLanguageHintForLocale(Locale locale) {
+  return switch (locale.languageCode.toLowerCase()) {
+    'en' || 'tr' => locale.toLanguageTag(),
+    _ => 'auto',
+  };
+}
+
 class VoiceLogScreen extends StatefulWidget {
   const VoiceLogScreen({
     super.key,
@@ -198,7 +205,9 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
     try {
       final response = await widget.voiceApiClient.resolveVoice(
         wavPath: path,
-        languageHint: 'auto',
+        languageHint: voiceLanguageHintForLocale(
+          WidgetsBinding.instance.platformDispatcher.locale,
+        ),
         localTimestamp: DateTime.now(),
         timezone: timezone,
       );
@@ -341,7 +350,16 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         'Today’s shared free voice limit has been reached.',
       'supabase_unavailable' =>
         'The private resolver is temporarily unavailable.',
-      'gemini_unavailable' => 'Gemini is temporarily unavailable.',
+      'gemini_rate_limited' =>
+        'Voice understanding is busy right now. Your diary was not changed.',
+      'gemini_invalid_output' =>
+        'I heard the recording, but could not turn it into a safe food log.',
+      'gemini_request_rejected' || 'gemini_configuration_error' =>
+        'The voice service needs attention. Your diary was not changed.',
+      'gemini_unavailable' =>
+        'Voice understanding could not finish this time. Your diary was not changed.',
+      'no_foods_detected' =>
+        'I could not identify a food in that recording. Check what I heard or try again.',
       _ => 'Voice matching is unavailable. You can still search manually.',
     };
   }

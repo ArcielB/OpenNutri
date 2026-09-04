@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from opennutri_voice.core_repository import CoreFoodRepository
+from opennutri_voice.gemini import GeminiError
 from opennutri_voice.main import create_app, validate_wav
 from opennutri_voice.models import (
     AudioExtraction,
@@ -94,6 +95,26 @@ class StubGemini:
         )
 
 
+class InvalidOutputGemini(StubGemini):
+    async def transcribe_and_extract(self, *, wav_bytes, language_hint):
+        raise GeminiError(
+            "Audio extraction did not match the contract",
+            is_retryable=True,
+            error_code="gemini_invalid_output",
+            partial_transcript="150 grams of raw apple",
+        )
+
+
+class NoFoodGemini(StubGemini):
+    async def transcribe_and_extract(self, *, wav_bytes, language_hint):
+        return AudioExtraction(
+            transcript="hello testing",
+            detected_language="en",
+            concepts=[],
+            transcription_model="gemini-3.8-flash",
+        )
+
+
 def build_client(settings):
     store = StubStore()
     app = create_app(
@@ -147,6 +168,47 @@ def test_auth_audio_validation_and_bounded_voice_response(settings):
     assert payload["items"][0]["selected_candidate"]["food_id"] == "food-apple"
     assert payload["items"][0]["quantity"]["grams"] == 100
     assert payload["items"][0]["meal_default"] == "breakfast"
+    assert len(store.released) == 1
+
+
+@pytest.mark.parametrize(
+    ("gemini", "error_code", "transcript"),
+    [
+        (InvalidOutputGemini(), "gemini_invalid_output", "150 grams of raw apple"),
+        (NoFoodGemini(), "no_foods_detected", "hello testing"),
+    ],
+)
+def test_voice_failures_preserve_safe_transcript_for_manual_search(
+    settings,
+    gemini,
+    error_code,
+    transcript,
+):
+    store = StubStore()
+    app = create_app(
+        settings=settings,
+        core=CoreFoodRepository(settings.core_database_path),
+        store=store,
+        gemini=gemini,
+        verifier=StubVerifier(),
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/voice/resolve",
+            headers={"authorization": "Bearer valid-token"},
+            files={"audio": ("meal.wav", make_wav(), "audio/wav")},
+            data={
+                "language_hint": "en-US",
+                "local_timestamp": "2026-07-24T12:00:00",
+                "timezone": "Europe/Istanbul",
+            },
+        )
+
+    payload = response.json()
+    assert payload["status"] == "manual_search"
+    assert payload["error_code"] == error_code
+    assert payload["transcript"] == transcript
+    assert payload["manual_search_query"] == transcript
     assert len(store.released) == 1
 
 

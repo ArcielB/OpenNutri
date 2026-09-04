@@ -18,19 +18,20 @@ validated again. Flutter obtains nutrients from the public Core API after review
 - The service role key is present only in this backend.
 - Atomic database functions enforce one active request per subject, 10 requests per
   minute, 50 AI resolutions per subject/day, and 200 globally/day by default.
-- English/auto voice uses one structured `gemini-3.1-flash-lite` audio call that
-  returns both the literal transcript and food concepts. This removes the previous
-  mandatory second provider round trip. Production smoke tests resolved the
-  committed raw-apple fixture in 2.90 seconds of pipeline work / 6.16 seconds wall
-  time and a two-food fixture in 3.32 / 5.11 seconds. Turkish prefers
-  `gemini-3.5-flash-lite`: 3.1 was fast but misheard a benchmark quantity, and the
-  resolver correctly blocked that item from automatic logging.
-- If the language-primary model is temporarily unavailable or rate-limited, the
-  other Flash-Lite model gets one review-only attempt. Every fallback item is marked
-  `transcription` unresolved and can never auto-log until the person confirms it.
+- English and Turkish voice use one structured `gemini-3.8-flash` audio call with
+  `thinkingLevel=low`, returning both the literal transcript and food concepts. The
+  Flutter client supplies its English/Turkish device locale as a hint. Direct
+  two-food smoke tests completed in 2.78 seconds for English and 7.41 seconds for
+  Turkish with both quantities exact.
+- If the primary model is temporarily unavailable, rate-limited, or returns
+  malformed/schema-invalid structured output, `gemini-3.1-flash-lite` gets one
+  review-only attempt. Every fallback item is marked `transcription` unresolved and
+  can never auto-log until the person confirms it. If both attempts fail, any safe
+  transcript recovered from the response is returned for editable manual search.
   Each provider attempt has a 12-second deadline, keeping the primary plus fallback
-  inside the Flutter client's 30-second request budget. Per-stage server timings are
-  returned in response metadata for privacy-safe latency diagnosis.
+  inside the Flutter client's 30-second request budget. Per-stage server timings and
+  privacy-safe error classifications support production diagnosis without logging
+  audio or transcript text.
 - Exact, unambiguous lexical matches are selected deterministically and make no
   embedding or selector request. Ambiguous lexical matches use the constrained
   Flash-Lite selector without a vector call. Concepts with no viable lexical
@@ -42,7 +43,8 @@ validated again. Flutter obtains nutrients from the public Core API after review
   private-index egress.
 - A recording may contain up to ten foods. Explicit spoken meal groups are returned
   per concept; meal is otherwise left unset for Flutter's local-time default.
-- Provider or quota failures return `status=manual_search`; there is no paid fallback.
+- Provider, contract, no-food, or quota failures return `status=manual_search` with a
+  specific safe error code; there is no paid fallback.
 - Audio is held only in request memory and is never written to Supabase or logs.
 - Feedback accepts only short source phrases, proposed/final Core IDs, correction
   status, and model/index/Core versions.

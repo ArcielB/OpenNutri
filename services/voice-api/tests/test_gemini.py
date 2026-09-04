@@ -71,6 +71,161 @@ async def test_voice_transcribes_and_extracts_in_one_audio_request(settings):
 
 
 @pytest.mark.asyncio
+async def test_gemini_38_audio_uses_its_supported_low_thinking_level(settings):
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        result = {
+            "transcript": "150 grams of raw apple",
+            "detected_language": "en",
+            "concepts": [
+                {
+                    "source_phrase": "150 grams of raw apple",
+                    "food_name": "raw apple",
+                    "quantity": {"value": 150, "unit": "gram"},
+                    "preparation": ["raw"],
+                    "weight_basis": None,
+                    "meal": None,
+                }
+            ],
+        }
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"content": {"parts": [{"text": json.dumps(result)}]}}
+                ]
+            },
+            request=request,
+        )
+
+    client = GeminiClient(
+        replace(
+            settings,
+            gemini_audio_model="gemini-3.8-flash",
+            gemini_audio_fallback_model="",
+        ),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    extraction = await client.transcribe_and_extract(
+        wav_bytes=b"literal-wav",
+        language_hint="en-US",
+    )
+
+    assert extraction.transcript == "150 grams of raw apple"
+    assert json.loads(requests[0].content)["generationConfig"]["thinkingConfig"] == {
+        "thinkingLevel": "low"
+    }
+
+
+@pytest.mark.asyncio
+async def test_invalid_structured_audio_output_uses_review_only_fallback(settings):
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/gemini-audio:generateContent"):
+            result = {
+                "transcript": "150 grams of raw apple",
+                "detected_language": "en",
+                "concepts": [
+                    {
+                        "source_phrase": "150 grams of raw apple",
+                        "food_name": "raw apple",
+                        "quantity": {"value": -150, "unit": "gram"},
+                        "preparation": ["raw"],
+                        "weight_basis": None,
+                        "meal": None,
+                    }
+                ],
+            }
+        else:
+            result = {
+                "transcript": "150 grams of raw apple",
+                "detected_language": "en",
+                "concepts": [
+                    {
+                        "source_phrase": "150 grams of raw apple",
+                        "food_name": "raw apple",
+                        "quantity": {"value": 150, "unit": "gram"},
+                        "preparation": ["raw"],
+                        "weight_basis": None,
+                        "meal": None,
+                    }
+                ],
+            }
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"content": {"parts": [{"text": json.dumps(result)}]}}
+                ]
+            },
+            request=request,
+        )
+
+    client = GeminiClient(
+        settings,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    extraction = await client.transcribe_and_extract(
+        wav_bytes=b"literal-wav",
+        language_hint="en",
+    )
+
+    assert extraction.transcription_fallback_used is True
+    assert extraction.transcription_model == "gemini-audio-fallback"
+    assert len(requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_fallback_preserves_transcript_from_invalid_primary(settings):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/gemini-audio-fallback:generateContent"):
+            return httpx.Response(503, request=request)
+        invalid = {
+            "transcript": "150 grams of raw apple",
+            "detected_language": "en",
+            "concepts": [
+                {
+                    "source_phrase": "150 grams of raw apple",
+                    "food_name": "raw apple",
+                    "quantity": {"value": -150, "unit": "gram"},
+                    "preparation": ["raw"],
+                    "weight_basis": None,
+                    "meal": None,
+                }
+            ],
+        }
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"content": {"parts": [{"text": json.dumps(invalid)}]}}
+                ]
+            },
+            request=request,
+        )
+
+    client = GeminiClient(
+        settings,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(GeminiError) as raised:
+        await client.transcribe_and_extract(
+            wav_bytes=b"literal-wav",
+            language_hint="en",
+        )
+
+    assert raised.value.error_code == "gemini_unavailable"
+    assert raised.value.partial_transcript == "150 grams of raw apple"
+
+
+@pytest.mark.asyncio
 async def test_voice_uses_review_only_audio_fallback_after_primary_rate_limit(settings):
     requests: list[httpx.Request] = []
 

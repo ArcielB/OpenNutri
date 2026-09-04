@@ -11,6 +11,12 @@ import 'package:opennutri_app/services/voice_recorder.dart';
 import 'package:opennutri_app/state/app_controller.dart';
 
 void main() {
+  test('voice language hint follows supported device locales', () {
+    expect(voiceLanguageHintForLocale(const Locale('en', 'US')), 'en-US');
+    expect(voiceLanguageHintForLocale(const Locale('tr', 'TR')), 'tr-TR');
+    expect(voiceLanguageHintForLocale(const Locale('de', 'DE')), 'auto');
+  });
+
   test(
     'silence detector waits for speech opportunity and trailing silence',
     () {
@@ -58,6 +64,11 @@ void main() {
   testWidgets(
     'voice review disables batch logging until quantity is resolved',
     (tester) async {
+      tester.binding.platformDispatcher.localeTestValue = const Locale(
+        'tr',
+        'TR',
+      );
+      addTearDown(tester.binding.platformDispatcher.clearLocaleTestValue);
       final store = _MemoryStore(disclosureAccepted: true);
       final controller = AppController(store);
       await controller.initialize();
@@ -82,6 +93,7 @@ void main() {
 
       await tester.tap(find.text('Done speaking'));
       await tester.pumpAndSettle();
+      expect(voiceClient.lastLanguageHint, 'tr-TR');
 
       final logButton = tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, 'Log all (1)'),
@@ -249,6 +261,39 @@ void main() {
     expect(find.textContaining('AuthApiException'), findsNothing);
     expect(recorder.deletedPaths, contains('/tmp/fake.wav'));
   });
+
+  testWidgets('invalid structured voice output keeps the heard transcript', (
+    tester,
+  ) async {
+    final store = _MemoryStore(disclosureAccepted: true);
+    final controller = AppController(store);
+    await controller.initialize();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VoiceLogScreen(
+          controller: controller,
+          coreApiClient: _FakeCoreClient(),
+          voiceApiClient: _InvalidOutputVoiceClient(),
+          recorder: _FakeRecorder(),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Start speaking'));
+    await tester.pump();
+    await tester.tap(find.text('Done speaking'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'I heard the recording, but could not turn it into a safe food log.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('150 grams of raw apple'), findsOneWidget);
+    expect(find.text('Continue with search'), findsOneWidget);
+  });
 }
 
 class _FakeRecorder extends ChangeNotifier implements VoiceRecorderSession {
@@ -297,6 +342,7 @@ class _FakeRecorder extends ChangeNotifier implements VoiceRecorderSession {
 
 class _FakeVoiceClient extends VoiceApiClient {
   int warmUpCalls = 0;
+  String? lastLanguageHint;
 
   @override
   bool get isConfigured => true;
@@ -313,6 +359,7 @@ class _FakeVoiceClient extends VoiceApiClient {
     required DateTime localTimestamp,
     required String timezone,
   }) async {
+    lastLanguageHint = languageHint;
     return const VoiceResolution(
       status: 'resolved',
       metadata: ResolutionMetadata(
@@ -369,6 +416,35 @@ class _FailingVoiceClient extends VoiceApiClient {
   }) => throw const VoiceApiException(
     'AuthApiException(message: provider implementation detail)',
   );
+}
+
+class _InvalidOutputVoiceClient extends VoiceApiClient {
+  @override
+  bool get isConfigured => true;
+
+  @override
+  Future<VoiceResolution> resolveVoice({
+    required String wavPath,
+    required String languageHint,
+    required DateTime localTimestamp,
+    required String timezone,
+  }) async {
+    return const VoiceResolution(
+      status: 'manual_search',
+      metadata: ResolutionMetadata(
+        requestId: 'request-invalid-output',
+        coreVersion: '0.3.0',
+        indexVersion: 'index-1',
+        audioModel: 'gemini-3.8-flash',
+      ),
+      transcript: '150 grams of raw apple',
+      detectedLanguage: 'en',
+      items: [],
+      manualSearchQuery: '150 grams of raw apple',
+      manualSearchCandidates: [],
+      errorCode: 'gemini_invalid_output',
+    );
+  }
 }
 
 class _ResolvedVoiceClient extends _FakeVoiceClient {

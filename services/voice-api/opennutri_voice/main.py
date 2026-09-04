@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -34,10 +35,11 @@ from .pipeline import ResolverPipeline
 from .supabase_store import SupabasePrivateStore, SupabaseStoreError
 
 
-SERVICE_VERSION = "0.3.3"
+SERVICE_VERSION = "0.3.4"
 MAX_AUDIO_BYTES = 1024 * 1024
 MAX_AUDIO_SECONDS = 30.0
 bearer = HTTPBearer(auto_error=False)
+logger = logging.getLogger(__name__)
 
 
 def validate_wav(payload: bytes) -> float:
@@ -192,12 +194,22 @@ def create_app(
                 error_code="supabase_unavailable",
                 audio_model=resolved_settings.audio_model_for_language(language_hint),
             )
-        except GeminiError:
+        except GeminiError as exc:
+            logger.warning(
+                "voice_resolution_failed request_id=%s code=%s retryable=%s "
+                "status=%s partial_transcript=%s",
+                request_id,
+                exc.error_code,
+                exc.is_retryable,
+                exc.http_status,
+                exc.partial_transcript is not None,
+            )
             return request.app.state.pipeline.manual_search_response(
                 request_id=request_id,
-                query="",
-                error_code="gemini_unavailable",
+                query=exc.partial_transcript or "",
+                error_code=exc.error_code,
                 audio_model=resolved_settings.audio_model_for_language(language_hint),
+                transcript=exc.partial_transcript,
             )
         finally:
             if reserved:
@@ -247,11 +259,19 @@ def create_app(
                 error_code="supabase_unavailable",
                 audio_model=None,
             )
-        except GeminiError:
+        except GeminiError as exc:
+            logger.warning(
+                "text_resolution_failed request_id=%s code=%s retryable=%s "
+                "status=%s",
+                request_id,
+                exc.error_code,
+                exc.is_retryable,
+                exc.http_status,
+            )
             return request.app.state.pipeline.manual_search_response(
                 request_id=request_id,
                 query=body.query,
-                error_code="gemini_unavailable",
+                error_code=exc.error_code,
                 audio_model=None,
             )
         finally:

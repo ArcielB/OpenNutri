@@ -79,13 +79,13 @@ class Settings:
             ),
             gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
             gemini_audio_model=os.environ.get(
-                "OPENNUTRI_GEMINI_AUDIO_MODEL", "gemini-3.1-flash-lite"
+                "OPENNUTRI_GEMINI_AUDIO_MODEL", "gemini-3.8-flash"
             ),
             gemini_audio_turkish_model=os.environ.get(
-                "OPENNUTRI_GEMINI_AUDIO_TURKISH_MODEL", "gemini-3.5-flash-lite"
+                "OPENNUTRI_GEMINI_AUDIO_TURKISH_MODEL", "gemini-3.8-flash"
             ),
             gemini_audio_fallback_model=os.environ.get(
-                "OPENNUTRI_GEMINI_AUDIO_FALLBACK_MODEL", "gemini-3.5-flash-lite"
+                "OPENNUTRI_GEMINI_AUDIO_FALLBACK_MODEL", "gemini-3.1-flash-lite"
             ),
             gemini_extraction_model=os.environ.get(
                 "OPENNUTRI_GEMINI_EXTRACTION_MODEL", "gemini-3.5-flash-lite"

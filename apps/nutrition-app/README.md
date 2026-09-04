@@ -26,19 +26,20 @@ matches take a deterministic fast path; ambiguous lexical matches skip vector
 retrieval but still receive constrained selection and visual review. Semantic search
 is reserved for a phrase with no lexical candidates.
 
-Gemini 3.1 Flash-Lite performs the one-pass English/auto transcription and
-extraction; Turkish prefers Gemini 3.5 Flash-Lite for quantity accuracy. Ambiguous
-candidate selection and difficult query repair also use a low-latency Flash-Lite
-model. If the language-primary call exceeds its 12-second provider deadline or is
-rate-limited, the other model gets one review-only attempt. That fallback forces
-visible transcript confirmation and disables automatic logging for the request;
-both attempts fit inside the app's 30-second request budget.
+Gemini 3.8 Flash performs the one-pass English/Turkish transcription and extraction
+with its supported `low` thinking level. The phone sends its English or Turkish
+device locale as a language hint and uses `auto` for other locales. Ambiguous
+candidate selection and difficult query repair still use a low-latency Flash-Lite
+model. If the primary call exceeds its 12-second provider deadline, is rate-limited,
+or returns malformed structured output, Gemini 3.1 Flash-Lite gets one review-only
+attempt. That fallback forces visible transcript confirmation and disables automatic
+logging for the request; both attempts fit inside the app's 30-second request budget.
 
 The voice screen shows a responsive recording waveform and actual elapsed time,
-distinguishes timeout/network/auth/service failures, clears stale route snackbars,
-preserves any returned transcript for fallback search, and can retry Core nutrition
-detail loading without asking the person to record the meal again. Food details are
-cached in memory for repeat logs.
+distinguishes timeout/network/auth/service/provider-contract failures, clears stale
+route snackbars, preserves any usable transcript even when structured extraction
+fails, and can retry Core nutrition detail loading without asking the person to
+record the meal again. Food details are cached in memory for repeat logs.
 
 The production resolver URL and isolated Voice Beta Supabase project URL have
 non-secret defaults. The app's public client key is project-specific, so supply

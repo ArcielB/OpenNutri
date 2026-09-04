@@ -60,7 +60,7 @@ class ExtractedConcept(StrictModel):
 class AudioExtraction(StrictModel):
     transcript: str = Field(max_length=1000)
     detected_language: str = Field(max_length=32)
-    concepts: list[ExtractedConcept] = Field(min_length=1, max_length=10)
+    concepts: list[ExtractedConcept] = Field(default_factory=list, max_length=10)
     transcription_model: str | None = None
     transcription_fallback_used: bool = False
 

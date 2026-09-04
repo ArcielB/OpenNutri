@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -17,6 +18,9 @@ from .models import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class GeminiError(RuntimeError):
     def __init__(
         self,
@@ -25,11 +29,17 @@ class GeminiError(RuntimeError):
         is_rate_limited: bool = False,
         is_retryable: bool = False,
         retry_after_seconds: float | None = None,
+        error_code: str = "gemini_unavailable",
+        partial_transcript: str | None = None,
+        http_status: int | None = None,
     ) -> None:
         super().__init__(message)
         self.is_rate_limited = is_rate_limited
         self.is_retryable = is_retryable
         self.retry_after_seconds = retry_after_seconds
+        self.error_code = error_code
+        self.partial_transcript = partial_transcript
+        self.http_status = http_status
 
 
 class GeminiClient:
@@ -43,7 +53,10 @@ class GeminiClient:
     @property
     def _headers(self) -> dict[str, str]:
         if not self.settings.gemini_api_key:
-            raise GeminiError("Gemini is not configured")
+            raise GeminiError(
+                "Gemini is not configured",
+                error_code="gemini_configuration_error",
+            )
         return {
             "x-goog-api-key": self.settings.gemini_api_key,
             "content-type": "application/json",
@@ -66,26 +79,81 @@ class GeminiClient:
                     is_rate_limited=True,
                     is_retryable=True,
                     retry_after_seconds=retry_after,
+                    error_code="gemini_rate_limited",
+                    http_status=exc.response.status_code,
                 ) from exc
             if exc.response.status_code >= 500:
-                raise GeminiError("Gemini is temporarily unavailable", is_retryable=True) from exc
-            raise GeminiError("Gemini request failed") from exc
+                raise GeminiError(
+                    "Gemini is temporarily unavailable",
+                    is_retryable=True,
+                    error_code="gemini_unavailable",
+                    http_status=exc.response.status_code,
+                ) from exc
+            raise GeminiError(
+                "Gemini request failed",
+                error_code="gemini_request_rejected",
+                http_status=exc.response.status_code,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise GeminiError("Gemini is temporarily unavailable", is_retryable=True) from exc
+            raise GeminiError(
+                "Gemini is temporarily unavailable",
+                is_retryable=True,
+                error_code="gemini_unavailable",
+            ) from exc
         except ValueError as exc:
-            raise GeminiError("Gemini request failed") from exc
+            raise GeminiError(
+                "Gemini returned an invalid response",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            ) from exc
         if not isinstance(result, dict):
-            raise GeminiError("Gemini returned an invalid payload")
+            raise GeminiError(
+                "Gemini returned an invalid payload",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            )
         return result
 
     @staticmethod
     def _json_text(payload: dict[str, Any]) -> Any:
         try:
             parts = payload["candidates"][0]["content"]["parts"]
-            text = "".join(part.get("text", "") for part in parts)
+            text = "".join(
+                part.get("text", "")
+                for part in parts
+                if isinstance(part, dict)
+                and isinstance(part.get("text", ""), str)
+            ).strip()
+            if text.startswith("```"):
+                first_newline = text.find("\n")
+                if first_newline != -1:
+                    text = text[first_newline + 1 :]
+                if text.endswith("```"):
+                    text = text[:-3].rstrip()
             return json.loads(text)
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            raise GeminiError("Gemini returned invalid structured output") from exc
+            raise GeminiError(
+                "Gemini returned invalid structured output",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            ) from exc
+
+    @staticmethod
+    def _thinking_level(model: str) -> str:
+        # Gemini 3.7/3.8 reject `minimal`; their lowest supported setting is `low`.
+        if model.startswith(("gemini-3.7-", "gemini-3.8-")):
+            return "low"
+        return "minimal"
+
+    @staticmethod
+    def _partial_transcript(payload: Any) -> str | None:
+        if not isinstance(payload, dict):
+            return None
+        transcript = payload.get("transcript")
+        if not isinstance(transcript, str):
+            return None
+        transcript = transcript.strip()
+        return transcript[:1000] or None
 
     async def transcribe_and_extract(
         self,
@@ -103,6 +171,13 @@ class GeminiClient:
                 model=transcription_model,
             )
         except GeminiError as exc:
+            logger.warning(
+                "gemini_voice_attempt_failed model=%s code=%s retryable=%s status=%s",
+                transcription_model,
+                exc.error_code,
+                exc.is_retryable,
+                exc.http_status,
+            )
             fallback_model = self.settings.gemini_audio_fallback_model
             if fallback_model == transcription_model and default_model != fallback_model:
                 fallback_model = default_model
@@ -112,11 +187,25 @@ class GeminiClient:
                 or not exc.is_retryable
             ):
                 raise
-            extraction = await self._extract_audio_once(
-                wav_bytes=wav_bytes,
-                language_hint=language_hint,
-                model=fallback_model,
-            )
+            try:
+                extraction = await self._extract_audio_once(
+                    wav_bytes=wav_bytes,
+                    language_hint=language_hint,
+                    model=fallback_model,
+                )
+            except GeminiError as fallback_exc:
+                if fallback_exc.partial_transcript is None:
+                    fallback_exc.partial_transcript = exc.partial_transcript
+                logger.warning(
+                    "gemini_voice_fallback_failed model=%s code=%s "
+                    "retryable=%s status=%s partial_transcript=%s",
+                    fallback_model,
+                    fallback_exc.error_code,
+                    fallback_exc.is_retryable,
+                    fallback_exc.http_status,
+                    fallback_exc.partial_transcript is not None,
+                )
+                raise
             transcription_model = fallback_model
             fallback_used = True
         return extraction.model_copy(
@@ -189,7 +278,7 @@ class GeminiClient:
                 }
             ],
             "generationConfig": {
-                "thinkingConfig": {"thinkingLevel": "minimal"},
+                "thinkingConfig": {"thinkingLevel": self._thinking_level(model)},
                 "responseMimeType": "application/json",
                 "responseJsonSchema": AudioExtraction.model_json_schema(),
             },
@@ -198,10 +287,16 @@ class GeminiClient:
             f"{self.base_url}/{model}:generateContent",
             payload,
         )
+        structured = self._json_text(response)
         try:
-            return AudioExtraction.model_validate(self._json_text(response))
+            return AudioExtraction.model_validate(structured)
         except ValueError as exc:
-            raise GeminiError("Audio extraction did not match the contract") from exc
+            raise GeminiError(
+                "Audio extraction did not match the contract",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+                partial_transcript=self._partial_transcript(structured),
+            ) from exc
 
     async def transcribe_audio(
         self,
@@ -211,6 +306,7 @@ class GeminiClient:
         model: str | None = None,
     ) -> AudioTranscript:
         schema = AudioTranscript.model_json_schema()
+        resolved_model = model or self.settings.gemini_audio_model
         payload = {
             "systemInstruction": {
                 "parts": [
@@ -250,19 +346,27 @@ class GeminiClient:
                 }
             ],
             "generationConfig": {
-                "thinkingConfig": {"thinkingLevel": "minimal"},
+                "thinkingConfig": {
+                    "thinkingLevel": self._thinking_level(resolved_model)
+                },
                 "responseMimeType": "application/json",
                 "responseJsonSchema": schema,
             },
         }
         response = await self._post(
-            f"{self.base_url}/{model or self.settings.gemini_audio_model}:generateContent",
+            f"{self.base_url}/{resolved_model}:generateContent",
             payload,
         )
+        structured = self._json_text(response)
         try:
-            return AudioTranscript.model_validate(self._json_text(response))
+            return AudioTranscript.model_validate(structured)
         except ValueError as exc:
-            raise GeminiError("Audio transcription did not match the contract") from exc
+            raise GeminiError(
+                "Audio transcription did not match the contract",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+                partial_transcript=self._partial_transcript(structured),
+            ) from exc
 
     async def extract_concepts(
         self,
@@ -320,7 +424,11 @@ class GeminiClient:
                 }
             ],
             "generationConfig": {
-                "thinkingConfig": {"thinkingLevel": "minimal"},
+                "thinkingConfig": {
+                    "thinkingLevel": self._thinking_level(
+                        self.settings.gemini_extraction_model
+                    )
+                },
                 "responseMimeType": "application/json",
                 "responseJsonSchema": schema,
             },
@@ -332,7 +440,11 @@ class GeminiClient:
         try:
             return ConceptExtraction.model_validate(self._json_text(response))
         except ValueError as exc:
-            raise GeminiError("Concept extraction did not match the contract") from exc
+            raise GeminiError(
+                "Concept extraction did not match the contract",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            ) from exc
 
     async def normalize_search_queries(
         self,
@@ -388,7 +500,11 @@ class GeminiClient:
                 }
             ],
             "generationConfig": {
-                "thinkingConfig": {"thinkingLevel": "minimal"},
+                "thinkingConfig": {
+                    "thinkingLevel": self._thinking_level(
+                        self.settings.gemini_extraction_model
+                    )
+                },
                 "temperature": 0,
                 "responseMimeType": "application/json",
                 "responseJsonSchema": SearchQueryRewriteOutput.model_json_schema(),
@@ -401,7 +517,11 @@ class GeminiClient:
         try:
             return SearchQueryRewriteOutput.model_validate(self._json_text(response))
         except ValueError as exc:
-            raise GeminiError("Search-query normalization did not match the contract") from exc
+            raise GeminiError(
+                "Search-query normalization did not match the contract",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            ) from exc
 
     async def embed_concepts(self, concepts: list[ExtractedConcept]) -> list[list[float]]:
         requests = [
@@ -429,13 +549,21 @@ class GeminiClient:
         try:
             vectors = [row["values"] for row in payload["embeddings"]]
         except (KeyError, TypeError) as exc:
-            raise GeminiError("Embedding response was invalid") from exc
+            raise GeminiError(
+                "Embedding response was invalid",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            ) from exc
         if len(vectors) != len(concepts) or any(
             not isinstance(vector, list)
             or len(vector) != self.settings.embedding_dimensions
             for vector in vectors
         ):
-            raise GeminiError("Embedding dimensions did not match the index")
+            raise GeminiError(
+                "Embedding dimensions did not match the index",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            )
         return vectors
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -455,9 +583,17 @@ class GeminiClient:
         try:
             vectors = [row["values"] for row in payload["embeddings"]]
         except (KeyError, TypeError) as exc:
-            raise GeminiError("Embedding response was invalid") from exc
+            raise GeminiError(
+                "Embedding response was invalid",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            ) from exc
         if len(vectors) != len(texts):
-            raise GeminiError("Embedding response count did not match")
+            raise GeminiError(
+                "Embedding response count did not match",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            )
         return vectors
 
     async def select_candidates(
@@ -543,4 +679,8 @@ class GeminiClient:
         try:
             return SelectorOutput.model_validate(self._json_text(response))
         except ValueError as exc:
-            raise GeminiError("Candidate selection did not match the contract") from exc
+            raise GeminiError(
+                "Candidate selection did not match the contract",
+                is_retryable=True,
+                error_code="gemini_invalid_output",
+            ) from exc

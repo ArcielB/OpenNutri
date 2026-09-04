@@ -78,16 +78,16 @@ This is the current high-signal project state after the reviewer workflow moved 
   schema for 768-dimensional vectors, atomic quotas, and optional privacy-limited
   feedback. As of 2026-09-04, voice resolution performs literal transcription and
   concept extraction together in one structured audio call, removing the previous
-  mandatory second model round trip. English/auto uses `gemini-3.1-flash-lite`;
-  production `iad1` smoke tests returned the exact raw-apple transcript/query/150 g
-  quantity in 2.90 seconds of pipeline work / 6.16 seconds wall time and correctly
-  split banana plus milk in 3.32 / 5.11 seconds. Turkish prefers
-  `gemini-3.5-flash-lite` because 3.1 misheard `150 gram` as `1 litre` on a committed
-  Turkish fixture; the quantity remained unresolved and did not auto-log. Response
-  metadata includes privacy-safe stage timings. Each provider call has a 12-second
-  deadline; a retryable failure uses the other Flash-Lite model as review-only, so
-  every fallback item receives a `transcription`
-  clarification and cannot auto-log. Exact unambiguous lexical matches skip vector
+  mandatory second model round trip. `gemini-3.8-flash` is the English/Turkish
+  primary with `thinkingLevel=low`; Flutter supplies the supported device locale as
+  a hint instead of always sending `auto`. Direct two-food smoke tests completed in
+  2.78 seconds for English and 7.41 seconds for Turkish with both quantities exact.
+  Response metadata includes privacy-safe stage timings. Each provider call has a
+  12-second deadline; timeout, rate limit, transport failure, or invalid structured
+  output uses `gemini-3.1-flash-lite` as review-only, so every fallback item receives
+  a `transcription` clarification and cannot auto-log. If both attempts fail, a
+  usable transcript recovered from the structured response is retained for editable
+  search. Exact unambiguous lexical matches skip vector
   retrieval and the selector entirely;
   ambiguous lexical matches skip vectors but may use one constrained selector call.
   Only concepts with no lexical candidates use one batched embedding request before
@@ -105,12 +105,12 @@ This is the current high-signal project state after the reviewer workflow moved 
   The home shell prewarms anonymous auth and the resolver health endpoint before the
   user opens voice; it cannot upload audio before the user stops recording.
   The 2026-09-04 voice UI adds a live waveform/timer, clears stale snackbars on a new
-  recording, maps transport/auth/timeout/service failures separately, preserves a
-  returned transcript for prefilled search, retries post-resolution Core detail
-  loading without re-recording, and caches repeated food details in memory.
-  Resolver service `0.3.3` is deployed in Vercel Washington, D.C. (`iad1`). Frankfurt
-  (`fra1`) spent 35–39 seconds inside Gemini 3.5 Flash-Lite and San Francisco took
-  35.42 seconds; `iad1` plus Gemini 3.1 Flash-Lite is the measured production choice.
+  recording, maps transport/auth/timeout/service/provider-contract failures
+  separately, preserves a returned transcript for prefilled search, retries
+  post-resolution Core detail loading without re-recording, and caches repeated food
+  details in memory. Resolver service `0.3.4` targets Vercel Washington, D.C.
+  (`iad1`). Frankfurt (`fra1`) spent 35–39 seconds inside Gemini 3.5 Flash-Lite and
+  San Francisco took 35.42 seconds; the runtime therefore remains pinned to `iad1`.
   Matching is local SQLite, so the extra EU quota-store round trip is small compared
   with provider inference latency. A Supabase Edge proxy experiment was slower than
   45 seconds and was removed completely from both providers after measurement.

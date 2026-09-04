@@ -242,7 +242,7 @@ Pipeline data outputs:
 - `services/voice-api/`: separate authenticated FastAPI service for the Android
   voice and submitted-text beta. It verifies the app-only Supabase anonymous JWT,
   atomically reserves configurable per-user/global quotas, returns a literal
-  transcript and food concepts in one structured low-latency Flash-Lite audio call,
+  transcript and food concepts in one structured Gemini 3.8 Flash audio call,
   takes a no-vector/no-selector fast
   path for unambiguous lexical matches, rejects IDs outside deterministic retrieval
   sets, and stores only consented privacy-limited feedback. Its private
@@ -253,7 +253,8 @@ Pipeline data outputs:
   `https://opennutri-voice-beta.vercel.app/health`.
 - `apps/nutrition-app/`: Android-first Flutter diary with transient 16 kHz WAV
   capture up to 30 seconds, 1.6-second trailing-silence handling, a responsive
-  waveform/timer, recoverable stage-specific failures, high-confidence
+  waveform/timer, device-locale voice hints, recoverable stage-specific failures
+  that retain any safe transcript, high-confidence
   automatic multi-food batch logging with immediate
   edit/undo, focused review only for uncertainty, explicit submitted semantic
   search, optional privacy-limited feedback, and a native 1×1 microphone widget.

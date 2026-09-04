@@ -1,17 +1,17 @@
 from opennutri_voice.config import Settings
 
 
-def test_default_audio_models_prioritize_voice_latency(monkeypatch):
+def test_default_audio_models_prioritize_reliable_voice_extraction(monkeypatch):
     monkeypatch.delenv("OPENNUTRI_GEMINI_AUDIO_MODEL", raising=False)
     monkeypatch.delenv("OPENNUTRI_GEMINI_AUDIO_TURKISH_MODEL", raising=False)
     monkeypatch.delenv("OPENNUTRI_GEMINI_AUDIO_FALLBACK_MODEL", raising=False)
 
     settings = Settings.from_environment()
 
-    assert settings.gemini_audio_model == "gemini-3.1-flash-lite"
-    assert settings.gemini_audio_turkish_model == "gemini-3.5-flash-lite"
-    assert settings.gemini_audio_fallback_model == "gemini-3.5-flash-lite"
+    assert settings.gemini_audio_model == "gemini-3.8-flash"
+    assert settings.gemini_audio_turkish_model == "gemini-3.8-flash"
+    assert settings.gemini_audio_fallback_model == "gemini-3.1-flash-lite"
     assert settings.gemini_request_timeout_seconds == 12
-    assert settings.audio_model_for_language("en") == "gemini-3.1-flash-lite"
-    assert settings.audio_model_for_language("auto") == "gemini-3.1-flash-lite"
-    assert settings.audio_model_for_language("tr-TR") == "gemini-3.5-flash-lite"
+    assert settings.audio_model_for_language("en") == "gemini-3.8-flash"
+    assert settings.audio_model_for_language("auto") == "gemini-3.8-flash"
+    assert settings.audio_model_for_language("tr-TR") == "gemini-3.8-flash"
