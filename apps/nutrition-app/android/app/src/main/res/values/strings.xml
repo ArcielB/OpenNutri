@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">OpenNutri</string>
     <string name="voice_widget_name">OpenNutri voice log</string>
-    <string name="voice_widget_description">Open OpenNutri and record a meal description</string>
+    <string name="voice_widget_description">Tap, speak your meal, and return to the home screen after it is logged</string>
 </resources>

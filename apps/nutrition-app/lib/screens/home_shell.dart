@@ -38,11 +38,11 @@ class _HomeShellState extends State<HomeShell> {
     _voiceApiClient = widget.voiceApiClient ?? VoiceApiClient();
     unawaited(_voiceApiClient.warmUp());
     AndroidWidgetBridge.listenForVoiceActions(
-      () => _openVoice(autoStart: true),
+      () => _openVoice(autoStart: true, quickCapture: true),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (await AndroidWidgetBridge.consumePendingVoiceAction()) {
-        await _openVoice(autoStart: true);
+        await _openVoice(autoStart: true, quickCapture: true);
       }
     });
   }
@@ -53,7 +53,10 @@ class _HomeShellState extends State<HomeShell> {
     super.dispose();
   }
 
-  Future<void> _openVoice({bool autoStart = false}) async {
+  Future<void> _openVoice({
+    bool autoStart = false,
+    bool quickCapture = false,
+  }) async {
     if (!mounted || _openingVoice) return;
     _openingVoice = true;
     await Navigator.of(context).push(
@@ -63,6 +66,7 @@ class _HomeShellState extends State<HomeShell> {
           coreApiClient: widget.apiClient,
           voiceApiClient: _voiceApiClient,
           autoStart: autoStart,
+          quickCapture: quickCapture,
         ),
       ),
     );

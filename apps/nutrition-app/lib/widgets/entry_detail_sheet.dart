@@ -10,10 +10,12 @@ class EntryDetailSheet extends StatefulWidget {
     super.key,
     required this.entry,
     required this.apiClient,
+    required this.onUpdate,
   });
 
   final DiaryEntry entry;
   final CoreApiClient apiClient;
+  final Future<void> Function(DiaryEntry entry) onUpdate;
 
   @override
   State<EntryDetailSheet> createState() => _EntryDetailSheetState();
@@ -26,6 +28,80 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
   void initState() {
     super.initState();
     _detail = widget.apiClient.foodDetail(widget.entry.foodId);
+  }
+
+  Future<void> _editEntry() async {
+    final amount = TextEditingController(
+      text: widget.entry.inputGrams.toStringAsFixed(
+        widget.entry.inputGrams % 1 == 0 ? 0 : 1,
+      ),
+    );
+    var meal = widget.entry.meal;
+    final updated = await showDialog<DiaryEntry>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit logged food'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: amount,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'Amount',
+                  suffixText: 'g',
+                  helperText:
+                      widget.entry.weightBasis == LoggedWeightBasis.asPurchased
+                      ? 'As-purchased weight'
+                      : 'Edible weight',
+                ),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<MealType>(
+                initialValue: meal,
+                decoration: const InputDecoration(labelText: 'Meal'),
+                items: [
+                  for (final value in MealType.values)
+                    DropdownMenuItem(value: value, child: Text(value.label)),
+                ],
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => meal = value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final grams = double.tryParse(amount.text.replaceAll(',', '.'));
+                if (grams == null || grams <= 0) return;
+                Navigator.pop(
+                  context,
+                  widget.entry.withEditedServing(inputGrams: grams, meal: meal),
+                );
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    amount.dispose();
+    if (updated == null || !mounted) return;
+    await widget.onUpdate(updated);
+    if (!mounted) return;
+    Navigator.pop(context);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Food updated')));
   }
 
   @override
@@ -73,8 +149,24 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
+                    if (entry.needsReview) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        'Quick estimate · tap Edit to check',
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: scheme.tertiary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ],
                   ],
                 ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Edit amount and meal',
+                onPressed: _editEntry,
+                icon: const Icon(Icons.edit_outlined),
               ),
             ],
           ),

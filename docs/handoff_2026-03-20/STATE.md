@@ -101,9 +101,13 @@ This is the current high-signal project state after the reviewer workflow moved 
   before returning. Provider/quota errors return a manual-search state without a
   paid fallback.
 - The Flutter Android beta records a bounded 30-second temporary PCM WAV, waits 1.6
-  seconds through natural between-food pauses, automatically persists
-  a fully resolved high-confidence batch once and shows immediate Edit batch/Undo
-  batch actions; it opens visual review for any unresolved or lower-confidence item.
+  seconds through natural between-food pauses, and optimistically persists every
+  resolver item with a usable selected Core food. Missing quantity/basis and
+  ambiguous or lower-confidence matches use a neutral editable estimate and are
+  marked `Quick estimate` in the diary instead of opening a blocking confirmation
+  step. The success screen retains Edit batch/Undo batch actions, and tapping any
+  saved entry edits amount and meal in place. Widget-launched capture saves first,
+  shows a native Android result toast, then closes back to the launcher.
   One recording supports up to ten foods and preserves explicitly spoken meal groups;
   otherwise per-item meal defaults come from local time. It accepts cold/warm
   `ACTION_VOICE_LOG` intents from a native 1×1 widget. Submitted text calls the private

@@ -55,6 +55,8 @@ class DiaryEntry {
     required this.weightBasis,
     required this.servingLabel,
     required this.nutrients,
+    this.loggedByVoice = false,
+    this.needsReview = false,
   });
 
   factory DiaryEntry.fromFood({
@@ -66,6 +68,8 @@ class DiaryEntry {
     double? inputGrams,
     LoggedWeightBasis weightBasis = LoggedWeightBasis.edible,
     String? id,
+    bool loggedByVoice = false,
+    bool needsReview = false,
   }) {
     final multiplier = grams / 100;
     return DiaryEntry(
@@ -89,6 +93,8 @@ class DiaryEntry {
             ),
           )
           .toList(growable: false),
+      loggedByVoice: loggedByVoice,
+      needsReview: needsReview,
     );
   }
 
@@ -111,6 +117,8 @@ class DiaryEntry {
             (value) => NutrientAmount.fromJson(value as Map<String, dynamic>),
           )
           .toList(growable: false),
+      loggedByVoice: json['logged_by_voice'] as bool? ?? false,
+      needsReview: json['needs_review'] as bool? ?? false,
     );
   }
 
@@ -126,6 +134,8 @@ class DiaryEntry {
   final LoggedWeightBasis weightBasis;
   final String servingLabel;
   final List<NutrientAmount> nutrients;
+  final bool loggedByVoice;
+  final bool needsReview;
 
   double nutrientAmount(String name, String unit) {
     for (final nutrient in nutrients) {
@@ -164,6 +174,40 @@ class DiaryEntry {
       weightBasis: weightBasis,
       servingLabel: servingLabel,
       nutrients: nutrients,
+      loggedByVoice: loggedByVoice,
+      needsReview: needsReview,
+    );
+  }
+
+  DiaryEntry withEditedServing({
+    required double inputGrams,
+    required MealType meal,
+    bool needsReview = false,
+  }) {
+    final safeOriginalInput = this.inputGrams > 0 ? this.inputGrams : grams;
+    final ratio = inputGrams / safeOriginalInput;
+    return DiaryEntry(
+      id: id,
+      dateKey: dateKey,
+      meal: meal,
+      foodId: foodId,
+      foodName: foodName,
+      grams: grams * ratio,
+      inputGrams: inputGrams,
+      weightBasis: weightBasis,
+      servingLabel: servingLabel,
+      nutrients: nutrients
+          .map(
+            (nutrient) => NutrientAmount(
+              nutrientId: nutrient.nutrientId,
+              name: nutrient.name,
+              amount: nutrient.amount * ratio,
+              unit: nutrient.unit,
+            ),
+          )
+          .toList(growable: false),
+      loggedByVoice: loggedByVoice,
+      needsReview: needsReview,
     );
   }
 
@@ -178,6 +222,8 @@ class DiaryEntry {
     'weight_basis': weightBasis.name,
     'serving_label': servingLabel,
     'nutrients': nutrients.map((value) => value.toJson()).toList(),
+    'logged_by_voice': loggedByVoice,
+    'needs_review': needsReview,
   };
 }
 

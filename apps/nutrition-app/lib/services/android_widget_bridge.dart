@@ -35,4 +35,18 @@ class AndroidWidgetBridge {
       return false;
     }
   }
+
+  static Future<void> finishQuickCapture({
+    required int foodCount,
+    required bool needsReview,
+  }) async {
+    try {
+      await _channel.invokeMethod<void>('finishQuickCapture', {
+        'foodCount': foodCount,
+        'needsReview': needsReview,
+      });
+    } on MissingPluginException {
+      // Widget-only Android behavior; Flutter tests and other platforms no-op.
+    }
+  }
 }

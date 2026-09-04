@@ -75,7 +75,11 @@ Do not spend tokens on these unless the task explicitly needs them:
   and never collapse contract validation failures into a false provider-outage UI.
   After a fallback transcript, do not make a third provider call; return lexical
   candidates for review. Downstream matching-model failures must degrade to safe
-  review instead of discarding the transcript.
+  review instead of discarding the transcript. On Android, any voice result with a
+  usable selected Core food is logged optimistically; missing quantity/basis or an
+  ambiguous match becomes a visibly marked editable estimate rather than a blocking
+  confirmation step. Widget-launched capture closes back to the launcher only after
+  the on-device save completes and shows a native result toast.
 - The consumer food-data surface is separate from the annotator schema. The current
   combined USDA Core release is built under `services/data-pipeline/opennutri_core/` and served
   read-only by `services/core-api/`; do not route it through legacy `claims` or expose

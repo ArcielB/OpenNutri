@@ -62,7 +62,7 @@ void main() {
   );
 
   testWidgets(
-    'voice review disables batch logging until quantity is resolved',
+    'voice logging uses an editable estimate instead of blocking for quantity',
     (tester) async {
       tester.binding.platformDispatcher.localeTestValue = const Locale(
         'tr',
@@ -95,30 +95,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(voiceClient.lastLanguageHint, 'tr-TR');
 
-      final logButton = tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Log all (1)'),
-      );
-      expect(logButton.onPressed, isNull);
-
-      await tester.enterText(find.widgetWithText(TextField, 'Weight'), '125');
-      await tester.pump();
-      final enabledButton = tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Log all (1)'),
-      );
-      expect(enabledButton.onPressed, isNotNull);
-
-      await tester.tap(find.text('Log all (1)'));
-      await tester.pumpAndSettle();
-
       expect(controller.entries, hasLength(1));
-      expect(controller.entries.single.grams, 125);
+      expect(controller.entries.single.grams, 100);
+      expect(controller.entries.single.loggedByVoice, isTrue);
+      expect(controller.entries.single.needsReview, isTrue);
+      expect(find.text('Logged automatically'), findsOneWidget);
       expect(store.entrySaveCount, 1);
       expect(recorder.deletedPaths, contains('/tmp/fake.wav'));
     },
   );
 
   testWidgets(
-    'Log all confirms a complete flagged match without a hidden extra step',
+    'a complete flagged match logs immediately and stays marked for review',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(360, 800));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -142,18 +130,11 @@ void main() {
       await tester.tap(find.text('Done speaking'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Check before logging'), findsOneWidget);
-      expect(find.text('Log all confirms these details.'), findsOneWidget);
-      final logButton = tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Log all (1)'),
-      );
-      expect(logButton.onPressed, isNotNull);
+      expect(find.text('Logged automatically'), findsOneWidget);
       expect(tester.takeException(), isNull);
-
-      await tester.tap(find.text('Log all (1)'));
-      await tester.pumpAndSettle();
       expect(controller.entries, hasLength(1));
       expect(controller.entries.single.grams, 50);
+      expect(controller.entries.single.needsReview, isTrue);
     },
   );
 

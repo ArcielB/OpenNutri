@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Build
+import android.widget.Toast
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -25,6 +26,12 @@ class MainActivity : FlutterActivity() {
                     when (call.method) {
                         "consumePendingVoiceAction" -> result.success(consumePendingVoiceAction())
                         "requestPinVoiceWidget" -> result.success(requestPinVoiceWidget())
+                        "finishQuickCapture" -> {
+                            val count = call.argument<Int>("foodCount") ?: 0
+                            val needsReview = call.argument<Boolean>("needsReview") ?: false
+                            finishQuickCapture(count, needsReview)
+                            result.success(null)
+                        }
                         else -> result.notImplemented()
                     }
                 }
@@ -63,6 +70,13 @@ class MainActivity : FlutterActivity() {
             null,
             null,
         )
+    }
+
+    private fun finishQuickCapture(foodCount: Int, needsReview: Boolean) {
+        val noun = if (foodCount == 1) "food" else "foods"
+        val suffix = if (needsReview) " · tap OpenNutri to review" else ""
+        Toast.makeText(this, "$foodCount $noun logged$suffix", Toast.LENGTH_LONG).show()
+        finishAndRemoveTask()
     }
 
     internal fun consumePendingVoiceActionForTest(): Boolean = consumePendingVoiceAction()

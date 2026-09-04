@@ -85,6 +85,16 @@ class AppController extends ChangeNotifier {
     await removeEntries([entryId]);
   }
 
+  Future<void> updateEntry(DiaryEntry updated) async {
+    final index = _entries.indexWhere((entry) => entry.id == updated.id);
+    if (index < 0) return;
+    final values = List<DiaryEntry>.of(_entries);
+    values[index] = updated;
+    _entries = values;
+    notifyListeners();
+    await _store.saveEntries(_entries);
+  }
+
   Future<void> removeEntries(Iterable<String> entryIds) async {
     final ids = entryIds.toSet();
     if (ids.isEmpty) return;

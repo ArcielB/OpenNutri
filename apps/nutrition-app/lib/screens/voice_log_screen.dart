@@ -6,6 +6,7 @@ import '../models/diary.dart';
 import '../models/food.dart';
 import '../models/voice_resolution.dart';
 import '../services/core_api_client.dart';
+import '../services/android_widget_bridge.dart';
 import '../services/voice_api_client.dart';
 import '../services/voice_recorder.dart';
 import '../state/app_controller.dart';
@@ -36,6 +37,7 @@ class VoiceLogScreen extends StatefulWidget {
     required this.coreApiClient,
     required this.voiceApiClient,
     this.autoStart = false,
+    this.quickCapture = false,
     this.recorder,
   });
 
@@ -43,6 +45,7 @@ class VoiceLogScreen extends StatefulWidget {
   final CoreApiClient coreApiClient;
   final VoiceApiClient voiceApiClient;
   final bool autoStart;
+  final bool quickCapture;
   final VoiceRecorderSession? recorder;
 
   @override
@@ -50,7 +53,6 @@ class VoiceLogScreen extends StatefulWidget {
 }
 
 class _VoiceLogScreenState extends State<VoiceLogScreen> {
-  static const _autoLogConfidence = 0.92;
   static const timezone = String.fromEnvironment(
     'OPENNUTRI_TIMEZONE',
     defaultValue: 'Europe/Istanbul',
@@ -230,7 +232,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
       // person needs to review or edit the result.
       await _prepareReview(response, selectedOnly: true, showReview: false);
       if (!mounted) return;
-      if (_canAutoLog) {
+      if (_canInstantLog) {
         await _logAll(automatic: true);
         return;
       }
@@ -289,7 +291,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
     try {
       await _prepareReview(response, selectedOnly: true, showReview: false);
       if (!mounted) return;
-      if (_canAutoLog) {
+      if (_canInstantLog) {
         await _logAll(automatic: true);
       } else {
         await _prepareReview(response);
@@ -367,18 +369,11 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
   bool get _canLogAll =>
       _reviewItems.isNotEmpty && _reviewItems.every((item) => item.isValid);
 
-  bool get _canAutoLog =>
-      widget.controller.voiceFastLogging &&
-      _canLogAll &&
-      _reviewItems.every(
-        (item) =>
-            item.resolution.autoLogEligible &&
-            item.selectedFoodId == item.resolution.selectedCandidate?.foodId &&
-            item.resolution.confidence >= _autoLogConfidence &&
-            !item.resolution.isUnspecified &&
-            item.resolution.alternatives.isEmpty &&
-            item.resolution.unresolvedFields.isEmpty,
-      );
+  // Voice logging is deliberately optimistic: when the resolver supplies a
+  // usable Core food, it is written immediately. Any inferred amount or
+  // ambiguous match is marked for review in the diary instead of blocking the
+  // capture flow with a confirmation form.
+  bool get _canInstantLog => _canLogAll;
 
   Future<void> _logAll({bool automatic = false}) async {
     if (!_canLogAll || _resolution == null) return;
@@ -404,6 +399,8 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
           id:
               '${_resolution!.metadata.requestId}-'
               '${item.resolution.conceptIndex}',
+          loggedByVoice: true,
+          needsReview: item.wasEstimated,
         ),
       );
       feedback.add(
@@ -433,6 +430,13 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         _autoLoggedEntryIds = ids;
         _state = VoiceLogState.logged;
       });
+      if (widget.quickCapture) {
+        await Future<void>.delayed(const Duration(milliseconds: 550));
+        await AndroidWidgetBridge.finishQuickCapture(
+          foodCount: entries.length,
+          needsReview: entries.any((entry) => entry.needsReview),
+        );
+      }
       return;
     }
     final messenger = ScaffoldMessenger.of(context);
@@ -578,12 +582,12 @@ class _ReviewItem {
     required this.onChanged,
   }) : selectedFoodId = resolution.selectedCandidate?.foodId,
        meal = resolution.mealDefault,
-       weightBasis = resolution.weightBasis.value,
+       weightBasis = resolution.weightBasis.value ?? LoggedWeightBasis.edible,
        unresolved = resolution.unresolvedFields.toSet(),
        selectedPortionId = resolution.quantity.sourcePortionId,
        gramsController = TextEditingController(
-         text: resolution.quantity.grams?.toStringAsFixed(
-           resolution.quantity.grams! % 1 == 0 ? 0 : 1,
+         text: (resolution.quantity.grams ?? 100).toStringAsFixed(
+           (resolution.quantity.grams ?? 100) % 1 == 0 ? 0 : 1,
          ),
        ) {
     gramsController.addListener(_handleGrams);
@@ -598,6 +602,14 @@ class _ReviewItem {
   String? selectedPortionId;
   LoggedWeightBasis? weightBasis;
   late MealType meal;
+
+  bool get wasEstimated =>
+      resolution.quantity.grams == null ||
+      resolution.weightBasis.value == null ||
+      resolution.unresolvedFields.isNotEmpty ||
+      resolution.alternatives.isNotEmpty ||
+      resolution.isUnspecified ||
+      !resolution.autoLogEligible;
 
   FoodDetail? get selectedDetail => details[selectedFoodId];
   double? get grams {

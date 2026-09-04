@@ -118,6 +118,29 @@ class MealSection extends StatelessWidget {
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(color: scheme.onSurfaceVariant),
                             ),
+                            if (entry.needsReview) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.auto_awesome,
+                                    size: 13,
+                                    color: scheme.tertiary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Quick estimate · tap to edit',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: scheme.tertiary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ],
                         ),
                       ),

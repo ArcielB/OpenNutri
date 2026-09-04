@@ -29,6 +29,35 @@ void main() {
     },
   );
 
+  test('an estimated voice entry can be corrected in place', () async {
+    final store = _CountingStore();
+    final controller = AppController(store);
+    await controller.initialize();
+    final estimated = DiaryEntry.fromFood(
+      food: _apple,
+      date: DateTime(2026, 7, 24),
+      meal: MealType.snacks,
+      grams: 100,
+      servingLabel: 'Edible weight',
+      id: 'voice-apple',
+      loggedByVoice: true,
+      needsReview: true,
+    );
+    await controller.addEntry(estimated);
+
+    await controller.updateEntry(
+      estimated.withEditedServing(inputGrams: 150, meal: MealType.breakfast),
+    );
+
+    final corrected = controller.entries.single;
+    expect(corrected.id, 'voice-apple');
+    expect(corrected.grams, 150);
+    expect(corrected.calories, 78);
+    expect(corrected.meal, MealType.breakfast);
+    expect(corrected.needsReview, isFalse);
+    expect(store.entrySaveCount, 2);
+  });
+
   test(
     'voice disclosure and feedback consent are persisted independently',
     () async {

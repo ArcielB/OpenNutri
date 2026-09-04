@@ -227,15 +227,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 24),
               _heading(context, 'Voice logging'),
               const SizedBox(height: 8),
-              SwitchListTile(
+              ListTile(
                 contentPadding: EdgeInsets.zero,
-                value: widget.controller.voiceFastLogging,
-                onChanged: widget.controller.updateVoiceFastLogging,
-                title: const Text('Log confident foods automatically'),
+                leading: const Icon(Icons.bolt_rounded),
+                title: const Text('Instant voice logging'),
                 subtitle: const Text(
-                  'Default. Foods with a valid Core match, amount, weight '
-                  'basis, and high confidence are logged immediately. Others '
-                  'still open for review.',
+                  'Usable matches are logged immediately. Uncertain amounts '
+                  'or matches are marked as estimates so you can edit them later.',
                 ),
               ),
               SwitchListTile(

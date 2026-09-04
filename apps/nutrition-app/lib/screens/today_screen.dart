@@ -61,8 +61,11 @@ class TodayScreen extends StatelessWidget {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) =>
-          EntryDetailSheet(entry: entry, apiClient: apiClient),
+      builder: (context) => EntryDetailSheet(
+        entry: entry,
+        apiClient: apiClient,
+        onUpdate: controller.updateEntry,
+      ),
     );
   }
 
