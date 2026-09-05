@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import random
 from typing import Any
 
@@ -74,11 +75,13 @@ class GeminiClient:
             result = response.json()
         except httpx.HTTPStatusError as exc:
             retry_after: float | None = None
+            try:
+                hint = float(exc.response.headers.get("retry-after", ""))
+                if math.isfinite(hint):
+                    retry_after = max(0.0, hint)
+            except ValueError:
+                pass
             if exc.response.status_code == 429:
-                try:
-                    retry_after = float(exc.response.headers.get("retry-after", ""))
-                except ValueError:
-                    retry_after = None
                 raise GeminiError(
                     "Gemini rate limit reached",
                     is_rate_limited=True,
@@ -92,6 +95,7 @@ class GeminiClient:
                     "Gemini is temporarily unavailable",
                     is_retryable=True,
                     error_code="gemini_unavailable",
+                    retry_after_seconds=retry_after,
                     http_status=exc.response.status_code,
                 ) from exc
             raise GeminiError(
@@ -161,7 +165,7 @@ class GeminiClient:
         return transcript[:1000] or None
 
     async def _post_coach_with_retry(
-        self, url: str, payload: dict[str, Any]
+        self, url: str, payload: dict[str, Any], *, model: str
     ) -> dict[str, Any]:
         try:
             return await self._post(url, payload)
@@ -172,16 +176,73 @@ class GeminiClient:
             # Respect long provider hints without extending the mobile budget.
             if delay > 2.0:
                 raise
+            alternate_transport = exc.error_code == "gemini_unavailable"
             logger.warning(
-                "gemini_coach_attempt_failed code=%s status=%s retrying=true",
+                "gemini_coach_attempt_failed code=%s status=%s retrying=true transport=%s",
                 exc.error_code,
                 exc.http_status,
+                "interactions" if alternate_transport else "generate_content",
             )
             # Keep the advertised/validated latest Flash model. A single retry
             # absorbs Gemini's occasional transient 5xx without silently moving
             # personalized guidance to an older model.
             await asyncio.sleep(max(0.5, delay) + random.uniform(0, 0.25))
+            if alternate_transport:
+                return await self._post_coach_interaction(model, payload)
             return await self._post(url, payload)
+
+    async def _post_coach_interaction(
+        self, model: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Same-model endpoint retry, retaining the stateless privacy boundary."""
+        content = []
+        for part in payload["contents"][0]["parts"]:
+            if "text" in part:
+                content.append({"type": "text", "text": part["text"]})
+            else:
+                audio = part["inlineData"]
+                content.append({
+                    "type": "audio", "mime_type": audio["mimeType"],
+                    "data": audio["data"],
+                })
+        response = await self._post(
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+            {
+                "model": model,
+                "store": False,
+                "system_instruction": "\n\n".join(
+                    part["text"] for part in payload["systemInstruction"]["parts"]
+                ),
+                "input": content,
+                "generation_config": {"thinking_level": self._thinking_level(model)},
+                "response_format": {
+                    "type": "text", "mime_type": "application/json",
+                    "schema": payload["generationConfig"]["responseJsonSchema"],
+                },
+            },
+        )
+        try:
+            if response.get("status") != "completed":
+                raise ValueError("Interaction did not complete")
+            outputs = [
+                step for step in response["steps"]
+                if isinstance(step, dict) and step.get("type") == "model_output"
+            ]
+            parts = [
+                {"text": part["text"]} for part in outputs[-1]["content"]
+                if isinstance(part, dict) and part.get("type") == "text"
+                and isinstance(part.get("text"), str)
+            ]
+            if not parts:
+                raise ValueError("No final text output")
+            # Reuse the existing JSON/schema validation; never parse thoughts,
+            # user_input steps, partial output, or a stored interaction ID.
+            return {"candidates": [{"content": {"parts": parts}}]}
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise GeminiError(
+                "Gemini returned invalid interaction output",
+                is_retryable=True, error_code="gemini_invalid_output",
+            ) from exc
 
     async def generate_coach_response(self, request: CoachRequest) -> CoachModelOutput:
         model = self.settings.gemini_coach_model
@@ -237,7 +298,7 @@ class GeminiClient:
             },
         }
         response = await self._post_coach_with_retry(
-            f"{self.base_url}/{model}:generateContent", payload
+            f"{self.base_url}/{model}:generateContent", payload, model=model
         )
         structured = self._json_text(response)
         try:
@@ -308,7 +369,7 @@ class GeminiClient:
             },
         }
         response = await self._post_coach_with_retry(
-            f"{self.base_url}/{model}:generateContent", payload
+            f"{self.base_url}/{model}:generateContent", payload, model=model
         )
         structured = self._json_text(response)
         try:

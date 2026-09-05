@@ -31,9 +31,10 @@ async def test_coach_retries_one_transient_error_on_latest_model(settings, monke
         return httpx.Response(
             200,
             json={
-                "candidates": [
-                    {"content": {"parts": [{"text": json.dumps(result)}]}}
-                ]
+                "status": "completed",
+                "steps": [{"type": "model_output", "content": [
+                    {"type": "text", "text": json.dumps(result)}
+                ]}],
             },
             request=request,
         )
@@ -55,10 +56,15 @@ async def test_coach_retries_one_transient_error_on_latest_model(settings, monke
     assert len(requests) == 2
     sleep.assert_awaited_once()
     assert 1 <= sleep.await_args.args[0] <= 1.25
-    assert all(
-        request.url.path.endswith("/gemini-coach:generateContent")
-        for request in requests
-    )
+    assert requests[0].url.path.endswith("/gemini-coach:generateContent")
+    assert requests[1].url.path == "/v1beta/interactions"
+    retry_body = json.loads(requests[1].content)
+    assert retry_body["model"] == "gemini-coach"
+    assert retry_body["store"] is False
+    assert "previous_interaction_id" not in retry_body
+    original_body = json.loads(requests[0].content)
+    assert retry_body["input"][0]["text"] == original_body["contents"][0]["parts"][0]["text"]
+    assert retry_body["response_format"]["schema"] == original_body["generationConfig"]["responseJsonSchema"]
 
 
 @pytest.mark.asyncio

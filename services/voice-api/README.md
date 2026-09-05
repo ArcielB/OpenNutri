@@ -28,7 +28,15 @@ retry for a transient provider/transport failure; this avoids reporting an older
 model while absorbing occasional Gemini 5xx responses. The retry waits roughly
 one second with jitter; short Retry-After hints are respected. A hint longer than
 two seconds ends the request rather than retrying too early or extending the
-mobile budget. This cannot guarantee availability during a provider outage.
+mobile budget. Since service 0.4.2, a 5xx/transport failure retries once through
+Google's Interactions endpoint with the **same model, prompt, input and schema**,
+rather than repeating only the failing generateContent endpoint. `store=false`
+is mandatory: no stored conversation or previous interaction ID is used. Only
+completed final model text is parsed; thoughts and partial output are excluded.
+429/quota errors do not switch endpoints. This cannot guarantee availability
+during a provider outage or exhausted quota. See Google's
+[stateless Interactions guidance](https://ai.google.dev/gemini-api/docs/interactions-overview)
+and [structured output contract](https://ai.google.dev/gemini-api/docs/structured-output).
 
 ## Provider boundary
 

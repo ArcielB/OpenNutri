@@ -159,3 +159,25 @@ audit and handoff: none were broken.
 These items are actionable in [BACKLOG](../BACKLOG.md). For the next substantial
 product work, prioritize durable widget capture/review and then a demonstrably
 source-scored Oracle; both address the original product requests directly.
+
+## Follow-up: widget placement and Oracle failures
+
+Read-only Android inspection confirmed that VoiceLogWidgetProvider is registered
+but no OpenNutri widget is bound to the home screen. Installation does not place
+it automatically. The existing Settings pin action requires launcher confirmation;
+manual placement is also available through the launcher's Widgets picker. No
+phone taps or launcher navigation were performed during this follow-up.
+
+Production logs confirmed repeated daily/Oracle upstream 503s on service 0.4.1.
+A tiny synthetic local request succeeded on both Google's generateContent and
+Interactions endpoints, but the full local Oracle comparison hit provider 429s
+on both and could not establish an endpoint-specific cause. Vercel's secret
+environment values cannot be pulled; the local key comparison was therefore
+inconclusive, not proof of a different production key.
+
+Service 0.4.2 adds one same-model Interactions retry for 5xx/transport failures,
+with `store=false`, unchanged prompt/input/schema, and completed final-text-only
+parsing. The total stays at two provider attempts; quota failures do not switch
+endpoints and long Retry-After hints prevent an early retry. The expanded backend
+suite passes all 68 tests. Live deployment outcomes will be recorded below;
+this change is not yet evidence that the production failure has been resolved.

@@ -39,7 +39,7 @@ from .pipeline import ResolverPipeline
 from .supabase_store import SupabasePrivateStore, SupabaseStoreError
 
 
-SERVICE_VERSION = "0.4.1"
+SERVICE_VERSION = "0.4.2"
 MAX_AUDIO_BYTES = 1024 * 1024
 MAX_AUDIO_SECONDS = 30.0
 bearer = HTTPBearer(auto_error=False)

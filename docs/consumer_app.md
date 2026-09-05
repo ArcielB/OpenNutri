@@ -1,7 +1,7 @@
 # Consumer app: implementation and handoff
 
 Current implementation: Flutter app **1.1.1+4**, Core API **0.4.0** / USDA Core
-**0.3.0**, and voice/coach API **0.4.1**. This document describes current behavior;
+**0.3.0**, and voice/coach API **0.4.2**. This document describes current behavior;
 dated measurements and the latest validation are in the
 [consumer audit](consumer_app_audit_2026-09-05.md). Earlier handoff notes describe
 historical releases, including the superseded confidence-gated confirmation UI.
@@ -198,6 +198,11 @@ model and at most one same-model retry on transport/retryable provider failure;
 schema-invalid coach output is still an error. Each provider attempt has a
 12-second timeout. Coach retries wait about one second with jitter and respect
 short Retry-After hints; hints over two seconds fail promptly for a later retry.
+For 5xx/transport errors, service 0.4.2 uses the same model through Google's
+Interactions API for that single retry. The prompt, audio/text and output schema
+are unchanged, with `store=false` and no stored conversation ID. Only completed
+final model text is accepted. Quota errors never switch endpoints. This is an
+endpoint recovery path, not a model downgrade or a guarantee against outages.
 Keep models configurable; these are configured IDs, not a
 permanent claim to be the newest available model.
 

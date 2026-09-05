@@ -72,6 +72,11 @@ This is the current high-signal project state after the reviewer workflow moved 
   Live Gemini 3.8 chat/Oracle/voice-chat probes still returned 503 despite retry
   backoff; a food-logging audio fixture resolved via Flash-Lite in 6.22 seconds.
   Do not describe provider reliability as fixed or these probes as a full benchmark.
+  Follow-up service 0.4.2 keeps Gemini 3.8 but adds a single stateless Interactions
+  endpoint retry for 5xx/transport errors; 429 stays on the original endpoint.
+  Both attempts preserve prompt/input/schema, enforce the same model and bounded
+  timeouts, and reject incomplete/nonfinal output. All 68 backend tests pass;
+  deployment/live outcomes are recorded in the audit after checking production.
 - The Flutter diary stores source-backed nutrient snapshots locally, with edible
   and entered weights separate. Exact food-linked usable factors are required for
   as-purchased conversion. Daily energy is selected per food before aggregation,
