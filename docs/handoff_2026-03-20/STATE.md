@@ -65,27 +65,28 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Consumer app current behavior is mapped in [consumer_app.md](../consumer_app.md).
   The [2026-09-05 audit](../consumer_app_audit_2026-09-05.md) is the authoritative
   validation/release ledger and distinguishes finished behavior from remaining work.
-  Flutter 1.1.1+4 includes the final amount-dialog lifecycle correction; the
-  voice/coach service 0.4.1 is deployed. Exact build/install/deployment and
-  physical-device evidence are recorded in that audit. Current validation is
-  39 Flutter, 59 voice API, 17 Core API and 2 native Android tests passing.
-  Live Gemini 3.8 chat/Oracle/voice-chat probes still returned 503 despite retry
-  backoff; a food-logging audio fixture resolved via Flash-Lite in 6.22 seconds.
-  Do not describe provider reliability as fixed or these probes as a full benchmark.
-  Follow-up service 0.4.2 keeps Gemini 3.8 but adds a single stateless Interactions
-  endpoint retry for 5xx/transport errors; 429 stays on the original endpoint.
-  Both attempts preserve prompt/input/schema, enforce the same model and bounded
-  timeouts, and reject incomplete/nonfinal output. All 68 backend tests pass;
-  deployment/live outcomes are recorded in the audit after checking production.
-  The user's next "continue" followed the proposed Flash-Lite fallback option.
-  Service 0.4.3 now defaults to Gemini 3.8 primary plus one Gemini 3.5 Flash-Lite
+  App 1.1.2+5 is installed in place on the Android 16 phone without clearing
+  app data or controlling its screen. Voice/coach service 0.4.3 is deployed in
+  iad1 at the stable alias (deployment dpl_CErjNQsEC62daAvgZ6uLD1hrKoxS).
+  Current tests: 44 Flutter and 79 voice API pass, with clean Flutter analysis.
+  Earlier in the audit, 17 unchanged Core API and 2 native intent tests passed.
+  Live daily/chat/Oracle/voice-chat smoke checks now all succeed in
+  4.57/2.80/3.28/3.34 seconds using Gemini 3.5 Flash-Lite. Server logs confirm
+  Gemini 3.8 returned 429 and each single fallback returned 200. These are
+  bounded synthetic contract checks, not a full nutrition/reliability benchmark.
+  The user's "continue" followed the proposed labeled Flash-Lite fallback.
+  Service 0.4.3 defaults to Gemini 3.8 primary plus one Gemini 3.5 Flash-Lite
   fallback; the actual answering model is transport-assigned, never supplied by
   AI JSON. Empty OPENNUTRI_GEMINI_COACH_FALLBACK_MODEL retains the 0.4.2 same-model
   endpoint retry. Both coach routes preserve upstream rate limits as HTTP 429.
   App 1.1.2+5 shows model attribution and a top-of-Settings widget setup card with
   launcher confirmation/manual placement instructions. It also handles a Core
-  health error before the offscreen list tile mounts. Tests: 44 Flutter and 79
-  backend passing; exact build/deployment/live results follow in the audit.
+  health error before the offscreen list tile mounts. Read-only Android checks
+  found the widget provider registered but no placed widget; the user must
+  choose Settings -> Add microphone widget and confirm the launcher's Add.
+  Do not infer placement from installation or the pin-request Boolean.
+  Exact APK/hash and historical failed probes remain in the audit. No schema,
+  credentials, billing, app quota or research automation changes were made.
 - The Flutter diary stores source-backed nutrient snapshots locally, with edible
   and entered weights separate. Exact food-linked usable factors are required for
   as-purchased conversion. Daily energy is selected per food before aggregation,

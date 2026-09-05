@@ -9,6 +9,12 @@ Unrelated local proposal/defense documents were preserved.
 This is evidence of specific checks, not a claim that every device, voice input,
 provider outage or nutrition recommendation works perfectly.
 
+Latest follow-up: app **1.1.2+5 installed**, API **0.4.3 deployed**; all four
+live coaching modes passed through the labeled fallback. Current automated suites
+pass **44 Flutter / 79 voice API tests**, with clean Flutter analysis. Exact
+evidence is in [the follow-up](#follow-up-widget-placement-and-oracle-failures).
+The earlier release checks and failed probes below are retained as history.
+
 ## Confirmed problems corrected
 
 | Finding | Fix and regression evidence |
@@ -37,7 +43,7 @@ Baseline: Flutter analysis clean, **22 Flutter tests**, **53 voice API tests**,
 and **17 Core API tests** passed before changes. These passing tests did not cover
 the regressions above.
 
-Current validation:
+Initial audit validation (app 1.1.1+4 / service 0.4.1):
 
 - Flutter analysis: clean.
 - Flutter suite: **39 tests passed** (including new state, persistence, search,
@@ -57,7 +63,7 @@ Commands are in the [app README](../apps/nutrition-app/README.md) and
 [voice API README](../services/voice-api/README.md). Native reports are generated
 under `apps/nutrition-app/build/app/reports/androidTests/connected/debug/`.
 
-## Release and device evidence
+## Initial release and device evidence
 
 Released versions: app `1.1.1+4`, voice/coach API `0.4.1`. Build 4 includes
 the final amount-dialog lifecycle correction; build 3 was installed and tested
@@ -111,8 +117,9 @@ current provider availability. The food-logging audio fixture
 `voice-v0.1.0-en-081.wav` did resolve two items in 6.22 seconds wall time, using
 the existing `gemini-3.1-flash-lite` fallback. Server pipeline time was 4.632
 seconds (audio extraction 4.623 seconds). These are single-fixture contract
-checks, not speech/matching accuracy measurements. No coach model downgrade or
-provider switch was made. Coach/Oracle reliability remains an open release risk.
+checks, not speech/matching accuracy measurements. At that point no coach model
+fallback or provider switch had been made, and Coach/Oracle reliability was an
+open release risk; the follow-up below records the subsequent change.
 
 The smoke runner now completes independent selected modes after a failure and
 returns nonzero if any failed. `--modes --wav <fixture.wav>` checks voice chat
@@ -179,8 +186,8 @@ Service 0.4.2 adds one same-model Interactions retry for 5xx/transport failures,
 with `store=false`, unchanged prompt/input/schema, and completed final-text-only
 parsing. The total stays at two provider attempts; quota failures do not switch
 endpoints and long Retry-After hints prevent an early retry. The expanded backend
-suite passes all 68 tests. Live deployment outcomes will be recorded below;
-this change is not yet evidence that the production failure has been resolved.
+suite passed all 68 tests. This alone was not evidence that the production failure
+had been resolved; the next live checks still failed as recorded below.
 
 Service 0.4.2 deployment `dpl_6aBNbDZdisTyMoAF8fhRGGHpoDaA` completed in iad1.
 Four live modes failed in 3.08/1.86/2.03/2.15 seconds (daily/chat/Oracle/voice chat).
@@ -203,3 +210,40 @@ offscreen FutureBuilder issue: Core health could fail before its listener was
 mounted. The original future's error is now handled immediately and still reaches
 the status tile when visible. Flutter analysis is clean; all 44 Flutter and 79
 backend tests pass. Remaining device checks stay read-only; no phone taps occur.
+
+### Final deployment and installed build
+
+Code commit `9cc6bf6` was pushed before production deployment. Service 0.4.3 is
+READY in iad1, deployment `dpl_CErjNQsEC62daAvgZ6uLD1hrKoxS`, stable alias
+`https://opennutri-voice-beta.vercel.app`. The deployed health endpoint confirms
+0.4.3. The bounded `scripts/smoke_coach.py --live --wav
+../../benchmarks/voice-v0.1.0/audio/en/voice-v0.1.0-en-081.wav` run completed
+successfully with synthetic context, not the person's diary:
+
+| Mode | Wall time | Actual model | Contract evidence |
+| --- | --- | --- | --- |
+| Daily | 4.57 s | gemini-3.5-flash-lite | Three actions, no memory updates |
+| Text chat | 2.80 s | gemini-3.5-flash-lite | Valid structured reply |
+| Oracle | 3.28 s | gemini-3.5-flash-lite | Four actions, all with Core search queries; no memory updates |
+| Voice chat | 3.34 s | gemini-3.5-flash-lite | Valid reply and nonempty transcript |
+
+Production logs confirm the primary returned HTTP 429 and the single fallback
+returned HTTP 200 for every mode. Authentication, quota reservation and release
+also succeeded. This demonstrates recovery of the observed failure; both models
+can still be unavailable or quota-limited. It does not establish nutrition quality,
+allergy safety, speech accuracy or long-term uptime. No additional live model
+probes were run after these four successes.
+
+Configured Flutter release `1.1.2+5` built successfully and was installed with
+`adb install -r`; read-only package metadata confirms `versionName=1.1.2` and
+`versionCode=5`. No app data was cleared and the app was not launched or tapped.
+
+- APK: `apps/nutrition-app/build/app/outputs/flutter-apk/app-release.apk`
+- Size: 54,868,226 bytes; same local beta signing configuration.
+- SHA-256: `28f4d1a3efc9e5016187b379198740260a010b9d4d73ecf80967c34cef543c99`
+
+Home placement still requires the person: **Settings -> Add microphone widget ->
+confirm Add**. If the launcher cannot pin directly, use its Widgets picker.
+The new setup instructions and platform-failure path have automated widget-test
+coverage; physical pin confirmation was deliberately not performed. No database
+migration, billing, credential or research automation change was needed.
