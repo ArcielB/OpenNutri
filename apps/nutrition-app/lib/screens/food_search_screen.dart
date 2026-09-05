@@ -46,6 +46,7 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
   String? _loadingFoodId;
   String? _error;
   int _requestId = 0;
+  int _semanticRequestId = 0;
   String? _semanticFoodId;
   String? _semanticFoodName;
   bool _resolvingSemantic = false;
@@ -56,6 +57,7 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
     _searchController = TextEditingController(text: widget.initialQuery ?? '');
     _searchController.addListener(_scheduleSearch);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _focusNode.requestFocus();
       if (_searchController.text.trim().isNotEmpty) {
         _search(_searchController.text.trim());
@@ -75,6 +77,11 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
 
   void _scheduleSearch() {
     _debounce?.cancel();
+    _requestId++;
+    _semanticRequestId++;
+    _semanticFoodId = null;
+    _semanticFoodName = null;
+    _resolvingSemantic = false;
     final query = _searchController.text.trim();
     if (query.isEmpty) {
       setState(() {
@@ -123,7 +130,9 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
 
   Future<void> _submitSearch(String query) async {
     _debounce?.cancel();
+    final semanticRequestId = ++_semanticRequestId;
     await _search(query);
+    if (!mounted || semanticRequestId != _semanticRequestId) return;
     final resolver = widget.resolver;
     if (resolver == null || !resolver.isConfigured || query.trim().isEmpty) {
       return;
@@ -145,14 +154,16 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
       final candidate =
           response.items.firstOrNull?.selectedCandidate ??
           response.manualSearchCandidates.firstOrNull;
-      if (!mounted) return;
+      if (!mounted || semanticRequestId != _semanticRequestId) return;
       setState(() {
         _semanticFoodId = candidate?.foodId;
         _semanticFoodName = candidate?.name;
         _resolvingSemantic = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _resolvingSemantic = false);
+      if (mounted && semanticRequestId == _semanticRequestId) {
+        setState(() => _resolvingSemantic = false);
+      }
     }
   }
 

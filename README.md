@@ -254,14 +254,20 @@ Pipeline data outputs:
 - `apps/nutrition-app/`: Android-first Flutter diary with transient 16 kHz WAV
   capture up to 30 seconds, 1.6-second trailing-silence handling, a responsive
   waveform/timer, device-locale voice hints, recoverable stage-specific failures
-  that retain any safe transcript, high-confidence
-  automatic multi-food batch logging with immediate
-  edit/undo, focused review only for uncertainty, explicit submitted semantic
+  that retain any safe transcript, automatic multi-food batch logging when every
+  selected item is usable (uncertainty is saved as an editable estimate),
+  non-destructive batch edit/undo, explicit submitted semantic
   search, optional privacy-limited feedback, and a native 1×1 microphone widget.
   The 1.0 beta UI adds a glanceable daily dashboard, one-tap recent-food repeats,
   guided source-backed search, grouped nutrient reporting, and per-entry USDA
-  provenance/calculation details. Supabase initialization and voice warm-up no
-  longer block the first rendered frame.
+  provenance/calculation details. Consumer 1.1 adds opt-in daily coaching, typed
+  and voice chat with local facts, six customizable diet templates, and Oracle
+  food ideas that link to Core search. Version 1.1.1 fixes saved-entry editing,
+  stale search/profile state, request contention, and mixed-USDA calorie totals.
+  Supabase initialization and voice warm-up do not block the first rendered frame.
+  See [consumer architecture and behavior](docs/consumer_app.md),
+  [build instructions](apps/nutrition-app/README.md), and the
+  [validation and limitations audit](docs/consumer_app_audit_2026-09-05.md).
 - `benchmarks/voice-v0.1.0/`: 240 versioned English/Turkish text and deterministic
   audio cases, manifest/audio validation, and threshold scoring for retrieval,
   constrained selection, clarification safety, candidate validity, and latency.

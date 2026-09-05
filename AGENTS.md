@@ -69,14 +69,14 @@ Do not spend tokens on these unless the task explicitly needs them:
 - `apps/nutrition-app/` is the Android-first consumer diary. Voice uses the isolated
   app Supabase project and `services/voice-api/`. The production primary is one-pass
   `gemini-3.8-flash` audio extraction with `thinkingLevel=low` in Vercel `iad1`;
-  `gemini-3.1-flash-lite` is a review-only retry for timeout, rate limit, transport,
+  `gemini-3.1-flash-lite` is an uncertainty-marked retry for timeout, rate limit, transport,
   or invalid structured output. Flutter sends English/Turkish device locale hints.
   Preserve any safe transcript on failure, keep privacy-safe stage/error logging,
   and never collapse contract validation failures into a false provider-outage UI.
   After a fallback transcript, do not make a third provider call; return lexical
   candidates for review. Downstream matching-model failures must degrade to safe
-  review instead of discarding the transcript. On Android, any voice result with a
-  usable selected Core food is logged optimistically; missing quantity/basis or an
+  review instead of discarding the transcript. On Android, a voice batch whose
+  every item has a usable selected Core food is logged optimistically; missing quantity/basis or an
   ambiguous match becomes a visibly marked editable estimate rather than a blocking
   confirmation step. Widget-launched capture closes back to the launcher only after
   the on-device save completes and shows a native result toast.
@@ -89,6 +89,16 @@ Do not spend tokens on these unless the task explicitly needs them:
   public Core search/detail before logging—AI must never supply nutrient truth or an
   unvalidated food ID. FDA adult Daily Values are labeled as broad references, not
   individualized medical targets.
+  The current consumer behavior map is `docs/consumer_app.md`; validation and
+  limitations are in `docs/consumer_app_audit_2026-09-05.md`. Keep backend
+  `auto_log_eligible` uncertainty separate from Android's optimistic save policy.
+  Never delete saved entries merely to open an editor. Widget completion must
+  wait for local persistence, not optional feedback. Coach/Oracle calls share the
+  client's serialized AI request lane; do not eagerly generate offscreen Oracle
+  requests. Missing source nutrients are unknown, not zero intake. Do not describe
+  the current Oracle as a mathematical optimizer or widget capture as a durable
+  background queue. Run device automation with `-PauditBuild=true` so synthetic
+  data and consent do not enter the person's installed diary.
 - The consumer food-data surface is separate from the annotator schema. The current
   combined USDA Core release is built under `services/data-pipeline/opennutri_core/` and served
   read-only by `services/core-api/`; do not route it through legacy `claims` or expose

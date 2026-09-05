@@ -39,7 +39,7 @@ from .pipeline import ResolverPipeline
 from .supabase_store import SupabasePrivateStore, SupabaseStoreError
 
 
-SERVICE_VERSION = "0.4.0"
+SERVICE_VERSION = "0.4.1"
 MAX_AUDIO_BYTES = 1024 * 1024
 MAX_AUDIO_SECONDS = 30.0
 bearer = HTTPBearer(auto_error=False)
@@ -374,7 +374,7 @@ def create_app(
     async def coach_voice(
         request: Request,
         audio: UploadFile = File(),
-        context: str = Form(max_length=12_000),
+        context: str = Form(max_length=32_000),
         language_hint: str = Form(default="auto", max_length=32),
         subject: str = Depends(authenticated_subject),
     ) -> CoachVoiceResponse:

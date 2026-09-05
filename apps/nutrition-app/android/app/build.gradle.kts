@@ -32,6 +32,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Device automation must have its own diary and consent state.
+            if (project.hasProperty("auditBuild")) {
+                applicationIdSuffix = ".audit"
+            }
+        }
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.

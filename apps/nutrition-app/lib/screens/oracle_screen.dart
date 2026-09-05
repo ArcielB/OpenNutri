@@ -17,6 +17,7 @@ class OracleScreen extends StatefulWidget {
     required this.apiClient,
     required this.voiceApiClient,
     required this.onOpenCoach,
+    this.isActive = true,
   });
 
   final AppController controller;
@@ -24,6 +25,7 @@ class OracleScreen extends StatefulWidget {
   final CoreApiClient apiClient;
   final VoiceApiClient voiceApiClient;
   final VoidCallback onOpenCoach;
+  final bool isActive;
 
   @override
   State<OracleScreen> createState() => _OracleScreenState();
@@ -33,17 +35,34 @@ class _OracleScreenState extends State<OracleScreen> {
   CoachReply? _reply;
   bool _loading = false;
   String? _error;
+  int? _contextRevision;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (widget.controller.profile.coachEnabled) _generate();
+      if (mounted && widget.isActive) _generate();
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant OracleScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final changed = _contextRevision != widget.controller.coachContextRevision;
+    if (changed) _reply = null;
+    if (widget.isActive &&
+        (changed || (!oldWidget.isActive && _reply == null)) &&
+        !_loading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.isActive) _generate();
+      });
+    }
   }
 
   Future<void> _generate() async {
     if (_loading || !widget.controller.profile.coachEnabled) return;
+    final revision = widget.controller.coachContextRevision;
+    _contextRevision = revision;
     setState(() {
       _loading = true;
       _error = null;
@@ -53,7 +72,11 @@ class _OracleScreenState extends State<OracleScreen> {
         controller: widget.controller,
         mode: CoachMode.oracle,
       );
-      if (!mounted) return;
+      if (!mounted ||
+          !widget.controller.profile.coachEnabled ||
+          revision != widget.controller.coachContextRevision) {
+        return;
+      }
       setState(() => _reply = reply);
     } catch (_) {
       if (!mounted) return;
@@ -63,6 +86,11 @@ class _OracleScreenState extends State<OracleScreen> {
       });
     } finally {
       if (mounted) setState(() => _loading = false);
+      if (mounted &&
+          widget.isActive &&
+          revision != widget.controller.coachContextRevision) {
+        await _generate();
+      }
     }
   }
 
@@ -165,7 +193,7 @@ class _OracleScreenState extends State<OracleScreen> {
                   ),
                   const SizedBox(height: 14),
                   Text(
-                    'Not a generic “healthy foods” list.',
+                    'Make your next meal count.',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       color: Theme.of(context).colorScheme.onInverseSurface,
                       fontWeight: FontWeight.w900,
@@ -173,7 +201,7 @@ class _OracleScreenState extends State<OracleScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'The Oracle combines what is missing today with ${profile.goal.label.toLowerCase()}, your ${profile.diet.name} plan, and everything you asked the coach to remember.',
+                    'Ideas based on your logged day, ${profile.goal.label.toLowerCase()}, your ${profile.diet.name} plan, and your saved preferences.',
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onInverseSurface,
                     ),
@@ -205,6 +233,10 @@ class _OracleScreenState extends State<OracleScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(_reply!.message),
+                if (_reply!.safetyNote?.isNotEmpty ?? false) ...[
+                  const SizedBox(height: 8),
+                  Text(_reply!.safetyNote!),
+                ],
                 const SizedBox(height: 12),
                 for (var index = 0; index < _reply!.actions.length; index++)
                   _OracleFoodCard(

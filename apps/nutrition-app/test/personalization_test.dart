@@ -129,4 +129,7 @@ class _ProfileStore extends LocalStore {
 
   @override
   Future<void> saveDailyCoachBrief(DailyCoachBrief brief) async {}
+
+  @override
+  Future<void> clearDailyCoachBrief() async {}
 }

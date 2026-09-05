@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/personalization.dart';
+import '../models/diary.dart';
 import '../services/coach_service.dart';
 import '../services/core_api_client.dart';
 import '../services/android_widget_bridge.dart';
@@ -31,18 +32,25 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
   late final VoiceApiClient _voiceApiClient;
   late final CoachService _coachService;
   bool _openingVoice = false;
   bool _dailyCoachLoading = false;
+  late UserNutritionProfile _lastProfile;
+  late NutritionTargets _lastTargets;
+  String _calendarDay = dateKeyFor(DateTime.now());
 
   @override
   void initState() {
     super.initState();
     _voiceApiClient = widget.voiceApiClient ?? VoiceApiClient();
     _coachService = CoachService(_voiceApiClient);
+    _lastProfile = widget.controller.profile;
+    _lastTargets = widget.controller.targets;
+    widget.controller.addListener(_onProfileChanged);
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_voiceApiClient.warmUp());
     AndroidWidgetBridge.listenForVoiceActions(
       () => _openVoice(autoStart: true, quickCapture: true),
@@ -50,6 +58,7 @@ class _HomeShellState extends State<HomeShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (await AndroidWidgetBridge.consumePendingVoiceAction()) {
         await _openVoice(autoStart: true, quickCapture: true);
+        return;
       }
       await _refreshDailyCoach();
     });
@@ -57,8 +66,42 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.controller.removeListener(_onProfileChanged);
     AndroidWidgetBridge.stopListening();
     super.dispose();
+  }
+
+  void _onProfileChanged() {
+    if (identical(_lastProfile, widget.controller.profile) &&
+        identical(_lastTargets, widget.controller.targets)) {
+      return;
+    }
+    _lastProfile = widget.controller.profile;
+    _lastTargets = widget.controller.targets;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_openingVoice && (_index == 0 || _index == 2)) {
+        unawaited(_refreshDailyCoach());
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_openingVoice) {
+      final today = dateKeyFor(DateTime.now());
+      if (today != _calendarDay &&
+          dateKeyFor(widget.controller.selectedDate) == _calendarDay) {
+        widget.controller.selectDate(DateTime.now());
+      }
+      _calendarDay = today;
+      unawaited(_refreshDailyCoach());
+    }
+  }
+
+  void _selectTab(int value) {
+    setState(() => _index = value);
+    if (value == 0 || value == 2) unawaited(_refreshDailyCoach());
   }
 
   Future<void> _openVoice({
@@ -67,6 +110,7 @@ class _HomeShellState extends State<HomeShell> {
   }) async {
     if (!mounted || _openingVoice) return;
     _openingVoice = true;
+    if (quickCapture) widget.controller.selectDate(DateTime.now());
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (context) => VoiceLogScreen(
@@ -79,6 +123,7 @@ class _HomeShellState extends State<HomeShell> {
       ),
     );
     _openingVoice = false;
+    if (mounted && !quickCapture) unawaited(_refreshDailyCoach());
   }
 
   Future<void> _refreshDailyCoach({bool force = false}) async {
@@ -87,11 +132,8 @@ class _HomeShellState extends State<HomeShell> {
         _dailyCoachLoading) {
       return;
     }
-    final now = DateTime.now();
-    final key =
-        '${now.year.toString().padLeft(4, '0')}-'
-        '${now.month.toString().padLeft(2, '0')}-'
-        '${now.day.toString().padLeft(2, '0')}';
+    final key = dateKeyFor(widget.controller.selectedDate);
+    final revision = widget.controller.coachContextRevision;
     if (!force && widget.controller.dailyCoachBrief?.dateKey == key) return;
     setState(() => _dailyCoachLoading = true);
     try {
@@ -99,15 +141,33 @@ class _HomeShellState extends State<HomeShell> {
         controller: widget.controller,
         mode: CoachMode.daily,
       );
+      if (!mounted ||
+          !widget.controller.profile.coachEnabled ||
+          revision != widget.controller.coachContextRevision) {
+        return;
+      }
       await widget.controller.saveDailyCoachBrief(
         DailyCoachBrief(dateKey: key, reply: reply),
       );
     } catch (_) {
+      if (!mounted ||
+          !widget.controller.profile.coachEnabled ||
+          revision != widget.controller.coachContextRevision) {
+        return;
+      }
       await widget.controller.saveDailyCoachBrief(
         _coachService.localDailyFallback(widget.controller),
       );
     } finally {
       if (mounted) setState(() => _dailyCoachLoading = false);
+      if (mounted &&
+          !_openingVoice &&
+          (_index == 0 || _index == 2) &&
+          widget.controller.profile.coachEnabled &&
+          widget.controller.dailyCoachBrief == null &&
+          revision != widget.controller.coachContextRevision) {
+        unawaited(_refreshDailyCoach());
+      }
     }
   }
 
@@ -125,7 +185,7 @@ class _HomeShellState extends State<HomeShell> {
             dailyCoachBrief: widget.controller.dailyCoachBrief,
             coachEnabled: widget.controller.profile.coachEnabled,
             coachLoading: _dailyCoachLoading,
-            onOpenCoach: () => setState(() => _index = 2),
+            onOpenCoach: () => _selectTab(2),
           ),
           NutrientsScreen(controller: widget.controller),
           CoachScreen(
@@ -133,13 +193,15 @@ class _HomeShellState extends State<HomeShell> {
             coachService: _coachService,
             refreshDaily: _refreshDailyCoach,
             dailyLoading: _dailyCoachLoading,
+            isActive: _index == 2,
           ),
           OracleScreen(
             controller: widget.controller,
             coachService: _coachService,
             apiClient: widget.apiClient,
             voiceApiClient: _voiceApiClient,
-            onOpenCoach: () => setState(() => _index = 2),
+            onOpenCoach: () => _selectTab(2),
+            isActive: _index == 3,
           ),
           SettingsScreen(
             controller: widget.controller,
@@ -151,7 +213,7 @@ class _HomeShellState extends State<HomeShell> {
           body: IndexedStack(index: _index, children: screens),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _index,
-            onDestinationSelected: (value) => setState(() => _index = value),
+            onDestinationSelected: _selectTab,
             destinations: const [
               NavigationDestination(
                 icon: Icon(Icons.today_outlined),

@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opennutri_app/models/diary.dart';
 import 'package:opennutri_app/models/food.dart';
@@ -200,13 +203,16 @@ void main() {
 
       await tester.tap(find.text('Edit batch'));
       await tester.pumpAndSettle();
-      expect(controller.entries, isEmpty);
-      expect(find.widgetWithText(FilledButton, 'Log all (1)'), findsOneWidget);
+      expect(controller.entries, hasLength(1));
+      expect(find.widgetWithText(FilledButton, 'Save changes'), findsOneWidget);
 
-      await tester.tap(find.text('Log all (1)'));
+      await tester.enterText(find.byType(TextField).first, '150');
+      await tester.tap(find.text('Save changes'));
       await tester.pumpAndSettle();
       expect(controller.entries, hasLength(1));
-      expect(store.entrySaveCount, 3);
+      expect(controller.entries.single.grams, 150);
+      expect(controller.entries.single.needsReview, isFalse);
+      expect(store.entrySaveCount, 2);
     },
   );
 
@@ -242,6 +248,105 @@ void main() {
     );
     expect(find.textContaining('AuthApiException'), findsNothing);
     expect(recorder.deletedPaths, contains('/tmp/fake.wav'));
+  });
+
+  testWidgets(
+    'pending optional feedback does not delay success or WAV cleanup',
+    (tester) async {
+      final store = _MemoryStore(disclosureAccepted: true)
+        ..feedbackConsent = true;
+      final controller = AppController(store);
+      await controller.initialize();
+      final voice = _SlowFeedbackClient();
+      final recorder = _FakeRecorder();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VoiceLogScreen(
+            controller: controller,
+            coreApiClient: _FakeCoreClient(),
+            voiceApiClient: voice,
+            recorder: recorder,
+          ),
+        ),
+      );
+      await tester.tap(find.text('Start speaking'));
+      await tester.pump();
+      await tester.tap(find.text('Done speaking'));
+      await tester.pumpAndSettle();
+      expect(voice.feedback.isCompleted, isFalse);
+      expect(find.text('Logged automatically'), findsOneWidget);
+      expect(recorder.deletedPaths, contains('/tmp/fake.wav'));
+      voice.feedback.complete();
+      await tester.pump();
+    },
+  );
+
+  testWidgets('leaving batch edit preserves the original saved foods', (
+    tester,
+  ) async {
+    final controller = AppController(_MemoryStore(disclosureAccepted: true));
+    await controller.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VoiceLogScreen(
+          controller: controller,
+          coreApiClient: _FakeCoreClient(),
+          voiceApiClient: _ResolvedVoiceClient(),
+          recorder: _FakeRecorder(),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Start speaking'));
+    await tester.pump();
+    await tester.tap(find.text('Done speaking'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit batch'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '250');
+    await tester.pumpWidget(const SizedBox());
+    expect(controller.entries.single.grams, 100);
+  });
+
+  testWidgets('widget completion waits for local persistence', (tester) async {
+    const channel = MethodChannel('org.opennutri.app/voice_widget');
+    final calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      calls.add(call);
+      return null;
+    });
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      ),
+    );
+    final store = _DeferredStore();
+    final controller = AppController(store);
+    await controller.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VoiceLogScreen(
+          controller: controller,
+          coreApiClient: _FakeCoreClient(),
+          voiceApiClient: _ResolvedVoiceClient(),
+          recorder: _FakeRecorder(),
+          quickCapture: true,
+        ),
+      ),
+    );
+    await tester.tap(find.text('Start speaking'));
+    await tester.pump();
+    await tester.tap(find.text('Done speaking'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(controller.entries, hasLength(1));
+    expect(calls, isEmpty);
+    store.saved.complete();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(calls.single.method, 'finishQuickCapture');
+    expect(calls.single.arguments['foodCount'], 1);
   });
 
   testWidgets('invalid structured voice output keeps the heard transcript', (
@@ -636,4 +741,20 @@ class _MemoryStore extends LocalStore {
   Future<void> saveProfile(UserNutritionProfile profile) async {}
   @override
   Future<void> saveDailyCoachBrief(DailyCoachBrief brief) async {}
+}
+
+class _SlowFeedbackClient extends _ResolvedVoiceClient {
+  final feedback = Completer<void>();
+  @override
+  Future<void> sendFeedback({
+    required ResolutionMetadata metadata,
+    required List<VoiceFeedbackItem> items,
+  }) => feedback.future;
+}
+
+class _DeferredStore extends _MemoryStore {
+  _DeferredStore() : super(disclosureAccepted: true);
+  final saved = Completer<void>();
+  @override
+  Future<void> saveEntries(List<DiaryEntry> entries) => saved.future;
 }

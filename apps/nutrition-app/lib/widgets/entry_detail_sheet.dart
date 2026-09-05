@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/diary.dart';
 import '../models/food.dart';
 import '../services/core_api_client.dart';
+import '../services/voice_api_client.dart';
+import '../screens/food_search_screen.dart';
 import '../utils/format.dart';
 
 class EntryDetailSheet extends StatefulWidget {
@@ -11,11 +13,13 @@ class EntryDetailSheet extends StatefulWidget {
     required this.entry,
     required this.apiClient,
     required this.onUpdate,
+    this.resolver,
   });
 
   final DiaryEntry entry;
   final CoreApiClient apiClient;
   final Future<void> Function(DiaryEntry entry) onUpdate;
+  final VoiceApiClient? resolver;
 
   @override
   State<EntryDetailSheet> createState() => _EntryDetailSheetState();
@@ -37,6 +41,7 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
       ),
     );
     var meal = widget.entry.meal;
+    String? validationError;
     final updated = await showDialog<DiaryEntry>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -54,6 +59,7 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
                 decoration: InputDecoration(
                   labelText: 'Amount',
                   suffixText: 'g',
+                  errorText: validationError,
                   helperText:
                       widget.entry.weightBasis == LoggedWeightBasis.asPurchased
                       ? 'As-purchased weight'
@@ -82,7 +88,16 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
             FilledButton(
               onPressed: () {
                 final grams = double.tryParse(amount.text.replaceAll(',', '.'));
-                if (grams == null || grams <= 0) return;
+                if (grams == null ||
+                    !grams.isFinite ||
+                    grams <= 0 ||
+                    grams > 10000) {
+                  setDialogState(
+                    () =>
+                        validationError = 'Enter an amount from 0 to 10,000 g',
+                  );
+                  return;
+                }
                 Navigator.pop(
                   context,
                   widget.entry.withEditedServing(inputGrams: grams, meal: meal),
@@ -96,12 +111,57 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
     );
     amount.dispose();
     if (updated == null || !mounted) return;
-    await widget.onUpdate(updated);
+    await _save(updated);
+  }
+
+  Future<void> _replaceFood() async {
+    final original = widget.entry;
+    final replacement = await Navigator.of(context).push<DiaryEntry>(
+      MaterialPageRoute(
+        builder: (context) => FoodSearchScreen(
+          apiClient: widget.apiClient,
+          resolver: widget.resolver,
+          date: DateTime.parse(original.dateKey),
+          meal: original.meal,
+          initialQuery: original.foodName,
+        ),
+      ),
+    );
+    if (replacement == null || !mounted) return;
+    await _save(
+      DiaryEntry(
+        id: original.id,
+        dateKey: original.dateKey,
+        meal: replacement.meal,
+        foodId: replacement.foodId,
+        foodName: replacement.foodName,
+        grams: replacement.grams,
+        inputGrams: replacement.inputGrams,
+        weightBasis: replacement.weightBasis,
+        servingLabel: replacement.servingLabel,
+        nutrients: replacement.nutrients,
+        loggedByVoice: original.loggedByVoice,
+      ),
+    );
+  }
+
+  Future<void> _save(DiaryEntry updated) async {
+    try {
+      await widget.onUpdate(updated);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save the change. Please try again.'),
+          ),
+        );
+      }
+      return;
+    }
     if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
     Navigator.pop(context);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Food updated')));
+    messenger.showSnackBar(const SnackBar(content: Text('Food updated')));
   }
 
   @override
@@ -169,6 +229,12 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
                 icon: const Icon(Icons.edit_outlined),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _replaceFood,
+            icon: const Icon(Icons.swap_horiz),
+            label: const Text('Replace food match'),
           ),
           const SizedBox(height: 20),
           Container(

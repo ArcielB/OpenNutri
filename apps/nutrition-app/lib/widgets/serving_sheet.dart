@@ -53,7 +53,8 @@ class _ServingSheetState extends State<ServingSheet> {
     if (_mode == ServingMode.portion && _portion != null) {
       return _portion!.gramWeight * _servings;
     }
-    return double.tryParse(_gramsController.text) ?? 0;
+    final grams = double.tryParse(_gramsController.text.replaceAll(',', '.'));
+    return grams != null && grams.isFinite ? grams : 0;
   }
 
   double get _edibleGrams {

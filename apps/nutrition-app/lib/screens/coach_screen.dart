@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/personalization.dart';
 import '../services/coach_service.dart';
 import '../services/voice_recorder.dart';
+import '../services/voice_api_client.dart';
 import '../state/app_controller.dart';
 import 'diets_screen.dart';
 import 'voice_log_screen.dart';
@@ -16,18 +17,20 @@ class CoachScreen extends StatefulWidget {
     required this.coachService,
     required this.refreshDaily,
     required this.dailyLoading,
+    this.isActive = true,
   });
 
   final AppController controller;
   final CoachService coachService;
   final Future<void> Function({bool force}) refreshDaily;
   final bool dailyLoading;
+  final bool isActive;
 
   @override
   State<CoachScreen> createState() => _CoachScreenState();
 }
 
-class _CoachScreenState extends State<CoachScreen> {
+class _CoachScreenState extends State<CoachScreen> with WidgetsBindingObserver {
   final _message = TextEditingController();
   final List<_ChatMessage> _messages = const [
     _ChatMessage(
@@ -45,13 +48,30 @@ class _CoachScreenState extends State<CoachScreen> {
   void initState() {
     super.initState();
     _recorder = OpenNutriVoiceRecorder()..addListener(_onRecorderChanged);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didUpdateWidget(covariant CoachScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.isActive && _recording) _cancelVoice();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused && _recording) _cancelVoice();
+  }
+
+  void _cancelVoice() {
+    _recording = false;
+    unawaited(_recorder.cancel());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _recorder.removeListener(_onRecorderChanged);
-    unawaited(_recorder.deleteTemporaryFile());
-    _recorder.dispose();
+    unawaited(_recorder.cancel().whenComplete(_recorder.dispose));
     _message.dispose();
     super.dispose();
   }
@@ -76,7 +96,7 @@ class _CoachScreenState extends State<CoachScreen> {
         icon: const Icon(Icons.auto_awesome),
         title: const Text('Activate your AI coach?'),
         content: const Text(
-          'Your chosen goal, saved coach facts, and a compact summary of today’s diary are sent transiently to Google Gemini when advice is generated. If you use the microphone, that temporary recording is also sent for one response and then deleted. OpenNutri keeps your profile on this phone; the resolver does not store coach requests, responses, or audio.\n\nThis is general food guidance, not medical care.',
+          'Your goal, diet notes, saved facts, messages, and a summary of the selected diary day are sent to Google Gemini for advice. Voice messages also send a temporary recording, deleted from this phone after the request. OpenNutri’s server does not store these requests or replies.\n\nThis beta uses Gemini’s unpaid service. Google may use inputs and replies to improve its products, and human reviewers may review them. Avoid confidential or sensitive information. You can disable coaching in Settings.\n\nThis is general food guidance, not medical care.',
         ),
         actions: [
           TextButton(
@@ -90,7 +110,7 @@ class _CoachScreenState extends State<CoachScreen> {
         ],
       ),
     );
-    if (accepted != true) return false;
+    if (accepted != true || !mounted) return false;
     await widget.controller.enableCoach();
     await widget.refreshDaily(force: true);
     return true;
@@ -98,7 +118,9 @@ class _CoachScreenState extends State<CoachScreen> {
 
   Future<void> _send() async {
     final text = _message.text.trim();
-    if (text.isEmpty || _sending || !await _ensureEnabled()) return;
+    if (text.isEmpty || text.length > 1000 || _sending || _recording) return;
+    if (!await _ensureEnabled() || !mounted || _sending) return;
+    final conversation = _conversation;
     setState(() {
       _messages.add(_ChatMessage(fromCoach: false, text: text));
       _message.clear();
@@ -109,29 +131,28 @@ class _CoachScreenState extends State<CoachScreen> {
         controller: widget.controller,
         mode: CoachMode.chat,
         message: text,
+        conversation: conversation,
       );
+      if (!widget.controller.profile.coachEnabled) return;
       await widget.controller.addCoachMemories(reply.memoryUpdates);
       if (!mounted) return;
       setState(() {
         _messages.add(
           _ChatMessage(
             fromCoach: true,
-            text: reply.message,
+            text: _replyText(reply.message, reply.safetyNote),
             remembered: reply.memoryUpdates,
           ),
         );
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _messages.add(
-          const _ChatMessage(
-            fromCoach: true,
-            text:
-                'I couldn’t reach the coach service. Nothing from that message was saved—please try again.',
-          ),
+          _ChatMessage(fromCoach: true, text: _errorMessage(error)),
         );
       });
+      _message.text = text;
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -174,7 +195,9 @@ class _CoachScreenState extends State<CoachScreen> {
         languageHint: voiceLanguageHintForLocale(
           WidgetsBinding.instance.platformDispatcher.locale,
         ),
+        conversation: _conversation,
       );
+      if (!widget.controller.profile.coachEnabled) return;
       await widget.controller.addCoachMemories(reply.memoryUpdates);
       if (!mounted) return;
       setState(() {
@@ -187,7 +210,7 @@ class _CoachScreenState extends State<CoachScreen> {
         _messages.add(
           _ChatMessage(
             fromCoach: true,
-            text: reply.message,
+            text: _replyText(reply.message, reply.safetyNote),
             remembered: reply.memoryUpdates,
           ),
         );
@@ -214,6 +237,32 @@ class _CoachScreenState extends State<CoachScreen> {
     await widget.controller.updateGoal(goal);
     await widget.refreshDaily(force: true);
   }
+
+  String _replyText(String message, String? note) =>
+      note == null || note.trim().isEmpty ? message : '$message\n\n$note';
+
+  List<Map<String, String>> get _conversation => _messages
+      .skip(1)
+      .toList()
+      .reversed
+      .take(6)
+      .toList()
+      .reversed
+      .map(
+        (message) => {
+          'role': message.fromCoach ? 'assistant' : 'user',
+          'text': message.text.length <= 1000
+              ? message.text
+              : message.text.substring(0, 1000),
+        },
+      )
+      .toList();
+
+  String _errorMessage(Object error) =>
+      error is VoiceApiException &&
+          error.kind == VoiceApiFailureKind.rateLimited
+      ? 'The shared AI limit has been reached. Your message is ready to retry later.'
+      : 'The coach could not finish. Your message is ready to retry; no new facts were saved.';
 
   @override
   Widget build(BuildContext context) {
@@ -324,6 +373,7 @@ class _CoachScreenState extends State<CoachScreen> {
                   controller: _message,
                   minLines: 1,
                   maxLines: 4,
+                  maxLength: 1000,
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => _send(),
                   decoration: const InputDecoration(
@@ -341,7 +391,7 @@ class _CoachScreenState extends State<CoachScreen> {
               const SizedBox(width: 6),
               IconButton.filled(
                 tooltip: 'Send to coach',
-                onPressed: _sending ? null : _send,
+                onPressed: _sending || _recording ? null : _send,
                 icon: _sending
                     ? const SizedBox.square(
                         dimension: 20,
@@ -467,8 +517,14 @@ class _DailyBrief extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 reply?.message ??
-                    'Activate the coach once. After that, a fresh suggestion appears when you open OpenNutri.',
+                    (enabled
+                        ? 'Refresh for advice based on the selected day.'
+                        : 'Activate the coach once. After that, a daily suggestion appears when you open OpenNutri.'),
               ),
+              if (reply?.safetyNote?.isNotEmpty ?? false) ...[
+                const SizedBox(height: 8),
+                Text(reply!.safetyNote!),
+              ],
               if (!enabled) ...[
                 const SizedBox(height: 16),
                 FilledButton.tonal(
@@ -499,8 +555,8 @@ class _DailyBrief extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(
                   brief!.generatedByAi
-                      ? 'Generated by ${reply?.model}'
-                      : 'On-device fallback',
+                      ? '${brief!.dateKey} · AI advice from your saved snapshot'
+                      : '${brief!.dateKey} · On-device fallback',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: scheme.onPrimary.withValues(alpha: 0.75),
                   ),

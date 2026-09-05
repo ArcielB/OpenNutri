@@ -66,6 +66,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
   List<String> _autoLoggedEntryIds = const [];
   String? _error;
   String? _processingPath;
+  bool _saving = false;
   String _processingMessage = 'Understanding your meal…';
 
   @override
@@ -268,6 +269,8 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         'You appear to be offline. Reconnect or use food search.',
       VoiceApiFailureKind.authentication =>
         'A private voice session could not be started. Try again in a moment.',
+      VoiceApiFailureKind.rateLimited =>
+        'The AI request limit has been reached. Try again later or use food search.',
       VoiceApiFailureKind.service =>
         'The voice service is taking a break. Your diary was not changed.',
       VoiceApiFailureKind.invalidResponse =>
@@ -324,6 +327,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         details[id] = await widget.coreApiClient.foodDetail(id);
       }),
     );
+    if (!mounted) return;
     for (final item in _reviewItems) {
       item.dispose();
     }
@@ -376,7 +380,9 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
   bool get _canInstantLog => _canLogAll;
 
   Future<void> _logAll({bool automatic = false}) async {
-    if (!_canLogAll || _resolution == null) return;
+    if (!_canLogAll || _resolution == null || _saving) return;
+    setState(() => _saving = true);
+    final editing = _autoLoggedEntryIds.isNotEmpty;
     final entries = <DiaryEntry>[];
     final feedback = <VoiceFeedbackItem>[];
     for (final item in _reviewItems) {
@@ -400,7 +406,7 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
               '${_resolution!.metadata.requestId}-'
               '${item.resolution.conceptIndex}',
           loggedByVoice: true,
-          needsReview: item.wasEstimated,
+          needsReview: automatic && item.wasEstimated,
         ),
       );
       feedback.add(
@@ -412,16 +418,29 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
         ),
       );
     }
-    await widget.controller.addEntries(entries);
-    if (widget.controller.voiceFeedbackConsent) {
-      try {
-        await widget.voiceApiClient.sendFeedback(
-          metadata: _resolution!.metadata,
-          items: feedback,
-        );
-      } catch (_) {
-        // Optional feedback never blocks local diary logging.
+    try {
+      if (editing) {
+        await widget.controller.updateEntries(entries);
+      } else {
+        await widget.controller.addEntries(entries);
       }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save foods. Please try again.'),
+          ),
+        );
+        setState(() => _state = VoiceLogState.review);
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+    if (widget.controller.voiceFeedbackConsent) {
+      unawaited(
+        _sendFeedback(metadata: _resolution!.metadata, items: feedback),
+      );
     }
     if (!mounted) return;
     final ids = entries.map((entry) => entry.id).toList(growable: false);
@@ -432,6 +451,11 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
       });
       if (widget.quickCapture) {
         await Future<void>.delayed(const Duration(milliseconds: 550));
+        if (!mounted ||
+            _state != VoiceLogState.logged ||
+            !identical(_autoLoggedEntryIds, ids)) {
+          return;
+        }
         await AndroidWidgetBridge.finishQuickCapture(
           foodCount: entries.length,
           needsReview: entries.any((entry) => entry.needsReview),
@@ -443,13 +467,31 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
     Navigator.of(context).pop();
     messenger.showSnackBar(
       SnackBar(
-        content: Text('${entries.length} foods logged'),
-        action: SnackBarAction(
-          label: 'Undo',
-          onPressed: () => widget.controller.removeEntries(ids),
+        content: Text(
+          editing ? 'Foods updated' : '${entries.length} foods logged',
         ),
+        action: editing
+            ? null
+            : SnackBarAction(
+                label: 'Undo',
+                onPressed: () => widget.controller.removeEntries(ids),
+              ),
       ),
     );
+  }
+
+  Future<void> _sendFeedback({
+    required ResolutionMetadata metadata,
+    required List<VoiceFeedbackItem> items,
+  }) async {
+    try {
+      await widget.voiceApiClient.sendFeedback(
+        metadata: metadata,
+        items: items,
+      );
+    } catch (_) {
+      // Best effort: feedback must never delay success or widget completion.
+    }
   }
 
   Future<void> _undoAutomaticLog() async {
@@ -467,10 +509,20 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
     final resolution = _resolution;
     final ids = _autoLoggedEntryIds;
     if (resolution == null || ids.isEmpty) return;
-    await widget.controller.removeEntries(ids);
-    if (!mounted) return;
-    _autoLoggedEntryIds = const [];
-    await _prepareReview(resolution);
+    // Keep the original diary entries until Save changes succeeds.
+    setState(() => _state = VoiceLogState.review);
+    try {
+      await _prepareReview(resolution);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Alternatives are unavailable. You can still edit the saved match.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _openManualSearch() async {
@@ -530,7 +582,8 @@ class _VoiceLogScreenState extends State<VoiceLogScreen> {
                 VoiceLogState.review => _ReviewView(
                   transcript: _resolution?.transcript ?? '',
                   items: _reviewItems,
-                  canLogAll: _canLogAll,
+                  canLogAll: _canLogAll && !_saving,
+                  editing: _autoLoggedEntryIds.isNotEmpty,
                   onLogAll: () => _logAll(),
                   onManualSearch: _openManualSearch,
                 ),
@@ -614,7 +667,9 @@ class _ReviewItem {
   FoodDetail? get selectedDetail => details[selectedFoodId];
   double? get grams {
     final value = double.tryParse(gramsController.text.replaceAll(',', '.'));
-    return value != null && value > 0 ? value : null;
+    return value != null && value.isFinite && value > 0 && value <= 10000
+        ? value
+        : null;
   }
 
   bool get isValid =>
@@ -927,6 +982,7 @@ class _ReviewView extends StatelessWidget {
     required this.transcript,
     required this.items,
     required this.canLogAll,
+    required this.editing,
     required this.onLogAll,
     required this.onManualSearch,
   });
@@ -934,6 +990,7 @@ class _ReviewView extends StatelessWidget {
   final String transcript;
   final List<_ReviewItem> items;
   final bool canLogAll;
+  final bool editing;
   final VoidCallback onLogAll;
   final VoidCallback onManualSearch;
 
@@ -981,7 +1038,9 @@ class _ReviewView extends StatelessWidget {
               child: FilledButton.icon(
                 onPressed: canLogAll ? onLogAll : null,
                 icon: const Icon(Icons.check),
-                label: Text('Log all (${items.length})'),
+                label: Text(
+                  editing ? 'Save changes' : 'Log all (${items.length})',
+                ),
               ),
             ),
           ),

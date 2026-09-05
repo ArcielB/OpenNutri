@@ -17,6 +17,8 @@ class MainActivity : FlutterActivity() {
 
     private var methodChannel: MethodChannel? = null
     private var pendingVoiceAction = false
+    internal var capturedVoiceActionCount = 0
+        private set
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -47,6 +49,7 @@ class MainActivity : FlutterActivity() {
 
     private fun captureVoiceAction(intent: Intent?, notifyFlutter: Boolean) {
         if (intent?.action != ACTION_VOICE_LOG) return
+        capturedVoiceActionCount += 1
         pendingVoiceAction = true
         intent.action = null
         if (notifyFlutter) {

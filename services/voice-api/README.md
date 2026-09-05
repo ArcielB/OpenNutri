@@ -10,7 +10,11 @@ audio -> one-pass literal transcript + structured concepts -> lexical retrieval
 
 The service never returns invented nutrient data. Gemini can select only a Core food
 ID supplied in that concept's retrieved candidate set, and every returned ID is
-validated again. Flutter obtains nutrients from the public Core API after review.
+validated again. Flutter obtains nutrients from the public Core API before saving.
+Android 1.1 saves a batch immediately when every item has a usable selection;
+uncertainty is marked as an editable estimate. `auto_log_eligible` remains a
+server confidence signal, not a mandatory client confirmation policy. See the
+[consumer guide](../../docs/consumer_app.md) for the distinction.
 
 The same authenticated service also provides stateless structured coaching.
 `gemini-3.8-flash` receives a compact client-supplied profile/diary snapshot and
@@ -19,7 +23,7 @@ responses, and audio are not written to Supabase. Voice coach input is handled i
 one audio request that returns the literal transcript, reply, and only explicit
 durable memory candidates; Flutter decides what to store on-device. Oracle output
 cannot log directly: Flutter resolves its plain-English query against Core first.
-Coach requests use the configured latest Flash model and make at most one same-model
+Coach requests use the configured Flash model and make at most one same-model
 retry for a transient provider/transport failure; this avoids reporting an older
 model while absorbing occasional Gemini 5xx responses.
 
@@ -39,8 +43,9 @@ model while absorbing occasional Gemini 5xx responses.
   auto-log eligible.
 - If the primary model is temporarily unavailable, rate-limited, or returns
   malformed/schema-invalid structured output, `gemini-3.1-flash-lite` gets one
-  review-only attempt. Every fallback item is marked `transcription` unresolved and
-  can never auto-log until the person confirms it. If both attempts fail, any safe
+  uncertainty-marked attempt. Every fallback item is marked `transcription` unresolved
+  and is not server auto-log eligible; Android can save a usable selected result
+  as a Quick estimate. If both attempts fail, any safe
   transcript recovered from the response is returned for editable manual search.
   A successful audio fallback never starts a third provider call: lexical candidates
   are returned for safe review. Later query-rewrite, embedding, or selector failures
@@ -56,7 +61,7 @@ model while absorbing occasional Gemini 5xx responses.
   lexical search. Only phrases that still have no candidate use a batched embedding
   call.
   The literal transcript and extracted amount stay separately represented, and normalized
-  matches always require review. This keeps the ordinary path fast and minimizes
+  matches retain uncertainty metadata for later correction. This keeps the ordinary path fast and minimizes
   private-index egress.
 - A recording may contain up to ten foods. Explicit spoken meal groups are returned
   per concept; meal is otherwise left unset for Flutter's local-time default.
@@ -71,6 +76,10 @@ model while absorbing occasional Gemini 5xx responses.
   incomplete. FDA adult Daily Values supplied by Flutter are broad comparison
   references, not individualized clinical targets. Memory updates are limited to
   facts explicitly stated in chat and are never persisted by this service.
+  Since 0.4.1, missing metric amounts may be null with source-coverage counts;
+  prompts must not interpret unknown or partially covered nutrients as zero intake.
+  Chat can include at most six prior turns as conversation context, never as new
+  personal facts. Non-chat Gemini output has memory updates stripped server-side.
 
 ## Local setup
 
@@ -119,6 +128,86 @@ check and does not download hashes or call Gemini.
 
 WAV input must be 16 kHz, mono, signed 16-bit PCM, no longer than 30 seconds, and no
 larger than 1 MB.
+
+### Coach contract (0.4.1)
+
+All routes require `Authorization: Bearer <app anonymous access token>`. JSON
+example for `POST /v1/coach/respond`:
+
+```json
+{
+  "mode": "chat",
+  "locale": "en-US",
+  "local_date": "2026-09-05",
+  "goal": "Eat well",
+  "diet": "Flexible balance",
+  "diet_notes": "Simple meals",
+  "memories": ["Prefers lentils"],
+  "daily_totals": [{
+    "name": "Vitamin D", "amount": null, "unit": "mcg", "target": 20,
+    "logged_foods_with_value": 0, "logged_food_count": 2
+  }],
+  "recent_foods": [],
+  "conversation": [{"role": "assistant", "text": "Would you like dinner ideas?"}],
+  "user_message": "Yes, something quick."
+}
+```
+
+Response shape (illustrative, not a live result):
+
+```json
+{
+  "headline": "A simple dinner",
+  "message": "Try a lentil bowl with vegetables you enjoy.",
+  "actions": [{"title": "Lentil bowl", "detail": "Use cooked lentils as a starting point.", "search_query": "cooked lentils"}],
+  "memory_updates": [],
+  "safety_note": null,
+  "model": "gemini-3.8-flash"
+}
+```
+
+Modes: `daily`, `chat`, `oracle`, `diet_plan` (last is backend-only for now).
+Bounds: 30 facts of 180 characters, 500-character diet notes, 40 metrics,
+30 foods with 160-character names, a 1,000-character current message, and six
+conversation turns of at most 1,000 characters each. Metric amounts are finite,
+nonnegative or null; targets, when present, are finite and positive. Coverage is
+optional for older clients. `POST /v1/coach/voice` uses multipart fields `audio`,
+`language_hint`, and `context` (this same JSON, mode `chat`, up to 32,000
+characters), and additionally returns the current recording's literal `transcript`.
+
+Authentication errors return 401, invalid contracts 422, request/quota conflicts
+429, and provider/store failures 503. Voice resolve routes have their separate
+safe `manual_search` response contract. The Flutter client serializes AI requests
+to avoid simultaneous calls competing for the per-subject slot.
+
+The resolver does not store coaching content; that is not a statement about
+Google's retention or data use. The beta's unpaid provider processing is governed
+by [Gemini API terms](https://ai.google.dev/gemini-api/terms#data-use-unpaid).
+
+### Deployment
+
+The linked Vercel project uses `vercel.json`, installs runtime requirements, and
+fetches/verifies Core SQLite with `scripts/fetch_core_release.py`. After tests:
+
+```bash
+npx vercel deploy --prod --yes
+curl --fail https://opennutri-voice-beta.vercel.app/health
+```
+
+Use the existing project link and configured server environment. No schema
+migration is required for 0.4.1. Health confirms service configuration/version,
+not successful authentication or AI quality; run a bounded authenticated fixture
+probe separately. Do not log tokens, private profile text, audio, or raw provider
+errors. Deployment and validation evidence belong in the current consumer audit.
+
+`scripts/smoke_coach.py --live` performs three sequential synthetic coach contract
+checks (daily, follow-up chat, Oracle). Optional `--wav <committed-fixture.wav>`
+adds one voice-coach check. Supply `OPENNUTRI_APP_ACCESS_TOKEN`, or the isolated
+`OPENNUTRI_APP_SUPABASE_PUBLISHABLE_KEY` to create a new anonymous test session.
+This consumes shared quota and, with a public key, leaves a test auth subject;
+prefer reusing a dedicated test access token. Output includes only versions,
+timings and counts. This is a contract smoke test, not a recommendation-quality
+or speech-accuracy benchmark.
 
 ## Benchmark
 

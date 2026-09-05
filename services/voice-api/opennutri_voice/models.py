@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -216,15 +216,24 @@ CoachMode = Literal["daily", "chat", "oracle", "diet_plan"]
 
 class CoachMetric(StrictModel):
     name: str = Field(min_length=1, max_length=80)
-    amount: float
+    amount: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     unit: str = Field(min_length=1, max_length=16)
-    target: float | None = Field(default=None, gt=0)
+    target: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    # A missing source value is unknown, not zero intake. Counts describe the
+    # available nutrient snapshots, not whether the person logged a complete day.
+    logged_foods_with_value: int | None = Field(default=None, ge=0)
+    logged_food_count: int | None = Field(default=None, ge=0)
 
 
 class CoachFoodLog(StrictModel):
     name: str = Field(min_length=1, max_length=160)
-    grams: float = Field(gt=0)
+    grams: float = Field(gt=0, allow_inf_nan=False)
     meal: MealType
+
+
+class CoachConversationTurn(StrictModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=1000)
 
 
 class CoachRequest(StrictModel):
@@ -234,10 +243,13 @@ class CoachRequest(StrictModel):
     goal: str = Field(default="Eat well", max_length=120)
     diet: str = Field(default="Balanced", max_length=120)
     diet_notes: str = Field(default="", max_length=500)
-    memories: list[str] = Field(default_factory=list, max_length=30)
+    memories: list[Annotated[str, Field(min_length=1, max_length=180)]] = Field(
+        default_factory=list, max_length=30
+    )
     daily_totals: list[CoachMetric] = Field(default_factory=list, max_length=40)
     recent_foods: list[CoachFoodLog] = Field(default_factory=list, max_length=30)
     user_message: str | None = Field(default=None, min_length=1, max_length=1000)
+    conversation: list[CoachConversationTurn] = Field(default_factory=list, max_length=6)
 
 
 class CoachAction(StrictModel):

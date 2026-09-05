@@ -75,6 +75,7 @@ class TodayScreen extends StatelessWidget {
         entry: entry,
         apiClient: apiClient,
         onUpdate: controller.updateEntry,
+        resolver: voiceApiClient,
       ),
     );
   }

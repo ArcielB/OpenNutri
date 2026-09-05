@@ -31,11 +31,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _carbs;
   late final TextEditingController _fat;
   late Future<Map<String, dynamic>> _health;
+  late NutritionTargets _displayedTargets;
 
   @override
   void initState() {
     super.initState();
     final targets = widget.controller.targets;
+    _displayedTargets = targets;
     _calories = TextEditingController(
       text: targets.calories.toStringAsFixed(0),
     );
@@ -43,10 +45,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _carbs = TextEditingController(text: targets.carbs.toStringAsFixed(0));
     _fat = TextEditingController(text: targets.fat.toStringAsFixed(0));
     _health = widget.apiClient.health();
+    widget.controller.addListener(_syncTargets);
+  }
+
+  void _syncTargets() {
+    final targets = widget.controller.targets;
+    if (identical(targets, _displayedTargets)) return;
+    _displayedTargets = targets;
+    _calories.text = targets.calories.toStringAsFixed(0);
+    _protein.text = targets.protein.toStringAsFixed(0);
+    _carbs.text = targets.carbs.toStringAsFixed(0);
+    _fat.text = targets.fat.toStringAsFixed(0);
   }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_syncTargets);
     _calories.dispose();
     _protein.dispose();
     _carbs.dispose();
@@ -55,13 +69,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveTargets() async {
-    final values = [
-      _calories,
-      _protein,
-      _carbs,
-      _fat,
-    ].map((controller) => double.tryParse(controller.text)).toList();
-    if (values.any((value) => value == null || value <= 0)) {
+    final values = [_calories, _protein, _carbs, _fat]
+        .map(
+          (controller) => double.tryParse(controller.text.replaceAll(',', '.')),
+        )
+        .toList();
+    if (values.any((value) => value == null || !value.isFinite || value <= 0)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Targets must be greater than zero')),
       );
@@ -235,6 +248,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? const Chip(label: Text('Active'))
                     : null,
               ),
+              if (widget.controller.profile.coachEnabled)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: true,
+                  title: const Text('AI coaching'),
+                  subtitle: const Text(
+                    'Turn off future AI advice. Saved facts stay on this phone.',
+                  ),
+                  onChanged: (_) => widget.controller.updateProfile(
+                    widget.controller.profile.copyWith(coachEnabled: false),
+                  ),
+                ),
               const SizedBox(height: 32),
               _heading(context, 'Data'),
               const SizedBox(height: 8),

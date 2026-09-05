@@ -11,7 +11,11 @@ import '../models/personalization.dart';
 import 'supabase_config.dart';
 
 class VoiceApiClient {
-  VoiceApiClient({http.Client? client}) : _client = client ?? http.Client();
+  VoiceApiClient({
+    http.Client? client,
+    Future<String> Function()? tokenProvider,
+  }) : _client = client ?? http.Client(),
+       _tokenProvider = tokenProvider;
 
   static const baseUrl = String.fromEnvironment(
     'OPENNUTRI_VOICE_API_BASE_URL',
@@ -19,8 +23,21 @@ class VoiceApiClient {
   );
 
   final http.Client _client;
+  final Future<String> Function()? _tokenProvider;
+  Future<String>? _pendingToken;
+  Future<void> _aiTail = Future<void>.value();
 
-  bool get isConfigured => baseUrl.isNotEmpty && SupabaseConfig.isConfigured;
+  bool get isConfigured =>
+      baseUrl.isNotEmpty &&
+      (_tokenProvider != null || SupabaseConfig.isConfigured);
+
+  // The server permits one active AI request per subject. A shared client keeps
+  // daily advice, Oracle, submitted search and voice from rejecting each other.
+  Future<T> _serialAi<T>(Future<T> Function() operation) {
+    final result = _aiTail.then((_) => operation());
+    _aiTail = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
+  }
 
   /// Starts anonymous auth and the resolver's cold function while recording begins.
   /// Failures stay non-blocking: the actual resolution path retains its normal
@@ -40,7 +57,13 @@ class VoiceApiClient {
     }
   }
 
-  Future<String> _accessToken() async {
+  Future<String> _accessToken() {
+    return _pendingToken ??= (_tokenProvider?.call() ?? _loadAccessToken())
+        .timeout(const Duration(seconds: 10))
+        .whenComplete(() => _pendingToken = null);
+  }
+
+  Future<String> _loadAccessToken() async {
     if (!SupabaseConfig.isConfigured) {
       throw const VoiceApiException('Voice sign-in is not configured');
     }
@@ -77,6 +100,20 @@ class VoiceApiClient {
     required String languageHint,
     required DateTime localTimestamp,
     required String timezone,
+  }) => _serialAi(
+    () => _resolveVoice(
+      wavPath: wavPath,
+      languageHint: languageHint,
+      localTimestamp: localTimestamp,
+      timezone: timezone,
+    ),
+  );
+
+  Future<VoiceResolution> _resolveVoice({
+    required String wavPath,
+    required String languageHint,
+    required DateTime localTimestamp,
+    required String timezone,
   }) async {
     if (!isConfigured) {
       throw const VoiceApiException('Voice logging is not configured');
@@ -105,10 +142,10 @@ class VoiceApiClient {
       ),
     );
     try {
-      final streamed = await _client
+      final response = await _client
           .send(request)
+          .then(http.Response.fromStream)
           .timeout(const Duration(seconds: 30));
-      final response = await http.Response.fromStream(streamed);
       return VoiceResolution.fromJson(_decode(response));
     } on TimeoutException catch (error) {
       throw VoiceApiException(
@@ -134,6 +171,15 @@ class VoiceApiClient {
   }
 
   Future<VoiceResolution> resolveText(
+    String query, {
+    DateTime? localTimestamp,
+    String timezone = 'UTC',
+  }) => _serialAi(
+    () =>
+        _resolveText(query, localTimestamp: localTimestamp, timezone: timezone),
+  );
+
+  Future<VoiceResolution> _resolveText(
     String query, {
     DateTime? localTimestamp,
     String timezone = 'UTC',
@@ -194,7 +240,10 @@ class VoiceApiClient {
     _decode(response);
   }
 
-  Future<CoachReply> coach(Map<String, dynamic> request) async {
+  Future<CoachReply> coach(Map<String, dynamic> request) =>
+      _serialAi(() => _coach(request));
+
+  Future<CoachReply> _coach(Map<String, dynamic> request) async {
     if (!isConfigured) {
       throw const VoiceApiException('AI coach is not configured');
     }
@@ -229,6 +278,18 @@ class VoiceApiClient {
     required String wavPath,
     required String languageHint,
     required Map<String, dynamic> context,
+  }) => _serialAi(
+    () => _coachVoice(
+      wavPath: wavPath,
+      languageHint: languageHint,
+      context: context,
+    ),
+  );
+
+  Future<CoachReply> _coachVoice({
+    required String wavPath,
+    required String languageHint,
+    required Map<String, dynamic> context,
   }) async {
     if (!isConfigured) {
       throw const VoiceApiException('AI coach is not configured');
@@ -253,10 +314,10 @@ class VoiceApiClient {
       ),
     );
     try {
-      final streamed = await _client
+      final response = await _client
           .send(request)
+          .then(http.Response.fromStream)
           .timeout(const Duration(seconds: 30));
-      final response = await http.Response.fromStream(streamed);
       return CoachReply.fromJson(_decode(response));
     } on TimeoutException catch (error) {
       throw VoiceApiException(
@@ -278,7 +339,9 @@ class VoiceApiClient {
       throw VoiceApiException(
         'Voice service returned ${response.statusCode}',
         null,
-        response.statusCode == 401
+        response.statusCode == 429
+            ? VoiceApiFailureKind.rateLimited
+            : response.statusCode == 401
             ? VoiceApiFailureKind.authentication
             : VoiceApiFailureKind.service,
       );
@@ -302,6 +365,7 @@ enum VoiceApiFailureKind {
   authentication,
   service,
   invalidResponse,
+  rateLimited,
 }
 
 class VoiceApiException implements Exception {

@@ -9,6 +9,7 @@ class AppController extends ChangeNotifier {
 
   final LocalStore _store;
   List<DiaryEntry> _entries = const [];
+  List<DiaryEntry> _persistedEntries = const [];
   DateTime _selectedDate = DateTime.now();
   NutritionTargets _targets = const NutritionTargets();
   bool _voiceDisclosureAccepted = false;
@@ -16,6 +17,8 @@ class AppController extends ChangeNotifier {
   bool _voiceFastLogging = true;
   UserNutritionProfile _profile = const UserNutritionProfile();
   DailyCoachBrief? _dailyCoachBrief;
+  Future<void> _entryWriteTail = Future<void>.value();
+  int _coachContextRevision = 0;
 
   DateTime get selectedDate => _selectedDate;
   NutritionTargets get targets => _targets;
@@ -24,10 +27,16 @@ class AppController extends ChangeNotifier {
   bool get voiceFeedbackConsent => _voiceFeedbackConsent;
   bool get voiceFastLogging => _voiceFastLogging;
   UserNutritionProfile get profile => _profile;
-  DailyCoachBrief? get dailyCoachBrief => _dailyCoachBrief;
+  int get coachContextRevision => _coachContextRevision;
+  DailyCoachBrief? get dailyCoachBrief =>
+      _profile.coachEnabled &&
+          _dailyCoachBrief?.dateKey == dateKeyFor(_selectedDate)
+      ? _dailyCoachBrief
+      : null;
 
   Future<void> initialize() async {
     _entries = await _store.loadEntries();
+    _persistedEntries = _entries;
     _targets = await _store.loadTargets();
     _voiceDisclosureAccepted = await _store.loadVoiceDisclosureAccepted();
     _voiceFeedbackConsent = await _store.loadVoiceFeedbackConsent();
@@ -64,6 +73,7 @@ class AppController extends ChangeNotifier {
 
   void selectDate(DateTime date) {
     _selectedDate = DateTime(date.year, date.month, date.day);
+    _coachContextRevision++;
     notifyListeners();
   }
 
@@ -77,9 +87,10 @@ class AppController extends ChangeNotifier {
 
   Future<void> addEntries(List<DiaryEntry> entries) async {
     if (entries.isEmpty) return;
-    _entries = [..._entries, ...entries];
-    notifyListeners();
-    await _store.saveEntries(_entries);
+    final ids = _entries.map((entry) => entry.id).toSet();
+    final additions = entries.where((entry) => ids.add(entry.id)).toList();
+    if (additions.isEmpty) return;
+    await _persistEntries([..._entries, ...additions]);
   }
 
   Future<DiaryEntry> repeatEntry(DiaryEntry source, {MealType? meal}) async {
@@ -93,33 +104,72 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> updateEntry(DiaryEntry updated) async {
-    final index = _entries.indexWhere((entry) => entry.id == updated.id);
-    if (index < 0) return;
-    final values = List<DiaryEntry>.of(_entries);
-    values[index] = updated;
-    _entries = values;
-    notifyListeners();
-    await _store.saveEntries(_entries);
+    await updateEntries([updated]);
+  }
+
+  /// An edit replaces saved snapshots in one write. Opening/cancelling an editor
+  /// never deletes them, and stale editors cannot resurrect removed entries.
+  Future<void> updateEntries(List<DiaryEntry> updates) async {
+    final byId = {for (final entry in updates) entry.id: entry};
+    if (!_entries.any((entry) => byId.containsKey(entry.id))) return;
+    await _persistEntries([
+      for (final entry in _entries) byId[entry.id] ?? entry,
+    ]);
   }
 
   Future<void> removeEntries(Iterable<String> entryIds) async {
     final ids = entryIds.toSet();
     if (ids.isEmpty) return;
-    _entries = _entries.where((entry) => !ids.contains(entry.id)).toList();
-    notifyListeners();
-    await _store.saveEntries(_entries);
+    await _persistEntries(
+      _entries.where((entry) => !ids.contains(entry.id)).toList(),
+    );
   }
 
   Future<void> clearEntries() async {
-    _entries = const [];
+    await _persistEntries(const []);
+  }
+
+  Future<void> _persistEntries(List<DiaryEntry> entries) async {
+    _entries = entries;
+    _coachContextRevision++;
     notifyListeners();
-    await _store.saveEntries(_entries);
+    // Keep optimistic rendering, but serialize disk snapshots so a slow earlier
+    // save cannot overwrite a later correction or Undo.
+    final write = _entryWriteTail.then((_) async {
+      await _store.saveEntries(entries);
+      _persistedEntries = entries;
+    });
+    _entryWriteTail = write.catchError((Object _) {});
+    try {
+      await write;
+    } catch (_) {
+      if (identical(_entries, entries)) {
+        _entries = _persistedEntries;
+        _coachContextRevision++;
+        notifyListeners();
+      }
+      rethrow;
+    }
   }
 
   Future<void> updateTargets(NutritionTargets targets) async {
+    final values = [
+      targets.calories,
+      targets.protein,
+      targets.carbs,
+      targets.fat,
+    ];
+    if (values.any((value) => !value.isFinite || value <= 0)) {
+      throw ArgumentError('Targets must be finite and greater than zero');
+    }
     _targets = targets;
+    _dailyCoachBrief = null;
+    _coachContextRevision++;
     notifyListeners();
-    await _store.saveTargets(targets);
+    await Future.wait([
+      _store.saveTargets(targets),
+      _store.clearDailyCoachBrief(),
+    ]);
   }
 
   Future<void> acceptVoiceDisclosure({required bool feedbackConsent}) async {
@@ -146,8 +196,13 @@ class AppController extends ChangeNotifier {
 
   Future<void> updateProfile(UserNutritionProfile profile) async {
     _profile = profile;
+    _dailyCoachBrief = null;
+    _coachContextRevision++;
     notifyListeners();
-    await _store.saveProfile(profile);
+    await Future.wait([
+      _store.saveProfile(profile),
+      _store.clearDailyCoachBrief(),
+    ]);
   }
 
   Future<void> enableCoach() async {
@@ -158,10 +213,12 @@ class AppController extends ChangeNotifier {
     _profile = _profile.copyWith(goal: goal);
     _targets = _profile.diet.targetsForCalories(_targets.calories, goal: goal);
     _dailyCoachBrief = null;
+    _coachContextRevision++;
     notifyListeners();
     await Future.wait([
       _store.saveProfile(_profile),
       _store.saveTargets(_targets),
+      _store.clearDailyCoachBrief(),
     ]);
   }
 
@@ -172,10 +229,12 @@ class AppController extends ChangeNotifier {
     );
     _targets = diet.targetsForCalories(_targets.calories, goal: _profile.goal);
     _dailyCoachBrief = null;
+    _coachContextRevision++;
     notifyListeners();
     await Future.wait([
       _store.saveProfile(_profile),
       _store.saveTargets(_targets),
+      _store.clearDailyCoachBrief(),
     ]);
   }
 

@@ -62,102 +62,60 @@ This is the current high-signal project state after the reviewer workflow moved 
   source-linked weight factors. Search results add optional match provenance fields
   and enforce exact-primary, primary-prefix, common/FoodOn, and additional-description
   ranking tiers.
-- The Flutter diary can log edible grams or, when a usable factor exists,
-  as-purchased grams. It stores entered and converted edible weights separately and
-  scales all nutrients from edible grams.
-  On 2026-09-04 its 1.0 beta surface was rebuilt around a glanceable energy/macro
-  dashboard and whole-meal voice action. It now supports one-tap recent-food
-  repeats with Undo, guided typed search, grouped nutrition reporting, and a
-  tap-through trust sheet exposing the USDA publisher/dataset/code, logged and
-  edible weights, per-100 g calculation, and exact stored nutrient snapshot.
-  Supabase initialization runs in parallel with local startup, and the home shell
-  prewarms anonymous auth plus the resolver health endpoint so voice setup is more
-  likely to finish before recording ends.
-- `services/voice-api/` is the isolated authenticated resolver for the Android beta.
-  It verifies app-project anonymous JWTs through JWKS and uses an app-only Supabase
-  schema for 768-dimensional vectors, atomic quotas, and optional privacy-limited
-  feedback. As of 2026-09-04, voice resolution performs literal transcription and
-  concept extraction together in one structured audio call, removing the previous
-  mandatory second model round trip. `gemini-3.8-flash` is the English/Turkish
-  primary with `thinkingLevel=low`; Flutter supplies the supported device locale as
-  a hint instead of always sending `auto`. Direct two-food smoke tests completed in
-  2.78 seconds for English and 7.41 seconds for Turkish with both quantities exact.
-  Final authenticated production checks on resolver `0.3.5` completed those same
-  fixtures in 3.49 seconds (English) and 2.70 seconds (Turkish); both returned exact
-  Core foods/quantities with auto-log eligibility.
-  Response metadata includes privacy-safe stage timings. Each provider call has a
-  12-second deadline; timeout, rate limit, transport failure, or invalid structured
-  output uses `gemini-3.1-flash-lite` as review-only, so every fallback item receives
-  a `transcription` clarification and cannot auto-log. If both attempts fail, a
-  usable transcript recovered from the structured response is retained for editable
-  search. A successful audio fallback never makes a third provider call; lexical
-  candidates are shown for review. Query-rewrite, embedding, and selector failures
-  after transcription likewise degrade to conservative review instead of discarding
-  the transcript. Exact unambiguous lexical matches skip vector
-  retrieval and the selector entirely;
-  ambiguous lexical matches skip vectors but may use one constrained selector call.
-  Only concepts with no lexical candidates use one batched embedding request before
-  selection. Candidate IDs are validated against deterministic top-12 fusion
-  before returning. Provider/quota errors return a manual-search state without a
-  paid fallback.
-- The Flutter Android beta records a bounded 30-second temporary PCM WAV, waits 1.6
-  seconds through natural between-food pauses, and optimistically persists every
-  resolver item with a usable selected Core food. Missing quantity/basis and
-  ambiguous or lower-confidence matches use a neutral editable estimate and are
-  marked `Quick estimate` in the diary instead of opening a blocking confirmation
-  step. The success screen retains Edit batch/Undo batch actions, and tapping any
-  saved entry edits amount and meal in place. Widget-launched capture saves first,
-  shows a native Android result toast, then closes back to the launcher.
-  One recording supports up to ten foods and preserves explicitly spoken meal groups;
-  otherwise per-item meal defaults come from local time. It accepts cold/warm
-  `ACTION_VOICE_LOG` intents from a native 1×1 widget. Submitted text calls the private
-  resolver only on explicit Search; typing remains public lexical search.
-  The home shell prewarms anonymous auth and the resolver health endpoint before the
-  user opens voice; it cannot upload audio before the user stops recording.
-  The 2026-09-04 voice UI adds a live waveform/timer, clears stale snackbars on a new
-  recording, maps transport/auth/timeout/service/provider-contract failures
-  separately, preserves a returned transcript for prefilled search, retries
-  post-resolution Core detail loading without re-recording, and caches repeated food
-  details in memory. Resolver service `0.3.5` is deployed in Vercel Washington, D.C.
-  (`iad1`). Frankfurt (`fra1`) spent 35–39 seconds inside Gemini 3.5 Flash-Lite and
-  San Francisco took 35.42 seconds; the runtime therefore remains pinned to `iad1`.
-  Matching is local SQLite, so the extra EU quota-store round trip is small compared
-  with provider inference latency. A Supabase Edge proxy experiment was slower than
-  45 seconds and was removed completely from both providers after measurement.
-  On-device Android 16 validation on 2026-07-25 confirmed installation, first-use
-  disclosure, microphone permission, widget-equivalent cold intent delivery,
-  recording, and temporary-WAV cleanup after the then-shared app project's HTTP 402
-  auth failure. On 2026-07-27, the app was reprovisioned in its own isolated Free
-  Supabase organization and the resolver was redeployed to it; anonymous auth and
-  the private schema are now live without research egress coupling. The isolated
-  project was restored from an idle Free-plan pause on 2026-08-17; anonymous sign-up
-  and private REST both returned success. Authentication/
-  provider exceptions are deliberately rendered as the safe Manual search fallback
-  rather than exposing provider response text. The measured debug
-  cold launch was about 7.4 seconds on the test device, above the beta's 4-second
-  cold target; it must be remeasured after startup optimization and in a release
-  build.
-  A configured arm64 release APK was rebuilt on 2026-09-04 at
-  `apps/nutrition-app/build/app/outputs/flutter-apk/app-release.apk` (19,452,380
-  bytes; SHA-256 `355728ade6b7bfead76a3e6b6da57f67758ddc1437141737dc83bddb278205f9`).
-  It is debug-key signed for this personal beta and was installed in place on the
-  connected Android 16 `2409BRN2CA` device without clearing its diary data.
-- On 2026-09-04, the consumer app 1.1 product layer added a shared on-device
-  personalization profile, opt-in daily Gemini coaching, typed and voice coach chat,
-  explicit/removable memory updates, six adjustable diet templates, and an Oracle
-  that ranks food search strategies against the current day's nutrient opportunities.
-  The backend coach routes are stateless: they do not persist context, responses, or
-  audio. Oracle output contains search queries only; the user still selects a
-  source-backed Core record before logging. Diet macros adapt to both the current
-  energy target and selected goal. General FDA Nutrition Facts Daily Values are used
-  only as clearly labeled adult comparison references. Voice API service version is
-  `0.4.0`; production deployment `dpl_BfCTuBWN2XTBFjeEj4BMz4BLH41V` is live in
-  `iad1`. Authenticated production validation returned structured personalized daily
-  guidance, five restriction-aware Oracle queries, and a literal voice-coach
-  transcript/reply on `gemini-3.8-flash`. The latest configured release APK is
-  version `1.1.0+2`, 54,622,410 bytes, SHA-256
-  `3357b514810dcee325d894dc3ae17ad8722ba99bf3fafdcf97a26b2ad2e6d7cc`, and was
-  installed in place on the connected Android 16 `2409BRN2CA` without clearing data.
+- Consumer app current behavior is mapped in [consumer_app.md](../consumer_app.md).
+  The [2026-09-05 audit](../consumer_app_audit_2026-09-05.md) is the authoritative
+  validation/release ledger and distinguishes finished behavior from remaining work.
+  Flutter 1.1.1+3 and voice/coach service 0.4.1 are prepared; final deployment and
+  physical-device evidence are recorded in that audit when completed.
+- The Flutter diary stores source-backed nutrient snapshots locally, with edible
+  and entered weights separate. Exact food-linked usable factors are required for
+  as-purchased conversion. Daily energy is selected per food before aggregation,
+  so mixed USDA Energy/Atwater fields do not drop foods or double-count energy.
+  Voice batches log immediately when all items have usable selections; missing
+  amount defaults to 100 g, missing basis to edible, and uncertainty is marked
+  Quick estimate. One unusable item currently holds the entire batch for review.
+  Edit batch preserves saved originals until Save changes; individual corrections
+  include food replacement. Ordered persistence and request-ID deduplication
+  protect against stale overlapping writes and replayed voice batches.
+- The native 1×1 widget consumes cold/warm ACTION_VOICE_LOG intents, selects today,
+  opens visible capture, then shows a toast and closes after successful local save.
+  It does not yet queue background jobs or preserve unfinished captures across
+  process death. Optional correction feedback never delays success. Device
+  automation uses the .audit application ID with -PauditBuild=true.
+- The voice/coach service uses the isolated consumer Supabase project
+  xktsqscshecpnfvlqtoy for anonymous JWT validation, quota RPCs, vectors, and
+  optional feedback. Never substitute the dormant research project. Production
+  stays in Vercel iad1; matching reads local Core SQLite. Configured voice primary
+  is one-pass gemini-3.8-flash English/Turkish transcription/concept extraction
+  with low thinking. gemini-3.1-flash-lite is one uncertainty-marked retry for
+  retryable provider/transport/structured-output errors. Each provider attempt has
+  a 12-second timeout. A fallback transcript does not trigger a third provider
+  call. Server auto_log_eligible=false is confidence metadata: Android may still
+  save a usable selected candidate as an estimate. Preserve transcripts and safe
+  stage/error diagnostics on failure, without logging audio or private text.
+- Consumer personalization shares an on-device goal, diet, notes and explicit
+  memory profile. Daily advice, typed/voice coaching and Oracle are opt-in.
+  Updated disclosure version 2 explains unpaid Google data use; old coach
+  permission requires the fuller disclosure. Settings can disable future coaching.
+  Daily advice is a selected-date snapshot; profile/target changes invalidate it
+  on disk. Obsolete responses cannot overwrite a changed context. Oracle loads
+  only while opened; the shared client serializes AI calls to respect the
+  one-active-request quota. Chat passes at most six prior turns as context.
+  Missing micronutrients are unknown with source-coverage counts, not zero intake.
+  FDA label Daily Values are broad comparison references, not clinical targets.
+- Six diet presets adjust macro ratios at the person's existing calorie target.
+  They are not biometric energy calculations, celebrity prescriptions or weekly
+  meal plans. Oracle currently ranks AI food ideas/search queries, then uses
+  Core search/detail and serving selection for logging; it is not a numerical
+  optimizer over verified nutrient vectors. Remaining scope is in BACKLOG.md.
+- Historical provider evidence: authenticated resolver 0.3.5 fixture checks on
+  2026-09-04 took 3.49 seconds (English) and 2.70 seconds (Turkish) of pipeline time.
+  Earlier fra1/sfo1/proxy experiments were slower; these are historical smoke
+  measurements, not a live benchmark or a guarantee of user-visible latency.
+  The 1.1.0+2/API 0.4.0 release added the first personalization surfaces and was
+  installed in place without clearing the person's diary. Current APK/deployment
+  identifiers belong only in the latest consumer audit to avoid conflicting
+  “latest build” claims.
 - `benchmarks/voice-v0.1.0/` contains 240 balanced English/Turkish cases with 48
   committed deterministic audio fixtures. Validation is green and the private
   768-dimensional semantic index now contains all 13,537 searchable foods. The full

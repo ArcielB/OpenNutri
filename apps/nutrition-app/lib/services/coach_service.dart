@@ -25,9 +25,15 @@ class CoachService {
     required AppController controller,
     required CoachMode mode,
     String? message,
+    List<Map<String, String>> conversation = const [],
   }) {
     return _client.coach(
-      requestPayload(controller: controller, mode: mode, message: message),
+      requestPayload(
+        controller: controller,
+        mode: mode,
+        message: message,
+        conversation: conversation,
+      ),
     );
   }
 
@@ -35,16 +41,22 @@ class CoachService {
     required AppController controller,
     required String wavPath,
     required String languageHint,
+    List<Map<String, String>> conversation = const [],
   }) => _client.coachVoice(
     wavPath: wavPath,
     languageHint: languageHint,
-    context: requestPayload(controller: controller, mode: CoachMode.chat),
+    context: requestPayload(
+      controller: controller,
+      mode: CoachMode.chat,
+      conversation: conversation,
+    ),
   );
 
   Map<String, dynamic> requestPayload({
     required AppController controller,
     required CoachMode mode,
     String? message,
+    List<Map<String, String>> conversation = const [],
   }) {
     final totals = controller.dailyTotals;
     final profile = controller.profile;
@@ -56,13 +68,21 @@ class CoachService {
       'diet': profile.diet.name,
       'diet_notes': profile.dietNotes,
       'memories': profile.memories.map((memory) => memory.fact).toList(),
-      'daily_totals': _metrics(totals, controller.targets),
+      'daily_totals': _metrics(
+        totals,
+        controller.targets,
+        controller.entriesForSelectedDate(),
+      ),
+      if (mode == CoachMode.chat) 'conversation': conversation,
       'recent_foods': controller
           .entriesForSelectedDate()
+          .reversed
           .take(30)
           .map(
             (entry) => {
-              'name': entry.foodName,
+              'name': entry.foodName.length <= 160
+                  ? entry.foodName
+                  : entry.foodName.substring(0, 160),
               'grams': entry.grams,
               'meal': entry.meal.name,
             },
@@ -78,31 +98,35 @@ class CoachService {
   List<Map<String, dynamic>> _metrics(
     DailyTotals totals,
     NutritionTargets targets,
+    List<DiaryEntry> entries,
   ) {
     return [
       _metric('Energy', totals.calories, 'kcal', targets.calories),
       _metric('Protein', totals.protein, 'g', targets.protein),
       _metric('Carbohydrate', totals.carbs, 'g', targets.carbs),
       _metric('Total fat', totals.fat, 'g', targets.fat),
-      _metric(
+      _nutrientMetric(
+        entries,
         'Dietary fiber',
-        _amount(totals, ['Fiber, total dietary'], 'g'),
+        ['Fiber, total dietary'],
         'g',
         28,
       ),
-      _metric('Calcium', _amount(totals, ['Calcium, Ca'], 'mg'), 'mg', 1300),
-      _metric('Iron', _amount(totals, ['Iron, Fe'], 'mg'), 'mg', 18),
-      _metric('Potassium', _amount(totals, ['Potassium, K'], 'mg'), 'mg', 4700),
-      _metric('Magnesium', _amount(totals, ['Magnesium, Mg'], 'mg'), 'mg', 420),
-      _metric(
+      _nutrientMetric(entries, 'Calcium', ['Calcium, Ca'], 'mg', 1300),
+      _nutrientMetric(entries, 'Iron', ['Iron, Fe'], 'mg', 18),
+      _nutrientMetric(entries, 'Potassium', ['Potassium, K'], 'mg', 4700),
+      _nutrientMetric(entries, 'Magnesium', ['Magnesium, Mg'], 'mg', 420),
+      _nutrientMetric(
+        entries,
         'Vitamin C',
-        _amount(totals, ['Vitamin C, total ascorbic acid'], 'mg'),
+        ['Vitamin C, total ascorbic acid'],
         'mg',
         90,
       ),
-      _metric(
+      _nutrientMetric(
+        entries,
         'Vitamin D',
-        _amount(totals, ['Vitamin D (D2 + D3)', 'Vitamin D'], 'mcg'),
+        ['Vitamin D (D2 + D3)', 'Vitamin D'],
         'mcg',
         20,
       ),
@@ -116,13 +140,41 @@ class CoachService {
     double target,
   ) => {'name': name, 'amount': amount, 'unit': unit, 'target': target};
 
-  double _amount(DailyTotals totals, List<String> names, String unit) {
-    for (final name in names) {
-      final amount = totals.amountFor(name, unit);
-      if (amount > 0) return amount;
+  Map<String, dynamic> _nutrientMetric(
+    List<DiaryEntry> entries,
+    String label,
+    List<String> names,
+    String unit,
+    double target,
+  ) {
+    var known = 0;
+    var amount = 0.0;
+    for (final entry in entries) {
+      final value = entry.nutrients
+          .where(
+            (nutrient) =>
+                names.contains(nutrient.name) &&
+                _unit(nutrient.unit) == _unit(unit),
+          )
+          .firstOrNull;
+      if (value == null) continue;
+      known++;
+      amount += value.amount;
     }
-    return 0;
+    return {
+      'name': label,
+      'amount': known == 0 ? null : amount,
+      'unit': unit,
+      'target': target,
+      'logged_foods_with_value': known,
+      'logged_food_count': entries.length,
+    };
   }
+
+  String _unit(String value) => switch (value.toLowerCase().trim()) {
+    'µg' || 'μg' || 'ug' || 'mcg' => 'mcg',
+    final unit => unit,
+  };
 
   DailyCoachBrief localDailyFallback(AppController controller) {
     final totals = controller.dailyTotals;

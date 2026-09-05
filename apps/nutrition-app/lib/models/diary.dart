@@ -184,6 +184,13 @@ class DiaryEntry {
     required MealType meal,
     bool needsReview = false,
   }) {
+    if (!inputGrams.isFinite || inputGrams <= 0 || inputGrams > 10000) {
+      throw ArgumentError.value(
+        inputGrams,
+        'inputGrams',
+        'Invalid serving weight',
+      );
+    }
     final safeOriginalInput = this.inputGrams > 0 ? this.inputGrams : grams;
     final ratio = inputGrams / safeOriginalInput;
     return DiaryEntry(
@@ -242,7 +249,11 @@ class NutrientTotal {
 }
 
 class DailyTotals {
-  DailyTotals(List<DiaryEntry> entries) : nutrients = _aggregate(entries);
+  DailyTotals(List<DiaryEntry> entries)
+    : nutrients = _aggregate(entries),
+      _calories = entries.fold(0, (sum, entry) => sum + entry.calories);
+
+  final double _calories;
 
   final List<NutrientTotal> nutrients;
 
@@ -264,22 +275,19 @@ class DailyTotals {
   }
 
   double amountFor(String name, String unit) {
+    var total = 0.0;
     for (final nutrient in nutrients) {
       if (nutrient.name == name &&
           nutrient.unit.toLowerCase() == unit.toLowerCase()) {
-        return nutrient.amount;
+        total += nutrient.amount;
       }
     }
-    return 0;
+    return total;
   }
 
-  double get calories {
-    final direct = amountFor('Energy', 'kcal');
-    if (direct > 0) return direct;
-    final specific = amountFor('Energy (Atwater Specific Factors)', 'kcal');
-    if (specific > 0) return specific;
-    return amountFor('Energy (Atwater General Factors)', 'kcal');
-  }
+  // Pick each food's authoritative energy field before adding foods together;
+  // choosing once after aggregation loses foods using a different USDA field.
+  double get calories => _calories;
 
   double get protein => amountFor('Protein', 'g');
   double get carbs => amountFor('Carbohydrate, by difference', 'g');

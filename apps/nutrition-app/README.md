@@ -1,114 +1,95 @@
 # OpenNutri Android beta
 
-The Flutter diary keeps all diary entries on-device. Voice logging records a
-temporary 16 kHz mono PCM16 WAV, sends it only to the authenticated resolver,
-and deletes the file after success, failure, or cancellation. Any resolver result
-with a usable selected Core food is written immediately. When the amount, weight
-basis, or match is uncertain, the app uses a neutral 100 g/edible-weight default
-and marks the entry as a Quick estimate instead of blocking capture with a
-confirmation screen. The success screen keeps Edit batch and Undo batch actions;
-tapping an entry later edits its amount and meal in place while preserving its
-source-backed nutrient snapshot. Results with no usable Core food still fall back
-to search.
+OpenNutri 1.1.1 is an Android-first Flutter food diary. It combines whole-meal
+voice logging, source-backed USDA food search, editable nutrient snapshots,
+personal goals and diet templates, an opt-in AI coach, and Oracle food ideas.
+The diary, targets, profile, saved facts, and one daily advice snapshot live on
+the phone. There is no diary cloud sync or backup/export UI yet.
 
-The 1.0 beta diary surface is organized around a glanceable daily energy/macro
-card and one primary action: speak a whole meal. Typed search remains beside it,
-each meal has an explicit add control, and recently used foods can be repeated
-with one tap and immediately undone. Tapping any logged food opens a provenance
-sheet with the source publisher/dataset/code, logged versus edible weight,
-per-100 g calculation basis, and the exact stored nutrient snapshot. The
-Nutrition report groups that snapshot into energy/macros, vitamins, minerals,
-fatty acids, and other values instead of presenting one undifferentiated list.
+Start with [the consumer app guide](../../docs/consumer_app.md) for architecture,
+feature behavior, storage, API contracts, privacy, troubleshooting, and a demo
+walkthrough. The [2026-09-05 audit](../../docs/consumer_app_audit_2026-09-05.md)
+records tests, fixed regressions, device evidence, and remaining limitations.
+[BACKLOG](../../BACKLOG.md) tracks unfinished product work.
 
-## Personal coach, Oracle, and diets
+## Run and build
 
-OpenNutri 1.1 adds one on-device personalization profile shared by three surfaces:
-
-- Coach creates one cached daily signal from the selected goal, active diet,
-  today's actual nutrient totals, and explicit saved facts. The first activation
-  explains that this compact context is sent transiently to Gemini. Text and
-  bounded temporary voice messages are supported. Gemini may return memory updates
-  only for durable facts the person explicitly said; those facts remain on-device,
-  are shown as removable chips, and are never stored by the resolver.
-- The Oracle asks Gemini to rank practical foods for the current day's largest
-  opportunities while respecting that same profile. Gemini returns ordinary
-  English food search queries, never nutrient numbers or invented IDs. Tapping an
-  idea opens OpenNutri Core search, and only a verified Core food can be logged.
-- Diets provides Flexible balance, Mediterranean, High protein, Plant powered,
-  Low-carb keto, and Blue Zones-inspired starting patterns. Choosing one adjusts
-  macro targets to the current energy target and goal; the person can add arbitrary
-  constraints and still edit the resulting numeric targets in Settings.
-
-The gap context uses current FDA Nutrition Facts Daily Values for adults and
-children age 4+ as general comparison references. It is not an individualized
-clinical assessment. A deterministic on-device macro observation is shown if the
-daily coach is unavailable; it is labeled as a fallback rather than AI output.
-
-Recording permits a 30-second whole-day list and waits for 1.6 seconds of trailing
-silence, so a normal pause between foods does not cut the list off. The resolver
-returns the literal transcript and structured concepts in one audio-model call.
-Exact source-backed
-matches take a deterministic fast path; ambiguous lexical matches skip vector
-retrieval but still receive constrained selection and visual review. Semantic search
-is reserved for a phrase with no lexical candidates.
-
-Gemini 3.8 Flash performs the one-pass English/Turkish transcription and extraction
-with its supported `low` thinking level. The phone sends its English or Turkish
-device locale as a language hint and uses `auto` for other locales. Ambiguous
-candidate selection and difficult query repair still use a low-latency Flash-Lite
-model. If the primary call exceeds its 12-second provider deadline, is rate-limited,
-or returns malformed structured output, Gemini 3.1 Flash-Lite gets one review-only
-attempt. That fallback lowers confidence for the request. It never starts a third
-provider call for semantic matching; the resolver presents lexical candidates and
-the app stores a usable selected candidate as a marked estimate, keeping both
-attempts inside the app's 30-second request budget.
-
-The voice screen shows a responsive recording waveform and actual elapsed time,
-distinguishes timeout/network/auth/service/provider-contract failures, clears stale
-route snackbars, preserves any usable transcript even when structured extraction
-fails, and can retry Core nutrition detail loading without asking the person to
-record the meal again. Food details are cached in memory for repeat logs.
-
-The production resolver URL and isolated Voice Beta Supabase project URL have
-non-secret defaults. The app's public client key is project-specific, so supply
-the current key at build time:
+Use the Flutter stable SDK and Android SDK configured on your machine:
 
 ```bash
-flutter build apk --debug \
+flutter pub get
+flutter run \
+  --dart-define=OPENNUTRI_APP_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+flutter build apk --release \
   --dart-define=OPENNUTRI_APP_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-`OPENNUTRI_VOICE_API_BASE_URL`, `OPENNUTRI_APP_SUPABASE_URL`, and
-`OPENNUTRI_TIMEZONE` remain overrideable Dart defines. Never put the Supabase
-secret/service-role key or Gemini key in a Flutter build.
+The key must belong to the isolated consumer app Supabase project. It is a public
+client key, not a service-role or Gemini secret. Omitting it leaves local diary
+and public Core search usable, but AI features cannot authenticate. Production
+URLs have defaults; these Dart defines can override them:
 
-Run the local verification suite with:
+| Define | Purpose |
+| --- | --- |
+| `OPENNUTRI_API_BASE_URL` | Public read-only Core API |
+| `OPENNUTRI_VOICE_API_BASE_URL` | Authenticated voice/text/coach API |
+| `OPENNUTRI_APP_SUPABASE_URL` | Isolated consumer authentication project |
+| `OPENNUTRI_APP_SUPABASE_PUBLISHABLE_KEY` | Public client authentication key |
+| `OPENNUTRI_TIMEZONE` | Resolver timezone; default Europe/Istanbul |
+
+The current release build uses the local Android debug signing key for personal
+beta installs. Configure a dedicated release key before store distribution.
+An in-place `adb install -r build/app/outputs/flutter-apk/app-release.apk`
+preserves the existing app's diary.
+
+## Verify
 
 ```bash
-flutter analyze
-flutter test
-flutter build apk --debug
-android/gradlew -p android :app:assembleDebugAndroidTest
+flutter analyze --no-pub
+flutter test --no-pub
+# Native widget intent checks on an unlocked connected Android device:
+cd android
+./gradlew :app:connectedDebugAndroidTest -PauditBuild=true -Pdart-defines= --console=plain
 ```
 
-The home-screen widget starts `MainActivity` with `ACTION_VOICE_LOG`; recording
-begins only after Flutter is visible and microphone permission plus the first-use
-provider disclosure are satisfied. A successful widget capture persists the
-entry, shows a native Android confirmation, and closes its task back to the
-launcher. This is the shortest flow Android permits while keeping microphone use
-visible to the user.
+The optional `auditBuild` property installs a separate
+`org.opennutri.opennutri_app.audit` debug application, so instrumentation has its
+own diary and consent state. Do not use a personal diary as a test fixture.
+Backend and Core checks are documented in
+[voice-api](../../services/voice-api/README.md) and
+[core-api](../../services/core-api/README.md).
 
-One recording can contain up to ten foods. The extractor preserves an explicitly
-spoken meal grouping (for example, `Breakfast: ...` / `akşam yemeğinde ...`);
-otherwise it uses the local-time meal default. Instant voice logging is always
-enabled. Uncertainty is visible and editable after capture rather than becoming a
-mandatory pre-save step.
+## Important behavior
 
-App launch initializes Supabase in parallel with the local diary and warms
-anonymous auth plus the resolver health endpoint after the home shell appears.
-Recording can therefore reuse that work; the warm-up remains non-blocking and
-never uploads audio before Stop is pressed.
-
-If anonymous sign-in or a voice provider is unavailable, the app does not expose
-provider error details. It returns to a safe Manual search fallback, and any
-temporary recording is still deleted.
+- Voice records temporary 16 kHz mono PCM16 WAV audio, up to 30 seconds, and stops
+  after 1.6 seconds of trailing silence. It supports up to ten foods and sends the
+  English/Turkish device locale as a hint.
+- A batch logs automatically once **every item** has a selected Core food, loaded
+  nutrients, a valid amount, and a usable weight basis. Missing amounts default
+  to 100 g and missing basis to edible weight. These defaults and uncertain
+  matches are marked Quick estimate. Known amounts are preserved. An explicit
+  as-purchased weight without an exact usable factor still needs correction.
+- Edit batch keeps the original saved entries until Save changes succeeds.
+  Cancelling leaves the diary intact. Individual entries support amount/meal
+  editing and replacement through Core search. Local saves are serialized and
+  repeated voice request IDs cannot duplicate entries. Optional feedback never
+  delays the success screen.
+- The widget opens visible capture, saves locally, shows an Android toast, and
+  closes the activity after success. It logs to today even if the app was showing
+  a historical date. It is **not background capture**: failed/unmatched requests
+  still need the visible app, and closing before saving does not queue a job.
+- Coach consent is separate from voice consent. The updated disclosure explains
+  Gemini unpaid-service data use; old coach consent must be accepted again.
+  Settings can disable coaching, and saved facts can be deleted individually.
+- Daily advice is a cached snapshot for the selected diary date. Goal, diet,
+  target, and memory changes invalidate it on disk. It refreshes on opening or
+  resuming the app or Coach, with explicit refresh available. Changing food logs
+  does not regenerate advice after every edit; Oracle refreshes when opened with
+  changed context.
+- Oracle loads only when opened. AI operations share a serialized request lane
+  because the server permits one active request per subject. Advice generated
+  against an obsolete date/profile is discarded.
+- Oracle currently produces ranked **food ideas/search queries**, not a
+  mathematical nutrition optimizer. Six diet presets adjust macro targets at the
+  user's existing calorie target; they do not calculate energy needs or generate
+  a complete meal plan. See the guide before presenting these as broader features.

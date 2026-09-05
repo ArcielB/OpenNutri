@@ -26,10 +26,11 @@ class LocalStore {
 
   Future<void> saveEntries(List<DiaryEntry> entries) async {
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setString(
+    final saved = await preferences.setString(
       _entriesKey,
       jsonEncode(entries.map((entry) => entry.toJson()).toList()),
     );
+    if (!saved) throw StateError('Could not persist diary');
   }
 
   Future<NutritionTargets> loadTargets() async {
@@ -66,8 +67,8 @@ class LocalStore {
 
   Future<bool> loadVoiceFastLogging() async {
     final preferences = await SharedPreferences.getInstance();
-    // Fast logging is the beta default. A person can opt into review-everything
-    // from Settings without losing the bounded resolver safeguards.
+    // Legacy stored preference, retained for migration compatibility only.
+    // Since 1.1, usable voice batches always log and this value is not a UI gate.
     return preferences.getBool(_voiceFastLoggingKey) ?? true;
   }
 
@@ -100,5 +101,10 @@ class LocalStore {
   Future<void> saveDailyCoachBrief(DailyCoachBrief brief) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_dailyCoachKey, jsonEncode(brief.toJson()));
+  }
+
+  Future<void> clearDailyCoachBrief() async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_dailyCoachKey);
   }
 }

@@ -144,7 +144,7 @@ const dietPresets = <DietPreset>[
   DietPreset(
     id: 'blue_zones',
     name: 'Blue Zones inspired',
-    tagline: 'A presentation-friendly longevity pattern',
+    tagline: 'Plant-forward meals built around everyday staples',
     description:
         'A mostly plant-based pattern inspired by common themes reported in long-lived communities—not a guarantee of longevity.',
     iconName: 'public',
@@ -199,7 +199,9 @@ class UserNutritionProfile {
         memories: ((json['memories'] as List<dynamic>?) ?? const [])
             .map((value) => CoachMemory.fromJson(value as Map<String, dynamic>))
             .toList(growable: false),
-        coachEnabled: json['coach_enabled'] as bool? ?? false,
+        coachEnabled:
+            json['coach_enabled'] == true &&
+            json['coach_disclosure_version'] == 2,
       );
 
   final NutritionGoal goal;
@@ -230,6 +232,7 @@ class UserNutritionProfile {
     'diet_notes': dietNotes,
     'memories': memories.map((memory) => memory.toJson()).toList(),
     'coach_enabled': coachEnabled,
+    'coach_disclosure_version': 2,
   };
 }
 

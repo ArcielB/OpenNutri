@@ -14,6 +14,37 @@ Near-term product work is the FNDDS Core API, search benchmark, deployment, and 
 app vertical slice. Research backlog items remain preserved for a later explicit
 restart.
 
+## Consumer app: remaining work after the 2026-09-05 audit
+
+Current behavior, implementation locations and limits are documented in
+`docs/consumer_app.md`; measured checks are in `docs/consumer_app_audit_2026-09-05.md`.
+
+- **Durable quick capture and a review inbox.** The widget currently opens the
+  Flutter activity and waits for successful resolution/save before closing.
+  Persist capture jobs with visible states and recover after process death,
+  offline operation or provider failure. Define retention and retry behavior for
+  temporary audio before implementing Android background work. Let valid foods
+  in a mixed matched/unmatched batch save without losing the unresolved portion.
+- **Source-scored Oracle.** Current ideas are ranked by Gemini, then verified only
+  when the person opens Core search. Retrieve actual candidate nutrient vectors,
+  expose why a food/portion fits the remaining targets, and test goal/restriction
+  handling. Do not claim a global nutrition optimum without a defined objective,
+  coverage treatment and evaluated constraints.
+- **Portable diary and resilient storage.** Add export/restore, validate imports,
+  and test corrupt storage, full-disk errors, abrupt termination and larger diaries.
+  Current SharedPreferences snapshots are local only, without a backup UI.
+- **Real meal planning and personalization.** Presets currently adapt macro ratios
+  at an existing calorie target; notes influence advice. A daily/weekly menu,
+  shopping list, energy-needs calculation and properly sourced public-person
+  templates remain separate product work. Do not present those as implemented.
+- **Broader device and AI evaluation.** Run the full versioned voice benchmark
+  within provider quota, real speech/noise and 30-second-boundary trials, launcher
+  pinning/rotation/process-death checks, and accessibility/large-text tests.
+  Verify memory correction/removal semantics and restriction handling beyond
+  prompt instructions. Expand production signing/CI before store distribution.
+
+Existing core search/weight-factor benchmark work is detailed in item 12 below.
+
 ## 1. Decide whether to archive or drop the unused `claims` reference table
 
 ### Problem
