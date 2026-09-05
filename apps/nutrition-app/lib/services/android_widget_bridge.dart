@@ -33,6 +33,9 @@ class AndroidWidgetBridge {
           false;
     } on MissingPluginException {
       return false;
+    } on PlatformException {
+      // The widget remains available in the launcher's manual widget picker.
+      return false;
     }
   }
 

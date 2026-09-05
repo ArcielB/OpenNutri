@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 
 MealType = Literal["breakfast", "lunch", "dinner", "snacks"]
@@ -264,6 +264,14 @@ class CoachMemoryUpdate(StrictModel):
 
 
 class CoachModelOutput(StrictModel):
+    # Assigned by the transport, never accepted from the model's JSON or sent
+    # in its response schema. Keeps per-request model attribution concurrency-safe.
+    _resolved_model: str | None = PrivateAttr(default=None)
+
+    @property
+    def resolved_model(self) -> str | None:
+        return self._resolved_model
+
     headline: str = Field(min_length=1, max_length=120)
     message: str = Field(min_length=1, max_length=700)
     actions: list[CoachAction] = Field(default_factory=list, max_length=6)

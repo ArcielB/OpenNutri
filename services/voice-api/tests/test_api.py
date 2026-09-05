@@ -393,3 +393,59 @@ def test_voice_coach_returns_transcript_and_explicit_memories(settings):
     ]
     assert payload["model"] == "gemini-coach"
     assert len(store.released) == 1
+
+
+@pytest.mark.parametrize('voice', [False, True])
+@pytest.mark.parametrize('rate_limited', [False, True])
+def test_coach_provider_limits_are_not_reported_as_service_outages(settings, voice, rate_limited):
+    class FailingCoach(StubGemini):
+        async def generate_coach_response(self, request):
+            raise GeminiError('private provider body', is_rate_limited=rate_limited,
+                              is_retryable=True, http_status=429 if rate_limited else 503)
+
+        async def generate_coach_voice_response(self, **kwargs):
+            return await self.generate_coach_response(None)
+
+    store = StubStore()
+    app = create_app(settings=settings, core=CoreFoodRepository(settings.core_database_path),
+                     store=store, gemini=FailingCoach(), verifier=StubVerifier())
+    context = {'mode': 'chat', 'local_date': '2026-09-05'}
+    headers = {'authorization': 'Bearer valid-token'}
+    with TestClient(app) as client:
+        if voice:
+            response = client.post('/v1/coach/voice', headers=headers,
+                files={'audio': ('fixture.wav', make_wav(), 'audio/wav')},
+                data={'context': __import__('json').dumps(context)})
+        else:
+            response = client.post('/v1/coach/respond', headers=headers, json=context)
+    assert response.status_code == (429 if rate_limited else 503)
+    assert 'private provider body' not in response.text
+    assert len(store.released) == 1
+
+
+@pytest.mark.parametrize('voice', [False, True])
+def test_coach_route_uses_transport_model_not_primary_label(settings, voice):
+    class FallbackCoach(StubGemini):
+        async def generate_coach_response(self, request):
+            output = await super().generate_coach_response(request)
+            output._resolved_model = 'gemini-3.5-flash-lite'
+            return output
+
+        async def generate_coach_voice_response(self, **kwargs):
+            output = await super().generate_coach_voice_response(**kwargs)
+            output._resolved_model = 'gemini-3.5-flash-lite'
+            return output
+
+    app = create_app(settings=settings, core=CoreFoodRepository(settings.core_database_path),
+                     store=StubStore(), gemini=FallbackCoach(), verifier=StubVerifier())
+    body = {'mode': 'chat', 'local_date': '2026-09-05', 'goal': 'Build muscle'}
+    headers = {'authorization': 'Bearer valid-token'}
+    with TestClient(app) as client:
+        if voice:
+            response = client.post('/v1/coach/voice', headers=headers,
+                files={'audio': ('fixture.wav', make_wav(), 'audio/wav')},
+                data={'context': __import__('json').dumps(body), 'language_hint': 'en-US'})
+        else:
+            response = client.post('/v1/coach/respond', headers=headers, json=body)
+    assert response.status_code == 200
+    assert response.json()['model'] == 'gemini-3.5-flash-lite'

@@ -11,6 +11,7 @@ import 'package:opennutri_app/models/food.dart';
 import 'package:opennutri_app/models/personalization.dart';
 import 'package:opennutri_app/screens/food_search_screen.dart';
 import 'package:opennutri_app/screens/home_shell.dart';
+import 'package:opennutri_app/screens/oracle_screen.dart';
 import 'package:opennutri_app/screens/settings_screen.dart';
 import 'package:opennutri_app/services/coach_service.dart';
 import 'package:opennutri_app/services/core_api_client.dart';
@@ -264,6 +265,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(client.modes, ['daily', 'oracle']);
       expect(find.text(reply.headline), findsOneWidget);
+      expect(find.text(reply.sourceLabel), findsOneWidget);
       await tester.tap(find.text('Today').last);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Oracle').last);
@@ -310,6 +312,37 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Late apple result'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Oracle distinguishes an HTTP 429 from a connection failure', (
+    tester,
+  ) async {
+    final controller = AppController(LocalStore());
+    await controller.initialize();
+    await controller.enableCoach();
+    final client = VoiceApiClient(
+      tokenProvider: () async => 'fixture-token',
+      client: MockClient((_) async => http.Response('{}', 429)),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OracleScreen(
+          controller: controller,
+          coachService: CoachService(client),
+          apiClient: FakeCore(),
+          voiceApiClient: client,
+          onOpenCoach: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('AI request limit has been reached'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('could not reach'), findsNothing);
+    expect(controller.entries, isEmpty);
     expect(tester.takeException(), isNull);
   });
 }

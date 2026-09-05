@@ -181,3 +181,25 @@ parsing. The total stays at two provider attempts; quota failures do not switch
 endpoints and long Retry-After hints prevent an early retry. The expanded backend
 suite passes all 68 tests. Live deployment outcomes will be recorded below;
 this change is not yet evidence that the production failure has been resolved.
+
+Service 0.4.2 deployment `dpl_6aBNbDZdisTyMoAF8fhRGGHpoDaA` completed in iad1.
+Four live modes failed in 3.08/1.86/2.03/2.15 seconds (daily/chat/Oracle/voice chat).
+Logs exposed upstream 429 rate limits, incorrectly mapped to public HTTP 503 by
+both coach handlers. The alternate endpoint was therefore not exercised: quota
+retries correctly stayed on generateContent. Live 3.8 probes were stopped.
+
+After the proposed labeled Flash-Lite fallback, the user said "continue" and the
+assistant explicitly proceeded on that basis. A direct synthetic Oracle call to
+`gemini-3.5-flash-lite` succeeded in 1.97 seconds, with four searchable actions and
+no non-chat memory updates. Service 0.4.3 adds that configured model as the one
+fallback, preserves actual transport model attribution privately, and maps
+unresolved rate limits to HTTP 429. No provider, credential, billing or app-quota
+change was made. Total provider attempts remain bounded at two.
+
+App 1.1.2+5 moves widget setup to the top of Settings, explains launcher approval
+and manual placement, labels actual AI models in Oracle/daily cards/chat, and
+distinguishes Oracle quota errors. Moving the settings tile exposed a separate
+offscreen FutureBuilder issue: Core health could fail before its listener was
+mounted. The original future's error is now handled immediately and still reaches
+the status tile when visible. Flutter analysis is clean; all 44 Flutter and 79
+backend tests pass. Remaining device checks stay read-only; no phone taps occur.

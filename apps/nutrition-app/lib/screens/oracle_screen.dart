@@ -78,11 +78,24 @@ class _OracleScreenState extends State<OracleScreen> {
         return;
       }
       setState(() => _reply = reply);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
+      final reason = error is VoiceApiException
+          ? switch (error.kind) {
+              VoiceApiFailureKind.rateLimited =>
+                'The AI request limit has been reached. Please try again later.',
+              VoiceApiFailureKind.authentication =>
+                'The AI session could not be verified. Please reopen the app and retry.',
+              VoiceApiFailureKind.network =>
+                'Could not connect. Check your internet connection and retry.',
+              VoiceApiFailureKind.timeout =>
+                'The AI took too long to respond. Please try again.',
+              _ =>
+                'The AI service could not complete this request. Please try again later.',
+            }
+          : 'The Oracle could not complete this request. Please try again.';
       setState(() {
-        _error =
-            'The Oracle could not reach the AI service. Your diary and profile were not changed.';
+        _error = '$reason Your diary and profile were not changed.';
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -233,6 +246,11 @@ class _OracleScreenState extends State<OracleScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(_reply!.message),
+                const SizedBox(height: 6),
+                Text(
+                  _reply!.sourceLabel,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
                 if (_reply!.safetyNote?.isNotEmpty ?? false) ...[
                   const SizedBox(height: 8),
                   Text(_reply!.safetyNote!),

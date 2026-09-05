@@ -77,6 +77,15 @@ This is the current high-signal project state after the reviewer workflow moved 
   Both attempts preserve prompt/input/schema, enforce the same model and bounded
   timeouts, and reject incomplete/nonfinal output. All 68 backend tests pass;
   deployment/live outcomes are recorded in the audit after checking production.
+  The user's next "continue" followed the proposed Flash-Lite fallback option.
+  Service 0.4.3 now defaults to Gemini 3.8 primary plus one Gemini 3.5 Flash-Lite
+  fallback; the actual answering model is transport-assigned, never supplied by
+  AI JSON. Empty OPENNUTRI_GEMINI_COACH_FALLBACK_MODEL retains the 0.4.2 same-model
+  endpoint retry. Both coach routes preserve upstream rate limits as HTTP 429.
+  App 1.1.2+5 shows model attribution and a top-of-Settings widget setup card with
+  launcher confirmation/manual placement instructions. It also handles a Core
+  health error before the offscreen list tile mounts. Tests: 44 Flutter and 79
+  backend passing; exact build/deployment/live results follow in the audit.
 - The Flutter diary stores source-backed nutrient snapshots locally, with edible
   and entered weights separate. Exact food-linked usable factors are required for
   as-purchased conversion. Daily energy is selected per food before aggregation,

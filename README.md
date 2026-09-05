@@ -264,6 +264,9 @@ Pipeline data outputs:
   and voice chat with local facts, six customizable diet templates, and Oracle
   food ideas that link to Core search. Version 1.1.1 fixes saved-entry editing,
   stale search/profile state, request contention, and mixed-USDA calorie totals.
+  Version 1.1.2 makes widget placement explicit at the top of Settings and shows
+  the answering AI model. Voice/coach API 0.4.3 adds a single configurable
+  Flash-Lite fallback and distinguishes provider quota errors from outages.
   Supabase initialization and voice warm-up do not block the first rendered frame.
   See [consumer architecture and behavior](docs/consumer_app.md),
   [build instructions](apps/nutrition-app/README.md), and the

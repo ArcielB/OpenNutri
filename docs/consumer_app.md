@@ -1,7 +1,7 @@
 # Consumer app: implementation and handoff
 
-Current implementation: Flutter app **1.1.1+4**, Core API **0.4.0** / USDA Core
-**0.3.0**, and voice/coach API **0.4.2**. This document describes current behavior;
+Current implementation: Flutter app **1.1.2+5**, Core API **0.4.0** / USDA Core
+**0.3.0**, and voice/coach API **0.4.3**. This document describes current behavior;
 dated measurements and the latest validation are in the
 [consumer audit](consumer_app_audit_2026-09-05.md). Earlier handoff notes describe
 historical releases, including the superseded confidence-gated confirmation UI.
@@ -88,7 +88,11 @@ processes. There is no user-facing export/restore yet.
 
 ## Widget limits
 
-Settings requests a native 1×1 microphone widget. Its cold or warm intent opens
+Installing OpenNutri registers a native 1×1 microphone widget but does not place
+it on the launcher. Use the **Add microphone widget** card at the top of Settings
+and confirm the launcher's Add prompt. Unsupported pinning explains the manual
+home-screen Widgets picker. A request returning true is not placement confirmation.
+Its cold or warm intent opens
 `MainActivity`, consumes the action once, selects today, and opens voice capture.
 First-use permission and disclosure remain visible. On successful save, Flutter
 waits 550 ms, then requests a native result toast and activity/task closure.
@@ -194,15 +198,21 @@ Voice primary is configured as `gemini-3.8-flash`, with `thinkingLevel=low`.
 One `gemini-3.1-flash-lite` retry handles retryable audio/structured-output failure.
 Fallback results are uncertain estimates, and no third matching-model call is
 started after a successful audio fallback. Coaching uses the configured Flash
-model and at most one same-model retry on transport/retryable provider failure;
+model and at most one retry on transport/retryable provider failure;
 schema-invalid coach output is still an error. Each provider attempt has a
 12-second timeout. Coach retries wait about one second with jitter and respect
 short Retry-After hints; hints over two seconds fail promptly for a later retry.
-For 5xx/transport errors, service 0.4.2 uses the same model through Google's
-Interactions API for that single retry. The prompt, audio/text and output schema
-are unchanged, with `store=false` and no stored conversation ID. Only completed
-final model text is accepted. Quota errors never switch endpoints. This is an
-endpoint recovery path, not a model downgrade or a guarantee against outages.
+Service 0.4.3 uses Gemini 3.8 first, then configured `gemini-3.5-flash-lite` for
+that single retry, including provider rate-limit errors. Prompt, audio/text and
+output schema are unchanged. Private per-response transport metadata determines
+the returned model; Oracle, daily cards and chat display it. The on-device rules
+summary is labeled separately and never presented as an AI model response.
+Set `OPENNUTRI_GEMINI_COACH_FALLBACK_MODEL` empty to disable model fallback; then
+5xx/transport failures use a same-model Interactions retry with `store=false`,
+no stored conversation ID, and completed final model text only. In that mode,
+quota retries stay on the original endpoint. The app's quota gate always runs
+before either attempt. Unresolved provider limits return HTTP 429 to the app,
+which explains the limit instead of claiming a connection failure.
 Keep models configurable; these are configured IDs, not a
 permanent claim to be the newest available model.
 
@@ -220,7 +230,7 @@ guaranteed 30-second end-to-end bound.
 | AI limit reached | Shared voice/text/coach quota; defaults are 10/minute, 50/user/day, 200/global/day and one active request |
 | Transcript present but no diary entry | Core detail availability, all batch selections, valid amounts and exact as-purchased factors |
 | Diet shown but wrong advice | Date and snapshot label, saved facts, explicit refresh; profile changes should remove stale disk cache |
-| Oracle empty | Coach consent and visible Oracle tab; use retry on failure; verify server 0.4.1 accepts the new context fields |
+| Oracle empty | Coach consent and visible Oracle tab; verify server 0.4.3; distinguish HTTP 429 limits from transport/provider failures |
 | Old search results after editing | Request-generation guards; test both lexical and submitted semantic responses |
 
 For release commands see the [app README](../apps/nutrition-app/README.md).

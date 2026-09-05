@@ -1,6 +1,6 @@
 # OpenNutri Android beta
 
-OpenNutri 1.1.1 is an Android-first Flutter food diary. It combines whole-meal
+OpenNutri 1.1.2 is an Android-first Flutter food diary. It combines whole-meal
 voice logging, source-backed USDA food search, editable nutrient snapshots,
 personal goals and diet templates, an opt-in AI coach, and Oracle food ideas.
 The diary, targets, profile, saved facts, and one daily advice snapshot live on
@@ -61,6 +61,12 @@ Backend and Core checks are documented in
 
 ## Important behavior
 
+- A widget is available after installation but is **not placed automatically**.
+  Open Settings and tap **Add microphone widget** at the top, then confirm Add
+  in the launcher. If pinning is unsupported, the app explains manual placement:
+  hold an empty home-screen area, open Widgets, find OpenNutri, and add it.
+  Request acceptance is not proof of placement; cancellation remains the user's
+  choice. No automation should confirm the prompt on a personal phone.
 - Voice records temporary 16 kHz mono PCM16 WAV audio, up to 30 seconds, and stops
   after 1.6 seconds of trailing silence. It supports up to ten foods and sends the
   English/Turkish device locale as a hint.
@@ -91,6 +97,10 @@ Backend and Core checks are documented in
 - Oracle loads only when opened. AI operations share a serialized request lane
   because the server permits one active request per subject. Advice generated
   against an obsolete date/profile is discarded.
+- Service 0.4.3 tries Gemini 3.8 Flash first and a single configured Gemini 3.5
+  Flash-Lite fallback on retryable failures. Oracle, daily cards and chat show
+  the actual answering model. AI request limits are distinguished from network,
+  authentication and timeout failures; no credentials or billing changes are made.
 - Oracle currently produces ranked **food ideas/search queries**, not a
   mathematical nutrition optimizer. Six diet presets adjust macro targets at the
   user's existing calorie target; they do not calculate energy needs or generate

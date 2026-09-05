@@ -50,6 +50,7 @@ class Settings:
     global_ai_resolutions_per_day: int
     gemini_request_timeout_seconds: int
     active_request_timeout_seconds: int
+    gemini_coach_fallback_model: str = ""
 
     @property
     def jwks_url(self) -> str:
@@ -97,6 +98,9 @@ class Settings:
             gemini_coach_model=os.environ.get(
                 "OPENNUTRI_GEMINI_COACH_MODEL", "gemini-3.8-flash"
             ),
+            gemini_coach_fallback_model=os.environ.get(
+                "OPENNUTRI_GEMINI_COACH_FALLBACK_MODEL", "gemini-3.5-flash-lite"
+            ).strip(),
             gemini_embedding_model=os.environ.get(
                 "OPENNUTRI_GEMINI_EMBEDDING_MODEL", "gemini-embedding-2"
             ),

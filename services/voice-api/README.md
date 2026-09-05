@@ -23,18 +23,24 @@ responses, and audio are not written to Supabase. Voice coach input is handled i
 one audio request that returns the literal transcript, reply, and only explicit
 durable memory candidates; Flutter decides what to store on-device. Oracle output
 cannot log directly: Flutter resolves its plain-English query against Core first.
-Coach requests use the configured Flash model and make at most one same-model
-retry for a transient provider/transport failure; this avoids reporting an older
-model while absorbing occasional Gemini 5xx responses. The retry waits roughly
-one second with jitter; short Retry-After hints are respected. A hint longer than
-two seconds ends the request rather than retrying too early or extending the
-mobile budget. Since service 0.4.2, a 5xx/transport failure retries once through
-Google's Interactions endpoint with the **same model, prompt, input and schema**,
-rather than repeating only the failing generateContent endpoint. `store=false`
-is mandatory: no stored conversation or previous interaction ID is used. Only
-completed final model text is parsed; thoughts and partial output are excluded.
-429/quota errors do not switch endpoints. This cannot guarantee availability
-during a provider outage or exhausted quota. See Google's
+Service 0.4.3 keeps `gemini-3.8-flash` primary and uses one configured
+`gemini-3.5-flash-lite` fallback for retryable provider/transport failures,
+including provider rate limits. Both receive the same prompt, text/audio and
+output schema, with model-specific thinking settings. The response `model` is
+assigned by the transport, not the model's JSON; the app shows the model that
+actually answered. Model attribution is private per-response state and is not
+included in the provider schema. There are never more than two attempts or any
+change to the app's quota gate. If provider quota still fails, both coach routes
+return HTTP 429, not a misleading service-unavailable 503.
+
+`OPENNUTRI_GEMINI_COACH_FALLBACK_MODEL` configures this behavior; an empty value
+disables model fallback. With model fallback disabled, 5xx/transport failures
+retry the same model once through Interactions; 429 stays on generateContent.
+Interactions always uses `store=false`, no stored conversation ID, and only
+completed final model text (not thoughts/partial output). Retry waits roughly one
+second with jitter. Numeric Retry-After hints above two seconds stop the request
+for a later retry instead of retrying too early. Provider outages or exhausted
+limits across both models can still prevent an answer. See Google's
 [stateless Interactions guidance](https://ai.google.dev/gemini-api/docs/interactions-overview)
 and [structured output contract](https://ai.google.dev/gemini-api/docs/structured-output).
 
@@ -206,7 +212,7 @@ curl --fail https://opennutri-voice-beta.vercel.app/health
 ```
 
 Use the existing project link and configured server environment. No schema
-migration is required for 0.4.1. Health confirms service configuration/version,
+migration is required for 0.4.3. Health confirms service configuration/version,
 not successful authentication or AI quality; run a bounded authenticated fixture
 probe separately. Do not log tokens, private profile text, audio, or raw provider
 errors. Deployment and validation evidence belong in the current consumer audit.

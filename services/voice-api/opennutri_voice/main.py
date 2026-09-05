@@ -39,7 +39,7 @@ from .pipeline import ResolverPipeline
 from .supabase_store import SupabasePrivateStore, SupabaseStoreError
 
 
-SERVICE_VERSION = "0.4.2"
+SERVICE_VERSION = "0.4.3"
 MAX_AUDIO_BYTES = 1024 * 1024
 MAX_AUDIO_SECONDS = 30.0
 bearer = HTTPBearer(auto_error=False)
@@ -343,7 +343,7 @@ def create_app(
             output = await request.app.state.gemini.generate_coach_response(body)
             return CoachResponse(
                 **output.model_dump(),
-                model=resolved_settings.gemini_coach_model,
+                model=output.resolved_model or resolved_settings.gemini_coach_model,
             )
         except SupabaseStoreError as exc:
             raise HTTPException(status_code=503, detail="Coach temporarily unavailable") from exc
@@ -355,6 +355,8 @@ def create_app(
                 exc.error_code,
                 exc.http_status,
             )
+            if exc.is_rate_limited:
+                raise HTTPException(status_code=429, detail="AI request limit reached. Try again later.") from exc
             raise HTTPException(status_code=503, detail="Coach temporarily unavailable") from exc
         finally:
             if reserved:
@@ -410,7 +412,7 @@ def create_app(
             )
             return CoachVoiceResponse(
                 **output.model_dump(),
-                model=resolved_settings.gemini_coach_model,
+                model=output.resolved_model or resolved_settings.gemini_coach_model,
             )
         except SupabaseStoreError as exc:
             raise HTTPException(status_code=503, detail="Coach temporarily unavailable") from exc
@@ -422,6 +424,8 @@ def create_app(
                 exc.http_status,
                 exc.partial_transcript is not None,
             )
+            if exc.is_rate_limited:
+                raise HTTPException(status_code=429, detail="AI request limit reached. Try again later.") from exc
             raise HTTPException(status_code=503, detail="Coach temporarily unavailable") from exc
         finally:
             if reserved:

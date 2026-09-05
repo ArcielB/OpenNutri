@@ -166,9 +166,9 @@ class GeminiClient:
 
     async def _post_coach_with_retry(
         self, url: str, payload: dict[str, Any], *, model: str
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], str]:
         try:
-            return await self._post(url, payload)
+            return await self._post(url, payload), model
         except GeminiError as exc:
             if not exc.is_retryable:
                 raise
@@ -176,6 +176,24 @@ class GeminiClient:
             # Respect long provider hints without extending the mobile budget.
             if delay > 2.0:
                 raise
+            fallback_model = self.settings.gemini_coach_fallback_model
+            if fallback_model and fallback_model != model:
+                logger.warning(
+                    "gemini_coach_attempt_failed code=%s status=%s retrying=true model=%s fallback_model=%s",
+                    exc.error_code, exc.http_status, model, fallback_model,
+                )
+                await asyncio.sleep(max(0.5, delay) + random.uniform(0, 0.25))
+                retry_payload = {
+                    **payload,
+                    "generationConfig": {
+                        **payload["generationConfig"],
+                        "thinkingConfig": {"thinkingLevel": self._thinking_level(fallback_model)},
+                    },
+                }
+                response = await self._post(
+                    f"{self.base_url}/{fallback_model}:generateContent", retry_payload
+                )
+                return response, fallback_model
             alternate_transport = exc.error_code == "gemini_unavailable"
             logger.warning(
                 "gemini_coach_attempt_failed code=%s status=%s retrying=true transport=%s",
@@ -188,8 +206,8 @@ class GeminiClient:
             # personalized guidance to an older model.
             await asyncio.sleep(max(0.5, delay) + random.uniform(0, 0.25))
             if alternate_transport:
-                return await self._post_coach_interaction(model, payload)
-            return await self._post(url, payload)
+                return await self._post_coach_interaction(model, payload), model
+            return await self._post(url, payload), model
 
     async def _post_coach_interaction(
         self, model: str, payload: dict[str, Any]
@@ -297,12 +315,13 @@ class GeminiClient:
                 "responseJsonSchema": CoachModelOutput.model_json_schema(),
             },
         }
-        response = await self._post_coach_with_retry(
+        response, resolved_model = await self._post_coach_with_retry(
             f"{self.base_url}/{model}:generateContent", payload, model=model
         )
         structured = self._json_text(response)
         try:
             output = CoachModelOutput.model_validate(structured)
+            output._resolved_model = resolved_model
             if request.mode != "chat":
                 output.memory_updates = []
             return output
@@ -368,12 +387,14 @@ class GeminiClient:
                 "responseJsonSchema": CoachVoiceModelOutput.model_json_schema(),
             },
         }
-        response = await self._post_coach_with_retry(
+        response, resolved_model = await self._post_coach_with_retry(
             f"{self.base_url}/{model}:generateContent", payload, model=model
         )
         structured = self._json_text(response)
         try:
-            return CoachVoiceModelOutput.model_validate(structured)
+            output = CoachVoiceModelOutput.model_validate(structured)
+            output._resolved_model = resolved_model
+            return output
         except ValueError as exc:
             raise GeminiError(
                 "Coach voice output did not match the contract",

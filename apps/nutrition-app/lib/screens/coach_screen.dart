@@ -141,6 +141,7 @@ class _CoachScreenState extends State<CoachScreen> with WidgetsBindingObserver {
           _ChatMessage(
             fromCoach: true,
             text: _replyText(reply.message, reply.safetyNote),
+            model: reply.model,
             remembered: reply.memoryUpdates,
           ),
         );
@@ -211,18 +212,23 @@ class _CoachScreenState extends State<CoachScreen> with WidgetsBindingObserver {
           _ChatMessage(
             fromCoach: true,
             text: _replyText(reply.message, reply.safetyNote),
+            model: reply.model,
             remembered: reply.memoryUpdates,
           ),
         );
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _messages.add(
-          const _ChatMessage(
+          _ChatMessage(
             fromCoach: true,
             text:
-                'I couldn’t finish that voice message. The recording was deleted and nothing was remembered.',
+                error is VoiceApiException &&
+                    error.kind == VoiceApiFailureKind.rateLimited
+                ? 'The AI request limit has been reached. Please try again later. '
+                      'The recording was deleted and nothing was remembered.'
+                : 'I couldn’t finish that voice message. The recording was deleted and nothing was remembered.',
           ),
         );
       });
@@ -525,6 +531,10 @@ class _DailyBrief extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(reply!.safetyNote!),
               ],
+              if (reply != null) ...[
+                const SizedBox(height: 8),
+                Text(reply.sourceLabel, style: const TextStyle(fontSize: 12)),
+              ],
               if (!enabled) ...[
                 const SizedBox(height: 16),
                 FilledButton.tonal(
@@ -575,10 +585,12 @@ class _ChatMessage {
     required this.fromCoach,
     required this.text,
     this.remembered = const [],
+    this.model,
   });
   final bool fromCoach;
   final String text;
   final List<CoachMemory> remembered;
+  final String? model;
 }
 
 class _ChatBubble extends StatelessWidget {
@@ -604,6 +616,13 @@ class _ChatBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(message.text),
+            if (message.model != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'AI model: ${message.model}',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
             if (message.remembered.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(

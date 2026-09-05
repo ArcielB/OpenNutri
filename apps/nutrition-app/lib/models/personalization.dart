@@ -290,6 +290,8 @@ class CoachReply {
   final List<CoachAction> actions;
   final List<CoachMemory> memoryUpdates;
   final String model;
+  String get sourceLabel =>
+      model.startsWith('on-device') ? 'On-device summary' : 'AI model: $model';
   final String? safetyNote;
   final String? transcript;
 }

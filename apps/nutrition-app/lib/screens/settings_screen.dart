@@ -44,8 +44,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _protein = TextEditingController(text: targets.protein.toStringAsFixed(0));
     _carbs = TextEditingController(text: targets.carbs.toStringAsFixed(0));
     _fat = TextEditingController(text: targets.fat.toStringAsFixed(0));
-    _health = widget.apiClient.health();
+    _health = _checkCoreHealth();
     widget.controller.addListener(_syncTargets);
+  }
+
+  Future<Map<String, dynamic>> _checkCoreHealth() {
+    final request = widget.apiClient.health();
+    // This tile may be outside the ListView's built viewport. Handle errors
+    // now; FutureBuilder still receives the original error when it is mounted.
+    request.ignore();
+    return request;
   }
 
   void _syncTargets() {
@@ -121,13 +129,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _pinWidget() async {
     final requested = await AndroidWidgetBridge.requestPinWidget();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          requested
-              ? 'Widget request opened'
-              : 'Widget pinning is unavailable on this launcher',
+    if (requested) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Confirm Add in your launcher to place the widget. '
+            'It is not added automatically.',
+          ),
         ),
+      );
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add from your home screen'),
+        content: const Text(
+          'Touch and hold an empty space on your home screen, '
+          'open Widgets, then find OpenNutri and add the microphone widget. '
+          'Your launcher does not support adding it directly from this app.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
+          ),
+        ],
       ),
     );
   }
@@ -157,6 +184,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
             children: [
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.widgets_outlined),
+                  title: const Text('Add microphone widget'),
+                  subtitle: const Text(
+                    'Tap, confirm Add, then speak from your home screen. '
+                    'Installing the app does not place the widget.',
+                  ),
+                  trailing: const Icon(Icons.add_to_home_screen),
+                  onTap: _pinWidget,
+                ),
+              ),
+              const SizedBox(height: 20),
               _heading(context, 'Daily targets'),
               const SizedBox(height: 12),
               Row(
@@ -289,7 +329,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     trailing: IconButton(
                       tooltip: 'Check connection',
                       onPressed: () =>
-                          setState(() => _health = widget.apiClient.health()),
+                          setState(() => _health = _checkCoreHealth()),
                       icon: const Icon(Icons.refresh),
                     ),
                   );
@@ -317,14 +357,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'nutrients are never included.',
                 ),
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.widgets_outlined),
-                title: const Text('Add microphone widget'),
-                subtitle: const Text('Android home screen · 1×1'),
-                trailing: const Icon(Icons.add_to_home_screen),
-                onTap: _pinWidget,
-              ),
               TextButton.icon(
                 onPressed: widget.voiceApiClient.isConfigured
                     ? _deleteVoiceFeedback
@@ -350,7 +382,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 28),
               Text(
-                'OpenNutri 1.1.0 beta',
+                'OpenNutri Android beta',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),

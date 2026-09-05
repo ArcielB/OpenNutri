@@ -1,5 +1,6 @@
 import base64
 import json
+from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -102,3 +103,56 @@ async def test_quota_retry_does_not_switch_endpoints(settings, monkeypatch):
     assert error.value.is_rate_limited
     assert len(calls) == 2
     assert all(request.url.path.endswith(':generateContent') for request in calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status', [429, 503])
+@pytest.mark.parametrize('voice', [False, True])
+async def test_configured_fallback_keeps_context_and_reports_actual_model(settings, monkeypatch, status, voice):
+    monkeypatch.setattr('opennutri_voice.gemini.asyncio.sleep', AsyncMock())
+    settings = replace(settings, gemini_coach_fallback_model='gemini-3.5-flash-lite')
+    calls = []
+
+    async def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(status)
+        output = {'headline': 'Fixture', 'message': 'Fixture guidance', 'actions': []}
+        if voice:
+            output['transcript'] = 'Fixture speech'
+        return httpx.Response(200, json={'candidates': [{'content': {'parts': [{'text': json.dumps(output)}]}}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as transport:
+        client = GeminiClient(settings, client=transport)
+        request = CoachRequest(mode='chat' if voice else 'oracle', local_date='2026-09-05')
+        if voice:
+            output = await client.generate_coach_voice_response(wav_bytes=b'fixture', language_hint='en-US', request=request)
+        else:
+            output = await client.generate_coach_response(request)
+    assert len(calls) == 2
+    assert calls[1].url.path.endswith('/gemini-3.5-flash-lite:generateContent')
+    assert output.resolved_model == 'gemini-3.5-flash-lite'
+    assert 'resolved_model' not in output.model_dump()
+    assert '_resolved_model' not in output.model_json_schema()['properties']
+    primary, fallback = [json.loads(call.content) for call in calls]
+    assert primary['contents'] == fallback['contents']
+    assert primary['systemInstruction'] == fallback['systemInstruction']
+    assert primary['generationConfig']['responseJsonSchema'] == fallback['generationConfig']['responseJsonSchema']
+    assert fallback['generationConfig']['thinkingConfig']['thinkingLevel'] == 'minimal'
+
+
+@pytest.mark.asyncio
+async def test_failed_fallback_does_not_start_a_third_call(settings, monkeypatch):
+    monkeypatch.setattr('opennutri_voice.gemini.asyncio.sleep', AsyncMock())
+    settings = replace(settings, gemini_coach_fallback_model='gemini-3.5-flash-lite')
+    calls = []
+
+    async def handler(request):
+        calls.append(request)
+        return httpx.Response(503)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as transport:
+        with pytest.raises(GeminiError):
+            await GeminiClient(settings, client=transport).generate_coach_response(
+                CoachRequest(mode='oracle', local_date='2026-09-05'))
+    assert len(calls) == 2

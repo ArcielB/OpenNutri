@@ -83,6 +83,10 @@ Do not spend tokens on these unless the task explicitly needs them:
   The 1.1 personalization profile (goal, active diet, free-form diet notes, and
   explicit coach memories) remains on-device. Coach calls are stateless and send a
   compact snapshot transiently to Gemini 3.8 Flash only after a dedicated disclosure.
+  Coaching may retry once with configured Gemini 3.5 Flash-Lite; preserve actual
+  model attribution from transport metadata and show it in the app. Model fallback
+  can be disabled with an empty OPENNUTRI_GEMINI_COACH_FALLBACK_MODEL. Keep quota
+  errors as HTTP 429; never disguise them as provider connection failures.
   Daily advice is cached by local date. Text or bounded voice chat may propose memory
   updates only from explicit user statements; the app displays and can delete each
   memory. Oracle suggestions are plain English search queries and must pass through
@@ -103,6 +107,9 @@ Do not spend tokens on these unless the task explicitly needs them:
   device settings and remove isolated test installs after testing.
   Run device automation with `-PauditBuild=true` so synthetic
   data and consent do not enter the person's installed diary.
+  Widget registration and intent tests do not prove launcher placement. Pinning
+  requires the person's confirmation; never claim it was added from the native
+  request's Boolean result alone.
 - The consumer food-data surface is separate from the annotator schema. The current
   combined USDA Core release is built under `services/data-pipeline/opennutri_core/` and served
   read-only by `services/core-api/`; do not route it through legacy `claims` or expose

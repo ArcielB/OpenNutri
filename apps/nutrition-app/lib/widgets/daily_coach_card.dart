@@ -72,6 +72,13 @@ class DailyCoachCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                      if (reply != null) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          reply.sourceLabel,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ],
                     ],
                   ],
                 ),
