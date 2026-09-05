@@ -18,6 +18,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live', action='store_true', help='Explicitly spend up to four AI requests')
     parser.add_argument('--wav', type=Path, help='Optional committed synthetic WAV fixture for voice chat')
+    parser.add_argument('--modes', nargs='+', choices=('daily', 'chat', 'oracle'),
+                        default=['daily', 'chat', 'oracle'], help='Run only the selected checks')
     args = parser.parse_args()
     if not args.live:
         parser.error('--live is required; these probes consume the shared beta quota')
@@ -47,7 +49,7 @@ def main() -> int:
             ],
             'recent_foods': [],
         }
-        for mode in ('daily', 'chat', 'oracle'):
+        for mode in dict.fromkeys(args.modes):
             body = {**context, 'mode': mode}
             if mode == 'chat':
                 body.update(user_message='What is another quick option?', conversation=[
@@ -59,7 +61,7 @@ def main() -> int:
             result = CoachResponse.model_validate(response.json())
             if mode != 'chat' and result.memory_updates:
                 raise ValueError('Non-chat response returned memory updates')
-            if mode == 'oracle' and not all(action.search_query for action in result.actions):
+            if mode == 'oracle' and (not result.actions or not all(action.search_query for action in result.actions)):
                 raise ValueError('Oracle action missing Core search query')
             print(json.dumps({'stage': mode, 'seconds': round(time.monotonic() - started, 2),
                               'model': result.model, 'actions': len(result.actions),

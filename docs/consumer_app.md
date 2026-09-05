@@ -196,7 +196,9 @@ Fallback results are uncertain estimates, and no third matching-model call is
 started after a successful audio fallback. Coaching uses the configured Flash
 model and at most one same-model retry on transport/retryable provider failure;
 schema-invalid coach output is still an error. Each provider attempt has a
-12-second timeout. Keep models configurable; these are configured IDs, not a
+12-second timeout. Coach retries wait about one second with jitter and respect
+short Retry-After hints; hints over two seconds fail promptly for a later retry.
+Keep models configurable; these are configured IDs, not a
 permanent claim to be the newest available model.
 
 The shared Flutter client serializes AI requests to respect the server's one

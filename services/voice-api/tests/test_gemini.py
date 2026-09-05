@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -11,8 +12,10 @@ from opennutri_voice.models import CoachRequest, ExtractedConcept
 
 
 @pytest.mark.asyncio
-async def test_coach_retries_one_transient_error_on_latest_model(settings):
+async def test_coach_retries_one_transient_error_on_latest_model(settings, monkeypatch):
     requests: list[httpx.Request] = []
+    sleep = AsyncMock()
+    monkeypatch.setattr('opennutri_voice.gemini.asyncio.sleep', sleep)
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -50,6 +53,8 @@ async def test_coach_retries_one_transient_error_on_latest_model(settings):
 
     assert result.headline == "A useful next step"
     assert len(requests) == 2
+    sleep.assert_awaited_once()
+    assert 1 <= sleep.await_args.args[0] <= 1.25
     assert all(
         request.url.path.endswith("/gemini-coach:generateContent")
         for request in requests

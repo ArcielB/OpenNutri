@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
+import random
 from typing import Any
 
 import httpx
@@ -166,6 +168,10 @@ class GeminiClient:
         except GeminiError as exc:
             if not exc.is_retryable:
                 raise
+            delay = exc.retry_after_seconds if exc.retry_after_seconds is not None else 1.0
+            # Respect long provider hints without extending the mobile budget.
+            if delay > 2.0:
+                raise
             logger.warning(
                 "gemini_coach_attempt_failed code=%s status=%s retrying=true",
                 exc.error_code,
@@ -174,6 +180,7 @@ class GeminiClient:
             # Keep the advertised/validated latest Flash model. A single retry
             # absorbs Gemini's occasional transient 5xx without silently moving
             # personalized guidance to an older model.
+            await asyncio.sleep(max(0.5, delay) + random.uniform(0, 0.25))
             return await self._post(url, payload)
 
     async def generate_coach_response(self, request: CoachRequest) -> CoachModelOutput:

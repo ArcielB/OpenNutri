@@ -65,6 +65,15 @@ Previous deployed release: app `1.1.0+2`, API `0.4.0`, Vercel deployment
 `dpl_BfCTuBWN2XTBFjeEj4BMz4BLH41V`. Previous authenticated daily/chat/Oracle
 fixture successes are historical smoke checks, not measurements for this release.
 
+First 0.4.1 production probe: daily advice succeeded in 4.88 seconds on
+gemini-3.8-flash. Follow-up chat then failed with HTTP 503. Privacy-safe server
+logs confirmed successful JWT lookup and quota reservation, followed by two
+upstream Gemini 503 responses and successful quota release. This was not a
+client/server schema mismatch or an authentication failure. Added bounded retry
+backoff with jitter, following
+[Google's retry guidance](https://ai.google.dev/gemini-api/docs/troubleshooting).
+Keep this failed probe in the record even if a later smoke run succeeds.
+
 ## Documentation audit
 
 The old root/service READMEs and handoff described forced review even though the

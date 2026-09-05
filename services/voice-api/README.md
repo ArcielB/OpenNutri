@@ -25,7 +25,10 @@ durable memory candidates; Flutter decides what to store on-device. Oracle outpu
 cannot log directly: Flutter resolves its plain-English query against Core first.
 Coach requests use the configured Flash model and make at most one same-model
 retry for a transient provider/transport failure; this avoids reporting an older
-model while absorbing occasional Gemini 5xx responses.
+model while absorbing occasional Gemini 5xx responses. The retry waits roughly
+one second with jitter; short Retry-After hints are respected. A hint longer than
+two seconds ends the request rather than retrying too early or extending the
+mobile budget. This cannot guarantee availability during a provider outage.
 
 ## Provider boundary
 
@@ -208,6 +211,7 @@ This consumes shared quota and, with a public key, leaves a test auth subject;
 prefer reusing a dedicated test access token. Output includes only versions,
 timings and counts. This is a contract smoke test, not a recommendation-quality
 or speech-accuracy benchmark.
+Use `--modes chat oracle` to rerun only those checks after a transient failure.
 
 ## Benchmark
 
