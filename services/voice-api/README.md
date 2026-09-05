@@ -212,6 +212,9 @@ prefer reusing a dedicated test access token. Output includes only versions,
 timings and counts. This is a contract smoke test, not a recommendation-quality
 or speech-accuracy benchmark.
 Use `--modes chat oracle` to rerun only those checks after a transient failure.
+Use `--modes --wav <committed-fixture.wav>` for a voice-only check. A failed mode
+does not skip later independent checks; the script reports each failure safely
+and exits nonzero if any selected check failed.
 
 ## Benchmark
 

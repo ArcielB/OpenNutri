@@ -74,6 +74,8 @@ Backend and Core checks are documented in
   editing and replacement through Core search. Local saves are serialized and
   repeated voice request IDs cannot duplicate entries. Optional feedback never
   delays the success screen.
+  The amount dialog owns its text field state through the closing animation;
+  cancellation, decimal-comma edits and food replacement have widget regressions.
 - The widget opens visible capture, saves locally, shows an Android toast, and
   closes the activity after success. It logs to today even if the app was showing
   a historical date. It is **not background capture**: failed/unmatched requests

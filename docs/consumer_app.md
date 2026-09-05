@@ -1,6 +1,6 @@
 # Consumer app: implementation and handoff
 
-Current implementation: Flutter app **1.1.1+3**, Core API **0.4.0** / USDA Core
+Current implementation: Flutter app **1.1.1+4**, Core API **0.4.0** / USDA Core
 **0.3.0**, and voice/coach API **0.4.1**. This document describes current behavior;
 dated measurements and the latest validation are in the
 [consumer audit](consumer_app_audit_2026-09-05.md). Earlier handoff notes describe

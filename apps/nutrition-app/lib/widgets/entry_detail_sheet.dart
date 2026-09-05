@@ -35,10 +35,8 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
   }
 
   Future<void> _editEntry() async {
-    final amount = TextEditingController(
-      text: widget.entry.inputGrams.toStringAsFixed(
-        widget.entry.inputGrams % 1 == 0 ? 0 : 1,
-      ),
+    var amount = widget.entry.inputGrams.toStringAsFixed(
+      widget.entry.inputGrams % 1 == 0 ? 0 : 1,
     );
     var meal = widget.entry.meal;
     String? validationError;
@@ -50,8 +48,9 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: amount,
+              TextFormField(
+                initialValue: amount,
+                onChanged: (value) => amount = value,
                 autofocus: true,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -87,7 +86,7 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
             ),
             FilledButton(
               onPressed: () {
-                final grams = double.tryParse(amount.text.replaceAll(',', '.'));
+                final grams = double.tryParse(amount.replaceAll(',', '.'));
                 if (grams == null ||
                     !grams.isFinite ||
                     grams <= 0 ||
@@ -109,7 +108,6 @@ class _EntryDetailSheetState extends State<EntryDetailSheet> {
         ),
       ),
     );
-    amount.dispose();
     if (updated == null || !mounted) return;
     await _save(updated);
   }

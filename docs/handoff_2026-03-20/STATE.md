@@ -65,8 +65,13 @@ This is the current high-signal project state after the reviewer workflow moved 
 - Consumer app current behavior is mapped in [consumer_app.md](../consumer_app.md).
   The [2026-09-05 audit](../consumer_app_audit_2026-09-05.md) is the authoritative
   validation/release ledger and distinguishes finished behavior from remaining work.
-  Flutter 1.1.1+3 and voice/coach service 0.4.1 are prepared; final deployment and
-  physical-device evidence are recorded in that audit when completed.
+  Flutter 1.1.1+4 includes the final amount-dialog lifecycle correction; the
+  voice/coach service 0.4.1 is deployed. Exact build/install/deployment and
+  physical-device evidence are recorded in that audit. Current validation is
+  39 Flutter, 59 voice API, 17 Core API and 2 native Android tests passing.
+  Live Gemini 3.8 chat/Oracle/voice-chat probes still returned 503 despite retry
+  backoff; a food-logging audio fixture resolved via Flash-Lite in 6.22 seconds.
+  Do not describe provider reliability as fixed or these probes as a full benchmark.
 - The Flutter diary stores source-backed nutrient snapshots locally, with edible
   and entered weights separate. Exact food-linked usable factors are required for
   as-purchased conversion. Daily energy is selected per food before aggregation,

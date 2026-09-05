@@ -19,6 +19,12 @@ restart.
 Current behavior, implementation locations and limits are documented in
 `docs/consumer_app.md`; measured checks are in `docs/consumer_app_audit_2026-09-05.md`.
 
+- **Coach/Oracle provider reliability.** Production Gemini 3.8 returned repeated
+  503s during the audit even with bounded retry backoff. Food logging recovered
+  through its existing Flash-Lite fallback, but coaching has no model fallback.
+  Recheck with bounded synthetic probes and agree a tested fallback/provider
+  policy before changing personalized advice to another model. Do not obscure
+  provider errors or claim a successful health check proves AI availability.
 - **Durable quick capture and a review inbox.** The widget currently opens the
   Flutter activity and waits for successful resolution/save before closing.
   Persist capture jobs with visible states and recover after process death,

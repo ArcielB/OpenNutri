@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -14,15 +15,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from opennutri_voice.models import CoachResponse, CoachVoiceResponse  # noqa: E402
 
 
+@contextmanager
+def report_probe(stage: str, failures: list[str]):
+    started = time.monotonic()
+    try:
+        yield
+    except (httpx.HTTPError, ValueError, KeyError, OSError) as exc:
+        failures.append(stage)
+        # Independent checks still run; never print private response bodies.
+        print(json.dumps({'stage': stage, 'result': 'failed',
+                          'seconds': round(time.monotonic() - started, 2),
+                          'error_type': type(exc).__name__,
+                          'status': exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None}),
+              flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live', action='store_true', help='Explicitly spend up to four AI requests')
     parser.add_argument('--wav', type=Path, help='Optional committed synthetic WAV fixture for voice chat')
-    parser.add_argument('--modes', nargs='+', choices=('daily', 'chat', 'oracle'),
+    parser.add_argument('--modes', nargs='*', choices=('daily', 'chat', 'oracle'),
                         default=['daily', 'chat', 'oracle'], help='Run only the selected checks')
     args = parser.parse_args()
     if not args.live:
         parser.error('--live is required; these probes consume the shared beta quota')
+    if not args.modes and not args.wav:
+        parser.error('Select at least one mode or provide --wav')
+    if args.wav and not args.wav.is_file():
+        parser.error('--wav must reference an existing fixture file')
+    failures: list[str] = []
     token = os.environ.get('OPENNUTRI_APP_ACCESS_TOKEN')
     public_key = os.environ.get('OPENNUTRI_APP_SUPABASE_PUBLISHABLE_KEY')
     if not token and not public_key:
@@ -55,28 +76,30 @@ def main() -> int:
                 body.update(user_message='What is another quick option?', conversation=[
                     {'role': 'assistant', 'text': 'A lentil bowl is one simple option.'},
                 ])
-            started = time.monotonic()
-            response = client.post(f'{base}/v1/coach/respond', headers=headers, json=body)
-            response.raise_for_status()
-            result = CoachResponse.model_validate(response.json())
-            if mode != 'chat' and result.memory_updates:
-                raise ValueError('Non-chat response returned memory updates')
-            if mode == 'oracle' and (not result.actions or not all(action.search_query for action in result.actions)):
-                raise ValueError('Oracle action missing Core search query')
-            print(json.dumps({'stage': mode, 'seconds': round(time.monotonic() - started, 2),
-                              'model': result.model, 'actions': len(result.actions),
-                              'memory_updates': len(result.memory_updates)}), flush=True)
+            with report_probe(mode, failures):
+                started = time.monotonic()
+                response = client.post(f'{base}/v1/coach/respond', headers=headers, json=body)
+                response.raise_for_status()
+                result = CoachResponse.model_validate(response.json())
+                if mode != 'chat' and result.memory_updates:
+                    raise ValueError('Non-chat response returned memory updates')
+                if mode == 'oracle' and (not result.actions or not all(action.search_query for action in result.actions)):
+                    raise ValueError('Oracle action missing Core search query')
+                print(json.dumps({'stage': mode, 'seconds': round(time.monotonic() - started, 2),
+                                  'model': result.model, 'actions': len(result.actions),
+                                  'memory_updates': len(result.memory_updates)}), flush=True)
         if args.wav:
-            started = time.monotonic()
-            with args.wav.open('rb') as audio:
-                response = client.post(f'{base}/v1/coach/voice', headers=headers,
-                    files={'audio': ('fixture.wav', audio, 'audio/wav')},
-                    data={'context': json.dumps({**context, 'mode': 'chat'}), 'language_hint': 'en-US'})
-            response.raise_for_status()
-            result = CoachVoiceResponse.model_validate(response.json())
-            print(json.dumps({'stage': 'voice_chat', 'seconds': round(time.monotonic() - started, 2),
-                              'model': result.model, 'transcript_present': bool(result.transcript)}), flush=True)
-    return 0
+            with report_probe('voice_chat', failures):
+                started = time.monotonic()
+                with args.wav.open('rb') as audio:
+                    response = client.post(f'{base}/v1/coach/voice', headers=headers,
+                        files={'audio': ('fixture.wav', audio, 'audio/wav')},
+                        data={'context': json.dumps({**context, 'mode': 'chat'}), 'language_hint': 'en-US'})
+                response.raise_for_status()
+                result = CoachVoiceResponse.model_validate(response.json())
+                print(json.dumps({'stage': 'voice_chat', 'seconds': round(time.monotonic() - started, 2),
+                                  'model': result.model, 'transcript_present': bool(result.transcript)}), flush=True)
+    return 1 if failures else 0
 
 
 if __name__ == '__main__':

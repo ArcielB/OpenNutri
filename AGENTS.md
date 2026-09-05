@@ -97,7 +97,11 @@ Do not spend tokens on these unless the task explicitly needs them:
   client's serialized AI request lane; do not eagerly generate offscreen Oracle
   requests. Missing source nutrients are unknown, not zero intake. Do not describe
   the current Oracle as a mathematical optimizer or widget capture as a durable
-  background queue. Run device automation with `-PauditBuild=true` so synthetic
+  background queue. Before any physical-device tap, verify that the intended app
+  is foreground and use a current screen state. Pause and ask if the person is
+  using another app; never keep tapping stale coordinates. Restore temporary
+  device settings and remove isolated test installs after testing.
+  Run device automation with `-PauditBuild=true` so synthetic
   data and consent do not enter the person's installed diary.
 - The consumer food-data surface is separate from the annotator schema. The current
   combined USDA Core release is built under `services/data-pipeline/opennutri_core/` and served

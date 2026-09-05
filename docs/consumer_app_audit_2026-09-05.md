@@ -17,6 +17,7 @@ provider outage or nutrition recommendation works perfectly.
 | Optional feedback kept voice capture waiting after the diary save | Feedback runs best effort without delaying success or temporary WAV cleanup; blocked-feedback test |
 | Replayed batches could duplicate entries; concurrent saves could finish out of order | Entry-ID deduplication and ordered disk snapshots; replay/overlap/failure tests |
 | A wrong voice food could only have its amount/meal edited later | Added Replace food match through Core search and serving selection, preserving ID/date |
+| Closing the amount dialog disposed its text controller before the reverse animation finished | Let TextFormField own its controller through unmount; cancellation and decimal-comma edit regressions reproduced the failure, then passed |
 | Daily calories dropped foods using Atwater energy when other entries used Energy | Select energy per food before totaling; mixed-source regression |
 | Applying a diet left old numeric targets in Settings | Synchronize fields only when targets change, preserving unrelated unsaved input; widget test |
 | Profile/goal/diet changes only cleared daily advice in memory | Clear persistent cache too; restart tests for diet, goal, targets and memories |
@@ -39,10 +40,12 @@ the regressions above.
 Current validation:
 
 - Flutter analysis: clean.
-- Flutter suite: **36 tests passed** (including new state, persistence, search,
-  request coordination, edit cancellation and widget save-completion checks).
-- Voice API suite: **56 tests passed**, including nullable measurements, bounded
-  conversation/memory contracts, and rejection of non-chat memory output.
+- Flutter suite: **39 tests passed** (including new state, persistence, search,
+  request coordination, edit cancellation, food replacement and widget
+  save-completion checks).
+- Voice API suite: **59 tests passed**, including nullable measurements, bounded
+  conversation/memory contracts, rejection of non-chat memory output, and smoke
+  runner failure isolation/privacy.
 - Core API suite: **17 tests passed**; Core API source/data unchanged.
 - Native Android cold/warm widget-intent checks: **2/2 passed on Android 16**.
   Earlier runs exposed a locked screen and an ActivityScenario harness defect:
@@ -56,10 +59,38 @@ under `apps/nutrition-app/build/app/reports/androidTests/connected/debug/`.
 
 ## Release and device evidence
 
-Prepared versions: app `1.1.1+3`, voice/coach API `0.4.1`. Deployment, configured
-release APK, and final physical-device results will be recorded after validation.
+Released versions: app `1.1.1+4`, voice/coach API `0.4.1`. Build 4 includes
+the final amount-dialog lifecycle correction; build 3 was installed and tested
+earlier in this audit. The final configured release APK built successfully and
+was installed using `adb install -r`, without clearing the existing diary.
+Android package metadata confirms `versionName=1.1.1`, `versionCode=4`.
+
+- APK: `apps/nutrition-app/build/app/outputs/flutter-apk/app-release.apk`
+- Size: 54,868,226 bytes; local debug signing key for the personal beta.
+- SHA-256: `fff464747a4894ba58f7ec0f7872caa439038233b287661b8882d792864cebf1`
+- The final build was installed without launching/tapping the personal app;
+  the late dialog correction is covered by automated widget tests.
+
 Device: Android 16 `2409BRN2CA`, physical size 720×1640. Automation uses a separate
 `.audit` application so the installed personal diary is not a test fixture.
+
+Production API deployment: `dpl_3MuY9C9bmrMyTMYJ3WPCQgKfHyDi`, region `iad1`,
+stable alias `https://opennutri-voice-beta.vercel.app`, health reports `0.4.1`.
+It contains the bounded same-model coach retry backoff. No schema changes were
+required. Public Core health checks also passed with API `0.4.0` / Core `0.3.0`.
+
+Physical checks in the isolated audit app: Today rendered; public Core search
+returned raw apple records; selecting a source-backed Fuji apple showed 31
+nutrient rows and 58.2 kcal/100 g; logging saved one Lunch entry; editing 100 g to
+150 g kept one entry and updated its displayed calories to 87. Food replacement
+and amount-cancel behavior were subsequently verified by automated widget tests,
+not claimed as completed physical-device trials.
+
+Screen automation stopped when another application was foreground. The temporary
+audit app and its synthetic diary were removed, the temporary UI dump and unrelated
+screen capture were deleted, and the phone's original USB stay-awake setting was
+restored. The personal diary was not cleared or used as an AI fixture. Future
+device taps must verify the foreground package and use a current screen state.
 
 Previous deployed release: app `1.1.0+2`, API `0.4.0`, Vercel deployment
 `dpl_BfCTuBWN2XTBFjeEj4BMz4BLH41V`. Previous authenticated daily/chat/Oracle
@@ -73,6 +104,20 @@ client/server schema mismatch or an authentication failure. Added bounded retry
 backoff with jitter, following
 [Google's retry guidance](https://ai.google.dev/gemini-api/docs/troubleshooting).
 Keep this failed probe in the record even if a later smoke run succeeds.
+
+Later bounded probes on the backoff deployment still failed for chat, Oracle and
+voice chat with HTTP 503; voice chat took 11.52 seconds. Backoff has not solved
+current provider availability. The food-logging audio fixture
+`voice-v0.1.0-en-081.wav` did resolve two items in 6.22 seconds wall time, using
+the existing `gemini-3.1-flash-lite` fallback. Server pipeline time was 4.632
+seconds (audio extraction 4.623 seconds). These are single-fixture contract
+checks, not speech/matching accuracy measurements. No coach model downgrade or
+provider switch was made. Coach/Oracle reliability remains an open release risk.
+
+The smoke runner now completes independent selected modes after a failure and
+returns nonzero if any failed. `--modes --wav <fixture.wav>` checks voice chat
+alone. No private user diary, live microphone recording, tokens or raw provider
+bodies were printed by these probes.
 
 ## Documentation audit
 
@@ -88,6 +133,9 @@ The app README provides current build/test instructions; the service README adds
 bounded coach request/response examples. Root README, agent guidance, backlog and
 handoff link to this current behavior map. Older release evidence is labeled as
 historical instead of mixing multiple “latest APK” claims.
+
+Checked 18 relative links across the root/app/service READMEs, consumer guide,
+audit and handoff: none were broken.
 
 ## Remaining limits and useful next work
 
