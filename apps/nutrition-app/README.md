@@ -12,6 +12,11 @@ walkthrough. The [2026-09-05 audit](../../docs/consumer_app_audit_2026-09-05.md)
 records tests, fixed regressions, device evidence, and remaining limitations.
 [BACKLOG](../../BACKLOG.md) tracks unfinished product work.
 
+An app-only Turkish [30-day internship draft](docs/staj_defteri/README.md) provides
+editable Word/PDF documents, a short explanation and a source-evidence map.
+Dates, workplace details and individual contributions require confirmation; the
+draft is not an approved attendance record.
+
 ## Run and build
 
 Use the Flutter stable SDK and Android SDK configured on your machine:

@@ -1,0 +1,14 @@
+{
+  "universite": "[ÜNİVERSİTE ADI]",
+  "fakulte": "[FAKÜLTE ADI]",
+  "bolum": "[BÖLÜM ADI]",
+  "ogrenci_adi": "[AD SOYAD]",
+  "ogrenci_no": "[ÖĞRENCİ NUMARASI]",
+  "kurum": "[KURUM ADI]",
+  "kurum_adresi": "[KURUM ADRESİ]",
+  "sorumlu": "[SORUMLU AD SOYAD]",
+  "sorumlu_unvani": "[SORUMLU UNVANI]",
+  "baslangic": "[GG/AA/YYYY]",
+  "bitis": "[GG/AA/YYYY]",
+  "gun_tarihleri": []
+}

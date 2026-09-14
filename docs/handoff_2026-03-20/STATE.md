@@ -87,6 +87,15 @@ This is the current high-signal project state after the reviewer workflow moved 
   Do not infer placement from installation or the pin-request Boolean.
   Exact APK/hash and historical failed probes remain in the audit. No schema,
   credentials, billing, app quota or research automation changes were made.
+- Documentation follow-up 2026-09-14: the consumer-only Turkish internship draft
+  is under `apps/nutrition-app/docs/staj_defteri/`. It has 30 daily entries plus
+  cover/info pages, editable DOCX/PDF, Markdown sources, a generator, short summary
+  and per-day source map. The examples were read for format, not copied or committed.
+  Dates, institution, personal details and individual attribution remain unverified;
+  the proposed day sequence is not an attendance record. No graduation-project,
+  crawler or annotator work is claimed. App analysis and all 44 Flutter tests were
+  rerun successfully; no app/backend changes, deployments or phone interaction.
+  BACKLOG scope is unchanged. Filled personal copies must not be pushed publicly.
 - The Flutter diary stores source-backed nutrient snapshots locally, with edible
   and entered weights separate. Exact food-linked usable factors are required for
   as-purchased conversion. Daily energy is selected per food before aggregation,

@@ -271,6 +271,9 @@ Pipeline data outputs:
   See [consumer architecture and behavior](docs/consumer_app.md),
   [build instructions](apps/nutrition-app/README.md), and the
   [validation and limitations audit](docs/consumer_app_audit_2026-09-05.md).
+  The app-only [Turkish internship draft](apps/nutrition-app/docs/staj_defteri/README.md)
+  includes 30 daily pages, Word/PDF exports and a technical evidence map; personal
+  details, dates and attribution remain unverified placeholders.
 - `benchmarks/voice-v0.1.0/`: 240 versioned English/Turkish text and deterministic
   audio cases, manifest/audio validation, and threshold scoring for retrieval,
   constrained selection, clarification safety, candidate validity, and latency.
