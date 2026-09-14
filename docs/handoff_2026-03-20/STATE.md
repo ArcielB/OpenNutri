@@ -96,6 +96,14 @@ This is the current high-signal project state after the reviewer workflow moved 
   crawler or annotator work is claimed. App analysis and all 44 Flutter tests were
   rerun successfully; no app/backend changes, deployments or phone interaction.
   BACKLOG scope is unchanged. Filled personal copies must not be pushed publicly.
+  The same-day detailed revision follows the supplied PDF's first-person learning
+  narrative with four paragraphs/day, implementation mechanisms, worked fixture
+  calculations and specific regression checks. Main text is 6,620 words (203–242/day);
+  daily pages with frames/tables total 7,435 words. It still validates to 32 A4 pages
+  at the original 12-point body size. Printed front matter explicitly marks the
+  first-person statements as proposed wording requiring individual verification.
+  Do not treat those statements as new contribution or attendance evidence.
+  Clean analysis/44 Flutter tests were repeated; app/runtime scope is unchanged.
 - The Flutter diary stores source-backed nutrient snapshots locally, with edible
   and entered weights separate. Exact food-linked usable factors are required for
   as-purchased conversion. Daily energy is selected per food before aggregation,

@@ -2,20 +2,26 @@
 
 Start with [KISA_OZET.md](KISA_OZET.md). This is an original Turkish, app-only
 30-day draft, not a completed attendance record or an approved institutional form.
+The detailed revision follows the PDF example's first-person daily-learning style:
+the task, implementation steps, a concrete example or check, and the lesson learned.
+First-person contribution statements are proposed wording for student review, not
+verified authorship. No undocumented meetings, mentors or workplace events were added.
 The two user-supplied examples remain unmodified and are not included in Git.
 
 ## Deliverables and sources
 
 - [Editable Word](OpenNutri_Staj_Defteri_30_Gun.docx)
 - [Printable PDF](OpenNutri_Staj_Defteri_30_Gun.pdf): 2 front pages + 30 daily pages.
-- [Daily source text](gunlukler.md): 5,009 body words, 158–180 per entry.
+- [Daily source text](gunlukler.md): 6,620 body words, 203–242 per entry, four paragraphs each.
 - [Personal information](bilgiler.json): deliberately unfilled.
 - [Evidence map](KANIT_HARITASI.md): app paths and verification boundaries.
 - [Rendering checks](validation.json): generated from the actual PDF.
 
 The 30-day PDF example contains 5,667 daily-page words including its repeated
-frames; this draft has 5,824 with frames and the two technical tables (about 3%
-more). The other example has 40 daily entries, approximately 3,811 XML-extracted
+frames; this detailed draft has 7,435 with frames and the two technical tables
+(about 31% more, still 30 daily pages). Main narrative grew about 32% from the first
+5,009-word draft, without reducing its 12-point font or changing page dimensions.
+The other example has 40 daily entries, approximately 3,811 XML-extracted
 words including duplicated text-box labels, and renders to 43 PDF pages in
 LibreOffice. Its rendered text count is 3,685. Counts depend on extraction and
 include labels, so neither count measures student effort.
@@ -27,6 +33,14 @@ Institution, student, workplace, approver and dates require confirmation. No
 automatic weekday schedule is generated. If real dates are supplied, exactly 30
 unique chronological entries and matching start/end values are required; formal
 attendance, holidays and eligibility still need human confirmation.
+
+Concrete additions include 350 ms search debounce and stale-response tokens;
+182 g / 94.64 kcal scaling and 500 g / 335 g edible-weight test examples;
+the 52 + 80 = 132 kcal mixed-source regression; serialized save rollback;
+audio thresholds and the detector-test/runtime distinction; native Intent
+consumption; cached-advice invalidation; and offscreen Future error handling.
+Examples describe actual implementation or controlled fixtures, not user data,
+newly measured performance, or proof of the student's individual work.
 
 ## Rebuild
 
@@ -47,8 +61,9 @@ outputs. Edit `gunlukler.md` and `bilgiler.json` for durable changes. A manual e
 to the generated Word file will be overwritten on the next build.
 
 The draft deliberately labels the day allocation and individual attribution as
-unverified. Confirm both before submission. The source/header metadata identifies
-AI-assisted drafting; follow the institution's disclosure requirements. Private
+unverified, including its first-person wording. Confirm both before submission.
+The source and printed information page identify AI-assisted drafting; follow the
+institution's disclosure requirements. Private
 filled-in copies should remain outside the public repository. Do not commit
 student identifiers, workplace signatures or the supplied examples accidentally.
 

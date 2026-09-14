@@ -4,6 +4,11 @@ Bu dosya düzenleme ve teknik savunma içindir; basılı deftere eklenmesi gerek
 Kaynaklar uygulamanın bu özelliklere sahip olduğunu gösterir. Öğrencinin ilgili
 işi hangi gün, kaç saatte veya tek başına yaptığını göstermez.
 
+Detaylı revizyonda Büşra örneğine yaklaşmak için birinci tekil şahıs kullanıldı.
+Bu cümleler doğrulanmış kişisel beyan değil, öğrenciye sunulan anlatım taslağıdır.
+Basılı bilgi sayfası da bu ayrımı açıklar. Gerçek görev paylaşımına göre anlatım
+geliştirme, entegrasyon, test veya inceleme olarak düzeltilmelidir.
+
 Temel kapsam: `apps/nutrition-app/`. Aşağıdaki `lib/`, `test/` ve `android/` yolları
 bu dizine göredir. Besin veri seti üretimi, araştırma hizmetleri ve etiketleme
 uygulaması günlük çalışmalara eklenmemiştir. Destek servisleri mevcut bağımlılık
@@ -41,6 +46,26 @@ olarak anlatılmıştır; bunları öğrencinin yazdığı varsayılmamıştır.
 | 28 | `lib/screens/settings_screen.dart`, `lib/screens/voice_log_screen.dart`, `test/widget_setup_test.dart` | Ayrı izinler, kapatma seçeneği ve görünmeyen bileşenin Future hatası. |
 | 29 | `test/`, `analysis_options.yaml` | 14 Eylül'de 44 Flutter testi + temiz analiz; tam cihaz/konuşma ölçümü değil. |
 | 30 | `pubspec.yaml`, `README.md`, `../../../../docs/consumer_app_audit_2026-09-05.md` | APK 1.1.2+5 kanıtı 5 Eylül denetiminden; mağaza yayını veya yeni kurulum iddiası yok. |
+
+## Eklenen somut ayrıntıların kontrol noktaları
+
+| Gün | Ayrıntı | Kaynaktaki kontrol noktası |
+| --- | --- | --- |
+| 06–07 | 30 sonuç sınırı, 350 ms gecikmeli arama, ayrı normal/anlamsal istek numaraları | `CoreApiClient.searchFoods`, `FoodSearchScreen._scheduleSearch` ve temizlenen arama regresyonu |
+| 09 | 52 × 1,82 = 94,64 kcal; 500 × 0,67 = 335 g; 161 × 3,35 = 539,35 kcal | `test/diary_test.dart` içindeki kontrollü elma/tavuk verileri; gerçek kişi ölçümü değildir |
+| 11–12 | Yazma zinciri, son başarılı kopyaya dönüş, 100 → 150 g düzeltmede 52 → 78 kcal | `AppController._persistEntries`, `updateEntries`, `test/controller_batch_test.dart`, `test/app_regression_test.dart` |
+| 13 | Energy 52 + özel Atwater 80 = 132; genel Atwater 90 ayrıca eklenmez | `DiaryEntry.calories`, `DailyTotals`, karma enerji regresyonu |
+| 14 | 5, 0 ve eksik D vitamini alanı: toplam 5, kapsama 2/3; kalsiyum null | `CoachService._nutrientMetric` ve eksik mikronutrient testi |
+| 16–18 | 16 kHz mono WAV, 100 ms seviye örneği, 800 ms başlangıç, -40 dBFS, 30 s kayıt sınırı | `OpenNutriVoiceRecorder`; dedektör testinin varsayılanı 2 s, gerçek kaydedici son sessizlik ayarı 1,6 s |
+| 18 | 1 MB, 10 s belirteç, 30 s tüm ses yanıtı; bunlar uçtan uca toplam değildir | `VoiceApiClient._accessToken`, `_resolveVoice` |
+| 19–20 | Önce seçilen kimlikler, `Future.wait`, requestId + conceptIndex | `VoiceLogScreen._prepareReview`, `_logAll`, `_ReviewItem` |
+| 22–23 | Intent eylemi temizlenir, bekleyen işaret bir kez tüketilir, Toast ve görev kapanışı saklama sonrasındadır | `MainActivity`, `VoiceLogWidgetProvider`, `test/voice_log_test.dart` ve native Intent testleri |
+| 24 | Dengeli şablonda 2.000 kcal → P125/C225/F66,7; uygun hedefte P150/C200 | `DietPreset.targetsForCalories`; açıklayıcı hesap, bireysel enerji ihtiyacı ölçümü değildir |
+| 25–26 | Tarih ve revizyon kontrolü; altı görüşme mesajı, en fazla 30 kayıtlı tercih | `HomeShell._refreshDailyCoach`, `CoachScreen._conversation`, `AppController.addCoachMemories` |
+| 28 | Görünür alan dışındaki FutureBuilder kurulmadan hata dönebilir; özgün Future korunarak `request.ignore()` çağrılır | `SettingsScreen._checkCoreHealth`, `test/widget_setup_test.dart` içindeki offscreen health testi |
+
+Bu ayrıntılar mevcut kod/testlerden çıkarıldı. Belgelenmemiş toplantı, hata ayıklama
+oturumu, mentör yönlendirmesi, iş saati veya kişisel cihaz deneyimi eklenmedi.
 
 ## Kaynak ve doğrulama ayrımı
 

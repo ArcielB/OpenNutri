@@ -25,20 +25,42 @@ makale toplama sistemi ve etiketleme paneli anlatıya eklenmedi.
 | 25–28 | Günlük öneri, yazılı/sesli koç, kayıtlı tercihler, Oracle ve kullanıcı izinleri |
 | 29–30 | Otomatik testler, Android paketi ve teslim değerlendirmesi |
 
-Her gün üç açıklayıcı paragraftan oluşuyor. Teknik terimler, ne işe yaradıklarıyla
-birlikte anlatıldı. İki sayfada küçük açıklayıcı tablolar var. Sahte ekran
-görüntüsü, kurum logosu, imza, mühür veya toplantı anlatısı kullanılmadı.
+Her gün dört paragraftan oluşuyor. Büşra'nın örneğindeki gibi birinci tekil şahısla,
+günün işi, uygulama adımları, karşılaşılan teknik sorun veya kontrol ve öğrenilen
+konu anlatılıyor. Teknik terimler kullanıldıkları yerde açıklanıyor. İki sayfada
+küçük tablolar var. Sahte ekran görüntüsü, kurum logosu, imza, mühür veya toplantı
+anlatısı kullanılmadı.
+
+## İlk taslaktan ne değişti?
+
+Genel “incelendi / değerlendirildi” cümleleri yerine kodla karşılaştırılabilen
+ayrıntılar eklendi. Örneğin:
+
+- Aramada 350 ms bekleme ve geç gelen yanıtı geçersiz sayan istek numarası.
+- Testte 182 gram için 94,64 kcal; 500 gram satın alınan ağırlıktan 335 gram yenilebilir kısma geçiş.
+- İki farklı enerji alanı kullanan kayıtta doğru toplamın neden 132 kcal olduğu.
+- Başarısız miktar değişikliğinde son saklanan kayda dönüş ve iptalde verinin korunması.
+- Mikrofon eşikleri, Android–Flutter haberleşmesi ve kaydetmeden kapanmama testi.
+- Öneri önbelleğinin diskten de silinmesi ve görünmeyen ayar satırındaki Future hatası.
+
+Amaç yalnızca daha uzun yazmak değil, okuyanın “hangi parça, nasıl, neden, nasıl
+kontrol edildi?” sorularına aynı sayfada cevap bulmasıdır. Bu örnekler kontrollü
+teknik verilerdir; gerçek kullanıcı öğünleri veya kişiye özel diyet önerisi değildir.
 
 ## Örneklerle ne kadar benziyor?
 
 Büşra'nın PDF'si 30 günlük içerik ve iki ön sayfayla **32 sayfa**. Başlık/alt bilgi
 dahil günlük sayfalarda toplam yaklaşık **5.667 kelime** var. Hazırlanan defterin
-yalnızca günlük gövde metni **5.009 kelime**, aynı şekilde başlık ve alt bilgilerle
-yaklaşık **5.824 kelime**: toplam uzunluk oldukça yakın.
+yalnızca günlük gövde metni **6.620 kelime**, aynı şekilde başlık ve alt bilgilerle
+**7.435 kelime**. İlk taslağın gövdesine göre yaklaşık **%32**, Büşra'nın günlük
+sayfalarının toplamına göre yaklaşık **%31** daha fazla metin var. Buna rağmen
+sayfa sayısı yine **32**, günlük yazı büyüklüğü yine **12 punto**. İçerik daha dolu;
+küçük yazıyla sıkıştırılmadı.
 
 Word örneği 40 günlük, daha kısa anlatımlı bir dosya. LibreOffice ile kontrol
 çıktısında 43 sayfaya yayılıyor. Bu örnekten günlük konu başlığını; PDF örneğinden
 30 gün, sayfa çerçevesi, kurum başlığı ve tarih/onay altlığı düzenini aldık.
+Son revizyonda Büşra'nın kişisel günlük ve öğrenme anlatımına daha fazla yaklaşıldı.
 Örneklerin kişisel bilgileri ve metinleri kopyalanmadı.
 
 ## Neleri henüz doldurmak gerekiyor?
@@ -49,7 +71,8 @@ başlangıç-bitiş ve günlük tarihler köşeli parantezli yer tutucular olara
 değiştirilebilir; 30 günlük metin kullanılmaya devam edebilir.
 
 **Gün sırası önerilen bir anlatım sırasıdır.** Gerçek çalışma günlerine ve öğrencinin
-katkısına göre eşleştirilmelidir. Başka birinin hazırladığı bölümü öğrenci yalnızca
+katkısına göre eşleştirilmelidir. **Birinci tekil şahıs cümleleri de öğrenci tarafından
+onaylanacak öneri metnidir; kişisel katkı kanıtı değildir.** Başka birinin hazırladığı bölümü öğrenci yalnızca
 incelediyse veya uygulamaya bağladıysa, kendi yazmış gibi değiştirilmemelidir.
 Takım çalışması ve yapay zekâ desteği açısından kurumun bildirim beklentisi de
 kontrol edilmelidir. Mevcut teknik özellikler belgelenebilir; kişinin devam süresi
@@ -76,7 +99,8 @@ Bilmeniz gereken üç sınır:
 ## Ne kontrol edildi?
 
 14 Eylül 2026'da uygulamanın statik analizi temiz çıktı ve **44 Flutter testi geçti**.
-Word/PDF üretiminde 32 sayfa, 01–30 sıralaması, her günün kendi sayfasında kalması,
+Detaylı revizyon sırasında analiz ve 44 test tekrar başarılı oldu.
+Word/PDF üretiminde 32 sayfa, 01–30 sıralaması, her günün dört paragrafla kendi sayfasında kalması,
 bütün kaynak paragrafların PDF'ye eksiksiz geçmesi ve Türkçe karakterler kontrol
 edildi. Telefon kullanılmadı; uygulama veya canlı servis değiştirilmedi.
 

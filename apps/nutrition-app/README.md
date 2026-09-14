@@ -14,6 +14,8 @@ records tests, fixed regressions, device evidence, and remaining limitations.
 
 An app-only Turkish [30-day internship draft](docs/staj_defteri/README.md) provides
 editable Word/PDF documents, a short explanation and a source-evidence map.
+Its detailed first-person daily narrative includes implementation steps, worked
+examples, regression scenarios and learning outcomes in 30 one-page entries.
 Dates, workplace details and individual contributions require confirmation; the
 draft is not an approved attendance record.
 

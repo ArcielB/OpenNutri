@@ -193,7 +193,7 @@ def information_page(doc, info):
     paragraph(doc, "Belgenin kapsamı", size=12, bold=True, after=7)
     paragraph(doc, "Bu defter yalnızca OpenNutri mobil uygulamasını anlatır. Mevcut besin ve yapay zekâ servisleri, uygulamanın kullandığı dış bileşenler olarak ele alınmıştır. Veri kaynağının oluşturulması ve diğer proje çalışmalarına ilişkin geliştirme iddiası içermez.", size=10.5, after=12)
     paragraph(doc, "Teslim öncesi doğrulama", size=12, bold=True, after=7)
-    paragraph(doc, "Gün numaraları, kaynak kod ve teknik kayıtlardan oluşturulmuş önerilen anlatım sırasıdır; çalışma tarihini veya kişisel katkıyı kanıtlamaz. Öğrenci, gerçek günleri ve kendi katkısını doğrulamalı; inceleme, entegrasyon ve geliştirme ayrımını buna göre düzeltmelidir. Teknik metin yapay zekâ desteğiyle taslaklaştırılmıştır. Tarih, kurum, kişisel bilgiler ve imzalar uydurulmamıştır.", size=10.5, after=12)
+    paragraph(doc, "Birinci tekil şahısla yazılan günlükler, öğrenci tarafından doğrulanacak anlatım önerileridir. Yapılan işi açıklayan kod ve testler, o işi öğrencinin yaptığını veya belirtilen sırada çalıştığını tek başına kanıtlamaz. Öğrenci, geliştirme, entegrasyon, test ve inceleme ifadelerini gerçek katkısına göre düzeltmeli; tarihleri doğrulamalıdır. Sayısal örnekler kodu açıklayan kontrollü verilerdir. Metin yapay zekâ desteğiyle hazırlanmış; kurum bilgileri ve imzalar boş bırakılmıştır.", size=10.5, after=12)
     paragraph(doc, "Onay alanı — ilgili yetkili tarafından doldurulur", size=10.5, bold=True, after=12)
     paragraph(doc, "Adı Soyadı / Unvanı: ........................................................................\n\nTarih: ............................       İmza ve Mühür: ............................", size=10, align=WD_ALIGN_PARAGRAPH.LEFT)
 
@@ -221,6 +221,8 @@ def parse_days():
         days.append((int(number), title, body.strip().split("\n\n")))
     if [n for n, _, _ in days] != list(range(1, 31)):
         raise ValueError("Exactly 30 numbered daily entries are required")
+    if any(len(paras) != 4 for _, _, paras in days):
+        raise ValueError("Each detailed daily entry must have four narrative paragraphs")
     return days
 
 
@@ -265,8 +267,12 @@ def validate_pdf(pdf_path, days):
             coords = [float(word.attrib[k]) for k in ("xMin", "yMin", "xMax", "yMax")]
             if coords[0] < 25 or coords[1] < 25 or coords[2] > width - 25 or coords[3] > height - 25:
                 raise ValueError(f"Page {index} text outside printable frame")
+    body_counts = [sum(len(p.split()) for p in ps) for _, _, ps in days]
     return {"pdf_pages": count, "daily_pages": 30,
-            "body_words": sum(len(p.split()) for _, _, ps in days for p in ps),
+            "body_words": sum(body_counts),
+            "daily_body_words_min": min(body_counts),
+            "daily_body_words_max": max(body_counts),
+            "paragraphs_per_day": 4,
             "daily_words_with_frames_and_tables": sum(daily_counts),
             "daily_mean_words": round(mean(daily_counts), 1),
             "one_day_per_page": True, "all_source_paragraphs_present": True,
