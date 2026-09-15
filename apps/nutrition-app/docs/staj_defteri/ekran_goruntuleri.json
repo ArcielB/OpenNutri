@@ -1,0 +1,17 @@
+[
+  {"day": 4, "caption": "Günlük özeti ve öğün bölümleri", "capture": "Today ekranı; tarih, günlük toplam ve örnek öğün listesi birlikte görünsün.", "layout": "portrait"},
+  {"day": 6, "caption": "Besin arama sonuçları", "capture": "Arama kutusuna raw apple gibi bir sorgu yazın; sorgu ve sonuç listesi görünsün.", "layout": "portrait"},
+  {"day": 8, "caption": "Kaydedilen besinin ayrıntıları", "capture": "Günlükteki bir besini açın; ad, miktar, değerler ve kaynak bölümünü gösterin. İlgili alanı kırpabilirsiniz.", "layout": "portrait"},
+  {"day": 9, "caption": "Porsiyon ve gram seçimi", "capture": "Aramadan bir besin seçin; porsiyon penceresinde girilen gram ve hesaplanan değerler görünsün.", "layout": "portrait"},
+  {"day": 12, "caption": "Miktar ve öğün düzenleme", "capture": "Kayıt ayrıntısında Edit açın; miktar alanı, öğün seçimi, Save ve Cancel düğmeleri görünsün.", "layout": "portrait"},
+  {"day": 14, "caption": "Günlük besin ögesi raporu", "capture": "Nutrients sekmesinde okunabilir birkaç besin ögesi satırını ve birimlerini gösterin.", "layout": "portrait"},
+  {"day": 16, "caption": "Sesli kayıt ekranı", "capture": "Log with voice ekranını mikrofon kayıt durumundayken yakalayın; kayıt göstergesi ve kontrol düğmeleri görünsün.", "layout": "portrait"},
+  {"day": 20, "caption": "Sesli kaydın günlüğe eklenmesi", "capture": "Uygulama içinden bir sesli kayıt tamamlayın; Logged automatically, besinler ve Edit batch/Undo alanları görünsün.", "layout": "portrait"},
+  {"day": 23, "caption": "Ana ekrandaki OpenNutri mikrofonu", "capture": "Araç takımını gerçekten ana ekrana ekleyin; OpenNutri mikrofonunu yakın ve okunabilir biçimde yakalayın.", "layout": "portrait"},
+  {"day": 24, "caption": "Diyet şablonları ve seçim", "capture": "Diyet ekranında şablon kartlarını ve seçili diyeti gösterin; mümkünse birkaç farklı seçenek aynı karede olsun.", "layout": "portrait"},
+  {"day": 25, "caption": "Günlük öneri kartı", "capture": "Today veya Coach içindeki günlük öneriyi yakalayın; başlık, öneri metni ve kaynak/model etiketi okunabilsin.", "layout": "portrait"},
+  {"day": 26, "caption": "Koç görüşmesi ve kayıtlı tercih", "capture": "Zararsız bir örnek tercihi koça yazın; yanıt ve kaydedilmiş tercih bildirimi birlikte görünsün. Gerçek hassas bilgi kullanmayın.", "layout": "portrait"},
+  {"day": 27, "caption": "Oracle önerisi ve arama eylemi", "capture": "Oracle yanıtında öneri gerekçesi ve besin aramasını açan eylem görünsün.", "layout": "portrait"},
+  {"day": 28, "caption": "Koç ve geri bildirim tercihleri", "capture": "Settings ekranında koç/geri bildirim kontrollerini veya ilgili bilgilendirmeyi gösterin; kişisel verileri kadraja almayın.", "layout": "portrait"},
+  {"day": 29, "caption": "Statik analiz ve test sonuçları", "capture": "Bilgisayarda flutter analyze --no-pub ve flutter test --no-pub çalıştırın; son başarılı sonuç satırlarını yakalayın. Gerçek çıktıyı kullanın.", "layout": "landscape"}
+]

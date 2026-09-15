@@ -16,6 +16,8 @@ An app-only Turkish [30-day internship draft](docs/staj_defteri/README.md) provi
 editable Word/PDF documents, a short explanation and a source-evidence map.
 Its detailed first-person daily narrative includes implementation steps, worked
 examples, regression scenarios and learning outcomes in 30 one-page entries.
+The 32-page package includes 15 labeled screenshot spaces and a
+[capture/insertion guide](docs/staj_defteri/EKRAN_GORUNTUSU_REHBERI.md).
 Dates, workplace details and individual contributions require confirmation; the
 draft is not an approved attendance record.
 

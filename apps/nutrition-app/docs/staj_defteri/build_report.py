@@ -1,7 +1,8 @@
 """Build the original app-only Turkish internship draft; never copy sample assets.
 
 Requires python-docx, LibreOffice, pdfinfo and pdftotext. Outputs are generated
-from gunlukler.md + bilgiler.json. Source changes must be made there, not in PDF.
+from gunlukler.md + bilgiler.json + ekran_goruntuleri.json. Edit those sources,
+not the generated PDF. Screenshot spaces are editable Word tables, not images.
 Personal fields remain placeholders unless the operator explicitly fills them.
 """
 
@@ -19,7 +20,7 @@ import xml.etree.ElementTree as ET
 
 from docx import Document
 from docx.enum.section import WD_SECTION_START
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -162,7 +163,7 @@ def cover_page(doc, info):
         cell_text(cells[1], value, size=11)
     table_borders(table)
     paragraph(doc, "", after=15)
-    paragraph(doc, "30 günlük içerik taslağı • Tarih ve katkı doğrulaması bekliyor",
+    paragraph(doc, "30 günlük çalışma metni • Düzenlenebilir taslak",
               size=10, align=WD_ALIGN_PARAGRAPH.CENTER, after=10)
     paragraph(doc, "Kurumun resmî kapak ve onay formu varsa bu kapağın yerine kullanılmalıdır.",
               size=9, align=WD_ALIGN_PARAGRAPH.CENTER, after=0)
@@ -191,9 +192,9 @@ def information_page(doc, info):
     table_borders(table)
     paragraph(doc, "", after=9)
     paragraph(doc, "Belgenin kapsamı", size=12, bold=True, after=7)
-    paragraph(doc, "Bu defter yalnızca OpenNutri mobil uygulamasını anlatır. Mevcut besin ve yapay zekâ servisleri, uygulamanın kullandığı dış bileşenler olarak ele alınmıştır. Veri kaynağının oluşturulması ve diğer proje çalışmalarına ilişkin geliştirme iddiası içermez.", size=10.5, after=12)
-    paragraph(doc, "Teslim öncesi doğrulama", size=12, bold=True, after=7)
-    paragraph(doc, "Birinci tekil şahısla yazılan günlükler, öğrenci tarafından doğrulanacak anlatım önerileridir. Yapılan işi açıklayan kod ve testler, o işi öğrencinin yaptığını veya belirtilen sırada çalıştığını tek başına kanıtlamaz. Öğrenci, geliştirme, entegrasyon, test ve inceleme ifadelerini gerçek katkısına göre düzeltmeli; tarihleri doğrulamalıdır. Sayısal örnekler kodu açıklayan kontrollü verilerdir. Metin yapay zekâ desteğiyle hazırlanmış; kurum bilgileri ve imzalar boş bırakılmıştır.", size=10.5, after=12)
+    paragraph(doc, "Bu defter, OpenNutri mobil uygulamasının arayüzlerini, besin günlüğünü, sesli kayıt ve Android araç takımı akışını, kişiselleştirme özelliklerini ve testlerini kapsar. Mevcut besin ve yapay zekâ servisleriyle kurulan mobil entegrasyonlar da çalışma kapsamında açıklanır.", size=10.5, after=12)
+    paragraph(doc, "Düzenleme ve onay", size=12, bold=True, after=7)
+    paragraph(doc, "Teknik kayıtlar temel alınarak yapay zekâ desteğiyle hazırlanan bu taslak, öğrencinin kendi çalışmasına göre gözden geçirmesi için düzenlenmiştir. Gün sırası, tarihler ve birinci tekil şahısla anlatılan katkılar öğrenci tarafından doğrulanarak son hâline getirilir. Sayısal örnekler, hesaplama ve testleri açıklayan kontrollü verilerdir. İşaretli alanlara gerçek ekran görüntüleri eklenir; kurum ve onay bilgileri ilgili kişilerce tamamlanır.", size=10.5, after=12)
     paragraph(doc, "Onay alanı — ilgili yetkili tarafından doldurulur", size=10.5, bold=True, after=12)
     paragraph(doc, "Adı Soyadı / Unvanı: ........................................................................\n\nTarih: ............................       İmza ve Mühür: ............................", size=10, align=WD_ALIGN_PARAGRAPH.LEFT)
 
@@ -221,9 +222,178 @@ def parse_days():
         days.append((int(number), title, body.strip().split("\n\n")))
     if [n for n, _, _ in days] != list(range(1, 31)):
         raise ValueError("Exactly 30 numbered daily entries are required")
-    if any(len(paras) != 4 for _, _, paras in days):
-        raise ValueError("Each detailed daily entry must have four narrative paragraphs")
+    if any(not 3 <= len(paras) <= 5 for _, _, paras in days):
+        raise ValueError("Each daily entry must have three to five narrative paragraphs")
     return days
+
+
+def load_screenshots():
+    items = json.loads((BASE / "ekran_goruntuleri.json").read_text(encoding="utf-8"))
+    if not isinstance(items, list):
+        raise ValueError("Screenshot metadata must be a list")
+    required = {"day", "caption", "capture", "layout"}
+    if any(not isinstance(item, dict) or not required <= item.keys() for item in items):
+        raise ValueError("Every screenshot needs day, caption, capture and layout fields")
+    numbers = [item["day"] for item in items]
+    if any(type(n) is not int or not 1 <= n <= 30 for n in numbers):
+        raise ValueError("Screenshot days must be integers from 1 to 30")
+    if numbers != sorted(set(numbers)):
+        raise ValueError("Screenshot days must be unique, sorted integers from 1 to 30")
+    result = {}
+    for figure, item in enumerate(items, start=1):
+        if item["layout"] not in ("portrait", "landscape"):
+            raise ValueError("Screenshot layout must be portrait or landscape")
+        if any(not isinstance(item[key], str) or not item[key].strip() for key in ("caption", "capture")):
+            raise ValueError("Every screenshot needs a caption and capture instructions")
+        result[item["day"]] = {**item, "figure": figure}
+    return result
+
+
+def screenshot_marker(item):
+    return f"EKRAN GÖRÜNTÜSÜ\nEKLENECEK\n\nŞekil {item['figure']}\n{item['day']:02d}. gün"
+
+
+def screenshot_caption(item):
+    return f"Şekil {item['figure']}. {item['caption']}"
+
+
+def screenshot_placeholder(container, item):
+    portrait = item["layout"] == "portrait"
+    width, height = (4.2, 9.6) if portrait else (17.3, 3.8)
+    table = container.add_table(rows=1, cols=1)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+    table.columns[0].width = Cm(width)
+    table.cell(0, 0).width = Cm(width)
+    table.rows[0].height = Cm(height)
+    table.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    cell_text(table.cell(0, 0), screenshot_marker(item), size=10, center=True)
+    table_borders(table, color="999999")
+    # Word requires a paragraph after a nested table. Reuse it for the caption.
+    if hasattr(container, "_tc"):
+        p = container.paragraphs[-1]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.line_spacing = 1.08
+        p.paragraph_format.space_before = Pt(5)
+        p.paragraph_format.space_after = Pt(0)
+        font(p.add_run(screenshot_caption(item)), 9)
+    else:
+        paragraph(container, screenshot_caption(item), size=9,
+                  align=WD_ALIGN_PARAGRAPH.CENTER, after=0)
+
+
+def daily_narrative(doc, paras, screenshot=None):
+    if screenshot is None or screenshot["layout"] == "landscape":
+        for text in paras:
+            paragraph(doc, text, size=12, after=13)
+        if screenshot:
+            screenshot_placeholder(doc, screenshot)
+        return
+    for text in paras[:2]:
+        paragraph(doc, text, size=12, after=13)
+    table = doc.add_table(rows=1, cols=2)
+    table.autofit = False
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    props = table._tbl.tblPr
+    borders = xml(props, "tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        xml(borders, edge, val="nil")
+    margins = xml(props, "tblCellMar")
+    for edge, value in (("top", 0), ("bottom", 0), ("left", 0), ("right", 90)):
+        xml(margins, edge, w=value, type="dxa")
+    for column, cell, width in zip(table.columns, table.rows[0].cells, (12.4, 4.9)):
+        column.width = Cm(width)
+        cell.width = Cm(width)
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+        p = cell.paragraphs[0]
+        p._element.getparent().remove(p._element)
+    xml(table.rows[0]._tr.get_or_add_trPr(), "cantSplit")
+    for text in paras[2:]:
+        paragraph(table.cell(0, 0), text, size=12, after=13)
+    screenshot_placeholder(table.cell(0, 1), screenshot)
+
+
+def write_capture_guide(screenshots):
+    intro = """# Ekran görüntüsü ekleme rehberi
+
+Defterde **15 numaralı görsel alanı** bulunuyor: 14 dikey telefon görüntüsü ve
+29. günde yatay test çıktısı. Her kutunun altındaki şekil açıklaması hazırdır.
+Görüntüleri aşağıdaki listeye göre siz çekip Word dosyasına ekleyebilirsiniz.
+Bu rehber basılı 32 sayfanın dışındadır.
+
+## Word dosyasına nasıl eklenir?
+
+1. [Word dosyasının](OpenNutri_Staj_Defteri_30_Gun.docx) kişisel bir kopyasını
+   repo dışında kaydedin. Öğrenci bilgileri ve görüntüler için bu kopyayı kullanın.
+2. İlgili günün kutusunun içindeki “EKRAN GÖRÜNTÜSÜ EKLENECEK” yazısını ve
+   kutunun içindeki şekil/gün numarasını seçip silin. Tabloyu veya kutunun
+   **altındaki** “Şekil …” açıklamasını silmeyin.
+3. İmleç kutudayken **Ekle → Resimler** ile dosyayı ekleyin. Metin kaydırmayı
+   **Metinle aynı hizada** yapın; görüntünün en-boy oranını kilitli tutun.
+   Dikey görüntülerde en çok **3,8 cm genişlik ve 8,9 cm yükseklik** kullanın.
+   İki sınırdan hangisine önce ulaşırsanız orada durun; resmi esnetmeyin.
+   29. gündeki yatay test çıktısında en çok **16,7 × 3,3 cm** kullanın.
+4. Şekil açıklamasını kontrol edin. Bir ekrandaki yazılar küçük kalıyorsa yalnız
+   ilgili alanı kırpın; örneğin kaynak bölümü veya düzenleme penceresi.
+   Görünen değerleri/mesajları değiştirmeden okunabilir bir bölüm seçin.
+5. PDF olarak yeniden dışa aktarın. **32 sayfa**, günlük numaraları **01–30**,
+   şekil açıklamaları ve tarih/imza alanları yerinde kalmalı. Gün taşarsa önce
+   görsel boyutunu veya kırpımını düzeltin; ana metni küçültmeyin.
+
+## Çekim listesi
+
+Dosya adları öneridir; görüntüleri otomatik yükleyen bir işlem yoktur.
+Telefon görüntülerini mümkünse aynı cihaz ve tema ile çekin. Bildirimleri,
+kişisel mesajları ve gereksiz ekran alanlarını kadraj dışında tutun. Gerçek
+kullanımınızdan paylaşılabilir içerik veya açıkça örnek olarak hazırladığınız
+zararsız içerik kullanın. Sayısal test örnekleriyle aynı besin değerlerini
+yakalamanız gerekmez; bunlar kontrollü test verileridir.
+
+| Şekil | Gün / PDF sayfası | Önerilen dosya | Gösterilecek alan |
+| --- | --- | --- | --- |
+"""
+    rows = []
+    for item in screenshots.values():
+        day, figure = item["day"], item["figure"]
+        rows.append(f"| {figure} | {day:02d} / {day + 2} | `sekil_{figure:02d}_gun_{day:02d}.png` | "
+                    f"**{item['caption']}:** {item['capture']} |")
+    closing = """
+
+## Çekim sırasında dikkat edilecekler
+
+- Araç takımı için uygulamadaki ekleme isteğinin ardından Android'in **Add/Ekle**
+  onayını tamamlayın. 9. şekil, gerçekten ana ekrana yerleşmiş mikrofonu göstermeli.
+- Sesli kaydın sonuç görüntüsünü **uygulama içinden** alın. Araç takımından
+  başlatılan akış kaydetme sonrasında ana ekrana döner.
+- Düzenleme penceresini gösterirken klavyeyi kapatmak Amount, Meal, Save ve Cancel
+  alanlarını aynı kareye sığdırmayı kolaylaştırır. Android'in ilk geri hareketi
+  klavyeyi kapatır; pencereyi kapatırsanız yeniden açın.
+- Koç, günlük öneri ve Oracle için yanıtın tamamlanmasını bekleyin. Şekil açıklaması
+  ile gerçek içerik uyumlu olmalı. Kaynak/model etiketi varsa görüntüde koruyun.
+- 29. gün için terminalde uygulama klasöründen aşağıdaki komutları çalıştırın;
+  gerçek sonuçların son satırlarını yatay kırpın. Kullanıcı adı/dosya yolu gibi
+  gereksiz kişisel kısımları dışarıda bırakabilirsiniz. Test sayısı sonradan
+  değişirse 29. günün metnini de yeni sonuçla eşleştirin.
+
+```bash
+flutter analyze --no-pub
+flutter test --no-pub --reporter expanded
+```
+
+## Son kontrol
+
+15 kutunun yer tutucu yazıları resimlerle değiştirilmiş, şekil açıklamaları
+korunmuş ve kişisel/tarih alanları tamamlanmış olmalı. Uygulama sürümü veya ekran
+adları değiştiyse ilgili günlük anlatımını da kontrol edin.
+
+`build_report.py` yeniden çalıştırılırsa ana Word/PDF çıktıları ve bu rehber
+yeniden üretilir; Word'e elle eklenen resimler kaynaklara geri aktarılmaz.
+Resimli son kopyayı ayrı saklayın ve PDF'sini o kopyadan üretin. Otomatik
+`validation.json` kontrolü kaynaklardan üretilen yer tutuculu sürüme aittir;
+elle resim eklenen son kopyayı ayrıca gözden geçirin.
+"""
+    (BASE / "EKRAN_GORUNTUSU_REHBERI.md").write_text(
+        intro + "\n".join(rows) + closing, encoding="utf-8")
 
 
 def validate_info(info):
@@ -239,22 +409,33 @@ def validate_info(info):
                 raise ValueError(f"{field} must match the confirmed daily date range")
 
 
-def validate_pdf(pdf_path, days):
+def validate_pdf(pdf_path, days, screenshots):
     metadata = subprocess.check_output(["pdfinfo", str(pdf_path)], text=True)
     count = int(re.search(r"^Pages:\s+(\d+)", metadata, re.MULTILINE)[1])
     raw = subprocess.check_output(["pdftotext", "-layout", str(pdf_path), "-"], text=True)
     pages = [p for p in raw.split("\f") if p.strip()]
-    if count != 32 or len(pages) != 32:
+    reading_order = subprocess.check_output(["pdftotext", "-raw", str(pdf_path), "-"], text=True)
+    reading_pages = [p for p in reading_order.split("\f") if p.strip()]
+    if count != 32 or len(pages) != 32 or len(reading_pages) != 32:
         raise ValueError(f"Expected cover + information + 30 pages, got {count}/{len(pages)}")
     daily_counts = []
-    for (number, title, paras), page in zip(days, pages[2:]):
+    for (number, title, paras), page, ordered in zip(days, pages[2:], reading_pages[2:]):
         normalized = " ".join(page.split())
+        normalized_ordered = " ".join(ordered.split())
         required = [f"Sayfa No: {number:02d}", title, "Çalışılan Tarih", "İmza ve Mühür"]
         if not all(text in normalized for text in required):
             raise ValueError(f"Day {number} missing title or frame")
         for para in paras:
-            if " ".join(para.split()) not in normalized:
+            if not any(" ".join(para.split()) in text for text in (normalized, normalized_ordered)):
                 raise ValueError(f"Day {number} text missing, split across pages, or corrupted")
+        item = screenshots.get(number)
+        marker_count = normalized.count("EKRAN GÖRÜNTÜSÜ")
+        if marker_count != int(item is not None):
+            raise ValueError(f"Day {number} has missing or unexpected screenshot spaces")
+        if item:
+            caption = screenshot_caption(item)
+            if not any(caption in text for text in (normalized, normalized_ordered)):
+                raise ValueError(f"Day {number} missing screenshot caption")
         if "\ufffd" in page:
             raise ValueError(f"Day {number} has replacement characters")
         daily_counts.append(len(normalized.split()))
@@ -268,12 +449,18 @@ def validate_pdf(pdf_path, days):
             if coords[0] < 25 or coords[1] < 25 or coords[2] > width - 25 or coords[3] > height - 25:
                 raise ValueError(f"Page {index} text outside printable frame")
     body_counts = [sum(len(p.split()) for p in ps) for _, _, ps in days]
+    placeholder_words = sum(len(screenshot_marker(item).split()) + len(screenshot_caption(item).split())
+                            for item in screenshots.values())
     return {"pdf_pages": count, "daily_pages": 30,
             "body_words": sum(body_counts),
             "daily_body_words_min": min(body_counts),
             "daily_body_words_max": max(body_counts),
-            "paragraphs_per_day": 4,
-            "daily_words_with_frames_and_tables": sum(daily_counts),
+            "paragraphs_per_day": [len(paras) for _, _, paras in days],
+            "screenshot_placeholders": len(screenshots),
+            "screenshot_days": list(screenshots),
+            "all_figures_on_correct_daily_page": True,
+            "daily_words_with_frames_tables_and_placeholders": sum(daily_counts),
+            "daily_words_without_screenshot_placeholders": sum(daily_counts) - placeholder_words,
             "daily_mean_words": round(mean(daily_counts), 1),
             "one_day_per_page": True, "all_source_paragraphs_present": True,
             "all_text_inside_printable_frame": True}
@@ -286,6 +473,7 @@ def main():
     info = json.loads((BASE / "bilgiler.json").read_text(encoding="utf-8"))
     validate_info(info)
     days = parse_days()
+    screenshots = load_screenshots()
     doc = Document()
     style = doc.styles["Normal"]
     style.font.name = FONT
@@ -303,8 +491,7 @@ def main():
         daily_frame(section, info, number)
         title_p = paragraph(doc, title, size=12.5, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, after=16)
         title_p.paragraph_format.keep_with_next = True
-        for text in paras:
-            paragraph(doc, text, size=12, after=13)
+        daily_narrative(doc, paras, screenshots.get(number))
         if number == 3:
             technical_table(doc, "Tablo 1. Mobil uygulamadaki sorumluluk ayrımı", [
                 ("Modeller", "Besin, günlük kaydı, hedef ve profil bilgileri"),
@@ -323,7 +510,8 @@ def main():
         subprocess.run(["libreoffice", f"-env:UserInstallation={Path(profile).as_uri()}",
                         "--headless", "--convert-to", "pdf", "--outdir", str(BASE),
                         str(docx_path)], check=True, timeout=120)
-    report = validate_pdf(BASE / f"{STEM}.pdf", days)
+    report = validate_pdf(BASE / f"{STEM}.pdf", days, screenshots)
+    write_capture_guide(screenshots)
     (BASE / "validation.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False))
 

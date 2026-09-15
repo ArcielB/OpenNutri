@@ -104,6 +104,22 @@ This is the current high-signal project state after the reviewer workflow moved 
   first-person statements as proposed wording requiring individual verification.
   Do not treat those statements as new contribution or attendance evidence.
   Clean analysis/44 Flutter tests were repeated; app/runtime scope is unchanged.
+- Journal polish 2026-09-15 supersedes the preceding draft's word counts/layout:
+  6,404 body words, 195–233/day, 3–5 paragraphs; 32 pages and 12-point narrative
+  retained. The daily-page total is 7,219 excluding screenshot labels, 7,415 with
+  them. Added 15 editable native Word screenshot spaces (14 portrait, one test
+  output landscape), JSON figure metadata and a generated capture/insertion guide.
+  Figures remain placeholders until the user captures real screens. Source/PDF
+  regression checks enforce full paragraphs, correct figure days, pagination and
+  font size. Day 12 now distinguishes immediate optimistic edits from queued disk
+  writes and conditional rollback; day 24 spells out energy-share multiplication
+  before gram conversion. Kept Büşra-style repeated daily openings, varied the
+  formerly repetitive conclusions, and removed journal-production asides from
+  the daily narrative. Historical tests/device evidence remain in the evidence
+  map; attribution/date confirmation remains in the concise printed information
+  note. No app behavior, deployments, device actions or BACKLOG scope changed.
+  Keep personally filled/illustrated final copies outside Git: regeneration
+  overwrites the named exports and does not import manual Word image insertions.
 - The Flutter diary stores source-backed nutrient snapshots locally, with edible
   and entered weights separate. Exact food-linked usable factors are required for
   as-purchased conversion. Daily energy is selected per food before aggregation,

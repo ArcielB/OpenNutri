@@ -273,7 +273,8 @@ Pipeline data outputs:
   [validation and limitations audit](docs/consumer_app_audit_2026-09-05.md).
   The app-only [Turkish internship draft](apps/nutrition-app/docs/staj_defteri/README.md)
   includes 30 detailed first-person daily pages, worked technical/test examples,
-  Word/PDF exports and a technical evidence map. Personal details, dates and
+  Word/PDF exports, 15 screenshot placeholders with a capture guide, and a
+  technical evidence map. Personal details, dates and
   first-person attribution require confirmation; it remains a review draft.
 - `benchmarks/voice-v0.1.0/`: 240 versioned English/Turkish text and deterministic
   audio cases, manifest/audio validation, and threshold scoring for retrieval,

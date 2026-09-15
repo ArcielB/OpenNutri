@@ -2,8 +2,9 @@
 
 Start with [KISA_OZET.md](KISA_OZET.md). This is an original Turkish, app-only
 30-day draft, not a completed attendance record or an approved institutional form.
-The detailed revision follows the PDF example's first-person daily-learning style:
+The detailed revision follows Büşra's first-person daily-learning style:
 the task, implementation steps, a concrete example or check, and the lesson learned.
+Her frequent “Bugün” openings are retained; conclusions and paragraph lengths vary.
 First-person contribution statements are proposed wording for student review, not
 verified authorship. No undocumented meetings, mentors or workplace events were added.
 The two user-supplied examples remain unmodified and are not included in Git.
@@ -12,15 +13,18 @@ The two user-supplied examples remain unmodified and are not included in Git.
 
 - [Editable Word](OpenNutri_Staj_Defteri_30_Gun.docx)
 - [Printable PDF](OpenNutri_Staj_Defteri_30_Gun.pdf): 2 front pages + 30 daily pages.
-- [Daily source text](gunlukler.md): 6,620 body words, 203–242 per entry, four paragraphs each.
+- [Daily source text](gunlukler.md): 6,404 body words, 195–233 per entry, 3–5 paragraphs each.
 - [Personal information](bilgiler.json): deliberately unfilled.
+- [Screenshot guide](EKRAN_GORUNTUSU_REHBERI.md): 15 captures, placement and sizing instructions.
+- [Screenshot source](ekran_goruntuleri.json): day, caption, capture instructions and orientation.
 - [Evidence map](KANIT_HARITASI.md): app paths and verification boundaries.
 - [Rendering checks](validation.json): generated from the actual PDF.
 
 The 30-day PDF example contains 5,667 daily-page words including its repeated
-frames; this detailed draft has 7,435 with frames and the two technical tables
-(about 31% more, still 30 daily pages). Main narrative grew about 32% from the first
-5,009-word draft, without reducing its 12-point font or changing page dimensions.
+frames; this draft has 7,219 excluding screenshot labels, or 7,415 including them.
+Excluding screenshot labels, that is about 27% more than the example, still in
+30 daily pages. Main narrative is about 28% longer than the initial 5,009-word
+draft, without reducing its 12-point font or changing page dimensions.
 The other example has 40 daily entries, approximately 3,811 XML-extracted
 words including duplicated text-box labels, and renders to 43 PDF pages in
 LibreOffice. Its rendered text count is 3,685. Counts depend on extraction and
@@ -29,6 +33,9 @@ include labels, so neither count measures student effort.
 The layout follows the examples' A4 frame, workplace/page header, daily title,
 paragraphs and date/approver/signature footer. It uses original text and native
 Word tables, not copied logos, signatures, personal details or invented screenshots.
+There are 14 portrait screenshot spaces alongside the narrative and one landscape
+space for test output. Figure captions are already present. The student supplies
+real screenshots; their exact capture list is generated from the JSON source.
 Institution, student, workplace, approver and dates require confirmation. No
 automatic weekday schedule is generated. If real dates are supplied, exactly 30
 unique chronological entries and matching start/end values are required; formal
@@ -39,6 +46,10 @@ Concrete additions include 350 ms search debounce and stale-response tokens;
 the 52 + 80 = 132 kcal mixed-source regression; serialized save rollback;
 audio thresholds and the detector-test/runtime distinction; native Intent
 consumption; cached-advice invalidation; and offscreen Future error handling.
+Day 12 distinguishes immediate in-memory edit updates from queued disk persistence,
+the success notification and conditional rollback. Day 24 spells out multiplying
+calorie targets by macro energy shares before dividing by 4/4/9. Historical audit
+dates remain in the evidence map rather than the proposed daily timeline.
 Examples describe actual implementation or controlled fixtures, not user data,
 newly measured performance, or proof of the student's individual work.
 
@@ -56,9 +67,20 @@ python3 apps/nutrition-app/docs/staj_defteri/build_report.py
 
 Run the last command from the repository root; the script locates its own inputs.
 It uses a separate temporary LibreOffice profile so it does not control an open
-personal office session. It overwrites only its named DOCX, PDF and validation
-outputs. Edit `gunlukler.md` and `bilgiler.json` for durable changes. A manual edit
-to the generated Word file will be overwritten on the next build.
+personal office session. It overwrites only its named DOCX, PDF, validation JSON
+and generated screenshot guide. Edit `gunlukler.md`, `bilgiler.json` and
+`ekran_goruntuleri.json` for durable changes. A manual edit or image insertion in
+the generated Word file will be overwritten on the next build: keep the filled,
+illustrated final copy separately and export its final PDF from Word/LibreOffice.
+
+The renderer validates 32 pages, complete paragraphs in either layout or raw
+reading order (needed for two-column pages), all 15 figures on their intended day,
+and printable text bounds. The validation JSON describes the generated placeholder
+edition, not a later manually illustrated copy. Run source/layout regression checks:
+
+```bash
+python3 -m unittest discover -s apps/nutrition-app/docs/staj_defteri -p 'test_*.py' -v
+```
 
 The draft deliberately labels the day allocation and individual attribution as
 unverified, including its first-person wording. Confirm both before submission.
@@ -71,3 +93,6 @@ Application/backend source, installed APK and deployments are unchanged by this
 documentation task. App analysis and all 44 Flutter tests passed again on
 2026-09-14; the backend and physical phone were not retested. The product backlog
 was reviewed and remains unchanged because no product scope was completed or added.
+The 2026-09-15 document revision passed all 10 journal regression tests; rendered
+samples cover the front matter, technical table, edited-save explanation, voice,
+diet, coach, settings, landscape test placeholder and final handoff page.

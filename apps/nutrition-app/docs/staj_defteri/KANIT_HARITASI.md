@@ -6,7 +6,8 @@ işi hangi gün, kaç saatte veya tek başına yaptığını göstermez.
 
 Detaylı revizyonda Büşra örneğine yaklaşmak için birinci tekil şahıs kullanıldı.
 Bu cümleler doğrulanmış kişisel beyan değil, öğrenciye sunulan anlatım taslağıdır.
-Basılı bilgi sayfası da bu ayrımı açıklar. Gerçek görev paylaşımına göre anlatım
+Basılı bilgi sayfası tarihlerin ve katkıların öğrenci tarafından doğrulanmasını
+ister. Gerçek görev paylaşımına göre anlatım
 geliştirme, entegrasyon, test veya inceleme olarak düzeltilmelidir.
 
 Temel kapsam: `apps/nutrition-app/`. Aşağıdaki `lib/`, `test/` ve `android/` yolları
@@ -27,7 +28,7 @@ olarak anlatılmıştır; bunları öğrencinin yazdığı varsayılmamıştır.
 | 09 | `lib/models/diary.dart`, `lib/models/food.dart`, `test/diary_test.dart` | Satın alınan ağırlık yalnızca tam besin bağlantılı kullanılabilir katsayıyla çevrilir. |
 | 10 | `lib/services/local_store.dart`, `test/diary_test.dart` | SharedPreferences JSON; bulut eşitleme/geri yükleme yok. |
 | 11 | `lib/state/app_controller.dart`, `test/controller_batch_test.dart` | İyimser görünüm, sıralı yazma ve aynı işlemi tekrar saymama. |
-| 12 | `lib/widgets/entry_detail_sheet.dart`, `lib/screens/voice_log_screen.dart`, `test/entry_detail_test.dart` | İptal eski kaydı silmez; ekran kapanışı yaşam döngüsüyle uyumludur. |
+| 12 | `lib/state/app_controller.dart`, `lib/widgets/entry_detail_sheet.dart`, `lib/screens/voice_log_screen.dart`, `test/entry_detail_test.dart` | Açma/iptal kaydı değiştirmez; kaydetmede bellek hemen güncellenir, disk yazması sıralıdır; hata geri dönüşü güncellik koşuluna bağlıdır. |
 | 13 | `lib/models/diary.dart`, `test/diary_test.dart`, `test/app_regression_test.dart` | Enerji, besin başına seçildikten sonra toplanır. |
 | 14 | `lib/screens/nutrients_screen.dart`, `lib/services/coach_service.dart` | Eksik mikronutrient bağlamı sıfır tüketim/eksiklik tanısı değildir. |
 | 15 | `lib/screens/settings_screen.dart`, `lib/state/app_controller.dart`, `test/app_regression_test.dart` | Form senkronizasyonu ilgisiz kullanıcı girdisini ezmemelidir. |
@@ -60,12 +61,32 @@ olarak anlatılmıştır; bunları öğrencinin yazdığı varsayılmamıştır.
 | 18 | 1 MB, 10 s belirteç, 30 s tüm ses yanıtı; bunlar uçtan uca toplam değildir | `VoiceApiClient._accessToken`, `_resolveVoice` |
 | 19–20 | Önce seçilen kimlikler, `Future.wait`, requestId + conceptIndex | `VoiceLogScreen._prepareReview`, `_logAll`, `_ReviewItem` |
 | 22–23 | Intent eylemi temizlenir, bekleyen işaret bir kez tüketilir, Toast ve görev kapanışı saklama sonrasındadır | `MainActivity`, `VoiceLogWidgetProvider`, `test/voice_log_test.dart` ve native Intent testleri |
-| 24 | Dengeli şablonda 2.000 kcal → P125/C225/F66,7; uygun hedefte P150/C200 | `DietPreset.targetsForCalories`; açıklayıcı hesap, bireysel enerji ihtiyacı ölçümü değildir |
+| 24 | Kalori × makro enerji payı ÷ 4/4/9; dengeli 2.000 kcal → P125/C225/F66,7; uygun hedefte P150/C200 | `DietPreset.targetsForCalories`; açıklayıcı hesap, bireysel enerji ihtiyacı ölçümü değildir |
 | 25–26 | Tarih ve revizyon kontrolü; altı görüşme mesajı, en fazla 30 kayıtlı tercih | `HomeShell._refreshDailyCoach`, `CoachScreen._conversation`, `AppController.addCoachMemories` |
 | 28 | Görünür alan dışındaki FutureBuilder kurulmadan hata dönebilir; özgün Future korunarak `request.ignore()` çağrılır | `SettingsScreen._checkCoreHealth`, `test/widget_setup_test.dart` içindeki offscreen health testi |
 
 Bu ayrıntılar mevcut kod/testlerden çıkarıldı. Belgelenmemiş toplantı, hata ayıklama
 oturumu, mentör yönlendirmesi, iş saati veya kişisel cihaz deneyimi eklenmedi.
+
+## 15 Eylül anlatım ve görsel düzeni düzeltmesi
+
+12. gün, iyimser arayüz güncellemesini disk yazmasının başarıyla bitmesinden
+ayıracak biçimde düzeltildi. `updateEntries`, `_persistEntries` üzerinden listeyi
+hemen değiştirir ve dinleyicilere haber verir; `_entryWriteTail` disk yazmalarını
+sıralar. Başarısız yazmada `identical(_entries, entries)` koşulu sağlanıyorsa
+`_persistedEntries` geri alınır. Başarı bildirimi kalıcı yazma sonrasındadır.
+
+Defter hazırlama süreciyle ilgili kurulum notları ve sabit denetim tarihleri
+günlük anlatısından çıkarıldı; tarihli kanıtlar aşağıda korunuyor. Günlüklerin
+kapsamı veya test sonuçları genişletilmedi. Büşra'nın sık kullandığı “Bugün”
+başlangıçları korunurken sürekli aynı bitiş cümlesi çeşitlendirildi.
+
+15 numaralı ekran görüntüsü alanı `ekran_goruntuleri.json` dosyasından üretiliyor.
+Bunlar henüz görsel kanıt değildir; kullanıcı gerçek ekranları çekip ekleyecek.
+[Çekim rehberi](EKRAN_GORUNTUSU_REHBERI.md) her şeklin içeriğini ve yerini verir.
+DOCX/PDF kontrolü 32 sayfa, eksiksiz paragraf aktarımı, doğru gündeki şekiller ve
+basılabilir alan denetimini kapsar; Word ana anlatımının 12 punto kalması da
+regresyon testiyle kontrol edilir.
 
 ## Kaynak ve doğrulama ayrımı
 

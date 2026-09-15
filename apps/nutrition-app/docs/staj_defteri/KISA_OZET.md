@@ -1,108 +1,101 @@
 # Defteri okumadan bilmeniz gerekenler
 
-## Ne hazırlandı?
+## Hazır olan dosyalar
 
-Türkçe **30 günlük, her gün bir sayfalık** staj defteri taslağı hazırlandı.
-Kapak ve bilgi sayfasıyla toplam **32 sayfa** oldu. Düzenlenebilir Word dosyası
-ve aynı içeriğin PDF çıktısı birlikte bulunuyor:
+Türkçe **30 günlük, her gün bir sayfalık** çalışma metni hazırlandı. Kapak ve
+bilgi sayfasıyla toplam **32 sayfa**. Ana anlatım **12 punto**, 6.404 kelime;
+günler 195–233 kelime ve 3–5 paragraf uzunluğunda.
 
-- [Word dosyası](OpenNutri_Staj_Defteri_30_Gun.docx)
-- [PDF dosyası](OpenNutri_Staj_Defteri_30_Gun.pdf)
+- [Düzenlenebilir Word](OpenNutri_Staj_Defteri_30_Gun.docx)
+- [Aynı içeriğin PDF'si](OpenNutri_Staj_Defteri_30_Gun.pdf)
+- [15 ekran görüntüsü için çekim ve ekleme rehberi](EKRAN_GORUNTUSU_REHBERI.md)
 
 Başlık: **OpenNutri — Sesli Besin Kaydı ve Beslenme Takibi Mobil Uygulaması**.
-Bitirme projesi olarak çerçevelenmedi. Özel konuşmalar, siyasi görüşler, bilimsel
-makale toplama sistemi ve etiketleme paneli anlatıya eklenmedi.
+Yalnızca mobil uygulama ve kullandığı servislerle entegrasyon anlatılıyor.
+Bitirme projesi çerçevesi, araştırma/etiketleme işleri ve özel konuşmalar eklenmedi.
 
-## İçinde ne anlatılıyor?
+## İçerik sırası
 
 | Günler | Ana konu |
 | --- | --- |
 | 1–5 | İhtiyaçlar, Flutter/Dart, mimari, ekranlar ve veri modelleri |
-| 6–10 | Besin arama, asenkron yanıtlar, kaynak ayrıntısı, miktar hesabı ve yerel saklama |
-| 11–15 | Hızlı kayıt, geri alma, güvenli düzenleme, günlük toplamlar, besin raporu ve hedefler |
-| 16–21 | Mikrofon, WAV dosyası, sessizlikte durdurma, API bağlantısı, besin eşleştirme ve hata yönetimi |
-| 22–24 | Android araç takımı, ana ekrana ekleme, kayıttan sonra kapanış ve beslenme şablonları |
-| 25–28 | Günlük öneri, yazılı/sesli koç, kayıtlı tercihler, Oracle ve kullanıcı izinleri |
-| 29–30 | Otomatik testler, Android paketi ve teslim değerlendirmesi |
+| 6–10 | Besin arama, geciken yanıtlar, kaynak ayrıntısı, miktar hesabı ve yerel saklama |
+| 11–15 | Hızlı kayıt, geri alma, güvenli düzenleme, toplamlar, besin raporu ve hedefler |
+| 16–21 | Mikrofon, WAV, sessizlikte durdurma, API, besin eşleştirme ve hata yönetimi |
+| 22–24 | Android araç takımı, ana ekrana ekleme, kayıt sonrası dönüş ve diyet şablonları |
+| 25–28 | Günlük öneri, yazılı/sesli koç, kayıtlı tercihler, Oracle ve izinler |
+| 29–30 | Otomatik testler, Android paketi ve genel değerlendirme |
 
-Her gün dört paragraftan oluşuyor. Büşra'nın örneğindeki gibi birinci tekil şahısla,
-günün işi, uygulama adımları, karşılaşılan teknik sorun veya kontrol ve öğrenilen
-konu anlatılıyor. Teknik terimler kullanıldıkları yerde açıklanıyor. İki sayfada
-küçük tablolar var. Sahte ekran görüntüsü, kurum logosu, imza, mühür veya toplantı
-anlatısı kullanılmadı.
+Her gün, yapılan işin yanında nasıl uygulandığını, örnek hesabı veya testi ve
+öğrenilen noktayı anlatıyor. Kod adları kullanılıyor ama işlevleri de açıklanıyor.
+İki küçük teknik tablo ve ilgili günlerde toplam 15 ekran görüntüsü alanı var.
 
-## İlk taslaktan ne değişti?
+## Son düzeltmede ne değişti?
 
-Genel “incelendi / değerlendirildi” cümleleri yerine kodla karşılaştırılabilen
-ayrıntılar eklendi. Örneğin:
+- **Düzenleme açıklaması düzeltildi:** pencereyi açmak veya iptal etmek eski kaydı
+  değiştirmiyor. Kaydetme başlatılınca bellek/arayüz hemen güncelleniyor; disk
+  yazması sırayla yapılıyor. Başarı bildirimi bundan sonra veriliyor. Başarısız
+  yazma, o değişiklik hâlâ güncelse son saklanan duruma dönüyor.
+- **Makro hesabı netleştirildi:** toplam kalori önce protein/karbonhidrat/yağ
+  enerji paylarıyla çarpılıyor, ardından 4/4/9'a bölünerek gram bulunuyor.
+- “Bu belge hazırlanırken telefon kurulmadı” gibi defter yazım süreciyle ilgili
+  notlar günlüklerden çıkarıldı. Teknik çalışma ve kazanımlar öne alındı.
+  Gerçek test/denetim tarihleri ayrı kanıt haritasında korundu.
+- Büşra gibi “Bugün” ile başlayan kişisel anlatım korundu. Onun örneğinde
+  30 günün 27'si “Bugün/Bugünkü” ile başlıyor; buna karşılık “Gün sonunda”
+  yalnız bir kez geçiyor. Bizdeki 23 aynı sonuç kalıbı doğal, konuya özgü
+  bitişlerle değiştirildi; paragraf sayıları da gerektiği yerde çeşitlendirildi.
+- 14 dikey telefon görüntüsü ve bir yatay test çıktısı için numaralı, açıklamalı
+  kutular eklendi. Gerçek görüntüleri siz yerleştireceksiniz.
 
-- Aramada 350 ms bekleme ve geç gelen yanıtı geçersiz sayan istek numarası.
-- Testte 182 gram için 94,64 kcal; 500 gram satın alınan ağırlıktan 335 gram yenilebilir kısma geçiş.
-- İki farklı enerji alanı kullanan kayıtta doğru toplamın neden 132 kcal olduğu.
-- Başarısız miktar değişikliğinde son saklanan kayda dönüş ve iptalde verinin korunması.
-- Mikrofon eşikleri, Android–Flutter haberleşmesi ve kaydetmeden kapanmama testi.
-- Öneri önbelleğinin diskten de silinmesi ve görünmeyen ayar satırındaki Future hatası.
+Detaylar korunuyor: 350 ms arama beklemesi, geç gelen yanıtın elenmesi,
+182 g için 94,64 kcal, 500 g satın alınan ağırlıktan 335 g yenilebilir kısım,
+karma kaynakta 132 kcal toplam, sıralı saklama, mikrofon eşikleri, Android–Flutter
+iletişimi ve önbellek kontrolleri. Sayısal örnekler kontrollü test verileridir.
 
-Amaç yalnızca daha uzun yazmak değil, okuyanın “hangi parça, nasıl, neden, nasıl
-kontrol edildi?” sorularına aynı sayfada cevap bulmasıdır. Bu örnekler kontrollü
-teknik verilerdir; gerçek kullanıcı öğünleri veya kişiye özel diyet önerisi değildir.
+## Büşra ve diğer örnekle karşılaştırma
 
-## Örneklerle ne kadar benziyor?
+Büşra'nın defteri de iki ön sayfa ve 30 günlük sayfayla **32 sayfa**.
+Günlük sayfaları başlık/altlık dahil yaklaşık **5.667 kelime**. Bizde görüntü
+yer tutucularının yazıları hariç aynı tür toplam **7.219 kelime**: yaklaşık
+**%27 daha fazla**. Yer tutucu yazıları dahil toplam 7.415 kelime.
+İlk taslağın 5.009 kelimelik gövdesinden yaklaşık %28 daha ayrıntılı.
 
-Büşra'nın PDF'si 30 günlük içerik ve iki ön sayfayla **32 sayfa**. Başlık/alt bilgi
-dahil günlük sayfalarda toplam yaklaşık **5.667 kelime** var. Hazırlanan defterin
-yalnızca günlük gövde metni **6.620 kelime**, aynı şekilde başlık ve alt bilgilerle
-**7.435 kelime**. İlk taslağın gövdesine göre yaklaşık **%32**, Büşra'nın günlük
-sayfalarının toplamına göre yaklaşık **%31** daha fazla metin var. Buna rağmen
-sayfa sayısı yine **32**, günlük yazı büyüklüğü yine **12 punto**. İçerik daha dolu;
-küçük yazıyla sıkıştırılmadı.
+Sayfa çerçevesi, kurum/sayfa başlığı, günlük konu başlığı ve tarih/onay/imza
+altlığı örneklere benziyor. Diğer Word örneği 40 günlük ve daha kısa anlatımlı;
+LibreOffice'te 43 sayfaya yayılıyor. Metinleri, kişisel bilgileri veya imzaları
+kopyalanmadı. Kelime sayıları çalışma süresini ölçmek için değil, belge
+yoğunluğunu karşılaştırmak içindir.
 
-Word örneği 40 günlük, daha kısa anlatımlı bir dosya. LibreOffice ile kontrol
-çıktısında 43 sayfaya yayılıyor. Bu örnekten günlük konu başlığını; PDF örneğinden
-30 gün, sayfa çerçevesi, kurum başlığı ve tarih/onay altlığı düzenini aldık.
-Son revizyonda Büşra'nın kişisel günlük ve öğrenme anlatımına daha fazla yaklaşıldı.
-Örneklerin kişisel bilgileri ve metinleri kopyalanmadı.
+## Sizin tamamlayacağınız işler
 
-## Neleri henüz doldurmak gerekiyor?
+1. Üniversite/fakülte/bölüm, öğrenci adı-numarası, kurum-adres, sorumlu kişi-unvanı
+   ve gerçek tarihleri doldurun. İmza ve mühür ilgili yetkiliye bırakıldı.
+2. Gün sırasını ve “yaptım/geliştirdim” anlatımını öğrencinin gerçek katkısıyla
+   eşleştirin. Yalnız incelenen veya entegre edilen bölüm buna göre anlatılmalı.
+   Bilgi sayfasında taslak ve yapay zekâ desteği açıklaması bulunuyor.
+3. [Çekim rehberine](EKRAN_GORUNTUSU_REHBERI.md) göre 15 görüntüyü ekleyin.
+   Rehber her şeklin gününü, PDF sayfasını, ekranını ve resim boyutunu veriyor.
+4. Son Word kopyasından PDF üretip 32 sayfanın ve tarih/imza alanlarının
+   korunduğunu kontrol edin. Resimli, kişisel bilgili kopyayı repo dışında saklayın.
 
-Üniversite/fakülte/bölüm, öğrenci adı ve numarası, kurum/adres, sorumlu kişi/unvanı,
-başlangıç-bitiş ve günlük tarihler köşeli parantezli yer tutucular olarak bırakıldı.
-İmza ve mühür alanları boş. Kurumun resmî formu varsa ilk iki sayfa onunla
-değiştirilebilir; 30 günlük metin kullanılmaya devam edebilir.
+Bilgilerin kaynak dosyası [bilgiler.json](bilgiler.json), metnin kaynağı
+[gunlukler.md](gunlukler.md). Word'ü elle düzenlemek mümkün; fakat üretim
+betiğini yeniden çalıştırmak ana Word/PDF dosyasındaki elle yapılan değişiklikleri
+ezer. Resimli son kopyayı ayrı kaydetmek bu yüzden önemli.
 
-**Gün sırası önerilen bir anlatım sırasıdır.** Gerçek çalışma günlerine ve öğrencinin
-katkısına göre eşleştirilmelidir. **Birinci tekil şahıs cümleleri de öğrenci tarafından
-onaylanacak öneri metnidir; kişisel katkı kanıtı değildir.** Başka birinin hazırladığı bölümü öğrenci yalnızca
-incelediyse veya uygulamaya bağladıysa, kendi yazmış gibi değiştirilmemelidir.
-Takım çalışması ve yapay zekâ desteği açısından kurumun bildirim beklentisi de
-kontrol edilmelidir. Mevcut teknik özellikler belgelenebilir; kişinin devam süresi
-ve görev dağılımı yalnızca koddan belirlenemez.
+## Teknik doğruluk için bilinmesi gerekenler
 
-Bilgileri tek yerden doldurmak için [bilgiler.json](bilgiler.json) dosyası var.
-Elle Word düzenlemek de mümkün; ancak yeniden üretim elle yapılan değişiklikleri
-ezer. Kalıcı metin değişiklikleri [gunlukler.md](gunlukler.md) üzerinden yapılmalıdır.
+Oracle, günlük ve hedeflere göre besin fikirleri sunup Core aramasına bağlanır.
+Araç takımı görünür kayıt ekranını açar ve saklama tamamlanınca ana ekrana döner.
+Günlük ve tercihler telefonda tutulur. Bu özellikler sunumda da bu şekilde
+anlatılmalı; matematiksel optimum, garantili arka plan kuyruğu veya bulut
+eşitleme olarak tanıtılmamalı.
 
-## Sunumda söylenecek en kısa doğru açıklama
+14 Eylül 2026 doğrulamasında temiz statik analiz ve **44 başarılı Flutter testi**
+kaydedildi. Son belge revizyonunda sayfa sayısı, bütün kaynak paragrafları,
+günlük sırası, 15 şeklin doğru sayfada olması, 12 punto ana anlatım ve basılabilir
+alan sınırları kontrol edildi. Belge üretimi için ayrıca regresyon testleri var.
 
-“OpenNutri, besinleri arayarak veya sesle günlüğe eklemeyi sağlayan Android
-uygulamasıdır. Besin değerlerini mevcut kaynak servisinden alır, kayıtları telefonda
-tutar ve miktara göre günlük toplamları hesaplar. Kullanıcı kayıtları düzeltebilir;
-isterse hedeflerine göre yapay zekâ önerileri alabilir. Ana ekran mikrofon araç
-takımı kayıt ekranına kısa yoldan ulaşmayı sağlar.”
-
-Bilmeniz gereken üç sınır:
-
-- Oracle öneri sunar; kesin olarak en iyi beslenmeyi hesaplayan bir optimizasyon sistemi değildir.
-- Araç takımı kaydetme bitene kadar görünür ekranı kullanır; kapatınca işi garantiyle sürdüren arka plan kuyruğu yoktur.
-- Günlük telefonda tutulur; kullanıcıya açık bulut eşitleme veya yedekleme özelliği henüz yoktur.
-
-## Ne kontrol edildi?
-
-14 Eylül 2026'da uygulamanın statik analizi temiz çıktı ve **44 Flutter testi geçti**.
-Detaylı revizyon sırasında analiz ve 44 test tekrar başarılı oldu.
-Word/PDF üretiminde 32 sayfa, 01–30 sıralaması, her günün dört paragrafla kendi sayfasında kalması,
-bütün kaynak paragrafların PDF'ye eksiksiz geçmesi ve Türkçe karakterler kontrol
-edildi. Telefon kullanılmadı; uygulama veya canlı servis değiştirilmedi.
-
-Teknik dayanakların günlere göre listesi [KANIT_HARITASI.md](KANIT_HARITASI.md)
-dosyasında. Bu liste defterin basılı 32 sayfasına dahil değildir.
+Günlere göre kod/test dayanakları [KANIT_HARITASI.md](KANIT_HARITASI.md) içinde.
+Kanıt haritası ve bu özet, basılacak 32 sayfanın dışında tutuluyor.
